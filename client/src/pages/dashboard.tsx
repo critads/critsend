@@ -279,7 +279,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg font-semibold">Reports</CardTitle>
               <Link href="/analytics">
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" data-testid="link-view-all-reports">
                   View All
                   <ArrowRight className="h-4 w-4 ml-1" />
                 </Button>
@@ -362,7 +362,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-muted-foreground mb-2">No campaigns yet</p>
                 <Link href="/campaigns/new">
-                  <Button variant="link" className="text-primary">
+                  <Button variant="link" className="text-primary" data-testid="link-create-first-campaign">
                     Create your first campaign
                   </Button>
                 </Link>
@@ -425,7 +425,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-muted-foreground mb-2">No imports yet</p>
                 <Link href="/import">
-                  <Button variant="link" className="text-primary">
+                  <Button variant="link" className="text-primary" data-testid="link-import-first-subscribers">
                     Import your first subscribers
                   </Button>
                 </Link>

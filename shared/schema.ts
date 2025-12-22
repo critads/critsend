@@ -12,7 +12,8 @@ export const subscribers = pgTable("subscribers", {
   importDate: timestamp("import_date").notNull().defaultNow(),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
-  tagsIdx: index("tags_idx").on(table.tags),
+  // GIN index for faster array containment queries on tags
+  tagsGinIdx: index("tags_gin_idx").using("gin", table.tags),
 }));
 
 export const subscribersRelations = relations(subscribers, ({ many }) => ({
