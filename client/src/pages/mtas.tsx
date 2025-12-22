@@ -137,10 +137,10 @@ export default function MTAs() {
   };
 
   const handleSubmit = () => {
-    if (!formData.name?.trim() || !formData.hostname?.trim() || !formData.username?.trim() || !formData.password?.trim()) {
+    if (!formData.name?.trim()) {
       toast({
         title: "Validation Error",
-        description: "Please fill in all required fields.",
+        description: "Please provide a server name.",
         variant: "destructive",
       });
       return;
@@ -167,11 +167,11 @@ export default function MTAs() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="mta-hostname">Hostname *</Label>
+          <Label htmlFor="mta-hostname">Hostname</Label>
           <Input
             id="mta-hostname"
             placeholder="smtp.example.com"
-            value={formData.hostname}
+            value={formData.hostname ?? ""}
             onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
             className="font-mono text-sm"
             data-testid="input-mta-hostname"
@@ -189,24 +189,24 @@ export default function MTAs() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="mta-username">Username *</Label>
+          <Label htmlFor="mta-username">SMTP User</Label>
           <Input
             id="mta-username"
             placeholder="smtp_user"
-            value={formData.username}
+            value={formData.username ?? ""}
             onChange={(e) => setFormData({ ...formData, username: e.target.value })}
             className="font-mono text-sm"
             data-testid="input-mta-username"
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="mta-password">Password *</Label>
+          <Label htmlFor="mta-password">Password</Label>
           <div className="relative">
             <Input
               id="mta-password"
               type={showPassword ? "text" : "password"}
               placeholder="••••••••"
-              value={formData.password}
+              value={formData.password ?? ""}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               className="pr-10 font-mono text-sm"
               data-testid="input-mta-password"
@@ -227,7 +227,7 @@ export default function MTAs() {
           <Input
             id="mta-tracking-domain"
             placeholder="track.example.com"
-            value={formData.trackingDomain}
+            value={formData.trackingDomain ?? ""}
             onChange={(e) => setFormData({ ...formData, trackingDomain: e.target.value })}
             className="font-mono text-sm"
             data-testid="input-mta-tracking-domain"
@@ -238,7 +238,7 @@ export default function MTAs() {
           <Input
             id="mta-open-tracking"
             placeholder="open.example.com"
-            value={formData.openTrackingDomain}
+            value={formData.openTrackingDomain ?? ""}
             onChange={(e) => setFormData({ ...formData, openTrackingDomain: e.target.value })}
             className="font-mono text-sm"
             data-testid="input-mta-open-tracking"

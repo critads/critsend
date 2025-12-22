@@ -32,10 +32,10 @@ export const segments = pgTable("segments", {
 export const mtas = pgTable("mtas", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  hostname: text("hostname").notNull(),
+  hostname: text("hostname"),
   port: integer("port").notNull().default(587),
-  username: text("username").notNull(),
-  password: text("password").notNull(),
+  username: text("username"),
+  password: text("password"),
   trackingDomain: text("tracking_domain"),
   openTrackingDomain: text("open_tracking_domain"),
   isActive: boolean("is_active").notNull().default(true),
