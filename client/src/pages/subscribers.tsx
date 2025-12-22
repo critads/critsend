@@ -57,6 +57,10 @@ export default function Subscribers() {
   const [editingSubscriber, setEditingSubscriber] = useState<Subscriber | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Subscriber | null>(null);
   const [newTag, setNewTag] = useState("");
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [newSubscriberEmail, setNewSubscriberEmail] = useState("");
+  const [newSubscriberTags, setNewSubscriberTags] = useState<string[]>([]);
+  const [newSubscriberTag, setNewSubscriberTag] = useState("");
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<SubscribersResponse>({
@@ -112,6 +116,49 @@ export default function Subscribers() {
     },
   });
 
+  const createSubscriberMutation = useMutation({
+    mutationFn: (data: { email: string; tags: string[] }) =>
+      apiRequest("POST", "/api/subscribers", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
+      setShowAddDialog(false);
+      setNewSubscriberEmail("");
+      setNewSubscriberTags([]);
+      toast({
+        title: "Subscriber added",
+        description: "The subscriber has been added to your list.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message.includes("409") 
+          ? "This email already exists in your list." 
+          : "Failed to add subscriber. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAddNewSubscriberTag = () => {
+    if (newSubscriberTag.trim()) {
+      setNewSubscriberTags([...newSubscriberTags, newSubscriberTag.trim().toUpperCase()]);
+      setNewSubscriberTag("");
+    }
+  };
+
+  const handleRemoveNewSubscriberTag = (tagToRemove: string) => {
+    setNewSubscriberTags(newSubscriberTags.filter((t) => t !== tagToRemove));
+  };
+
+  const handleCreateSubscriber = () => {
+    if (!newSubscriberEmail.trim()) return;
+    createSubscriberMutation.mutate({
+      email: newSubscriberEmail.trim().toLowerCase(),
+      tags: newSubscriberTags,
+    });
+  };
+
   const handleAddTag = () => {
     if (editingSubscriber && newTag.trim()) {
       const updatedTags = [...(editingSubscriber.tags || []), newTag.trim().toUpperCase()];
@@ -145,6 +192,10 @@ export default function Subscribers() {
             Manage your email list with {data?.total?.toLocaleString() || 0} subscribers
           </p>
         </div>
+        <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-subscriber">
+          <Plus className="h-4 w-4 mr-2" />
+          Add Subscriber
+        </Button>
       </div>
 
       <Card>
@@ -386,6 +437,77 @@ export default function Subscribers() {
               data-testid="button-confirm-delete"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5" />
+              Add Subscriber
+            </DialogTitle>
+            <DialogDescription>
+              Add a new subscriber to your email list manually.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Email Address</label>
+              <Input
+                type="email"
+                placeholder="subscriber@example.com"
+                value={newSubscriberEmail}
+                onChange={(e) => setNewSubscriberEmail(e.target.value)}
+                data-testid="input-new-subscriber-email"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tags (optional)</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {newSubscriberTags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="gap-1 pr-1">
+                    {tag}
+                    <button
+                      onClick={() => handleRemoveNewSubscriberTag(tag)}
+                      className="ml-1 rounded-full p-0.5 hover:bg-background/20"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add tag..."
+                  value={newSubscriberTag}
+                  onChange={(e) => setNewSubscriberTag(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddNewSubscriberTag())}
+                  data-testid="input-new-subscriber-tag"
+                />
+                <Button 
+                  type="button"
+                  onClick={handleAddNewSubscriberTag} 
+                  size="icon"
+                  data-testid="button-add-new-subscriber-tag"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateSubscriber}
+              disabled={!newSubscriberEmail.trim() || createSubscriberMutation.isPending}
+              data-testid="button-create-subscriber"
+            >
+              {createSubscriberMutation.isPending ? "Adding..." : "Add Subscriber"}
             </Button>
           </DialogFooter>
         </DialogContent>
