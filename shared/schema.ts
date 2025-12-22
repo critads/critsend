@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -116,6 +116,30 @@ export const campaignStatsRelations = relations(campaignStats, ({ one }) => ({
   }),
 }));
 
+// Campaign sends - tracks which subscribers received which campaigns to prevent duplicates
+export const campaignSends = pgTable("campaign_sends", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
+  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  status: text("status").notNull().default("sent"), // sent, failed, bounced
+}, (table) => ({
+  // UNIQUE constraint ensures no email is sent twice per campaign per subscriber
+  uniqueSend: uniqueIndex("campaign_sends_unique_idx").on(table.campaignId, table.subscriberId),
+  campaignIdx: index("campaign_sends_campaign_idx").on(table.campaignId),
+}));
+
+export const campaignSendsRelations = relations(campaignSends, ({ one }) => ({
+  campaign: one(campaigns, {
+    fields: [campaignSends.campaignId],
+    references: [campaigns.id],
+  }),
+  subscriber: one(subscribers, {
+    fields: [campaignSends.subscriberId],
+    references: [subscribers.id],
+  }),
+}));
+
 // Import jobs
 export const importJobs = pgTable("import_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -182,6 +206,8 @@ export type Campaign = typeof campaigns.$inferSelect;
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
 
 export type CampaignStat = typeof campaignStats.$inferSelect;
+
+export type CampaignSend = typeof campaignSends.$inferSelect;
 
 export type ImportJob = typeof importJobs.$inferSelect;
 export type InsertImportJob = z.infer<typeof insertImportJobSchema>;

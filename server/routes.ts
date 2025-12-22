@@ -777,6 +777,16 @@ async function processCampaign(campaignId: string) {
         }
       }
       
+      // Record send BEFORE sending to prevent duplicates (atomic operation)
+      // This uses a unique constraint - returns false if already sent
+      const canSend = await storage.recordCampaignSend(campaignId, subscriber.id, "pending");
+      
+      if (!canSend) {
+        // Email was already sent to this subscriber for this campaign - skip
+        console.log(`Skipping duplicate send to ${subscriber.email} for campaign ${campaignId}`);
+        continue;
+      }
+      
       // Simulate sending with rate limiting
       // In production: Actually send email via SMTP using campaign.mtaId
       try {

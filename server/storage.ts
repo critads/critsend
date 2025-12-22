@@ -5,6 +5,7 @@ import {
   emailHeaders,
   campaigns,
   campaignStats,
+  campaignSends,
   importJobs,
   dashboardCache,
   type Subscriber,
@@ -18,6 +19,7 @@ import {
   type Campaign,
   type InsertCampaign,
   type CampaignStat,
+  type CampaignSend,
   type ImportJob,
   type InsertImportJob,
   type SegmentRule,
@@ -68,6 +70,11 @@ export interface IStorage {
   // Campaign Stats
   addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string): Promise<void>;
   getCampaignStats(campaignId: string): Promise<CampaignStat[]>;
+  
+  // Campaign Sends - for preventing duplicate emails
+  recordCampaignSend(campaignId: string, subscriberId: string, status?: string): Promise<boolean>;
+  wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean>;
+  getCampaignSendCount(campaignId: string): Promise<number>;
   
   // Import Jobs
   getImportJobs(): Promise<ImportJob[]>;
@@ -360,6 +367,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCampaign(id: string): Promise<void> {
     await db.delete(campaignStats).where(eq(campaignStats.campaignId, id));
+    await db.delete(campaignSends).where(eq(campaignSends.campaignId, id));
     await db.delete(campaigns).where(eq(campaigns.id, id));
   }
 
@@ -387,6 +395,42 @@ export class DatabaseStorage implements IStorage {
 
   async getCampaignStats(campaignId: string): Promise<CampaignStat[]> {
     return db.select().from(campaignStats).where(eq(campaignStats.campaignId, campaignId)).orderBy(desc(campaignStats.timestamp));
+  }
+
+  // Campaign Sends - prevents duplicate emails per campaign
+  async recordCampaignSend(campaignId: string, subscriberId: string, status: string = "sent"): Promise<boolean> {
+    try {
+      // This will fail if the unique constraint is violated (email already sent)
+      await db.insert(campaignSends).values({
+        campaignId,
+        subscriberId,
+        status,
+      });
+      return true;
+    } catch (error: any) {
+      // Unique constraint violation - email was already sent
+      if (error.code === "23505") {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean> {
+    const [result] = await db.select({ count: sql<number>`count(*)` })
+      .from(campaignSends)
+      .where(and(
+        eq(campaignSends.campaignId, campaignId),
+        eq(campaignSends.subscriberId, subscriberId)
+      ));
+    return Number(result.count) > 0;
+  }
+
+  async getCampaignSendCount(campaignId: string): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` })
+      .from(campaignSends)
+      .where(eq(campaignSends.campaignId, campaignId));
+    return Number(result.count);
   }
 
   // Import Jobs
