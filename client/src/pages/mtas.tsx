@@ -153,7 +153,7 @@ export default function MTAs() {
     }
   };
 
-  const MtaForm = () => (
+  const mtaFormContent = (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2 sm:col-span-2">
@@ -283,7 +283,7 @@ export default function MTAs() {
                 Configure a new SMTP server for sending campaigns
               </DialogDescription>
             </DialogHeader>
-            <MtaForm />
+            {mtaFormContent}
             <DialogFooter>
               <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>
                 Cancel
@@ -401,7 +401,7 @@ export default function MTAs() {
               Update the configuration for this SMTP server
             </DialogDescription>
           </DialogHeader>
-          <MtaForm />
+          {mtaFormContent}
           <DialogFooter>
             <Button variant="outline" onClick={() => { setEditingMta(null); resetForm(); }}>
               Cancel
