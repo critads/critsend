@@ -9,14 +9,25 @@ import {
   Mail,
   MousePointer2,
   Eye,
-  TrendingUp,
-  TrendingDown,
   Plus,
   ArrowRight,
   Clock,
   CheckCircle2,
   AlertCircle,
+  Send,
+  UserPlus,
+  TrendingUp,
+  BarChart3,
 } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
 interface DashboardStats {
   totalSubscribers: number;
@@ -39,56 +50,76 @@ interface DashboardStats {
   }>;
 }
 
+const mockChartData = [
+  { name: "Jan", opens: 400, clicks: 240 },
+  { name: "Feb", opens: 300, clicks: 139 },
+  { name: "Mar", opens: 520, clicks: 280 },
+  { name: "Apr", opens: 470, clicks: 308 },
+  { name: "May", opens: 540, clicks: 280 },
+  { name: "Jun", opens: 680, clicks: 420 },
+  { name: "Jul", opens: 720, clicks: 380 },
+];
+
 function StatCard({
   title,
   value,
   icon: Icon,
-  trend,
-  trendLabel,
+  color,
   isLoading,
 }: {
   title: string;
   value: number | string;
   icon: React.ComponentType<{ className?: string }>;
-  trend?: "up" | "down";
-  trendLabel?: string;
+  color: "blue" | "green" | "purple" | "orange";
   isLoading: boolean;
 }) {
+  const colorClasses = {
+    blue: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+    green: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    purple: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+    orange: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  };
+
+  const iconBg = {
+    blue: "bg-cyan-500",
+    green: "bg-emerald-500",
+    purple: "bg-violet-500",
+    orange: "bg-amber-500",
+  };
+
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <Skeleton className="h-8 w-24" />
-        ) : (
-          <>
-            <div className="text-2xl font-bold" data-testid={`stat-${title.toLowerCase().replace(/\s/g, '-')}`}>
-              {typeof value === "number" ? value.toLocaleString() : value}
-            </div>
-            {trend && trendLabel && (
-              <div className="flex items-center gap-1 mt-1">
-                {trend === "up" ? (
-                  <TrendingUp className="h-3 w-3 text-green-600" />
-                ) : (
-                  <TrendingDown className="h-3 w-3 text-red-600" />
-                )}
-                <span className={`text-xs ${trend === "up" ? "text-green-600" : "text-red-600"}`}>
-                  {trendLabel}
-                </span>
-              </div>
+    <Card className="overflow-visible shadow-sm hover:shadow-md transition-shadow">
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {title}
+            </span>
+            {isLoading ? (
+              <Skeleton className="h-9 w-20" />
+            ) : (
+              <span
+                className="text-3xl font-bold tracking-tight"
+                data-testid={`stat-${title.toLowerCase().replace(/\s/g, "-")}`}
+              >
+                {typeof value === "number" ? value.toLocaleString() : value}
+              </span>
             )}
-          </>
-        )}
+          </div>
+          <div className={`p-3 rounded-xl ${iconBg[color]} shadow-lg`}>
+            <Icon className="w-6 h-6 text-white" />
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
 function CampaignStatusBadge({ status }: { status: string }) {
-  const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode }> = {
+  const variants: Record<
+    string,
+    { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode }
+  > = {
     draft: { variant: "secondary", icon: <Clock className="h-3 w-3" /> },
     scheduled: { variant: "outline", icon: <Clock className="h-3 w-3" /> },
     sending: { variant: "default", icon: <Mail className="h-3 w-3" /> },
@@ -117,58 +148,179 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">Welcome to Critsend - your email marketing command center</p>
+          <p className="text-muted-foreground mt-1">
+            Email Marketing Software To Engage With Your Audience
+          </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-3 flex-wrap">
           <Link href="/campaigns/new">
-            <Button data-testid="button-new-campaign">
+            <Button className="shadow-lg shadow-primary/20" data-testid="button-new-campaign">
               <Plus className="h-4 w-4 mr-2" />
               New Campaign
             </Button>
           </Link>
           <Link href="/import">
             <Button variant="outline" data-testid="button-import">
-              Import Subscribers
+              <UserPlus className="h-4 w-4 mr-2" />
+              Import
             </Button>
           </Link>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title="Total Subscribers"
           value={stats?.totalSubscribers ?? 0}
           icon={Users}
-          trend="up"
-          trendLabel="+12% this month"
+          color="blue"
           isLoading={isLoading}
         />
         <StatCard
           title="Campaigns Sent"
           value={stats?.totalCampaigns ?? 0}
-          icon={Mail}
+          icon={Send}
+          color="green"
           isLoading={isLoading}
         />
         <StatCard
           title="Total Opens"
           value={stats?.totalOpens ?? 0}
           icon={Eye}
-          trend="up"
-          trendLabel="23.5% open rate"
+          color="purple"
           isLoading={isLoading}
         />
         <StatCard
           title="Total Clicks"
           value={stats?.totalClicks ?? 0}
           icon={MousePointer2}
-          trend="up"
-          trendLabel="4.2% click rate"
+          color="orange"
           isLoading={isLoading}
         />
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" />
+              <CardTitle className="text-lg font-semibold">Email Analytics</CardTitle>
+            </div>
+            <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-cyan-500" />
+                <span className="text-muted-foreground">Opens</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-violet-500" />
+                <span className="text-muted-foreground">Clicks</span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <div className="h-[280px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={mockChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorOpens" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="colorClicks" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                    }}
+                    labelStyle={{ color: "hsl(var(--foreground))" }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="opens"
+                    stroke="#06b6d4"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorOpens)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="clicks"
+                    stroke="#8b5cf6"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorClicks)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg font-semibold">Reports</CardTitle>
+              <Link href="/analytics">
+                <Button variant="ghost" size="sm">
+                  View All
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Sent Emails</span>
+                <span className="font-semibold">{stats?.totalCampaigns ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Opened</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{stats?.totalOpens ?? 0}</span>
+                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Clicked</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{stats?.totalClicks ?? 0}</span>
+                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Subscribers</span>
+                <span className="font-semibold">{stats?.totalSubscribers ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-muted-foreground">Unsubscribed</span>
+                <span className="font-semibold text-muted-foreground">0</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
+        <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="text-lg font-semibold">Recent Campaigns</CardTitle>
             <Link href="/campaigns">
@@ -186,17 +338,17 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : stats?.recentCampaigns && stats.recentCampaigns.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {stats.recentCampaigns.map((campaign) => (
                   <div
                     key={campaign.id}
-                    className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                    className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
                     data-testid={`campaign-item-${campaign.id}`}
                   >
                     <div className="flex flex-col gap-1">
                       <span className="font-medium">{campaign.name}</span>
                       <span className="text-sm text-muted-foreground">
-                        {campaign.sentCount.toLocaleString()} sent
+                        {campaign.sentCount.toLocaleString()} emails sent
                       </span>
                     </div>
                     <CampaignStatusBadge status={campaign.status} />
@@ -204,11 +356,13 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Mail className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <p className="text-muted-foreground">No campaigns yet</p>
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="p-4 rounded-full bg-muted/50 mb-4">
+                  <Mail className="h-8 w-8 text-muted-foreground/50" />
+                </div>
+                <p className="text-muted-foreground mb-2">No campaigns yet</p>
                 <Link href="/campaigns/new">
-                  <Button variant="link" className="mt-2">
+                  <Button variant="link" className="text-primary">
                     Create your first campaign
                   </Button>
                 </Link>
@@ -217,7 +371,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="text-lg font-semibold">Recent Imports</CardTitle>
             <Link href="/import">
@@ -235,11 +389,11 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : stats?.recentImports && stats.recentImports.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {stats.recentImports.map((job) => (
                   <div
                     key={job.id}
-                    className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                    className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
                     data-testid={`import-item-${job.id}`}
                   >
                     <div className="flex flex-col gap-1">
@@ -265,11 +419,13 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Users className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <p className="text-muted-foreground">No imports yet</p>
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="p-4 rounded-full bg-muted/50 mb-4">
+                  <Users className="h-8 w-8 text-muted-foreground/50" />
+                </div>
+                <p className="text-muted-foreground mb-2">No imports yet</p>
                 <Link href="/import">
-                  <Button variant="link" className="mt-2">
+                  <Button variant="link" className="text-primary">
                     Import your first subscribers
                   </Button>
                 </Link>
