@@ -82,7 +82,44 @@ export default function CampaignNew() {
   const [showPreview, setShowPreview] = useState(true);
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
+  const [assetSessionId, setAssetSessionId] = useState<string | null>(null);
+  const [processingImages, setProcessingImages] = useState(false);
   const { toast } = useToast();
+
+  const processHtmlImages = async (html: string): Promise<string> => {
+    try {
+      let sessionId = assetSessionId;
+      if (!sessionId) {
+        const sessionRes = await apiRequest("POST", "/api/campaign-assets/session");
+        const sessionData = await sessionRes.json();
+        sessionId = sessionData.sessionId;
+        setAssetSessionId(sessionId);
+      }
+      
+      setProcessingImages(true);
+      const res = await apiRequest("POST", `/api/campaigns/${sessionId}/process-html`, { html });
+      const data = await res.json();
+      
+      if (data.downloaded > 0) {
+        toast({
+          title: "Images processed",
+          description: `Downloaded ${data.downloaded} image(s) to local storage.${data.failed > 0 ? ` ${data.failed} failed.` : ""}`,
+        });
+      }
+      
+      return data.html;
+    } catch (error) {
+      console.error("Error processing HTML images:", error);
+      toast({
+        title: "Image processing failed",
+        description: "Could not download images. Using original HTML.",
+        variant: "destructive",
+      });
+      return html;
+    } finally {
+      setProcessingImages(false);
+    }
+  };
 
   const formatParisTime = (date: Date | null): string => {
     if (!date) return "";
@@ -122,9 +159,10 @@ export default function CampaignNew() {
     const file = e.dataTransfer.files[0];
     if (file && (file.type === "text/html" || file.name.endsWith(".html") || file.name.endsWith(".htm"))) {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         const content = event.target?.result as string;
-        updateField("htmlContent", content);
+        const processedHtml = await processHtmlImages(content);
+        updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };
       reader.readAsText(file);
@@ -141,9 +179,10 @@ export default function CampaignNew() {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         const content = event.target?.result as string;
-        updateField("htmlContent", content);
+        const processedHtml = await processHtmlImages(content);
+        updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };
       reader.readAsText(file);

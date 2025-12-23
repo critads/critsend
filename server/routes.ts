@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import multer from "multer";
@@ -102,7 +102,7 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   // Serve static images from /images folder
-  app.use("/images", require("express").static(IMAGES_DIR));
+  app.use("/images", express.static(IMAGES_DIR));
   
   // Start the background job processor for campaign processing
   startJobProcessor();
