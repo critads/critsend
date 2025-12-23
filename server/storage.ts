@@ -9,6 +9,7 @@ import {
   importJobs,
   dashboardCache,
   campaignJobs,
+  importJobQueue,
   type Subscriber,
   type InsertSubscriber,
   type Segment,
@@ -26,6 +27,8 @@ import {
   type SegmentRule,
   type CampaignJob,
   type CampaignJobStatus,
+  type ImportJobQueueItem,
+  type ImportJobQueueStatus,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
@@ -114,6 +117,13 @@ export interface IStorage {
   getJobStatus(campaignId: string): Promise<CampaignJobStatus | null>;
   getActiveJobs(): Promise<CampaignJob[]>;
   cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
+  
+  // Import Job Queue (PostgreSQL-backed)
+  enqueueImportJob(importJobId: string, csvContent: string): Promise<ImportJobQueueItem>;
+  claimNextImportJob(workerId: string): Promise<ImportJobQueueItem | null>;
+  completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
+  getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
+  cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
   
   // Dashboard
   getDashboardStats(): Promise<{
@@ -720,6 +730,91 @@ export class DatabaseStorage implements IStorage {
   async cleanupStaleJobs(maxAgeMinutes: number = 30): Promise<number> {
     const result = await db.execute(sql`
       UPDATE campaign_jobs
+      SET status = 'failed',
+          completed_at = NOW(),
+          error_message = 'Job timed out - worker may have crashed'
+      WHERE status = 'processing'
+        AND started_at < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes}
+      RETURNING id
+    `);
+    return result.rows.length;
+  }
+
+  // Import Job Queue (PostgreSQL-backed)
+  async enqueueImportJob(importJobId: string, csvContent: string): Promise<ImportJobQueueItem> {
+    const [job] = await db.insert(importJobQueue).values({
+      importJobId,
+      csvContent,
+      status: "pending",
+    }).returning();
+    return job;
+  }
+
+  async claimNextImportJob(workerId: string): Promise<ImportJobQueueItem | null> {
+    const result = await db.execute(sql`
+      UPDATE import_job_queue
+      SET status = 'processing',
+          started_at = NOW(),
+          worker_id = ${workerId}
+      WHERE id = (
+        SELECT id FROM import_job_queue
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      RETURNING *
+    `);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+    
+    const row = result.rows[0] as any;
+    return {
+      id: row.id,
+      importJobId: row.import_job_id,
+      csvContent: row.csv_content,
+      status: row.status,
+      createdAt: new Date(row.created_at),
+      startedAt: row.started_at ? new Date(row.started_at) : null,
+      completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      workerId: row.worker_id,
+      errorMessage: row.error_message,
+    };
+  }
+
+  async completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void> {
+    await db.update(importJobQueue)
+      .set({
+        status,
+        completedAt: new Date(),
+        errorMessage: errorMessage || null,
+      })
+      .where(eq(importJobQueue.id, jobId));
+  }
+
+  async getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null> {
+    const [result] = await db.select({ status: importJobQueue.status })
+      .from(importJobQueue)
+      .where(
+        and(
+          eq(importJobQueue.importJobId, importJobId),
+          or(
+            eq(importJobQueue.status, "pending"),
+            eq(importJobQueue.status, "processing")
+          )
+        )
+      )
+      .orderBy(desc(importJobQueue.createdAt))
+      .limit(1);
+    
+    return result ? (result.status as ImportJobQueueStatus) : null;
+  }
+
+  async cleanupStaleImportJobs(maxAgeMinutes: number = 30): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE import_job_queue
       SET status = 'failed',
           completed_at = NOW(),
           error_message = 'Job timed out - worker may have crashed'

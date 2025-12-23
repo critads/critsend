@@ -194,6 +194,30 @@ export const campaignJobsRelations = relations(campaignJobs, ({ one }) => ({
   }),
 }));
 
+// Import job queue table - PostgreSQL-backed job queue for CSV import processing
+export const importJobQueue = pgTable("import_job_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  importJobId: varchar("import_job_id").notNull().references(() => importJobs.id),
+  csvContent: text("csv_content").notNull(),
+  status: text("status").notNull().default("pending"), // pending, processing, completed, failed
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  workerId: text("worker_id"),
+  errorMessage: text("error_message"),
+}, (table) => ({
+  importJobIdx: index("import_job_queue_import_job_idx").on(table.importJobId),
+  statusIdx: index("import_job_queue_status_idx").on(table.status),
+  createdAtIdx: index("import_job_queue_created_at_idx").on(table.createdAt),
+}));
+
+export const importJobQueueRelations = relations(importJobQueue, ({ one }) => ({
+  importJob: one(importJobs, {
+    fields: [importJobQueue.importJobId],
+    references: [importJobs.id],
+  }),
+}));
+
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true });
 export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true, createdAt: true });
@@ -245,6 +269,9 @@ export type InsertImportJob = z.infer<typeof insertImportJobSchema>;
 
 export type CampaignJob = typeof campaignJobs.$inferSelect;
 export type CampaignJobStatus = "pending" | "processing" | "completed" | "failed";
+
+export type ImportJobQueueItem = typeof importJobQueue.$inferSelect;
+export type ImportJobQueueStatus = "pending" | "processing" | "completed" | "failed";
 
 // Segment rule types
 export const segmentRuleSchema = z.object({

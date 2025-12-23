@@ -11,6 +11,7 @@ import {
   insertCampaignSchema,
 } from "@shared/schema";
 import { z } from "zod";
+import { sendEmail, verifyTransporter, closeTransporter } from "./email-service";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -412,15 +413,17 @@ export async function registerRoutes(
         return res.status(400).json({ error: "CSV file is empty or invalid" });
       }
 
-      // Create import job
+      // Create import job record
       const job = await storage.createImportJob({
         filename: req.file.originalname,
         totalRows: lines.length - 1, // Exclude header
       });
 
-      // Process in background
-      processImport(job.id, lines).catch(console.error);
+      // Enqueue for background processing (stores CSV content in queue table)
+      await storage.enqueueImportJob(job.id, content);
+      console.log(`Import job ${job.id} added to PostgreSQL queue`);
 
+      // Return immediately with job ID for progress tracking
       res.status(202).json(job);
     } catch (error) {
       console.error("Error starting import:", error);
@@ -435,6 +438,36 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching import jobs:", error);
       res.status(500).json({ error: "Failed to fetch import jobs" });
+    }
+  });
+
+  app.get("/api/import/:id/progress", async (req: Request, res: Response) => {
+    try {
+      const job = await storage.getImportJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: "Import job not found" });
+      }
+      
+      const queueStatus = await storage.getImportJobQueueStatus(job.id);
+      
+      res.json({
+        id: job.id,
+        filename: job.filename,
+        status: job.status,
+        queueStatus: queueStatus,
+        totalRows: job.totalRows,
+        processedRows: job.processedRows,
+        newSubscribers: job.newSubscribers,
+        updatedSubscribers: job.updatedSubscribers,
+        failedRows: job.failedRows,
+        progress: job.totalRows > 0 ? Math.round((job.processedRows / job.totalRows) * 100) : 0,
+        errorMessage: job.errorMessage,
+        createdAt: job.createdAt,
+        completedAt: job.completedAt,
+      });
+    } catch (error) {
+      console.error("Error fetching import progress:", error);
+      res.status(500).json({ error: "Failed to fetch import progress" });
     }
   });
 
@@ -628,87 +661,6 @@ export async function registerRoutes(
   return httpServer;
 }
 
-// Background process for importing CSV
-async function processImport(jobId: string, lines: string[]) {
-  const BATCH_SIZE = 20000;
-  const header = lines[0].split(",").map(h => h.trim().toLowerCase());
-  const emailIdx = header.indexOf("email");
-  const tagsIdx = header.indexOf("tags");
-  const ipIdx = header.indexOf("ip_address");
-  
-  if (emailIdx === -1) {
-    await storage.updateImportJob(jobId, {
-      status: "failed",
-      errorMessage: "CSV must have an 'email' column",
-    });
-    return;
-  }
-  
-  await storage.updateImportJob(jobId, { status: "processing" });
-  
-  let processedRows = 0;
-  let newSubscribers = 0;
-  let updatedSubscribers = 0;
-  let failedRows = 0;
-  
-  // Process in batches
-  for (let i = 1; i < lines.length; i += BATCH_SIZE) {
-    const batch = lines.slice(i, Math.min(i + BATCH_SIZE, lines.length));
-    
-    for (const line of batch) {
-      try {
-        const cols = line.split(",").map(c => c.trim());
-        const email = cols[emailIdx];
-        
-        if (!email || !email.includes("@")) {
-          failedRows++;
-          processedRows++;
-          continue;
-        }
-        
-        const tags = tagsIdx >= 0 && cols[tagsIdx]
-          ? cols[tagsIdx].replace(/"/g, "").split(";").map(t => t.trim().toUpperCase()).filter(Boolean)
-          : [];
-        const ipAddress = ipIdx >= 0 ? cols[ipIdx] : undefined;
-        
-        const existing = await storage.getSubscriberByEmail(email);
-        
-        if (existing) {
-          // Merge tags
-          const mergedTags = [...new Set([...(existing.tags || []), ...tags])];
-          await storage.updateSubscriber(existing.id, { tags: mergedTags });
-          updatedSubscribers++;
-        } else {
-          await storage.createSubscriber({ email, tags, ipAddress });
-          newSubscribers++;
-        }
-        processedRows++;
-      } catch (error) {
-        console.error("Error processing row:", error);
-        failedRows++;
-        processedRows++;
-      }
-    }
-    
-    // Update job progress
-    await storage.updateImportJob(jobId, {
-      processedRows,
-      newSubscribers,
-      updatedSubscribers,
-      failedRows,
-    });
-  }
-  
-  await storage.updateImportJob(jobId, {
-    status: "completed",
-    completedAt: new Date(),
-    processedRows,
-    newSubscribers,
-    updatedSubscribers,
-    failedRows,
-  });
-}
-
 // Sending speed configurations (emails per minute)
 const SPEED_CONFIG: Record<string, number> = {
   slow: 500,
@@ -723,6 +675,7 @@ const SPEED_CONFIG: Record<string, number> = {
 // Generate a unique worker ID for this instance
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 let jobPollingInterval: NodeJS.Timeout | null = null;
+let importJobPollingInterval: NodeJS.Timeout | null = null;
 
 // Public function to start a campaign - enqueues to PostgreSQL-backed job queue
 async function processCampaign(campaignId: string) {
@@ -782,6 +735,9 @@ function startJobProcessor() {
   
   // Also run immediately on startup
   pollForJobs();
+  
+  // Also start the import job processor
+  startImportJobProcessor();
 }
 
 // Stop the background job processor
@@ -791,6 +747,151 @@ function stopJobProcessor() {
     jobPollingInterval = null;
     console.log("Job processor stopped");
   }
+  stopImportJobProcessor();
+}
+
+// ============ POSTGRESQL-BACKED JOB QUEUE FOR IMPORT PROCESSING ============
+
+// Start the background import job processor
+function startImportJobProcessor() {
+  if (importJobPollingInterval) {
+    return; // Already running
+  }
+  
+  console.log(`Starting import job processor with worker ID: ${WORKER_ID}`);
+  
+  // Poll every 2 seconds for new import jobs
+  importJobPollingInterval = setInterval(pollForImportJobs, 2000);
+  
+  // Also run immediately on startup
+  pollForImportJobs();
+}
+
+// Stop the import job processor
+function stopImportJobProcessor() {
+  if (importJobPollingInterval) {
+    clearInterval(importJobPollingInterval);
+    importJobPollingInterval = null;
+    console.log("Import job processor stopped");
+  }
+}
+
+// Background import job processor - polls for pending import jobs
+async function pollForImportJobs() {
+  try {
+    // Clean up stale import jobs from crashed workers
+    const staleCount = await storage.cleanupStaleImportJobs(30);
+    if (staleCount > 0) {
+      console.log(`Cleaned up ${staleCount} stale import jobs`);
+    }
+    
+    // Try to claim a pending import job using FOR UPDATE SKIP LOCKED
+    const queueItem = await storage.claimNextImportJob(WORKER_ID);
+    
+    if (!queueItem) {
+      return; // No pending import jobs
+    }
+    
+    console.log(`Worker ${WORKER_ID} claimed import job queue item ${queueItem.id} for import ${queueItem.importJobId}`);
+    
+    try {
+      await processImportFromQueue(queueItem.importJobId, queueItem.csvContent);
+      await storage.completeImportQueueJob(queueItem.id, "completed");
+      console.log(`Import job ${queueItem.id} completed successfully`);
+    } catch (error: any) {
+      console.error(`Error processing import job ${queueItem.id}:`, error);
+      await storage.completeImportQueueJob(queueItem.id, "failed", error.message || "Unknown error");
+      await storage.updateImportJob(queueItem.importJobId, {
+        status: "failed",
+        errorMessage: error.message || "Unknown error",
+      });
+    }
+  } catch (error) {
+    console.error("Error in import job polling:", error);
+  }
+}
+
+// Process import from queue - parses CSV and imports in batches
+async function processImportFromQueue(importJobId: string, csvContent: string) {
+  const BATCH_SIZE = 20000;
+  const lines = csvContent.split("\n").filter(line => line.trim());
+  
+  const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+  const emailIdx = header.indexOf("email");
+  const tagsIdx = header.indexOf("tags");
+  const ipIdx = header.indexOf("ip_address");
+  
+  if (emailIdx === -1) {
+    await storage.updateImportJob(importJobId, {
+      status: "failed",
+      errorMessage: "CSV must have an 'email' column",
+    });
+    return;
+  }
+  
+  await storage.updateImportJob(importJobId, { status: "processing" });
+  
+  let processedRows = 0;
+  let newSubscribers = 0;
+  let updatedSubscribers = 0;
+  let failedRows = 0;
+  
+  // Process in batches
+  for (let i = 1; i < lines.length; i += BATCH_SIZE) {
+    const batch = lines.slice(i, Math.min(i + BATCH_SIZE, lines.length));
+    
+    for (const line of batch) {
+      try {
+        const cols = line.split(",").map(c => c.trim());
+        const email = cols[emailIdx];
+        
+        if (!email || !email.includes("@")) {
+          failedRows++;
+          processedRows++;
+          continue;
+        }
+        
+        const tags = tagsIdx >= 0 && cols[tagsIdx]
+          ? cols[tagsIdx].split(";").map(t => t.trim()).filter(Boolean)
+          : [];
+        const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
+        
+        const existing = await storage.getSubscriberByEmail(email);
+        
+        if (existing) {
+          // Merge tags
+          const mergedTags = [...new Set([...(existing.tags || []), ...tags])];
+          await storage.updateSubscriber(existing.id, { tags: mergedTags });
+          updatedSubscribers++;
+        } else {
+          await storage.createSubscriber({ email, tags, ipAddress });
+          newSubscribers++;
+        }
+        processedRows++;
+      } catch (error) {
+        console.error("Error processing row:", error);
+        failedRows++;
+        processedRows++;
+      }
+    }
+    
+    // Update job progress after each batch
+    await storage.updateImportJob(importJobId, {
+      processedRows,
+      newSubscribers,
+      updatedSubscribers,
+      failedRows,
+    });
+  }
+  
+  await storage.updateImportJob(importJobId, {
+    status: "completed",
+    completedAt: new Date(),
+    processedRows,
+    newSubscribers,
+    updatedSubscribers,
+    failedRows,
+  });
 }
 
 // Internal processing function - called by the job queue
@@ -801,6 +902,26 @@ async function processCampaignInternal(campaignId: string) {
   if (!campaign.segmentId) {
     await storage.updateCampaignStatusAtomic(campaignId, "failed");
     return;
+  }
+  
+  // Fetch MTA configuration if specified
+  let mta = null;
+  if (campaign.mtaId) {
+    mta = await storage.getMta(campaign.mtaId);
+    if (!mta) {
+      console.error(`Campaign ${campaignId}: MTA ${campaign.mtaId} not found`);
+      await storage.updateCampaignStatusAtomic(campaignId, "failed");
+      return;
+    }
+    
+    // Verify SMTP connection before starting
+    const verifyResult = await verifyTransporter(mta);
+    if (!verifyResult.success) {
+      console.error(`Campaign ${campaignId}: SMTP verification failed: ${verifyResult.error}`);
+      await storage.updateCampaignStatusAtomic(campaignId, "failed");
+      return;
+    }
+    console.log(`Campaign ${campaignId}: SMTP connection verified for MTA ${mta.name}`);
   }
   
   // Recovery: Clean up any orphaned pending sends from previous crashes
@@ -827,13 +948,6 @@ async function processCampaignInternal(campaignId: string) {
   const BATCH_SIZE = 1000;
   let offset = 0;
   let processedCount = 0;
-  
-  // Note: In a production implementation, this would:
-  // 1. Use a distributed job queue (Bull, BullMQ, etc.) with Redis
-  // 2. Connect to actual SMTP servers via the configured MTA
-  // 3. Use worker threads for concurrent sending
-  // 4. Implement retry logic with exponential backoff
-  // 5. Handle bounce/complaint feedback loops
   
   while (true) {
     // Check if campaign was paused or cancelled (atomic read)
@@ -875,10 +989,29 @@ async function processCampaignInternal(campaignId: string) {
       }
       
       // STEP 2: Attempt to send email
-      // In production: Actually send email via SMTP using campaign.mtaId
       let sendSuccess = true;
       try {
-        // await sendEmail(subscriber, campaign, mta); // Production implementation
+        if (mta) {
+          // Real SMTP sending via configured MTA
+          const result = await sendEmail(mta, subscriber, campaign, {
+            trackOpens: campaign.trackOpens,
+            trackClicks: campaign.trackClicks,
+            trackingDomain: mta.trackingDomain,
+            openTrackingDomain: mta.openTrackingDomain,
+            openTag: campaign.openTag,
+            clickTag: campaign.clickTag,
+          });
+          
+          sendSuccess = result.success;
+          if (!result.success) {
+            console.error(`Failed to send to ${subscriber.email}: ${result.error}`);
+          } else {
+            console.log(`Email sent to ${subscriber.email}, messageId: ${result.messageId}`);
+          }
+        } else {
+          // No MTA configured - simulate sending for demo purposes
+          console.log(`[SIMULATED] Email to ${subscriber.email} (no MTA configured)`);
+        }
         
         // Apply rate limiting based on sending speed
         if (delayBetweenEmails > 0) {
@@ -910,6 +1043,12 @@ async function processCampaignInternal(campaignId: string) {
     }
     
     offset += BATCH_SIZE;
+  }
+  
+  // Clean up transporter connection pool when done
+  if (mta) {
+    closeTransporter(mta.id);
+    console.log(`Campaign ${campaignId}: Closed SMTP connection for MTA ${mta.name}`);
   }
   
   // Final update - use atomic status change with expected status check

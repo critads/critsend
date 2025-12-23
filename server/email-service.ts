@@ -1,0 +1,260 @@
+import nodemailer from "nodemailer";
+import type { Transporter } from "nodemailer";
+import type { Mta, Campaign, Subscriber } from "@shared/schema";
+
+const transporterPool: Map<string, Transporter> = new Map();
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
+
+export function createTransporter(mta: Mta): Transporter {
+  const existingTransporter = transporterPool.get(mta.id);
+  if (existingTransporter) {
+    return existingTransporter;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: mta.hostname || "localhost",
+    port: mta.port || 587,
+    secure: mta.port === 465,
+    auth: mta.username && mta.password ? {
+      user: mta.username,
+      pass: mta.password,
+    } : undefined,
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 30000,
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+
+  transporterPool.set(mta.id, transporter);
+  return transporter;
+}
+
+export function closeTransporter(mtaId: string): void {
+  const transporter = transporterPool.get(mtaId);
+  if (transporter) {
+    transporter.close();
+    transporterPool.delete(mtaId);
+  }
+}
+
+export function closeAllTransporters(): void {
+  transporterPool.forEach((transporter, mtaId) => {
+    transporter.close();
+  });
+  transporterPool.clear();
+}
+
+export interface TrackingOptions {
+  campaignId: string;
+  subscriberId: string;
+  trackOpens: boolean;
+  trackClicks: boolean;
+  trackingDomain?: string | null;
+  openTrackingDomain?: string | null;
+  openTag?: string | null;
+  clickTag?: string | null;
+}
+
+export function addTrackingToHtml(
+  htmlContent: string,
+  options: TrackingOptions
+): string {
+  let processedHtml = htmlContent;
+
+  if (options.trackClicks && options.trackingDomain) {
+    const clickTrackingBase = `${options.trackingDomain}/track/click`;
+    processedHtml = processedHtml.replace(
+      /href="(https?:\/\/[^"]+)"/gi,
+      (match, url) => {
+        const encodedUrl = encodeURIComponent(url);
+        const trackingUrl = `${clickTrackingBase}?c=${options.campaignId}&s=${options.subscriberId}&url=${encodedUrl}`;
+        if (options.clickTag) {
+          return `href="${trackingUrl}&tag=${encodeURIComponent(options.clickTag)}"`;
+        }
+        return `href="${trackingUrl}"`;
+      }
+    );
+  }
+
+  if (options.trackOpens) {
+    const openTrackingBase = options.openTrackingDomain || options.trackingDomain;
+    if (openTrackingBase) {
+      let pixelUrl = `${openTrackingBase}/track/open?c=${options.campaignId}&s=${options.subscriberId}`;
+      if (options.openTag) {
+        pixelUrl += `&tag=${encodeURIComponent(options.openTag)}`;
+      }
+      const trackingPixel = `<img src="${pixelUrl}" width="1" height="1" alt="" style="display:none;width:1px;height:1px;border:0;" />`;
+      
+      if (processedHtml.includes("</body>")) {
+        processedHtml = processedHtml.replace("</body>", `${trackingPixel}</body>`);
+      } else {
+        processedHtml += trackingPixel;
+      }
+    }
+  }
+
+  return processedHtml;
+}
+
+export function personalizeContent(
+  content: string,
+  subscriber: Subscriber
+): string {
+  let personalized = content;
+  personalized = personalized.replace(/\{\{email\}\}/gi, subscriber.email);
+  personalized = personalized.replace(/\{\{subscriber_id\}\}/gi, subscriber.id);
+  if (subscriber.tags && subscriber.tags.length > 0) {
+    personalized = personalized.replace(/\{\{tags\}\}/gi, subscriber.tags.join(", "));
+  }
+  return personalized;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export interface SendEmailResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+  retryable?: boolean;
+}
+
+export async function sendEmail(
+  mta: Mta,
+  subscriber: Subscriber,
+  campaign: Campaign,
+  trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">
+): Promise<SendEmailResult> {
+  const transporter = createTransporter(mta);
+
+  let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
+  
+  htmlContent = addTrackingToHtml(htmlContent, {
+    campaignId: campaign.id,
+    subscriberId: subscriber.id,
+    trackOpens: trackingOptions.trackOpens,
+    trackClicks: trackingOptions.trackClicks,
+    trackingDomain: trackingOptions.trackingDomain,
+    openTrackingDomain: trackingOptions.openTrackingDomain,
+    openTag: trackingOptions.openTag,
+    clickTag: trackingOptions.clickTag,
+  });
+
+  const subject = personalizeContent(campaign.subject, subscriber);
+
+  const mailOptions = {
+    from: `"${campaign.fromName}" <${campaign.fromEmail}>`,
+    replyTo: campaign.replyEmail || campaign.fromEmail,
+    to: subscriber.email,
+    subject: subject,
+    html: htmlContent,
+    headers: {} as Record<string, string>,
+  };
+
+  if (campaign.preheader) {
+    mailOptions.html = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${campaign.preheader}</span>` + mailOptions.html;
+  }
+
+  mailOptions.headers["X-Campaign-ID"] = campaign.id;
+  mailOptions.headers["X-Subscriber-ID"] = subscriber.id;
+  if (campaign.openTag) {
+    mailOptions.headers["X-Open-Tag"] = campaign.openTag;
+  }
+  if (campaign.clickTag) {
+    mailOptions.headers["X-Click-Tag"] = campaign.clickTag;
+  }
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      
+      return {
+        success: true,
+        messageId: info.messageId,
+      };
+    } catch (error: any) {
+      lastError = error;
+      
+      const isRetryable = isTransientError(error);
+      
+      if (!isRetryable || attempt === MAX_RETRIES) {
+        console.error(`Email send failed to ${subscriber.email} (attempt ${attempt}/${MAX_RETRIES}):`, error.message);
+        return {
+          success: false,
+          error: error.message || "Unknown error",
+          retryable: isRetryable,
+        };
+      }
+
+      console.warn(`Retrying email to ${subscriber.email} (attempt ${attempt}/${MAX_RETRIES}): ${error.message}`);
+      await sleep(RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  return {
+    success: false,
+    error: lastError?.message || "Max retries exceeded",
+    retryable: false,
+  };
+}
+
+function isTransientError(error: any): boolean {
+  if (!error) return false;
+  
+  const transientCodes = [
+    "ECONNRESET",
+    "ECONNREFUSED", 
+    "ETIMEDOUT",
+    "ESOCKET",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+  ];
+  
+  if (error.code && transientCodes.includes(error.code)) {
+    return true;
+  }
+  
+  if (error.responseCode) {
+    const code = error.responseCode;
+    if (code >= 400 && code < 500) {
+      return code === 421 || code === 450 || code === 451 || code === 452;
+    }
+    if (code >= 500) {
+      return false;
+    }
+  }
+  
+  const message = (error.message || "").toLowerCase();
+  if (
+    message.includes("timeout") ||
+    message.includes("connection") ||
+    message.includes("temporarily")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export async function verifyTransporter(mta: Mta): Promise<{ success: boolean; error?: string }> {
+  try {
+    const transporter = createTransporter(mta);
+    await transporter.verify();
+    return { success: true };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || "Failed to verify SMTP connection",
+    };
+  }
+}
