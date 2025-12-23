@@ -34,6 +34,7 @@ import {
   Code,
   X,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 
@@ -87,7 +88,37 @@ export default function CampaignEdit() {
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [processingImages, setProcessingImages] = useState(false);
   const { toast } = useToast();
+
+  const processHtmlImages = async (html: string): Promise<string> => {
+    if (!campaignId) return html;
+    
+    try {
+      setProcessingImages(true);
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/process-html`, { html });
+      const data = await res.json();
+      
+      if (data.downloaded > 0) {
+        toast({
+          title: "Images processed",
+          description: `Downloaded ${data.downloaded} image(s) to local storage.${data.failed > 0 ? ` ${data.failed} failed.` : ""}`,
+        });
+      }
+      
+      return data.html;
+    } catch (error) {
+      console.error("Error processing HTML images:", error);
+      toast({
+        title: "Image processing failed",
+        description: "Could not download images. Using original HTML.",
+        variant: "destructive",
+      });
+      return html;
+    } finally {
+      setProcessingImages(false);
+    }
+  };
 
   const { data: campaign, isLoading: loadingCampaign } = useQuery<Campaign>({
     queryKey: ["/api/campaigns", campaignId],
@@ -152,9 +183,10 @@ export default function CampaignEdit() {
     const file = e.dataTransfer.files[0];
     if (file && (file.type === "text/html" || file.name.endsWith(".html") || file.name.endsWith(".htm"))) {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         const content = event.target?.result as string;
-        updateField("htmlContent", content);
+        const processedHtml = await processHtmlImages(content);
+        updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };
       reader.readAsText(file);
@@ -171,9 +203,10 @@ export default function CampaignEdit() {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         const content = event.target?.result as string;
-        updateField("htmlContent", content);
+        const processedHtml = await processHtmlImages(content);
+        updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };
       reader.readAsText(file);
@@ -591,28 +624,40 @@ export default function CampaignEdit() {
                   onDrop={handleHtmlDrop}
                   data-testid="dropzone-html"
                 >
-                  <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-lg font-medium mb-2">Drop your HTML file here</p>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    or click to browse for a file
-                  </p>
-                  <input
-                    type="file"
-                    accept=".html,.htm,text/html"
-                    onChange={handleHtmlFileSelect}
-                    className="hidden"
-                    id="html-file-input"
-                    data-testid="input-html-file"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => document.getElementById("html-file-input")?.click()}
-                    data-testid="button-browse-html"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Browse Files
-                  </Button>
+                  {processingImages ? (
+                    <>
+                      <Loader2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-spin" />
+                      <p className="text-lg font-medium mb-2">Processing images...</p>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Downloading and saving images locally
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                      <p className="text-lg font-medium mb-2">Drop your HTML file here</p>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        or click to browse for a file
+                      </p>
+                      <input
+                        type="file"
+                        accept=".html,.htm,text/html"
+                        onChange={handleHtmlFileSelect}
+                        className="hidden"
+                        id="html-file-input"
+                        data-testid="input-html-file"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => document.getElementById("html-file-input")?.click()}
+                        data-testid="button-browse-html"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Browse Files
+                      </Button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -950,7 +995,7 @@ export default function CampaignEdit() {
           <Button
             variant="outline"
             onClick={handleSaveDraft}
-            disabled={updateMutation.isPending}
+            disabled={updateMutation.isPending || processingImages}
             data-testid="button-save-draft"
           >
             {updateMutation.isPending ? "Saving..." : "Save Changes"}
@@ -967,7 +1012,7 @@ export default function CampaignEdit() {
           ) : (
             <Button
               onClick={handleSend}
-              disabled={sendMutation.isPending || !isStepValid(currentStep)}
+              disabled={sendMutation.isPending || !isStepValid(currentStep) || processingImages}
               data-testid="button-send-campaign"
             >
               {sendMutation.isPending

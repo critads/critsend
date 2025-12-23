@@ -18,33 +18,116 @@ import * as fs from "fs";
 import * as path from "path";
 import * as https from "https";
 import * as http from "http";
+import * as dns from "dns";
+import { promisify } from "util";
+
+const dnsLookup = promisify(dns.lookup);
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 const IMAGES_DIR = path.join(process.cwd(), "images");
 
-async function downloadImage(url: string, destPath: string): Promise<boolean> {
+function isBlockedIP(ip: string): boolean {
+  const blockedPatterns = [
+    /^127\.\d+\.\d+\.\d+$/,
+    /^10\.\d+\.\d+\.\d+$/,
+    /^192\.168\.\d+\.\d+$/,
+    /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/,
+    /^169\.254\.\d+\.\d+$/,
+    /^0\.0\.0\.0$/,
+    /^::1$/,
+    /^fe80:/i,
+    /^fc00:/i,
+    /^fd00:/i,
+  ];
+  return blockedPatterns.some(pattern => pattern.test(ip));
+}
+
+function isBlockedHost(hostname: string): boolean {
+  const blockedPatterns = [
+    /^localhost$/i,
+    /^127\.\d+\.\d+\.\d+$/,
+    /^10\.\d+\.\d+\.\d+$/,
+    /^192\.168\.\d+\.\d+$/,
+    /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/,
+    /^169\.254\.\d+\.\d+$/,
+    /^0\.0\.0\.0$/,
+    /^\[?::1\]?$/,
+    /^\[?fe80:/i,
+    /^\[?fc00:/i,
+    /^\[?fd00:/i,
+  ];
+  return blockedPatterns.some(pattern => pattern.test(hostname));
+}
+
+async function downloadImage(url: string, destPath: string, redirectCount = 0): Promise<boolean> {
+  if (redirectCount > 3) return false;
+  
+  let urlObj: URL;
+  let resolvedIP: string;
+  
+  try {
+    urlObj = new URL(url);
+    
+    if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
+      return false;
+    }
+    
+    if (isBlockedHost(urlObj.hostname)) {
+      return false;
+    }
+    
+    const result = await dnsLookup(urlObj.hostname);
+    resolvedIP = result.address;
+    
+    if (isBlockedIP(resolvedIP)) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  
   return new Promise((resolve) => {
     const protocol = url.startsWith("https") ? https : http;
-    const timeout = 30000;
+    const timeout = 15000;
+    const maxSize = 10 * 1024 * 1024;
     
-    try {
-      const urlObj = new URL(url);
-      if (urlObj.hostname === "localhost" || urlObj.hostname === "127.0.0.1" || urlObj.hostname.startsWith("192.168.") || urlObj.hostname.startsWith("10.")) {
+    const safetyLookup = (hostname: string, options: any, callback: (err: any, address: string, family: number) => void) => {
+      callback(null, resolvedIP, 4);
+    };
+    
+    const requestOptions = {
+      timeout,
+      lookup: safetyLookup as any,
+    };
+    
+    const request = protocol.get(url, requestOptions, (response) => {
+      const socket = response.socket as any;
+      if (socket && socket.remoteAddress && isBlockedIP(socket.remoteAddress)) {
+        request.destroy();
         resolve(false);
         return;
       }
-    } catch {
-      resolve(false);
-      return;
-    }
-    
-    const request = protocol.get(url, { timeout }, (response) => {
+      
       if (response.statusCode === 301 || response.statusCode === 302) {
         const redirectUrl = response.headers.location;
         if (redirectUrl) {
-          downloadImage(redirectUrl, destPath).then(resolve);
-          return;
+          try {
+            const redirectObj = new URL(redirectUrl, url);
+            if (redirectObj.protocol !== "http:" && redirectObj.protocol !== "https:") {
+              resolve(false);
+              return;
+            }
+            if (isBlockedHost(redirectObj.hostname)) {
+              resolve(false);
+              return;
+            }
+            downloadImage(redirectObj.href, destPath, redirectCount + 1).then(resolve);
+            return;
+          } catch {
+            resolve(false);
+            return;
+          }
         }
       }
       
@@ -53,7 +136,25 @@ async function downloadImage(url: string, destPath: string): Promise<boolean> {
         return;
       }
       
+      const contentLength = parseInt(response.headers["content-length"] || "0", 10);
+      if (contentLength > maxSize) {
+        resolve(false);
+        return;
+      }
+      
+      let downloadedSize = 0;
       const fileStream = fs.createWriteStream(destPath);
+      
+      response.on("data", (chunk: Buffer) => {
+        downloadedSize += chunk.length;
+        if (downloadedSize > maxSize) {
+          request.destroy();
+          fileStream.close();
+          fs.unlink(destPath, () => {});
+          resolve(false);
+        }
+      });
+      
       response.pipe(fileStream);
       
       fileStream.on("finish", () => {
@@ -544,6 +645,11 @@ export async function registerRoutes(
       
       if (!html || typeof html !== "string") {
         return res.status(400).json({ error: "HTML content is required" });
+      }
+      
+      const validIdPattern = /^[a-zA-Z0-9_-]+$/;
+      if (!validIdPattern.test(campaignId) || campaignId.length > 100) {
+        return res.status(400).json({ error: "Invalid campaign ID format" });
       }
       
       const campaignImagesDir = path.join(IMAGES_DIR, campaignId);

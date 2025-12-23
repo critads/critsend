@@ -33,6 +33,7 @@ import {
   Upload,
   Code,
   X,
+  Loader2,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign } from "@shared/schema";
 
@@ -537,28 +538,40 @@ export default function CampaignNew() {
                   onDrop={handleHtmlDrop}
                   data-testid="dropzone-html"
                 >
-                  <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-lg font-medium mb-2">Drop your HTML file here</p>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    or click to browse for a file
-                  </p>
-                  <input
-                    type="file"
-                    accept=".html,.htm,text/html"
-                    onChange={handleHtmlFileSelect}
-                    className="hidden"
-                    id="html-file-input"
-                    data-testid="input-html-file"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => document.getElementById("html-file-input")?.click()}
-                    data-testid="button-browse-html"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Browse Files
-                  </Button>
+                  {processingImages ? (
+                    <>
+                      <Loader2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-spin" />
+                      <p className="text-lg font-medium mb-2">Processing images...</p>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Downloading and saving images locally
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                      <p className="text-lg font-medium mb-2">Drop your HTML file here</p>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        or click to browse for a file
+                      </p>
+                      <input
+                        type="file"
+                        accept=".html,.htm,text/html"
+                        onChange={handleHtmlFileSelect}
+                        className="hidden"
+                        id="html-file-input"
+                        data-testid="input-html-file"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => document.getElementById("html-file-input")?.click()}
+                        data-testid="button-browse-html"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Browse Files
+                      </Button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -896,7 +909,7 @@ export default function CampaignNew() {
           <Button
             variant="outline"
             onClick={handleSaveDraft}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || processingImages}
             data-testid="button-save-draft"
           >
             {createMutation.isPending ? "Saving..." : "Save Draft"}
@@ -913,7 +926,7 @@ export default function CampaignNew() {
           ) : (
             <Button
               onClick={handleSend}
-              disabled={sendMutation.isPending || !isStepValid(currentStep)}
+              disabled={sendMutation.isPending || !isStepValid(currentStep) || processingImages}
               data-testid="button-send-campaign"
             >
               {sendMutation.isPending
