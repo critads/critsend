@@ -123,8 +123,16 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
     const timeout = 15000;
     const maxSize = 10 * 1024 * 1024;
     
-    const safetyLookup = (hostname: string, options: any, callback: (err: any, address: string, family: number) => void) => {
-      callback(null, resolvedIP, 4);
+    const safetyLookup = (hostname: string, options: any, callback: any) => {
+      if (typeof options === 'function') {
+        callback = options;
+        options = {};
+      }
+      if (options && options.all) {
+        callback(null, [{ address: resolvedIP, family: 4 }]);
+      } else {
+        callback(null, resolvedIP, 4);
+      }
     };
     
     const requestOptions: https.RequestOptions = {
