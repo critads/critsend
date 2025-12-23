@@ -386,6 +386,28 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to recover stuck imports" });
     }
   });
+
+  app.get("/api/debug/import-queue-details/:id", async (req: Request, res: Response) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT id, import_job_id, status, 
+               LENGTH(csv_content) as csv_content_length,
+               LEFT(csv_content, 500) as csv_preview,
+               created_at, started_at, worker_id
+        FROM import_job_queue 
+        WHERE id = ${req.params.id}
+      `);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Queue item not found" });
+      }
+      
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error("Error fetching queue details:", error);
+      res.status(500).json({ error: "Failed to fetch queue details" });
+    }
+  });
   
   // ============ SUBSCRIBERS ============
   app.get("/api/subscribers", async (req: Request, res: Response) => {
