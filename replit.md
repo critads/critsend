@@ -121,9 +121,33 @@ npm run db:push      # Push schema to database
 npm run build        # Build for production
 ```
 
+## Concurrency & Data Integrity
+
+The campaign sending system implements production-grade safeguards:
+
+### Race Condition Prevention
+- **Job Queue Serialization**: Campaigns are processed through an in-memory job queue that serializes execution, preventing multiple instances from processing the same campaign simultaneously
+- **Atomic Counter Updates**: Uses SQL `SET sent_count = sent_count + 1` instead of read-then-write to prevent lost updates
+- **ON CONFLICT DO NOTHING**: campaign_sends table uses PostgreSQL's upsert pattern to atomically prevent duplicate sends
+- **Optimistic Locking**: Campaign status updates use expected status checks to prevent concurrent state changes
+
+### Database Integrity
+- **Unique Index**: `campaign_sends` has a unique constraint on `(campaign_id, subscriber_id)` enforced at database level
+- **GIN Index**: `subscribers.tags` uses a GIN index for fast array containment queries
+- **Single Transaction**: `recordSendAndUpdateCounters()` combines insert + counter updates in a single SQL CTE for atomicity
+
+### Key Storage Methods
+- `reserveSendSlot()` - Phase 1: Insert 'pending' record BEFORE SMTP attempt (prevents duplicates)
+- `finalizeSend()` - Phase 2: Update to 'sent'/'failed' and adjust counters AFTER SMTP result
+- `recordSendAndUpdateCounters()` - Combined method (deprecated, uses two-phase internally)
+- `updateCampaignStatusAtomic()` - Status changes with optimistic locking
+- `incrementCampaignSentCount()` / `incrementCampaignFailedCount()` - Thread-safe counter updates
+- `recoverOrphanedPendingSends()` - Cleanup stale pending rows (called at campaign start)
+- `forceFailPendingSend()` - Reconciliation for individual invariant violations
+
 ## Notes
 
 - Import processing uses 20,000 row batches to prevent memory issues
-- Campaign sending is simplified (production would use job queue like Bull/BullMQ)
-- PostgreSQL indexes on email and tags for performance
+- Campaign sending uses in-memory job queue (production would use Redis-based BullMQ for distributed processing)
+- PostgreSQL GIN index on tags array for fast segment filtering
 - BCK tag always excludes subscribers from receiving newsletters

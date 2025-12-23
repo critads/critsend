@@ -714,14 +714,83 @@ const SPEED_CONFIG: Record<string, number> = {
   godzilla: 3000,
 };
 
-// Background process for sending campaign with proper batching and speed control
+// ============ JOB QUEUE FOR CAMPAIGN SERIALIZATION ============
+// Simple in-memory job queue to serialize campaign execution and prevent race conditions
+// In production, use Redis-based solutions like BullMQ for distributed processing
+class CampaignJobQueue {
+  private queue: string[] = [];
+  private processing: Set<string> = new Set();
+  private isProcessing = false;
+
+  async enqueue(campaignId: string): Promise<void> {
+    // Prevent duplicate enqueues
+    if (this.queue.includes(campaignId) || this.processing.has(campaignId)) {
+      console.log(`Campaign ${campaignId} already queued or processing`);
+      return;
+    }
+    
+    this.queue.push(campaignId);
+    console.log(`Campaign ${campaignId} added to queue. Queue length: ${this.queue.length}`);
+    
+    // Start processing if not already running
+    if (!this.isProcessing) {
+      this.processQueue();
+    }
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+
+    while (this.queue.length > 0) {
+      const campaignId = this.queue.shift();
+      if (!campaignId) continue;
+
+      this.processing.add(campaignId);
+      console.log(`Processing campaign ${campaignId}. Remaining in queue: ${this.queue.length}`);
+
+      try {
+        await processCampaignInternal(campaignId);
+      } catch (error) {
+        console.error(`Error processing campaign ${campaignId}:`, error);
+        // Mark as failed
+        await storage.updateCampaignStatusAtomic(campaignId, "failed");
+      } finally {
+        this.processing.delete(campaignId);
+      }
+    }
+
+    this.isProcessing = false;
+  }
+
+  isQueued(campaignId: string): boolean {
+    return this.queue.includes(campaignId) || this.processing.has(campaignId);
+  }
+}
+
+// Global job queue instance
+const campaignQueue = new CampaignJobQueue();
+
+// Public function to start a campaign - adds to queue instead of directly processing
 async function processCampaign(campaignId: string) {
+  await campaignQueue.enqueue(campaignId);
+}
+
+// Internal processing function - called by the job queue
+async function processCampaignInternal(campaignId: string) {
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign || campaign.status !== "sending") return;
   
   if (!campaign.segmentId) {
-    await storage.updateCampaign(campaignId, { status: "failed" });
+    await storage.updateCampaignStatusAtomic(campaignId, "failed");
     return;
+  }
+  
+  // Recovery: Clean up any orphaned pending sends from previous crashes
+  // This ensures retries can proceed and counters stay accurate
+  const recovered = await storage.recoverOrphanedPendingSends(campaignId, 2);
+  if (recovered > 0) {
+    console.log(`Campaign ${campaignId}: Recovered ${recovered} orphaned pending sends before processing`);
   }
   
   // Get total count first (uses SQL, doesn't load all into memory)
@@ -740,21 +809,20 @@ async function processCampaign(campaignId: string) {
   // Process in batches of 1000 to avoid memory issues
   const BATCH_SIZE = 1000;
   let offset = 0;
-  let sentCount = campaign.sentCount || 0; // Resume from where we left off
-  let failedCount = campaign.failedCount || 0;
+  let processedCount = 0;
   
   // Note: In a production implementation, this would:
-  // 1. Use a proper job queue (Bull, BullMQ, etc.)
+  // 1. Use a distributed job queue (Bull, BullMQ, etc.) with Redis
   // 2. Connect to actual SMTP servers via the configured MTA
   // 3. Use worker threads for concurrent sending
   // 4. Implement retry logic with exponential backoff
   // 5. Handle bounce/complaint feedback loops
   
   while (true) {
-    // Check if campaign was paused or cancelled
+    // Check if campaign was paused or cancelled (atomic read)
     const currentCampaign = await storage.getCampaign(campaignId);
     if (!currentCampaign || currentCampaign.status !== "sending") {
-      console.log(`Campaign ${campaignId} paused/cancelled at ${sentCount} emails`);
+      console.log(`Campaign ${campaignId} paused/cancelled at ${processedCount} processed`);
       break;
     }
     
@@ -768,30 +836,32 @@ async function processCampaign(campaignId: string) {
     
     for (const subscriber of batch) {
       // Check pause status periodically (every 100 emails)
-      if (sentCount % 100 === 0) {
+      if (processedCount % 100 === 0) {
         const checkCampaign = await storage.getCampaign(campaignId);
         if (!checkCampaign || checkCampaign.status !== "sending") {
-          console.log(`Campaign ${campaignId} paused during batch at ${sentCount}`);
-          await storage.updateCampaign(campaignId, { sentCount, failedCount });
+          console.log(`Campaign ${campaignId} paused during batch at ${processedCount}`);
           return;
         }
       }
       
-      // Record send BEFORE sending to prevent duplicates (atomic operation)
-      // This uses a unique constraint - returns false if already sent
-      const canSend = await storage.recordCampaignSend(campaignId, subscriber.id, "pending");
+      // STEP 1: Reserve send slot BEFORE attempting to send
+      // This is critical for race condition prevention - the reservation happens
+      // atomically before any SMTP attempt, preventing duplicates even if
+      // multiple workers try to process the same subscriber
+      const reserved = await storage.reserveSendSlot(campaignId, subscriber.id);
       
-      if (!canSend) {
-        // Email was already sent to this subscriber for this campaign - skip
+      if (!reserved) {
+        // Email was already reserved/sent to this subscriber - skip
         console.log(`Skipping duplicate send to ${subscriber.email} for campaign ${campaignId}`);
+        processedCount++;
         continue;
       }
       
-      // Simulate sending with rate limiting
+      // STEP 2: Attempt to send email
       // In production: Actually send email via SMTP using campaign.mtaId
+      let sendSuccess = true;
       try {
         // await sendEmail(subscriber, campaign, mta); // Production implementation
-        sentCount++;
         
         // Apply rate limiting based on sending speed
         if (delayBetweenEmails > 0) {
@@ -799,32 +869,43 @@ async function processCampaign(campaignId: string) {
         }
       } catch (error) {
         console.error(`Failed to send to ${subscriber.email}:`, error);
-        failedCount++;
+        sendSuccess = false;
       }
       
-      // Update progress every 100 emails
-      if ((sentCount + failedCount) % 100 === 0) {
-        await storage.updateCampaign(campaignId, {
-          sentCount,
-          failedCount,
-          pendingCount: total - sentCount - failedCount,
-        });
+      // STEP 3: Finalize the send with the result (update status + counters atomically)
+      // This updates the 'pending' record to 'sent' or 'failed' and adjusts counters
+      // finalizeSend throws if no pending row found (invariant violation)
+      try {
+        await storage.finalizeSend(campaignId, subscriber.id, sendSuccess);
+      } catch (finalizeError: any) {
+        // Invariant violation: pending row missing or already finalized
+        // Attempt to reconcile by force-failing this send record (if it still exists)
+        console.error(`INVARIANT VIOLATION during finalize for ${subscriber.email}: ${finalizeError.message}`);
+        try {
+          // Atomic reconciliation: Mark as failed if still pending (handles edge cases)
+          await storage.forceFailPendingSend(campaignId, subscriber.id);
+        } catch (reconcileError) {
+          console.error(`Failed to reconcile send for ${subscriber.email}:`, reconcileError);
+        }
       }
+      
+      processedCount++;
     }
     
     offset += BATCH_SIZE;
   }
   
-  // Final update
-  const finalCampaign = await storage.getCampaign(campaignId);
-  if (finalCampaign?.status === "sending") {
+  // Final update - use atomic status change with expected status check
+  const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
+  if (wasCompleted) {
+    // Update completion timestamp
     await storage.updateCampaign(campaignId, {
-      status: "completed",
       completedAt: new Date(),
-      sentCount,
-      failedCount,
       pendingCount: 0,
     });
-    console.log(`Campaign ${campaignId} completed: ${sentCount} sent, ${failedCount} failed`);
+    
+    // Get final counts from database (source of truth)
+    const finalCampaign = await storage.getCampaign(campaignId);
+    console.log(`Campaign ${campaignId} completed: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
   }
 }

@@ -76,6 +76,28 @@ export interface IStorage {
   wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean>;
   getCampaignSendCount(campaignId: string): Promise<number>;
   
+  // Atomic campaign counter updates (thread-safe)
+  incrementCampaignSentCount(campaignId: string, increment?: number): Promise<void>;
+  incrementCampaignFailedCount(campaignId: string, increment?: number): Promise<void>;
+  decrementCampaignPendingCount(campaignId: string, decrement?: number): Promise<void>;
+  
+  // Atomic campaign status update with row locking
+  updateCampaignStatusAtomic(campaignId: string, newStatus: string, expectedStatus?: string): Promise<boolean>;
+  
+  // Two-phase send recording for proper race condition prevention
+  // Step 1: Reserve slot BEFORE sending (prevents duplicate sends)
+  reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean>;
+  // Step 2: Finalize after SMTP attempt (update status + counters atomically)
+  // Throws error if no pending row found (invariant violation)
+  finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void>;
+  // Combined method (for simple use cases)
+  recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>;
+  // Recovery: Clean up orphaned pending sends (from crashes/anomalies)
+  // Marks stale pending rows as failed and adjusts counters
+  recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes?: number): Promise<number>;
+  // Force-fail a specific pending send (for reconciliation during invariant violations)
+  forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
+  
   // Import Jobs
   getImportJobs(): Promise<ImportJob[]>;
   getImportJob(id: string): Promise<ImportJob | undefined>;
@@ -398,22 +420,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Campaign Sends - prevents duplicate emails per campaign
+  // DEPRECATED: This method is no longer supported. Use reserveSendSlot() + finalizeSend() instead.
+  // Throws an error to prevent accidental use of the deprecated pattern
   async recordCampaignSend(campaignId: string, subscriberId: string, status: string = "sent"): Promise<boolean> {
-    try {
-      // This will fail if the unique constraint is violated (email already sent)
-      await db.insert(campaignSends).values({
-        campaignId,
-        subscriberId,
-        status,
-      });
-      return true;
-    } catch (error: any) {
-      // Unique constraint violation - email was already sent
-      if (error.code === "23505") {
-        return false;
-      }
-      throw error;
-    }
+    throw new Error("DEPRECATED: recordCampaignSend() is no longer supported. Use reserveSendSlot() + finalizeSend() for proper two-phase send.");
   }
 
   async wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean> {
@@ -431,6 +441,167 @@ export class DatabaseStorage implements IStorage {
       .from(campaignSends)
       .where(eq(campaignSends.campaignId, campaignId));
     return Number(result.count);
+  }
+
+  // Atomic counter updates - these use SQL increments to avoid race conditions
+  async incrementCampaignSentCount(campaignId: string, increment: number = 1): Promise<void> {
+    await db.execute(sql`
+      UPDATE campaigns 
+      SET sent_count = sent_count + ${increment}
+      WHERE id = ${campaignId}
+    `);
+  }
+
+  async incrementCampaignFailedCount(campaignId: string, increment: number = 1): Promise<void> {
+    await db.execute(sql`
+      UPDATE campaigns 
+      SET failed_count = failed_count + ${increment}
+      WHERE id = ${campaignId}
+    `);
+  }
+
+  async decrementCampaignPendingCount(campaignId: string, decrement: number = 1): Promise<void> {
+    await db.execute(sql`
+      UPDATE campaigns 
+      SET pending_count = GREATEST(pending_count - ${decrement}, 0)
+      WHERE id = ${campaignId}
+    `);
+  }
+
+  // Atomic status update with optional expected status check (for row-level locking)
+  async updateCampaignStatusAtomic(campaignId: string, newStatus: string, expectedStatus?: string): Promise<boolean> {
+    let result;
+    if (expectedStatus) {
+      // Only update if current status matches expected (optimistic locking)
+      result = await db.execute(sql`
+        UPDATE campaigns 
+        SET status = ${newStatus}
+        WHERE id = ${campaignId} AND status = ${expectedStatus}
+        RETURNING id
+      `);
+    } else {
+      result = await db.execute(sql`
+        UPDATE campaigns 
+        SET status = ${newStatus}
+        WHERE id = ${campaignId}
+        RETURNING id
+      `);
+    }
+    return result.rows.length > 0;
+  }
+
+  // Step 1: Reserve a send slot BEFORE attempting to send
+  // This prevents duplicates by inserting a 'pending' record first
+  // Returns false if this subscriber was already reserved/sent
+  async reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean> {
+    const result = await db.execute(sql`
+      INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
+      VALUES (gen_random_uuid(), ${campaignId}, ${subscriberId}, 'pending', NOW())
+      ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
+      RETURNING id
+    `);
+    return result.rows.length > 0;
+  }
+
+  // Step 2: Finalize the send after SMTP attempt (update status and counters atomically)
+  // Throws if no pending row found (indicates invariant violation)
+  async finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void> {
+    const newStatus = success ? 'sent' : 'failed';
+    const result = await db.execute(sql`
+      WITH updated_send AS (
+        UPDATE campaign_sends 
+        SET status = ${newStatus}
+        WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'pending'
+        RETURNING id
+      ),
+      counter_update AS (
+        UPDATE campaigns 
+        SET 
+          sent_count = CASE WHEN ${success} THEN sent_count + 1 ELSE sent_count END,
+          failed_count = CASE WHEN NOT ${success} THEN failed_count + 1 ELSE failed_count END,
+          pending_count = GREATEST(pending_count - 1, 0)
+        WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM updated_send) > 0
+        RETURNING id
+      )
+      SELECT (SELECT COUNT(*) FROM updated_send) as updated_count
+    `);
+    
+    const updatedCount = Number(result.rows[0]?.updated_count ?? 0);
+    if (updatedCount === 0) {
+      // No pending row found - this violates the two-phase invariant
+      // Throw so caller can handle the anomaly (e.g., compensating action, logging)
+      throw new Error(`finalizeSend invariant violation: No pending row found for campaign=${campaignId}, subscriber=${subscriberId}. Already finalized, missing reservation, or manual alteration.`);
+    }
+  }
+
+  // Combined method for backwards compatibility (reserves + finalizes in one call)
+  // Use reserveSendSlot + finalizeSend for proper two-phase commit
+  async recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean> {
+    // First reserve the slot
+    const reserved = await this.reserveSendSlot(campaignId, subscriberId);
+    if (!reserved) {
+      return false; // Already sent/reserved
+    }
+    // Then finalize with the result
+    await this.finalizeSend(campaignId, subscriberId, success);
+    return true;
+  }
+
+  // Recovery: Clean up orphaned pending sends from crashes/anomalies
+  // Marks stale pending rows as failed and adjusts campaign counters atomically
+  // Returns the number of orphaned sends recovered
+  async recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes: number = 5): Promise<number> {
+    const result = await db.execute(sql`
+      WITH orphaned AS (
+        UPDATE campaign_sends 
+        SET status = 'failed'
+        WHERE campaign_id = ${campaignId} 
+          AND status = 'pending'
+          AND sent_at < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes}
+        RETURNING id
+      ),
+      counter_update AS (
+        UPDATE campaigns 
+        SET 
+          failed_count = failed_count + (SELECT COUNT(*) FROM orphaned),
+          pending_count = GREATEST(pending_count - (SELECT COUNT(*) FROM orphaned), 0)
+        WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM orphaned) > 0
+        RETURNING id
+      )
+      SELECT (SELECT COUNT(*) FROM orphaned) as recovered_count
+    `);
+    
+    const recoveredCount = Number(result.rows[0]?.recovered_count ?? 0);
+    if (recoveredCount > 0) {
+      console.log(`Recovered ${recoveredCount} orphaned pending sends for campaign ${campaignId}`);
+    }
+    return recoveredCount;
+  }
+
+  // Force-fail a specific pending send (for reconciliation during invariant violations)
+  // Returns true if a pending row was found and marked failed
+  async forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean> {
+    const result = await db.execute(sql`
+      WITH updated AS (
+        UPDATE campaign_sends 
+        SET status = 'failed'
+        WHERE campaign_id = ${campaignId} 
+          AND subscriber_id = ${subscriberId}
+          AND status = 'pending'
+        RETURNING id
+      ),
+      counter_update AS (
+        UPDATE campaigns 
+        SET 
+          failed_count = failed_count + 1,
+          pending_count = GREATEST(pending_count - 1, 0)
+        WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM updated) > 0
+        RETURNING id
+      )
+      SELECT (SELECT COUNT(*) FROM updated) as updated_count
+    `);
+    
+    return Number(result.rows[0]?.updated_count ?? 0) > 0;
   }
 
   // Import Jobs
