@@ -1017,6 +1017,17 @@ async function pollForImportJobs() {
         status: "failed",
         errorMessage: error.message || "Unknown error",
       });
+      try {
+        await storage.createErrorLog({
+          type: "import_failed",
+          severity: "error",
+          message: `Import job failed: ${error.message || "Unknown error"}`,
+          importJobId: queueItem.importJobId,
+          details: error?.stack || String(error),
+        });
+      } catch (logError) {
+        console.error("Failed to log error:", logError);
+      }
     }
   } catch (error) {
     console.error("Error in import job polling:", error);
@@ -1060,6 +1071,17 @@ async function processImportFromQueue(importJobId: string, csvContent: string) {
         if (!email || !email.includes("@")) {
           failedRows++;
           processedRows++;
+          try {
+            await storage.createErrorLog({
+              type: "import_row_failed",
+              severity: "warning",
+              message: `Invalid email format: ${email || "(empty)"}`,
+              email: email || undefined,
+              importJobId,
+            });
+          } catch (logError) {
+            console.error("Failed to log row error:", logError);
+          }
           continue;
         }
         
@@ -1080,10 +1102,21 @@ async function processImportFromQueue(importJobId: string, csvContent: string) {
           newSubscribers++;
         }
         processedRows++;
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error processing row:", error);
         failedRows++;
         processedRows++;
+        try {
+          await storage.createErrorLog({
+            type: "import_row_failed",
+            severity: "error",
+            message: `Error processing row: ${error?.message || "Unknown error"}`,
+            importJobId,
+            details: error?.stack || String(error),
+          });
+        } catch (logError) {
+          console.error("Failed to log row error:", logError);
+        }
       }
     }
     
@@ -1217,6 +1250,19 @@ async function processCampaignInternal(campaignId: string) {
           sendSuccess = result.success;
           if (!result.success) {
             console.error(`Failed to send to ${subscriber.email}: ${result.error}`);
+            try {
+              await storage.createErrorLog({
+                type: "send_failed",
+                severity: "error",
+                message: `Failed to send email: ${result.error}`,
+                email: subscriber.email,
+                campaignId: campaign.id,
+                subscriberId: subscriber.id,
+                details: `MTA: ${mta.name}, Retryable: ${result.retryable ? "yes" : "no"}`,
+              });
+            } catch (logError) {
+              console.error("Failed to log error:", logError);
+            }
           } else {
             console.log(`Email sent to ${subscriber.email}, messageId: ${result.messageId}`);
           }
@@ -1229,9 +1275,22 @@ async function processCampaignInternal(campaignId: string) {
         if (delayBetweenEmails > 0) {
           await new Promise(resolve => setTimeout(resolve, delayBetweenEmails));
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Failed to send to ${subscriber.email}:`, error);
         sendSuccess = false;
+        try {
+          await storage.createErrorLog({
+            type: "send_failed",
+            severity: "error",
+            message: `Exception during email send: ${error?.message || "Unknown error"}`,
+            email: subscriber.email,
+            campaignId: campaign.id,
+            subscriberId: subscriber.id,
+            details: error?.stack || String(error),
+          });
+        } catch (logError) {
+          console.error("Failed to log error:", logError);
+        }
       }
       
       // STEP 3: Finalize the send with the result (update status + counters atomically)
