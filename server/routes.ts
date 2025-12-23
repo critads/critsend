@@ -13,13 +13,97 @@ import {
 import { z } from "zod";
 import { sendEmail, verifyTransporter, closeTransporter } from "./email-service";
 import { verifyTrackingSignature } from "./tracking";
+import * as cheerio from "cheerio";
+import * as fs from "fs";
+import * as path from "path";
+import * as https from "https";
+import * as http from "http";
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+const IMAGES_DIR = path.join(process.cwd(), "images");
+
+async function downloadImage(url: string, destPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const protocol = url.startsWith("https") ? https : http;
+    const timeout = 30000;
+    
+    try {
+      const urlObj = new URL(url);
+      if (urlObj.hostname === "localhost" || urlObj.hostname === "127.0.0.1" || urlObj.hostname.startsWith("192.168.") || urlObj.hostname.startsWith("10.")) {
+        resolve(false);
+        return;
+      }
+    } catch {
+      resolve(false);
+      return;
+    }
+    
+    const request = protocol.get(url, { timeout }, (response) => {
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        const redirectUrl = response.headers.location;
+        if (redirectUrl) {
+          downloadImage(redirectUrl, destPath).then(resolve);
+          return;
+        }
+      }
+      
+      if (response.statusCode !== 200) {
+        resolve(false);
+        return;
+      }
+      
+      const fileStream = fs.createWriteStream(destPath);
+      response.pipe(fileStream);
+      
+      fileStream.on("finish", () => {
+        fileStream.close();
+        resolve(true);
+      });
+      
+      fileStream.on("error", () => {
+        fs.unlink(destPath, () => {});
+        resolve(false);
+      });
+    });
+    
+    request.on("error", () => {
+      resolve(false);
+    });
+    
+    request.on("timeout", () => {
+      request.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function getExtensionFromUrl(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const match = pathname.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+    if (match) {
+      const ext = match[1].toLowerCase();
+      if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) {
+        return ext === "jpeg" ? "jpg" : ext;
+      }
+    }
+  } catch {}
+  return "jpg";
+}
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 50);
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Serve static images from /images folder
+  app.use("/images", require("express").static(IMAGES_DIR));
+  
   // Start the background job processor for campaign processing
   startJobProcessor();
   
@@ -443,6 +527,81 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching campaign:", error);
       res.status(500).json({ error: "Failed to fetch campaign" });
+    }
+  });
+
+  // ============ HTML IMAGE PROCESSING ============
+  // Create a temporary session ID for new campaigns that don't have an ID yet
+  app.post("/api/campaign-assets/session", async (_req: Request, res: Response) => {
+    const sessionId = `temp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    res.json({ sessionId });
+  });
+
+  app.post("/api/campaigns/:id/process-html", async (req: Request, res: Response) => {
+    try {
+      const campaignId = req.params.id;
+      const { html } = req.body;
+      
+      if (!html || typeof html !== "string") {
+        return res.status(400).json({ error: "HTML content is required" });
+      }
+      
+      const campaignImagesDir = path.join(IMAGES_DIR, campaignId);
+      if (!fs.existsSync(IMAGES_DIR)) {
+        fs.mkdirSync(IMAGES_DIR, { recursive: true });
+      }
+      if (fs.existsSync(campaignImagesDir)) {
+        const files = fs.readdirSync(campaignImagesDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(campaignImagesDir, file));
+        }
+      } else {
+        fs.mkdirSync(campaignImagesDir, { recursive: true });
+      }
+      
+      const $ = cheerio.load(html);
+      const imgElements = $("img");
+      const downloadedImages: { original: string; local: string }[] = [];
+      const failedImages: string[] = [];
+      let imageIndex = 0;
+      
+      const downloadPromises: Promise<void>[] = [];
+      
+      imgElements.each((_, el) => {
+        const src = $(el).attr("src");
+        if (src && (src.startsWith("http://") || src.startsWith("https://"))) {
+          const currentIndex = imageIndex++;
+          const ext = getExtensionFromUrl(src);
+          const filename = `img_${currentIndex}.${ext}`;
+          const destPath = path.join(campaignImagesDir, filename);
+          const localUrl = `/images/${campaignId}/${filename}`;
+          
+          const promise = downloadImage(src, destPath).then((success) => {
+            if (success) {
+              $(el).attr("src", localUrl);
+              downloadedImages.push({ original: src, local: localUrl });
+            } else {
+              failedImages.push(src);
+            }
+          });
+          
+          downloadPromises.push(promise);
+        }
+      });
+      
+      await Promise.all(downloadPromises);
+      
+      const processedHtml = $.html();
+      
+      res.json({
+        html: processedHtml,
+        downloaded: downloadedImages.length,
+        failed: failedImages.length,
+        failedUrls: failedImages
+      });
+    } catch (error) {
+      console.error("Error processing HTML:", error);
+      res.status(500).json({ error: "Failed to process HTML content" });
     }
   });
 
