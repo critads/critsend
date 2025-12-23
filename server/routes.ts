@@ -371,6 +371,58 @@ export async function registerRoutes(
   });
 
   // ============ CAMPAIGNS ============
+  
+  // Send test email endpoint
+  app.post("/api/campaigns/test", async (req: Request, res: Response) => {
+    try {
+      const { email, mtaId, fromName, fromEmail, subject, preheader, htmlContent } = req.body;
+      
+      if (!email || !mtaId || !fromEmail || !subject || !htmlContent) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
+      const mta = await storage.getMta(mtaId);
+      if (!mta) {
+        return res.status(404).json({ error: "MTA not found" });
+      }
+      
+      // Create a mock subscriber for the test
+      const testSubscriber = {
+        id: "test-subscriber",
+        email,
+        tags: ["TEST"],
+        importDate: new Date(),
+      };
+      
+      // Create a mock campaign for the test
+      const testCampaign = {
+        id: "test-campaign",
+        name: "Test Email",
+        fromName: fromName || "Test",
+        fromEmail,
+        subject,
+        preheader: preheader || "",
+        htmlContent,
+        trackOpens: false,
+        trackClicks: false,
+      };
+      
+      const result = await sendEmail(mta, testSubscriber as any, testCampaign as any, {
+        trackOpens: false,
+        trackClicks: false,
+      });
+      
+      if (result.success) {
+        res.json({ success: true, messageId: result.messageId });
+      } else {
+        res.status(500).json({ error: result.error || "Failed to send test email" });
+      }
+    } catch (error: any) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ error: error.message || "Failed to send test email" });
+    }
+  });
+  
   app.get("/api/campaigns", async (req: Request, res: Response) => {
     try {
       const campaignsList = await storage.getCampaigns();

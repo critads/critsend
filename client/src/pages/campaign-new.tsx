@@ -80,7 +80,40 @@ export default function CampaignNew() {
   const [htmlLoaded, setHtmlLoaded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
+  const [testEmail, setTestEmail] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
   const { toast } = useToast();
+
+  const formatParisTime = (date: Date | null): string => {
+    if (!date) return "";
+    const parisDate = new Date(date.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+    const year = parisDate.getFullYear();
+    const month = String(parisDate.getMonth() + 1).padStart(2, "0");
+    const day = String(parisDate.getDate()).padStart(2, "0");
+    const hours = String(parisDate.getHours()).padStart(2, "0");
+    const minutes = String(parisDate.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  const parseParisTime = (dateStr: string): Date | null => {
+    if (!dateStr) return null;
+    const [datePart, timePart] = dateStr.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hours, minutes] = timePart.split(":").map(Number);
+    const parisDateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Europe/Paris",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const utcDate = new Date(parisDateStr + "+01:00");
+    return utcDate;
+  };
 
   const handleHtmlDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -187,6 +220,48 @@ export default function CampaignNew() {
       });
     },
   });
+
+  const sendTestEmail = async () => {
+    if (!testEmail || !formData.mtaId) {
+      toast({
+        title: "Missing information",
+        description: "Please enter a test email and select an MTA server.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setSendingTest(true);
+    try {
+      const res = await apiRequest("POST", "/api/campaigns/test", {
+        email: testEmail,
+        mtaId: formData.mtaId,
+        fromName: formData.fromName,
+        fromEmail: formData.fromEmail,
+        subject: formData.subject,
+        preheader: formData.preheader,
+        htmlContent: formData.htmlContent,
+      });
+      
+      if (res.ok) {
+        toast({
+          title: "Test sent",
+          description: `Test email sent to ${testEmail}`,
+        });
+      } else {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to send test");
+      }
+    } catch (error: any) {
+      toast({
+        title: "Failed to send test",
+        description: error.message || "Please check MTA configuration.",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingTest(false);
+    }
+  };
 
   const updateField = (field: keyof InsertCampaign, value: unknown) => {
     setFormData({ ...formData, [field]: value });
@@ -646,18 +721,53 @@ export default function CampaignNew() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="schedule">Schedule (optional)</Label>
+              <Label htmlFor="schedule">Schedule (optional) - Paris Time</Label>
               <Input
                 id="schedule"
                 type="datetime-local"
-                value={formData.scheduledAt ? new Date(formData.scheduledAt).toISOString().slice(0, 16) : ""}
-                onChange={(e) => updateField("scheduledAt", e.target.value ? new Date(e.target.value) : null)}
+                value={formData.scheduledAt ? formatParisTime(new Date(formData.scheduledAt)) : ""}
+                onChange={(e) => updateField("scheduledAt", parseParisTime(e.target.value))}
                 data-testid="input-schedule"
               />
               <p className="text-xs text-muted-foreground">
-                Leave empty to send immediately, or pick a date and time
+                Leave empty to send immediately, or pick a date and time (Paris timezone)
               </p>
             </div>
+
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <Label>Send Test Email</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    placeholder="test@example.com"
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-test-email"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={sendTestEmail}
+                    disabled={sendingTest || !testEmail || !formData.mtaId || !formData.htmlContent}
+                    data-testid="button-send-test"
+                  >
+                    {sendingTest ? (
+                      <>Sending...</>
+                    ) : (
+                      <>
+                        <Mail className="h-4 w-4 mr-2" />
+                        Send Test
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Send a test email to verify your content before launching
+                </p>
+              </CardContent>
+            </Card>
 
             {subscriberCount !== null && (
               <Card className="bg-primary/5 border-primary/20">
