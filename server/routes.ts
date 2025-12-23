@@ -18,6 +18,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Start the background job processor for campaign processing
+  startJobProcessor();
+  
   // ============ SUBSCRIBERS ============
   app.get("/api/subscribers", async (req: Request, res: Response) => {
     try {
@@ -714,66 +717,80 @@ const SPEED_CONFIG: Record<string, number> = {
   godzilla: 3000,
 };
 
-// ============ JOB QUEUE FOR CAMPAIGN SERIALIZATION ============
-// Simple in-memory job queue to serialize campaign execution and prevent race conditions
-// In production, use Redis-based solutions like BullMQ for distributed processing
-class CampaignJobQueue {
-  private queue: string[] = [];
-  private processing: Set<string> = new Set();
-  private isProcessing = false;
+// ============ POSTGRESQL-BACKED JOB QUEUE FOR CAMPAIGN SERIALIZATION ============
+// Persists job state across server restarts and supports multiple workers via row-level locking
 
-  async enqueue(campaignId: string): Promise<void> {
-    // Prevent duplicate enqueues
-    if (this.queue.includes(campaignId) || this.processing.has(campaignId)) {
-      console.log(`Campaign ${campaignId} already queued or processing`);
-      return;
+// Generate a unique worker ID for this instance
+const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
+let jobPollingInterval: NodeJS.Timeout | null = null;
+
+// Public function to start a campaign - enqueues to PostgreSQL-backed job queue
+async function processCampaign(campaignId: string) {
+  // Check if this campaign already has a pending/processing job
+  const existingStatus = await storage.getJobStatus(campaignId);
+  if (existingStatus) {
+    console.log(`Campaign ${campaignId} already has a ${existingStatus} job`);
+    return;
+  }
+  
+  await storage.enqueueCampaignJob(campaignId);
+  console.log(`Campaign ${campaignId} added to PostgreSQL job queue`);
+}
+
+// Background job processor - polls for pending jobs
+async function pollForJobs() {
+  try {
+    // Clean up stale jobs from crashed workers
+    const staleCount = await storage.cleanupStaleJobs(30);
+    if (staleCount > 0) {
+      console.log(`Cleaned up ${staleCount} stale jobs`);
     }
     
-    this.queue.push(campaignId);
-    console.log(`Campaign ${campaignId} added to queue. Queue length: ${this.queue.length}`);
+    // Try to claim a pending job using FOR UPDATE SKIP LOCKED
+    const job = await storage.claimNextJob(WORKER_ID);
     
-    // Start processing if not already running
-    if (!this.isProcessing) {
-      this.processQueue();
+    if (!job) {
+      return; // No pending jobs
     }
-  }
-
-  private async processQueue(): Promise<void> {
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-
-    while (this.queue.length > 0) {
-      const campaignId = this.queue.shift();
-      if (!campaignId) continue;
-
-      this.processing.add(campaignId);
-      console.log(`Processing campaign ${campaignId}. Remaining in queue: ${this.queue.length}`);
-
-      try {
-        await processCampaignInternal(campaignId);
-      } catch (error) {
-        console.error(`Error processing campaign ${campaignId}:`, error);
-        // Mark as failed
-        await storage.updateCampaignStatusAtomic(campaignId, "failed");
-      } finally {
-        this.processing.delete(campaignId);
-      }
+    
+    console.log(`Worker ${WORKER_ID} claimed job ${job.id} for campaign ${job.campaignId}`);
+    
+    try {
+      await processCampaignInternal(job.campaignId);
+      await storage.completeJob(job.id, "completed");
+      console.log(`Job ${job.id} completed successfully`);
+    } catch (error: any) {
+      console.error(`Error processing job ${job.id}:`, error);
+      await storage.completeJob(job.id, "failed", error.message || "Unknown error");
+      await storage.updateCampaignStatusAtomic(job.campaignId, "failed");
     }
-
-    this.isProcessing = false;
-  }
-
-  isQueued(campaignId: string): boolean {
-    return this.queue.includes(campaignId) || this.processing.has(campaignId);
+  } catch (error) {
+    console.error("Error in job polling:", error);
   }
 }
 
-// Global job queue instance
-const campaignQueue = new CampaignJobQueue();
+// Start the background job processor
+function startJobProcessor() {
+  if (jobPollingInterval) {
+    return; // Already running
+  }
+  
+  console.log(`Starting job processor with worker ID: ${WORKER_ID}`);
+  
+  // Poll every 2 seconds for new jobs
+  jobPollingInterval = setInterval(pollForJobs, 2000);
+  
+  // Also run immediately on startup
+  pollForJobs();
+}
 
-// Public function to start a campaign - adds to queue instead of directly processing
-async function processCampaign(campaignId: string) {
-  await campaignQueue.enqueue(campaignId);
+// Stop the background job processor
+function stopJobProcessor() {
+  if (jobPollingInterval) {
+    clearInterval(jobPollingInterval);
+    jobPollingInterval = null;
+    console.log("Job processor stopped");
+  }
 }
 
 // Internal processing function - called by the job queue

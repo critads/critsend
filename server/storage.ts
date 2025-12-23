@@ -8,6 +8,7 @@ import {
   campaignSends,
   importJobs,
   dashboardCache,
+  campaignJobs,
   type Subscriber,
   type InsertSubscriber,
   type Segment,
@@ -23,6 +24,8 @@ import {
   type ImportJob,
   type InsertImportJob,
   type SegmentRule,
+  type CampaignJob,
+  type CampaignJobStatus,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
@@ -103,6 +106,14 @@ export interface IStorage {
   getImportJob(id: string): Promise<ImportJob | undefined>;
   createImportJob(data: InsertImportJob): Promise<ImportJob>;
   updateImportJob(id: string, data: Partial<ImportJob>): Promise<ImportJob | undefined>;
+  
+  // Campaign Job Queue (PostgreSQL-backed)
+  enqueueCampaignJob(campaignId: string): Promise<CampaignJob>;
+  claimNextJob(workerId: string): Promise<CampaignJob | null>;
+  completeJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
+  getJobStatus(campaignId: string): Promise<CampaignJobStatus | null>;
+  getActiveJobs(): Promise<CampaignJob[]>;
+  cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
   
   // Dashboard
   getDashboardStats(): Promise<{
@@ -622,6 +633,101 @@ export class DatabaseStorage implements IStorage {
   async updateImportJob(id: string, data: Partial<ImportJob>): Promise<ImportJob | undefined> {
     const [job] = await db.update(importJobs).set(data).where(eq(importJobs.id, id)).returning();
     return job;
+  }
+
+  // Campaign Job Queue (PostgreSQL-backed)
+  async enqueueCampaignJob(campaignId: string): Promise<CampaignJob> {
+    const [job] = await db.insert(campaignJobs).values({
+      campaignId,
+      status: "pending",
+    }).returning();
+    return job;
+  }
+
+  async claimNextJob(workerId: string): Promise<CampaignJob | null> {
+    const result = await db.execute(sql`
+      UPDATE campaign_jobs
+      SET status = 'processing',
+          started_at = NOW(),
+          worker_id = ${workerId}
+      WHERE id = (
+        SELECT id FROM campaign_jobs
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      RETURNING *
+    `);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+    
+    const row = result.rows[0] as any;
+    return {
+      id: row.id,
+      campaignId: row.campaign_id,
+      status: row.status,
+      createdAt: new Date(row.created_at),
+      startedAt: row.started_at ? new Date(row.started_at) : null,
+      completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      workerId: row.worker_id,
+      errorMessage: row.error_message,
+    };
+  }
+
+  async completeJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void> {
+    await db.update(campaignJobs)
+      .set({
+        status,
+        completedAt: new Date(),
+        errorMessage: errorMessage || null,
+      })
+      .where(eq(campaignJobs.id, jobId));
+  }
+
+  async getJobStatus(campaignId: string): Promise<CampaignJobStatus | null> {
+    const [result] = await db.select({ status: campaignJobs.status })
+      .from(campaignJobs)
+      .where(
+        and(
+          eq(campaignJobs.campaignId, campaignId),
+          or(
+            eq(campaignJobs.status, "pending"),
+            eq(campaignJobs.status, "processing")
+          )
+        )
+      )
+      .orderBy(desc(campaignJobs.createdAt))
+      .limit(1);
+    
+    return result ? (result.status as CampaignJobStatus) : null;
+  }
+
+  async getActiveJobs(): Promise<CampaignJob[]> {
+    return db.select()
+      .from(campaignJobs)
+      .where(
+        or(
+          eq(campaignJobs.status, "pending"),
+          eq(campaignJobs.status, "processing")
+        )
+      )
+      .orderBy(campaignJobs.createdAt);
+  }
+
+  async cleanupStaleJobs(maxAgeMinutes: number = 30): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE campaign_jobs
+      SET status = 'failed',
+          completed_at = NOW(),
+          error_message = 'Job timed out - worker may have crashed'
+      WHERE status = 'processing'
+        AND started_at < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes}
+      RETURNING id
+    `);
+    return result.rows.length;
   }
 
   // Dashboard

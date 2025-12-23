@@ -164,6 +164,36 @@ export const dashboardCache = pgTable("dashboard_cache", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// Sessions table for connect-pg-simple
+export const sessions = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+});
+
+// Campaign jobs table - PostgreSQL-backed job queue for campaign processing
+export const campaignJobs = pgTable("campaign_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
+  status: text("status").notNull().default("pending"), // pending, processing, completed, failed
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  workerId: text("worker_id"),
+  errorMessage: text("error_message"),
+}, (table) => ({
+  campaignIdx: index("campaign_jobs_campaign_idx").on(table.campaignId),
+  statusIdx: index("campaign_jobs_status_idx").on(table.status),
+  createdAtIdx: index("campaign_jobs_created_at_idx").on(table.createdAt),
+}));
+
+export const campaignJobsRelations = relations(campaignJobs, ({ one }) => ({
+  campaign: one(campaigns, {
+    fields: [campaignJobs.campaignId],
+    references: [campaigns.id],
+  }),
+}));
+
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true });
 export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true, createdAt: true });
@@ -212,6 +242,9 @@ export type CampaignSend = typeof campaignSends.$inferSelect;
 
 export type ImportJob = typeof importJobs.$inferSelect;
 export type InsertImportJob = z.infer<typeof insertImportJobSchema>;
+
+export type CampaignJob = typeof campaignJobs.$inferSelect;
+export type CampaignJobStatus = "pending" | "processing" | "completed" | "failed";
 
 // Segment rule types
 export const segmentRuleSchema = z.object({
