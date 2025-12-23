@@ -916,15 +916,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async recoverStuckImportJobs(): Promise<number> {
-    // Reset jobs stuck in processing for more than 2 minutes back to pending
+    // Reset jobs stuck in processing for more than 15 minutes back to pending
     // This handles cases where the worker crashed or server redeployed
+    // Using 15 minutes to allow large imports to complete their first batch
     const queueResult = await db.execute(sql`
       UPDATE import_job_queue
       SET status = 'pending',
           started_at = NULL,
           worker_id = NULL
       WHERE status = 'processing'
-        AND started_at < NOW() - INTERVAL '2 minutes'
+        AND started_at < NOW() - INTERVAL '15 minutes'
       RETURNING import_job_id
     `);
     

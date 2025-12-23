@@ -1398,18 +1398,25 @@ function stopImportJobProcessor() {
 }
 
 // Background import job processor - polls for pending import jobs
+let lastRecoveryCheck = 0;
 async function pollForImportJobs() {
   try {
-    // Recover stuck import jobs from crashed workers or server restarts
-    const recoveredCount = await storage.recoverStuckImportJobs();
-    if (recoveredCount > 0) {
-      console.log(`Recovered ${recoveredCount} stuck import jobs back to pending`);
-    }
-    
-    // Clean up stale import jobs from crashed workers
-    const staleCount = await storage.cleanupStaleImportJobs(30);
-    if (staleCount > 0) {
-      console.log(`Cleaned up ${staleCount} stale import jobs`);
+    // Only run recovery check every 5 minutes to avoid excessive DB queries
+    const now = Date.now();
+    if (now - lastRecoveryCheck > 5 * 60 * 1000) {
+      lastRecoveryCheck = now;
+      
+      // Recover stuck import jobs from crashed workers or server restarts
+      const recoveredCount = await storage.recoverStuckImportJobs();
+      if (recoveredCount > 0) {
+        console.log(`Recovered ${recoveredCount} stuck import jobs back to pending`);
+      }
+      
+      // Clean up stale import jobs from crashed workers
+      const staleCount = await storage.cleanupStaleImportJobs(30);
+      if (staleCount > 0) {
+        console.log(`Cleaned up ${staleCount} stale import jobs`);
+      }
     }
     
     // Try to claim a pending import job using FOR UPDATE SKIP LOCKED
