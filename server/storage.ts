@@ -104,6 +104,11 @@ export interface IStorage {
   // Force-fail a specific pending send (for reconciliation during invariant violations)
   forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
   
+  // Tracking deduplication - returns true if this is the first open/click for this subscriber
+  recordFirstOpen(campaignId: string, subscriberId: string): Promise<boolean>;
+  recordFirstClick(campaignId: string, subscriberId: string): Promise<boolean>;
+  getCampaignSend(campaignId: string, subscriberId: string): Promise<CampaignSend | undefined>;
+  
   // Import Jobs
   getImportJobs(): Promise<ImportJob[]>;
   getImportJob(id: string): Promise<ImportJob | undefined>;
@@ -623,6 +628,40 @@ export class DatabaseStorage implements IStorage {
     `);
     
     return Number(result.rows[0]?.updated_count ?? 0) > 0;
+  }
+
+  // Tracking deduplication methods
+  async getCampaignSend(campaignId: string, subscriberId: string): Promise<CampaignSend | undefined> {
+    const [send] = await db.select().from(campaignSends)
+      .where(and(
+        eq(campaignSends.campaignId, campaignId),
+        eq(campaignSends.subscriberId, subscriberId)
+      ));
+    return send;
+  }
+
+  async recordFirstOpen(campaignId: string, subscriberId: string): Promise<boolean> {
+    const result = await db.execute(sql`
+      UPDATE campaign_sends 
+      SET first_open_at = NOW()
+      WHERE campaign_id = ${campaignId} 
+        AND subscriber_id = ${subscriberId}
+        AND first_open_at IS NULL
+      RETURNING id
+    `);
+    return result.rows.length > 0;
+  }
+
+  async recordFirstClick(campaignId: string, subscriberId: string): Promise<boolean> {
+    const result = await db.execute(sql`
+      UPDATE campaign_sends 
+      SET first_click_at = NOW()
+      WHERE campaign_id = ${campaignId} 
+        AND subscriber_id = ${subscriberId}
+        AND first_click_at IS NULL
+      RETURNING id
+    `);
+    return result.rows.length > 0;
   }
 
   // Import Jobs

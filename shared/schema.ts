@@ -124,6 +124,8 @@ export const campaignSends = pgTable("campaign_sends", {
   subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id),
   sentAt: timestamp("sent_at").notNull().defaultNow(),
   status: text("status").notNull().default("sent"), // sent, failed, bounced
+  firstOpenAt: timestamp("first_open_at"),
+  firstClickAt: timestamp("first_click_at"),
 }, (table) => ({
   // UNIQUE constraint ensures no email is sent twice per campaign per subscriber
   uniqueSend: uniqueIndex("campaign_sends_unique_idx").on(table.campaignId, table.subscriberId),
