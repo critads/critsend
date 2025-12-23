@@ -674,6 +674,52 @@ export async function registerRoutes(
     }
   });
 
+  // ============ ERROR LOGS ============
+  app.get("/api/error-logs", async (req: Request, res: Response) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const type = req.query.type as string | undefined;
+      const severity = req.query.severity as string | undefined;
+      const campaignId = req.query.campaignId as string | undefined;
+      const importJobId = req.query.importJobId as string | undefined;
+      
+      const result = await storage.getErrorLogs({
+        page,
+        limit,
+        type: type || undefined,
+        severity: severity || undefined,
+        campaignId: campaignId || undefined,
+        importJobId: importJobId || undefined,
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching error logs:", error);
+      res.status(500).json({ error: "Failed to fetch error logs" });
+    }
+  });
+
+  app.get("/api/error-logs/stats", async (req: Request, res: Response) => {
+    try {
+      const stats = await storage.getErrorLogStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching error log stats:", error);
+      res.status(500).json({ error: "Failed to fetch error log stats" });
+    }
+  });
+
+  app.delete("/api/error-logs", async (req: Request, res: Response) => {
+    try {
+      const beforeDate = req.query.before ? new Date(req.query.before as string) : undefined;
+      const count = await storage.clearErrorLogs(beforeDate);
+      res.json({ deleted: count });
+    } catch (error) {
+      console.error("Error clearing error logs:", error);
+      res.status(500).json({ error: "Failed to clear error logs" });
+    }
+  });
+
   // ============ TRACKING PIXELS & LINKS ============
   app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {
     const { campaignId, subscriberId } = req.params;

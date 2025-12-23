@@ -10,6 +10,7 @@ import {
   Upload,
   Download,
   Send,
+  AlertCircle,
 } from "lucide-react";
 import {
   Sidebar,
@@ -75,6 +76,11 @@ const toolsNavItems = [
     title: "Export",
     url: "/export",
     icon: Download,
+  },
+  {
+    title: "Error Logs",
+    url: "/error-logs",
+    icon: AlertCircle,
   },
   {
     title: "API Docs",

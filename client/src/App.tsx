@@ -20,6 +20,7 @@ import Export from "@/pages/export";
 import Analytics from "@/pages/analytics";
 import Headers from "@/pages/headers";
 import ApiDocs from "@/pages/api-docs";
+import ErrorLogs from "@/pages/error-logs";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -38,6 +39,7 @@ function Router() {
       <Route path="/analytics/:id" component={Analytics} />
       <Route path="/headers" component={Headers} />
       <Route path="/api-docs" component={ApiDocs} />
+      <Route path="/error-logs" component={ErrorLogs} />
       <Route component={NotFound} />
     </Switch>
   );
