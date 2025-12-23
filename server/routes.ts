@@ -26,6 +26,37 @@ const dnsLookup = promisify(dns.lookup);
 const upload = multer({ storage: multer.memoryStorage() });
 
 const IMAGES_DIR = path.join(process.cwd(), "images");
+const TEMP_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function cleanupOrphanedTempSessions(): void {
+  try {
+    if (!fs.existsSync(IMAGES_DIR)) return;
+    
+    const entries = fs.readdirSync(IMAGES_DIR);
+    const now = Date.now();
+    
+    for (const entry of entries) {
+      if (!entry.startsWith("temp_")) continue;
+      
+      const entryPath = path.join(IMAGES_DIR, entry);
+      const stat = fs.statSync(entryPath);
+      
+      if (!stat.isDirectory()) continue;
+      
+      const age = now - stat.mtimeMs;
+      if (age > TEMP_SESSION_MAX_AGE_MS) {
+        const files = fs.readdirSync(entryPath);
+        for (const file of files) {
+          fs.unlinkSync(path.join(entryPath, file));
+        }
+        fs.rmdirSync(entryPath);
+        console.log(`Cleaned up orphaned temp session: ${entry}`);
+      }
+    }
+  } catch (error) {
+    console.error("Error cleaning up temp sessions:", error);
+  }
+}
 
 function isBlockedIP(ip: string): boolean {
   const blockedPatterns = [
@@ -207,6 +238,10 @@ export async function registerRoutes(
   
   // Start the background job processor for campaign processing
   startJobProcessor();
+  
+  // Clean up orphaned temp sessions on startup and every hour
+  cleanupOrphanedTempSessions();
+  setInterval(cleanupOrphanedTempSessions, 60 * 60 * 1000);
   
   // ============ HEALTH CHECK ============
   app.get("/api/health", async (_req: Request, res: Response) => {
