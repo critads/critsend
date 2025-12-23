@@ -256,6 +256,9 @@ export async function registerRoutes(
   // Start the background job processor for campaign processing
   startJobProcessor();
   
+  // Start the background import job processor
+  startImportJobProcessor();
+  
   // Clean up orphaned temp sessions on startup and every hour
   cleanupOrphanedTempSessions();
   setInterval(cleanupOrphanedTempSessions, 60 * 60 * 1000);
