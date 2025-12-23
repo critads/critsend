@@ -220,6 +220,40 @@ export const importJobQueueRelations = relations(importJobQueue, ({ one }) => ({
   }),
 }));
 
+// Error logs table - centralized error logging for failed sends, imports, etc.
+export const errorLogs = pgTable("error_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: text("type").notNull(), // send_failed, import_failed, campaign_failed, etc.
+  severity: text("severity").notNull().default("error"), // error, warning, info
+  message: text("message").notNull(),
+  details: text("details"), // Additional error details (stack trace, etc.)
+  campaignId: varchar("campaign_id").references(() => campaigns.id),
+  subscriberId: varchar("subscriber_id").references(() => subscribers.id),
+  importJobId: varchar("import_job_id").references(() => importJobs.id),
+  email: text("email"), // Store email for reference even if subscriber is deleted
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ({
+  typeIdx: index("error_logs_type_idx").on(table.type),
+  timestampIdx: index("error_logs_timestamp_idx").on(table.timestamp),
+  campaignIdx: index("error_logs_campaign_idx").on(table.campaignId),
+  severityIdx: index("error_logs_severity_idx").on(table.severity),
+}));
+
+export const errorLogsRelations = relations(errorLogs, ({ one }) => ({
+  campaign: one(campaigns, {
+    fields: [errorLogs.campaignId],
+    references: [campaigns.id],
+  }),
+  subscriber: one(subscribers, {
+    fields: [errorLogs.subscriberId],
+    references: [subscribers.id],
+  }),
+  importJob: one(importJobs, {
+    fields: [errorLogs.importJobId],
+    references: [importJobs.id],
+  }),
+}));
+
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true });
 export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true, createdAt: true });
@@ -245,6 +279,10 @@ export const insertImportJobSchema = createInsertSchema(importJobs).omit({
   createdAt: true,
   completedAt: true,
 });
+export const insertErrorLogSchema = createInsertSchema(errorLogs).omit({ 
+  id: true, 
+  timestamp: true,
+});
 
 // Types
 export type Subscriber = typeof subscribers.$inferSelect;
@@ -268,6 +306,11 @@ export type CampaignSend = typeof campaignSends.$inferSelect;
 
 export type ImportJob = typeof importJobs.$inferSelect;
 export type InsertImportJob = z.infer<typeof insertImportJobSchema>;
+
+export type ErrorLog = typeof errorLogs.$inferSelect;
+export type InsertErrorLog = z.infer<typeof insertErrorLogSchema>;
+export type ErrorLogType = "send_failed" | "import_failed" | "import_row_failed" | "campaign_failed" | "system_error";
+export type ErrorLogSeverity = "error" | "warning" | "info";
 
 export type CampaignJob = typeof campaignJobs.$inferSelect;
 export type CampaignJobStatus = "pending" | "processing" | "completed" | "failed";
