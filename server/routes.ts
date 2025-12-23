@@ -1429,10 +1429,14 @@ async function pollForImportJobs() {
 
 // Process import from queue - parses CSV and imports in batches
 async function processImportFromQueue(importJobId: string, csvContent: string) {
+  console.log(`Processing import job ${importJobId}, CSV content length: ${csvContent?.length || 0}`);
+  
   const BATCH_SIZE = 20000;
   const lines = csvContent.split("\n").filter(line => line.trim());
+  console.log(`Import ${importJobId}: Found ${lines.length} lines in CSV`);
   
   const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+  console.log(`Import ${importJobId}: Header columns: ${header.join(", ")}`);
   const emailIdx = header.indexOf("email");
   const tagsIdx = header.indexOf("tags");
   const ipIdx = header.indexOf("ip_address");
@@ -1514,6 +1518,7 @@ async function processImportFromQueue(importJobId: string, csvContent: string) {
     }
     
     // Update job progress after each batch
+    console.log(`Import ${importJobId}: Batch progress - processed: ${processedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
     await storage.updateImportJob(importJobId, {
       processedRows,
       newSubscribers,
