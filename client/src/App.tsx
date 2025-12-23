@@ -14,6 +14,7 @@ import Segments from "@/pages/segments";
 import MTAs from "@/pages/mtas";
 import Campaigns from "@/pages/campaigns";
 import CampaignNew from "@/pages/campaign-new";
+import CampaignDetail from "@/pages/campaign-detail";
 import Import from "@/pages/import";
 import Export from "@/pages/export";
 import Analytics from "@/pages/analytics";
@@ -30,7 +31,7 @@ function Router() {
       <Route path="/mtas" component={MTAs} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/campaigns/new" component={CampaignNew} />
-      <Route path="/campaigns/:id" component={CampaignNew} />
+      <Route path="/campaigns/:id" component={CampaignDetail} />
       <Route path="/import" component={Import} />
       <Route path="/export" component={Export} />
       <Route path="/analytics" component={Analytics} />
