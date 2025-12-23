@@ -1,6 +1,8 @@
 import express, { type Express, type Request, type Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 import multer from "multer";
 import { Readable } from "stream";
 import {
@@ -334,6 +336,35 @@ export async function registerRoutes(
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch metrics" });
+    }
+  });
+
+  // Debug endpoint to check import queue status
+  app.get("/api/debug/import-queue", async (_req: Request, res: Response) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT id, import_job_id, status, created_at, started_at, worker_id, error_message 
+        FROM import_job_queue 
+        ORDER BY created_at DESC 
+        LIMIT 10
+      `);
+      
+      const importJobs = await db.execute(sql`
+        SELECT id, filename, status, total_rows, processed_rows, created_at
+        FROM import_jobs
+        ORDER BY created_at DESC
+        LIMIT 10
+      `);
+      
+      res.json({
+        workerId: WORKER_ID,
+        importJobProcessorRunning: !!importJobPollingInterval,
+        queueItems: result.rows,
+        importJobs: importJobs.rows
+      });
+    } catch (error) {
+      console.error("Error fetching import queue debug info:", error);
+      res.status(500).json({ error: "Failed to fetch debug info" });
     }
   });
   
@@ -849,31 +880,38 @@ export async function registerRoutes(
   // ============ IMPORT ============
   app.post("/api/import", upload.single("file"), async (req: Request, res: Response) => {
     try {
+      console.log(`[IMPORT] Received import request`);
       if (!req.file) {
+        console.log(`[IMPORT] No file in request`);
         return res.status(400).json({ error: "No file uploaded" });
       }
 
+      console.log(`[IMPORT] File received: ${req.file.originalname}, size: ${req.file.size} bytes`);
       const content = req.file.buffer.toString("utf-8");
       const lines = content.split("\n").filter(line => line.trim());
       
       if (lines.length < 2) {
+        console.log(`[IMPORT] CSV empty or invalid, lines: ${lines.length}`);
         return res.status(400).json({ error: "CSV file is empty or invalid" });
       }
+
+      console.log(`[IMPORT] CSV has ${lines.length - 1} data rows`);
 
       // Create import job record
       const job = await storage.createImportJob({
         filename: req.file.originalname,
         totalRows: lines.length - 1, // Exclude header
       });
+      console.log(`[IMPORT] Created import job: ${job.id}`);
 
       // Enqueue for background processing (stores CSV content in queue table)
-      await storage.enqueueImportJob(job.id, content);
-      console.log(`Import job ${job.id} added to PostgreSQL queue`);
+      const queueItem = await storage.enqueueImportJob(job.id, content);
+      console.log(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}`);
 
       // Return immediately with job ID for progress tracking
       res.status(202).json(job);
     } catch (error) {
-      console.error("Error starting import:", error);
+      console.error("[IMPORT] Error starting import:", error);
       res.status(500).json({ error: "Failed to start import" });
     }
   });
