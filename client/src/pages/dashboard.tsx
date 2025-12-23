@@ -362,7 +362,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-muted-foreground mb-2">No campaigns yet</p>
                 <Link href="/campaigns/new">
-                  <Button variant="link" className="text-primary" data-testid="link-create-first-campaign">
+                  <Button variant="ghost" className="text-primary" data-testid="link-create-first-campaign">
                     Create your first campaign
                   </Button>
                 </Link>
@@ -425,7 +425,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-muted-foreground mb-2">No imports yet</p>
                 <Link href="/import">
-                  <Button variant="link" className="text-primary" data-testid="link-import-first-subscribers">
+                  <Button variant="ghost" className="text-primary" data-testid="link-import-first-subscribers">
                     Import your first subscribers
                   </Button>
                 </Link>

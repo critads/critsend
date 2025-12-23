@@ -85,10 +85,12 @@ export default function CampaignNew() {
   });
 
   const countMutation = useMutation({
-    mutationFn: (segmentId: string) =>
-      apiRequest("GET", `/api/segments/${segmentId}/count`),
+    mutationFn: async (segmentId: string) => {
+      const res = await apiRequest("GET", `/api/segments/${segmentId}/count`);
+      return res.json();
+    },
     onSuccess: (data: { count: number }) => {
-      setSubscriberCount(data.count);
+      setSubscriberCount(data?.count ?? 0);
     },
   });
 
@@ -276,7 +278,7 @@ export default function CampaignNew() {
                 <div className="text-center py-8 text-muted-foreground">
                   <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No active sending servers available.</p>
-                  <Button variant="link" onClick={() => navigate("/mtas")}>
+                  <Button variant="ghost" onClick={() => navigate("/mtas")} className="text-primary">
                     Configure MTAs
                   </Button>
                 </div>
@@ -312,7 +314,7 @@ export default function CampaignNew() {
                 <div className="text-center py-8 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No segments available.</p>
-                  <Button variant="link" onClick={() => navigate("/segments")}>
+                  <Button variant="ghost" onClick={() => navigate("/segments")} className="text-primary">
                     Create Segment
                   </Button>
                 </div>
