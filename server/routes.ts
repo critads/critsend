@@ -127,12 +127,19 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
       callback(null, resolvedIP, 4);
     };
     
-    const requestOptions = {
+    const requestOptions: https.RequestOptions = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
+      path: urlObj.pathname + urlObj.search,
+      method: "GET",
       timeout,
       lookup: safetyLookup as any,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)",
+      },
     };
     
-    const request = protocol.get(url, requestOptions, (response) => {
+    const request = protocol.get(requestOptions, (response) => {
       const socket = response.socket as any;
       if (socket && socket.remoteAddress && isBlockedIP(socket.remoteAddress)) {
         request.destroy();
