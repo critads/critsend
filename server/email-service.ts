@@ -1,6 +1,11 @@
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import type { Mta, Campaign, Subscriber } from "@shared/schema";
+import {
+  generateSignedOpenTrackingUrl,
+  generateSignedClickTrackingUrl,
+  generateSignedUnsubscribeUrl,
+} from "./tracking";
 
 const transporterPool: Map<string, Transporter> = new Map();
 
@@ -67,29 +72,41 @@ export function addTrackingToHtml(
   options: TrackingOptions
 ): string {
   let processedHtml = htmlContent;
+  
+  // Get the base URL for tracking (remove trailing slash if present)
+  const baseUrl = (options.trackingDomain || "").replace(/\/$/, "");
 
-  if (options.trackClicks && options.trackingDomain) {
-    const clickTrackingBase = `${options.trackingDomain}/track/click`;
+  // Rewrite all links with signed click tracking URLs
+  if (options.trackClicks && baseUrl) {
     processedHtml = processedHtml.replace(
       /href="(https?:\/\/[^"]+)"/gi,
       (match, url) => {
-        const encodedUrl = encodeURIComponent(url);
-        const trackingUrl = `${clickTrackingBase}?c=${options.campaignId}&s=${options.subscriberId}&url=${encodedUrl}`;
-        if (options.clickTag) {
-          return `href="${trackingUrl}&tag=${encodeURIComponent(options.clickTag)}"`;
-        }
+        // Generate signed click tracking URL
+        const trackingUrl = generateSignedClickTrackingUrl(
+          baseUrl,
+          options.campaignId,
+          options.subscriberId,
+          url
+        );
         return `href="${trackingUrl}"`;
       }
     );
   }
 
+  // Insert open tracking pixel before </body>
   if (options.trackOpens) {
-    const openTrackingBase = options.openTrackingDomain || options.trackingDomain;
+    const openTrackingBase = options.openTrackingDomain 
+      ? options.openTrackingDomain.replace(/\/$/, "")
+      : baseUrl;
+    
     if (openTrackingBase) {
-      let pixelUrl = `${openTrackingBase}/track/open?c=${options.campaignId}&s=${options.subscriberId}`;
-      if (options.openTag) {
-        pixelUrl += `&tag=${encodeURIComponent(options.openTag)}`;
-      }
+      // Generate signed open tracking URL
+      const pixelUrl = generateSignedOpenTrackingUrl(
+        openTrackingBase,
+        options.campaignId,
+        options.subscriberId
+      );
+      
       const trackingPixel = `<img src="${pixelUrl}" width="1" height="1" alt="" style="display:none;width:1px;height:1px;border:0;" />`;
       
       if (processedHtml.includes("</body>")) {
@@ -136,6 +153,17 @@ export async function sendEmail(
   const transporter = createTransporter(mta);
 
   let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
+  
+  // Add signed unsubscribe URL placeholder replacement
+  const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
+  if (baseUrl && htmlContent.includes("{{unsubscribe_url}}")) {
+    const unsubscribeUrl = generateSignedUnsubscribeUrl(
+      baseUrl,
+      campaign.id,
+      subscriber.id
+    );
+    htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
+  }
   
   htmlContent = addTrackingToHtml(htmlContent, {
     campaignId: campaign.id,

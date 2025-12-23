@@ -130,6 +130,9 @@ export interface IStorage {
   getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
   
+  // Health Check
+  healthCheck(): Promise<boolean>;
+  
   // Dashboard
   getDashboardStats(): Promise<{
     totalSubscribers: number;
@@ -985,6 +988,11 @@ export class DatabaseStorage implements IStorage {
       topLinks,
       recentActivity,
     };
+  }
+
+  async healthCheck(): Promise<boolean> {
+    const result = await db.execute(sql`SELECT 1 as ok`);
+    return result.rows.length > 0;
   }
 }
 

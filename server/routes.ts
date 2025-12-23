@@ -12,6 +12,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import { sendEmail, verifyTransporter, closeTransporter } from "./email-service";
+import { verifyTrackingSignature } from "./tracking";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -21,6 +22,85 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Start the background job processor for campaign processing
   startJobProcessor();
+  
+  // ============ HEALTH CHECK ============
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    try {
+      const startTime = Date.now();
+      await storage.healthCheck();
+      const dbLatency = Date.now() - startTime;
+      
+      res.json({
+        status: "healthy",
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()),
+        database: {
+          status: "connected",
+          latencyMs: dbLatency
+        },
+        version: "1.0.0"
+      });
+    } catch (error) {
+      res.status(503).json({
+        status: "unhealthy",
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()),
+        database: {
+          status: "disconnected",
+          error: error instanceof Error ? error.message : "Unknown error"
+        }
+      });
+    }
+  });
+
+  app.get("/api/health/ready", async (_req: Request, res: Response) => {
+    try {
+      await storage.healthCheck();
+      const activeJobs = await storage.getActiveJobs();
+      
+      res.json({
+        ready: true,
+        timestamp: new Date().toISOString(),
+        jobProcessor: {
+          running: true,
+          activeJobs: activeJobs.length
+        }
+      });
+    } catch (error) {
+      res.status(503).json({
+        ready: false,
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : "Service not ready"
+      });
+    }
+  });
+
+  app.get("/api/metrics", async (_req: Request, res: Response) => {
+    try {
+      const [activeJobs, stats] = await Promise.all([
+        storage.getActiveJobs(),
+        storage.getDashboardStats()
+      ]);
+      
+      res.json({
+        timestamp: new Date().toISOString(),
+        campaigns: {
+          total: stats.totalCampaigns,
+          pendingJobs: activeJobs.filter(j => j.status === "pending").length,
+          processingJobs: activeJobs.filter(j => j.status === "processing").length
+        },
+        subscribers: {
+          total: stats.totalSubscribers
+        },
+        tracking: {
+          totalOpens: stats.totalOpens,
+          totalClicks: stats.totalClicks
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch metrics" });
+    }
+  });
   
   // ============ SUBSCRIBERS ============
   app.get("/api/subscribers", async (req: Request, res: Response) => {
@@ -544,9 +624,27 @@ export async function registerRoutes(
 
   // ============ TRACKING PIXELS & LINKS ============
   app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {
+    const { campaignId, subscriberId } = req.params;
+    const sig = req.query.sig as string;
+    
+    // Always return pixel to avoid broken images, but only record if signature is valid
+    const returnPixel = () => {
+      const pixel = Buffer.from(
+        "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        "base64"
+      );
+      res.setHeader("Content-Type", "image/gif");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.send(pixel);
+    };
+    
+    // Verify signature before recording
+    if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "open", sig)) {
+      console.warn(`Invalid tracking signature for open: campaign=${campaignId}, subscriber=${subscriberId}`);
+      return returnPixel();
+    }
+    
     try {
-      const { campaignId, subscriberId } = req.params;
-      
       // Record the open
       await storage.addCampaignStat(campaignId, subscriberId, "open");
       
@@ -560,35 +658,30 @@ export async function registerRoutes(
         }
       }
       
-      // Return 1x1 transparent pixel
-      const pixel = Buffer.from(
-        "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-        "base64"
-      );
-      res.setHeader("Content-Type", "image/gif");
-      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-      res.send(pixel);
+      returnPixel();
     } catch (error) {
       console.error("Error tracking open:", error);
-      // Still return pixel even on error
-      const pixel = Buffer.from(
-        "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-        "base64"
-      );
-      res.setHeader("Content-Type", "image/gif");
-      res.send(pixel);
+      returnPixel();
     }
   });
 
   app.get("/api/track/click/:campaignId/:subscriberId", async (req: Request, res: Response) => {
+    const { campaignId, subscriberId } = req.params;
+    const url = req.query.url as string;
+    const sig = req.query.sig as string;
+    
+    if (!url) {
+      return res.status(400).json({ error: "URL required" });
+    }
+    
+    // Verify signature before recording (include URL in signature verification)
+    if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "click", sig, url)) {
+      console.warn(`Invalid tracking signature for click: campaign=${campaignId}, subscriber=${subscriberId}`);
+      // Still redirect to avoid broken user experience
+      return res.redirect(url);
+    }
+    
     try {
-      const { campaignId, subscriberId } = req.params;
-      const url = req.query.url as string;
-      
-      if (!url) {
-        return res.status(400).json({ error: "URL required" });
-      }
-      
       // Record the click
       await storage.addCampaignStat(campaignId, subscriberId, "click", url);
       
@@ -606,19 +699,40 @@ export async function registerRoutes(
       res.redirect(url);
     } catch (error) {
       console.error("Error tracking click:", error);
-      const url = req.query.url as string;
-      if (url) {
-        res.redirect(url);
-      } else {
-        res.status(500).json({ error: "Failed to track click" });
-      }
+      res.redirect(url);
     }
   });
 
   app.get("/api/unsubscribe/:campaignId/:subscriberId", async (req: Request, res: Response) => {
+    const { campaignId, subscriberId } = req.params;
+    const sig = req.query.sig as string;
+    
+    // Verify signature before processing unsubscribe
+    if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "unsubscribe", sig)) {
+      console.warn(`Invalid tracking signature for unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
+      return res.status(403).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Invalid Link</title>
+          <style>
+            body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .container { text-align: center; }
+            h1 { color: #c00; }
+            p { color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>Invalid Link</h1>
+            <p>This unsubscribe link is invalid or has expired.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    
     try {
-      const { campaignId, subscriberId } = req.params;
-      
       const campaign = await storage.getCampaign(campaignId);
       const subscriber = await storage.getSubscriber(subscriberId);
       
