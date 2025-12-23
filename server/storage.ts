@@ -847,6 +847,32 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  async cancelImportJob(importJobId: string): Promise<boolean> {
+    // Cancel the queue item first
+    const queueResult = await db.execute(sql`
+      UPDATE import_job_queue
+      SET status = 'cancelled',
+          completed_at = NOW(),
+          error_message = 'Cancelled by user'
+      WHERE import_job_id = ${importJobId}
+        AND status IN ('pending', 'processing')
+      RETURNING id
+    `);
+    
+    // Update the import job status
+    const jobResult = await db.execute(sql`
+      UPDATE import_jobs
+      SET status = 'cancelled',
+          error_message = 'Cancelled by user',
+          completed_at = NOW()
+      WHERE id = ${importJobId}
+        AND status IN ('pending', 'processing')
+      RETURNING id
+    `);
+    
+    return queueResult.rows.length > 0 || jobResult.rows.length > 0;
+  }
+
   async completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void> {
     await db.update(importJobQueue)
       .set({

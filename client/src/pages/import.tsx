@@ -16,6 +16,7 @@ import {
   Loader2,
   RefreshCw,
   AlertCircle,
+  Ban,
 } from "lucide-react";
 import type { ImportJob } from "@shared/schema";
 
@@ -66,6 +67,27 @@ export default function Import() {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const response = await apiRequest("POST", `/api/import/${jobId}/cancel`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      toast({
+        title: "Import cancelled",
+        description: "The import job has been cancelled.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Cancel failed",
+        description: "Could not cancel the import. It may have already completed.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -110,6 +132,8 @@ export default function Import() {
         return <CheckCircle2 className="h-5 w-5 text-green-600" />;
       case "failed":
         return <XCircle className="h-5 w-5 text-red-600" />;
+      case "cancelled":
+        return <Ban className="h-5 w-5 text-muted-foreground" />;
       case "processing":
         return <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />;
       default:
@@ -123,6 +147,7 @@ export default function Import() {
       processing: "default",
       completed: "secondary",
       failed: "destructive",
+      cancelled: "secondary",
     };
     return <Badge variant={variants[status] || "outline"}>{status}</Badge>;
   };
@@ -265,7 +290,21 @@ jane@example.com,NEWSLETTER,192.168.1.2`}
                         </p>
                       </div>
                     </div>
-                    {getStatusBadge(job.status)}
+                    <div className="flex items-center gap-2">
+                      {(job.status === "pending" || job.status === "processing") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => cancelMutation.mutate(job.id)}
+                          disabled={cancelMutation.isPending}
+                          data-testid={`button-cancel-import-${job.id}`}
+                        >
+                          <Ban className="h-4 w-4 mr-1" />
+                          Cancel
+                        </Button>
+                      )}
+                      {getStatusBadge(job.status)}
+                    </div>
                   </div>
 
                   {job.status === "processing" && (

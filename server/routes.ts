@@ -926,6 +926,21 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/import/:id/cancel", async (req: Request, res: Response) => {
+    try {
+      const cancelled = await storage.cancelImportJob(req.params.id);
+      if (cancelled) {
+        console.log(`[IMPORT] Import job ${req.params.id} cancelled by user`);
+        res.json({ success: true, message: "Import cancelled" });
+      } else {
+        res.status(400).json({ error: "Import cannot be cancelled (already completed or not found)" });
+      }
+    } catch (error) {
+      console.error("Error cancelling import:", error);
+      res.status(500).json({ error: "Failed to cancel import" });
+    }
+  });
+
   app.get("/api/import/:id/progress", async (req: Request, res: Response) => {
     try {
       const job = await storage.getImportJob(req.params.id);
