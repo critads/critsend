@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Pause,
   Tag,
+  Pencil,
 } from "lucide-react";
 import type { Campaign, Mta, Segment } from "@shared/schema";
 
@@ -122,12 +123,22 @@ export default function CampaignDetail() {
             </p>
           </div>
         </div>
-        <Link href={`/analytics/${campaign.id}`}>
-          <Button data-testid="button-view-analytics">
-            <BarChart3 className="h-4 w-4 mr-2" />
-            View Analytics
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2 flex-wrap">
+          {campaign.status === "draft" && (
+            <Link href={`/campaigns/${campaign.id}/edit`}>
+              <Button variant="outline" data-testid="button-edit-campaign">
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit Campaign
+              </Button>
+            </Link>
+          )}
+          <Link href={`/analytics/${campaign.id}`}>
+            <Button data-testid="button-view-analytics">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              View Analytics
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
