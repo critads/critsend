@@ -1,6 +1,14 @@
 import crypto from "crypto";
 
-const TRACKING_SECRET = process.env.SESSION_SECRET || process.env.TRACKING_SECRET || "default-tracking-secret";
+function getTrackingSecret(): string {
+  const secret = process.env.TRACKING_SECRET || process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error("TRACKING_SECRET or SESSION_SECRET environment variable is required for secure tracking URLs");
+  }
+  return secret;
+}
+
+const TRACKING_SECRET = getTrackingSecret();
 
 export type TrackingType = "open" | "click" | "unsubscribe";
 

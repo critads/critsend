@@ -33,7 +33,7 @@ export function createTransporter(mta: Mta): Transporter {
     greetingTimeout: 10000,
     socketTimeout: 30000,
     tls: {
-      rejectUnauthorized: false,
+      rejectUnauthorized: process.env.SMTP_SKIP_TLS_VERIFY !== "true",
     },
   });
 

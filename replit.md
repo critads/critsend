@@ -121,12 +121,40 @@ npm run db:push      # Push schema to database
 npm run build        # Build for production
 ```
 
+## Production Architecture
+
+### PostgreSQL-Backed Job Queues
+- **Campaign Jobs**: `campaign_jobs` table with `FOR UPDATE SKIP LOCKED` for race-condition-free multi-worker processing
+- **Import Jobs**: `import_job_queue` table for background CSV processing with progress tracking
+- **Crash Recovery**: Stale jobs automatically recovered (30min for imports, 2min for campaigns)
+- **Horizontal Scaling**: Multiple workers can safely claim jobs using row-level locking
+
+### Real SMTP Email Sending
+- **Nodemailer**: Connection pooling (5 connections, 100 messages per connection)
+- **Retry Logic**: 3 retries with exponential backoff for transient errors
+- **TLS Security**: Certificate validation enabled by default (override with `SMTP_SKIP_TLS_VERIFY=true`)
+- **Tracking Injection**: Automatic open pixel and click tracking URL rewriting
+
+### Session Management
+- **PostgreSQL Sessions**: Using `connect-pg-simple` for persistent sessions
+- **Secure Cookies**: Production-grade cookie settings with 30-day expiry
+
+### Tracking Security
+- **HMAC-SHA256 Signed URLs**: All tracking URLs are cryptographically signed
+- **Timing-Safe Comparison**: Prevents timing attacks on signature verification
+- **Required Secrets**: Application fails fast if `TRACKING_SECRET` or `SESSION_SECRET` missing
+
+### Health & Monitoring
+- `GET /api/health` - Database connection status and uptime
+- `GET /api/health/ready` - Readiness probe for orchestration
+- `GET /api/metrics` - Campaign/subscriber/tracking metrics
+
 ## Concurrency & Data Integrity
 
 The campaign sending system implements production-grade safeguards:
 
 ### Race Condition Prevention
-- **Job Queue Serialization**: Campaigns are processed through an in-memory job queue that serializes execution, preventing multiple instances from processing the same campaign simultaneously
+- **Job Queue Serialization**: Campaigns are processed through PostgreSQL-backed job queue with `FOR UPDATE SKIP LOCKED` for multi-worker safety
 - **Atomic Counter Updates**: Uses SQL `SET sent_count = sent_count + 1` instead of read-then-write to prevent lost updates
 - **ON CONFLICT DO NOTHING**: campaign_sends table uses PostgreSQL's upsert pattern to atomically prevent duplicate sends
 - **Optimistic Locking**: Campaign status updates use expected status checks to prevent concurrent state changes
@@ -145,9 +173,19 @@ The campaign sending system implements production-grade safeguards:
 - `recoverOrphanedPendingSends()` - Cleanup stale pending rows (called at campaign start)
 - `forceFailPendingSend()` - Reconciliation for individual invariant violations
 
+## Environment Variables
+
+### Required
+- `DATABASE_URL` - PostgreSQL connection string
+- `SESSION_SECRET` - Secret for session signing (min 32 chars recommended)
+
+### Optional
+- `TRACKING_SECRET` - Separate secret for tracking URL signing (defaults to SESSION_SECRET)
+- `SMTP_SKIP_TLS_VERIFY` - Set to "true" to disable TLS certificate validation (development only)
+
 ## Notes
 
 - Import processing uses 20,000 row batches to prevent memory issues
-- Campaign sending uses in-memory job queue (production would use Redis-based BullMQ for distributed processing)
+- Campaign sending uses PostgreSQL-backed job queue for distributed processing
 - PostgreSQL GIN index on tags array for fast segment filtering
 - BCK tag always excludes subscribers from receiving newsletters
