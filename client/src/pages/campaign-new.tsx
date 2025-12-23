@@ -30,6 +30,9 @@ import {
   Zap,
   Eye,
   MousePointer2,
+  Upload,
+  Code,
+  X,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign } from "@shared/schema";
 
@@ -61,7 +64,7 @@ export default function CampaignNew() {
     replyEmail: "",
     subject: "",
     preheader: "",
-    htmlContent: "<html><body><h1>Hello!</h1><p>Your content here...</p></body></html>",
+    htmlContent: "",
     trackClicks: true,
     trackOpens: true,
     unsubscribeText: "Unsubscribe",
@@ -74,7 +77,50 @@ export default function CampaignNew() {
     status: "draft",
   });
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
+  const [htmlLoaded, setHtmlLoaded] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
   const { toast } = useToast();
+
+  const handleHtmlDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files[0];
+    if (file && (file.type === "text/html" || file.name.endsWith(".html") || file.name.endsWith(".htm"))) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        updateField("htmlContent", content);
+        setHtmlLoaded(true);
+      };
+      reader.readAsText(file);
+    } else {
+      toast({
+        title: "Invalid file",
+        description: "Please drop an HTML file (.html or .htm)",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleHtmlFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        updateField("htmlContent", content);
+        setHtmlLoaded(true);
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const clearHtml = () => {
+    updateField("htmlContent", "");
+    setHtmlLoaded(false);
+  };
 
   const { data: mtas, isLoading: loadingMtas } = useQuery<Mta[]>({
     queryKey: ["/api/mtas"],
@@ -361,18 +407,104 @@ export default function CampaignNew() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="html-content">HTML Content *</Label>
-              <Textarea
-                id="html-content"
-                placeholder="<html>...</html>"
-                value={formData.htmlContent}
-                onChange={(e) => updateField("htmlContent", e.target.value)}
-                className="font-mono text-sm min-h-[300px]"
-                data-testid="textarea-html-content"
-              />
-              <p className="text-xs text-muted-foreground">
-                Paste or edit your HTML newsletter content
-              </p>
+              <Label>HTML Content *</Label>
+              {!htmlLoaded ? (
+                <div
+                  className={`border-2 border-dashed rounded-md p-8 text-center transition-colors ${
+                    isDragging
+                      ? "border-primary bg-primary/5"
+                      : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                  }`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleHtmlDrop}
+                  data-testid="dropzone-html"
+                >
+                  <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-lg font-medium mb-2">Drop your HTML file here</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    or click to browse for a file
+                  </p>
+                  <input
+                    type="file"
+                    accept=".html,.htm,text/html"
+                    onChange={handleHtmlFileSelect}
+                    className="hidden"
+                    id="html-file-input"
+                    data-testid="input-html-file"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => document.getElementById("html-file-input")?.click()}
+                    data-testid="button-browse-html"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Browse Files
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant={showPreview ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setShowPreview(true)}
+                        data-testid="button-show-preview"
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        Preview
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={!showPreview ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setShowPreview(false)}
+                        data-testid="button-show-code"
+                      >
+                        <Code className="h-4 w-4 mr-1" />
+                        Code
+                      </Button>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearHtml}
+                      className="text-destructive"
+                      data-testid="button-clear-html"
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      Clear
+                    </Button>
+                  </div>
+                  {showPreview ? (
+                    <div className="border rounded-md bg-white overflow-hidden">
+                      <iframe
+                        srcDoc={formData.htmlContent}
+                        className="w-full min-h-[400px] border-0"
+                        title="Email Preview"
+                        sandbox="allow-same-origin"
+                        data-testid="iframe-html-preview"
+                      />
+                    </div>
+                  ) : (
+                    <Textarea
+                      id="html-content"
+                      placeholder="<html>...</html>"
+                      value={formData.htmlContent}
+                      onChange={(e) => updateField("htmlContent", e.target.value)}
+                      className="font-mono text-sm min-h-[400px]"
+                      data-testid="textarea-html-content"
+                    />
+                  )}
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
