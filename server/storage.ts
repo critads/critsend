@@ -10,6 +10,7 @@ import {
   dashboardCache,
   campaignJobs,
   importJobQueue,
+  errorLogs,
   type Subscriber,
   type InsertSubscriber,
   type Segment,
@@ -29,6 +30,8 @@ import {
   type CampaignJobStatus,
   type ImportJobQueueItem,
   type ImportJobQueueStatus,
+  type ErrorLog,
+  type InsertErrorLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
@@ -129,6 +132,24 @@ export interface IStorage {
   completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
   getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
+  
+  // Error Logs
+  logError(data: InsertErrorLog): Promise<ErrorLog>;
+  getErrorLogs(options?: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    severity?: string;
+    campaignId?: string;
+    importJobId?: string;
+  }): Promise<{ logs: ErrorLog[]; total: number }>;
+  getErrorLogStats(): Promise<{
+    total: number;
+    byType: Record<string, number>;
+    bySeverity: Record<string, number>;
+    last24Hours: number;
+  }>;
+  clearErrorLogs(beforeDate?: Date): Promise<number>;
   
   // Health Check
   healthCheck(): Promise<boolean>;
@@ -988,6 +1009,108 @@ export class DatabaseStorage implements IStorage {
       topLinks,
       recentActivity,
     };
+  }
+
+  // Error Logs
+  async logError(data: InsertErrorLog): Promise<ErrorLog> {
+    const [log] = await db.insert(errorLogs).values(data).returning();
+    return log;
+  }
+
+  async getErrorLogs(options?: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    severity?: string;
+    campaignId?: string;
+    importJobId?: string;
+  }): Promise<{ logs: ErrorLog[]; total: number }> {
+    const page = options?.page || 1;
+    const limit = options?.limit || 50;
+    const offset = (page - 1) * limit;
+    
+    const conditions = [];
+    if (options?.type) {
+      conditions.push(eq(errorLogs.type, options.type));
+    }
+    if (options?.severity) {
+      conditions.push(eq(errorLogs.severity, options.severity));
+    }
+    if (options?.campaignId) {
+      conditions.push(eq(errorLogs.campaignId, options.campaignId));
+    }
+    if (options?.importJobId) {
+      conditions.push(eq(errorLogs.importJobId, options.importJobId));
+    }
+    
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    
+    const [logs, [{ count }]] = await Promise.all([
+      whereClause 
+        ? db.select().from(errorLogs).where(whereClause).orderBy(desc(errorLogs.timestamp)).limit(limit).offset(offset)
+        : db.select().from(errorLogs).orderBy(desc(errorLogs.timestamp)).limit(limit).offset(offset),
+      whereClause
+        ? db.select({ count: sql<number>`count(*)` }).from(errorLogs).where(whereClause)
+        : db.select({ count: sql<number>`count(*)` }).from(errorLogs),
+    ]);
+    
+    return { logs, total: Number(count) };
+  }
+
+  async getErrorLogStats(): Promise<{
+    total: number;
+    byType: Record<string, number>;
+    bySeverity: Record<string, number>;
+    last24Hours: number;
+  }> {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    
+    const [
+      [{ total }],
+      typeStats,
+      severityStats,
+      [{ last24Hours }],
+    ] = await Promise.all([
+      db.select({ total: sql<number>`count(*)` }).from(errorLogs),
+      db.select({ 
+        type: errorLogs.type, 
+        count: sql<number>`count(*)` 
+      }).from(errorLogs).groupBy(errorLogs.type),
+      db.select({ 
+        severity: errorLogs.severity, 
+        count: sql<number>`count(*)` 
+      }).from(errorLogs).groupBy(errorLogs.severity),
+      db.select({ last24Hours: sql<number>`count(*)` })
+        .from(errorLogs)
+        .where(sql`${errorLogs.timestamp} > ${yesterday}`),
+    ]);
+    
+    const byType: Record<string, number> = {};
+    for (const stat of typeStats) {
+      byType[stat.type] = Number(stat.count);
+    }
+    
+    const bySeverity: Record<string, number> = {};
+    for (const stat of severityStats) {
+      bySeverity[stat.severity] = Number(stat.count);
+    }
+    
+    return {
+      total: Number(total),
+      byType,
+      bySeverity,
+      last24Hours: Number(last24Hours),
+    };
+  }
+
+  async clearErrorLogs(beforeDate?: Date): Promise<number> {
+    if (beforeDate) {
+      const result = await db.delete(errorLogs).where(sql`${errorLogs.timestamp} < ${beforeDate}`);
+      return result.rowCount || 0;
+    } else {
+      const result = await db.delete(errorLogs);
+      return result.rowCount || 0;
+    }
   }
 
   async healthCheck(): Promise<boolean> {
