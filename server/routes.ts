@@ -370,6 +370,22 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch debug info" });
     }
   });
+
+  app.post("/api/debug/recover-stuck-imports", async (_req: Request, res: Response) => {
+    try {
+      const recoveredCount = await storage.recoverStuckImportJobs();
+      res.json({ 
+        success: true, 
+        recoveredCount,
+        message: recoveredCount > 0 
+          ? `Recovered ${recoveredCount} stuck jobs back to pending` 
+          : "No stuck jobs found to recover"
+      });
+    } catch (error) {
+      console.error("Error recovering stuck imports:", error);
+      res.status(500).json({ error: "Failed to recover stuck imports" });
+    }
+  });
   
   // ============ SUBSCRIBERS ============
   app.get("/api/subscribers", async (req: Request, res: Response) => {
@@ -1362,6 +1378,12 @@ function stopImportJobProcessor() {
 // Background import job processor - polls for pending import jobs
 async function pollForImportJobs() {
   try {
+    // Recover stuck import jobs from crashed workers or server restarts
+    const recoveredCount = await storage.recoverStuckImportJobs();
+    if (recoveredCount > 0) {
+      console.log(`Recovered ${recoveredCount} stuck import jobs back to pending`);
+    }
+    
     // Clean up stale import jobs from crashed workers
     const staleCount = await storage.cleanupStaleImportJobs(30);
     if (staleCount > 0) {

@@ -132,6 +132,7 @@ export interface IStorage {
   completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
   getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
+  recoverStuckImportJobs(): Promise<number>;
   
   // Error Logs
   logError(data: InsertErrorLog): Promise<ErrorLog>;
@@ -912,6 +913,32 @@ export class DatabaseStorage implements IStorage {
       RETURNING id
     `);
     return result.rows.length;
+  }
+
+  async recoverStuckImportJobs(): Promise<number> {
+    // Reset jobs stuck in processing for more than 2 minutes back to pending
+    // This handles cases where the worker crashed or server redeployed
+    const queueResult = await db.execute(sql`
+      UPDATE import_job_queue
+      SET status = 'pending',
+          started_at = NULL,
+          worker_id = NULL
+      WHERE status = 'processing'
+        AND started_at < NOW() - INTERVAL '2 minutes'
+      RETURNING import_job_id
+    `);
+    
+    // Also reset the corresponding import jobs to pending
+    for (const row of queueResult.rows as any[]) {
+      await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'pending'
+        WHERE id = ${row.import_job_id}
+          AND status = 'processing'
+      `);
+    }
+    
+    return queueResult.rows.length;
   }
 
   // Dashboard
