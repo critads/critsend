@@ -406,7 +406,7 @@ export async function registerRoutes(
       const queueItem = result.rows[0] as any;
       
       // Log that we're starting
-      await storage.createErrorLog({
+      await storage.logError({
         type: "debug_force_process",
         severity: "info",
         message: `Force processing import ${queueItem.import_job_id}, CSV length: ${queueItem.csv_content?.length || 0}`,
@@ -418,7 +418,7 @@ export async function registerRoutes(
         await processImportFromQueue(queueItem.import_job_id, queueItem.csv_content);
         await storage.completeImportQueueJob(queueItem.id, "completed");
         
-        await storage.createErrorLog({
+        await storage.logError({
           type: "debug_force_process",
           severity: "info",
           message: `Force processing completed successfully for ${queueItem.import_job_id}`,
@@ -427,7 +427,7 @@ export async function registerRoutes(
         
         res.json({ success: true, message: "Processing completed" });
       } catch (processError: any) {
-        await storage.createErrorLog({
+        await storage.logError({
           type: "debug_force_process",
           severity: "error",
           message: `Force processing failed: ${processError.message}`,
@@ -1500,7 +1500,7 @@ async function pollForImportJobs() {
         errorMessage: error.message || "Unknown error",
       });
       try {
-        await storage.createErrorLog({
+        await storage.logError({
           type: "import_failed",
           severity: "error",
           message: `Import job failed: ${error.message || "Unknown error"}`,
@@ -1558,7 +1558,7 @@ async function processImportFromQueue(importJobId: string, csvContent: string) {
           failedRows++;
           processedRows++;
           try {
-            await storage.createErrorLog({
+            await storage.logError({
               type: "import_row_failed",
               severity: "warning",
               message: `Invalid email format: ${email || "(empty)"}`,
@@ -1593,7 +1593,7 @@ async function processImportFromQueue(importJobId: string, csvContent: string) {
         failedRows++;
         processedRows++;
         try {
-          await storage.createErrorLog({
+          await storage.logError({
             type: "import_row_failed",
             severity: "error",
             message: `Error processing row: ${error?.message || "Unknown error"}`,
@@ -1738,7 +1738,7 @@ async function processCampaignInternal(campaignId: string) {
           if (!result.success) {
             console.error(`Failed to send to ${subscriber.email}: ${result.error}`);
             try {
-              await storage.createErrorLog({
+              await storage.logError({
                 type: "send_failed",
                 severity: "error",
                 message: `Failed to send email: ${result.error}`,
@@ -1766,7 +1766,7 @@ async function processCampaignInternal(campaignId: string) {
         console.error(`Failed to send to ${subscriber.email}:`, error);
         sendSuccess = false;
         try {
-          await storage.createErrorLog({
+          await storage.logError({
             type: "send_failed",
             severity: "error",
             message: `Exception during email send: ${error?.message || "Unknown error"}`,
