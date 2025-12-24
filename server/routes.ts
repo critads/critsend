@@ -387,6 +387,66 @@ export async function registerRoutes(
     }
   });
 
+  // Debug endpoint to manually process an import job and log results
+  app.post("/api/debug/force-process-import/:queueId", async (req: Request, res: Response) => {
+    try {
+      const { queueId } = req.params;
+      
+      // Get the queue item
+      const result = await db.execute(sql`
+        SELECT id, import_job_id, csv_content, status
+        FROM import_job_queue 
+        WHERE id = ${queueId}
+      `);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Queue item not found" });
+      }
+      
+      const queueItem = result.rows[0] as any;
+      
+      // Log that we're starting
+      await storage.createErrorLog({
+        type: "debug_force_process",
+        severity: "info",
+        message: `Force processing import ${queueItem.import_job_id}, CSV length: ${queueItem.csv_content?.length || 0}`,
+        importJobId: queueItem.import_job_id,
+      });
+      
+      // Try to process
+      try {
+        await processImportFromQueue(queueItem.import_job_id, queueItem.csv_content);
+        await storage.completeImportQueueJob(queueItem.id, "completed");
+        
+        await storage.createErrorLog({
+          type: "debug_force_process",
+          severity: "info",
+          message: `Force processing completed successfully for ${queueItem.import_job_id}`,
+          importJobId: queueItem.import_job_id,
+        });
+        
+        res.json({ success: true, message: "Processing completed" });
+      } catch (processError: any) {
+        await storage.createErrorLog({
+          type: "debug_force_process",
+          severity: "error",
+          message: `Force processing failed: ${processError.message}`,
+          importJobId: queueItem.import_job_id,
+          details: processError.stack,
+        });
+        
+        res.status(500).json({ 
+          error: "Processing failed", 
+          message: processError.message,
+          stack: processError.stack 
+        });
+      }
+    } catch (error: any) {
+      console.error("Error in force process:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/debug/import-queue-details/:id", async (req: Request, res: Response) => {
     try {
       const result = await db.execute(sql`
