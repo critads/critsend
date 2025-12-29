@@ -75,6 +75,12 @@ export default function Campaigns() {
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
+    refetchInterval: (query) => {
+      // Auto-refresh every 2 seconds if any campaign is sending
+      const data = query.state.data as Campaign[] | undefined;
+      const hasSending = data?.some((c) => c.status === "sending");
+      return hasSending ? 2000 : false;
+    },
   });
 
   const deleteMutation = useMutation({
