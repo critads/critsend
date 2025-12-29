@@ -366,15 +366,30 @@ export type CampaignJobStatus = "pending" | "processing" | "completed" | "failed
 export type ImportJobQueueItem = typeof importJobQueue.$inferSelect;
 export type ImportJobQueueStatus = "pending" | "processing" | "completed" | "failed";
 
-// Segment rule types
+// Segment rule types - supports both tags and email filtering
 export const segmentRuleSchema = z.object({
-  field: z.enum(["tags"]),
-  operator: z.enum(["contains", "not_contains", "equals", "not_equals"]),
+  field: z.enum(["tags", "email"]),
+  operator: z.enum(["contains", "not_contains", "equals", "not_equals", "starts_with", "ends_with"]),
   value: z.string(),
   logic: z.enum(["AND", "OR"]).optional(),
 });
 
 export type SegmentRule = z.infer<typeof segmentRuleSchema>;
+
+// Operators available for each field type
+export const fieldOperators = {
+  tags: ["contains", "not_contains", "equals", "not_equals"] as const,
+  email: ["contains", "not_contains", "equals", "not_equals", "starts_with", "ends_with"] as const,
+};
+
+export const operatorLabels: Record<string, string> = {
+  contains: "contains",
+  not_contains: "does not contain",
+  equals: "equals",
+  not_equals: "does not equal",
+  starts_with: "starts with",
+  ends_with: "ends with",
+};
 
 // Sending speed configuration
 export const sendingSpeedConfig = {
