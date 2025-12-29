@@ -1537,7 +1537,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   // Process data rows (skip header at index 0)
   for (let batchStart = 1; batchStart < lines.length; batchStart += BATCH_SIZE) {
     const batchEnd = Math.min(batchStart + BATCH_SIZE, lines.length);
-    const batchRows: Array<{ email: string; tags: string[]; ipAddress: string | null }> = [];
+    const batchRows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }> = [];
     
     // Parse batch into structured data
     for (let i = batchStart; i < batchEnd; i++) {
@@ -1561,7 +1561,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           : [];
         const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
         
-        batchRows.push({ email, tags, ipAddress });
+        batchRows.push({ email, tags, ipAddress, lineNumber: i });
         processedRows++;
       } catch (err) {
         failedRows++;
@@ -1640,7 +1640,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
 // This is 10-100x faster than individual INSERT statements
 async function bulkUpsertSubscribers(
   jobId: string,
-  rows: Array<{ email: string; tags: string[]; ipAddress: string | null }>
+  rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>
 ): Promise<{ inserted: number; updated: number }> {
   if (rows.length === 0) {
     return { inserted: 0, updated: 0 };
@@ -1664,15 +1664,15 @@ async function bulkUpsertSubscribers(
       const email = row.email.toLowerCase();
       // Format tags as PostgreSQL array literal
       const tagsArray = `{${row.tags.map(t => `"${t.replace(/"/g, '\\"')}"`).join(',')}}`;
-      valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}::text[], $${paramIdx + 3})`);
-      params.push(jobId, email, tagsArray, row.ipAddress);
-      paramIdx += 4;
+      valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}::text[], $${paramIdx + 3}, $${paramIdx + 4})`);
+      params.push(jobId, email, tagsArray, row.ipAddress, row.lineNumber);
+      paramIdx += 5;
     }
     
     try {
       // Step 1: Insert into staging table using pool directly for parameterized query
       const insertSql = `
-        INSERT INTO import_staging (job_id, email, tags, ip_address)
+        INSERT INTO import_staging (job_id, email, tags, ip_address, line_number)
         VALUES ${valuesClauses.join(', ')}
       `;
       await pool.query(insertSql, params);
@@ -1680,6 +1680,7 @@ async function bulkUpsertSubscribers(
       // Step 2: Merge from staging to subscribers with single SQL statement
       // First aggregate duplicate emails within the staging batch to preserve all tags
       // Uses LEFT JOIN LATERAL to preserve rows with empty tag arrays
+      // Uses line_number for deterministic IP selection (last row wins)
       const mergeResult = await db.execute(sql`
         WITH aggregated_staging AS (
           SELECT 
@@ -1688,7 +1689,7 @@ async function bulkUpsertSubscribers(
               array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
               ARRAY[]::text[]
             ) AS tags,
-            MAX(s.ip_address) AS ip_address
+            (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
           FROM import_staging s
           LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
           WHERE s.job_id = ${jobId}

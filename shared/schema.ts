@@ -231,6 +231,7 @@ export const importStaging = pgTable("import_staging", {
   email: text("email").notNull(),
   tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
   ipAddress: text("ip_address"),
+  lineNumber: integer("line_number").notNull().default(0),
 }, (table) => ({
   jobIdIdx: index("import_staging_job_id_idx").on(table.jobId),
   emailIdx: index("import_staging_email_idx").on(table.email),
