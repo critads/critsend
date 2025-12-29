@@ -18,11 +18,14 @@ import {
   AlertCircle,
   Ban,
 } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import type { ImportJob } from "@shared/schema";
 
 export default function Import() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [tagMode, setTagMode] = useState<"merge" | "override">("merge");
   const { toast } = useToast();
 
   const { data: jobs, isLoading, refetch } = useQuery<ImportJob[]>({
@@ -37,9 +40,10 @@ export default function Import() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, tagMode }: { file: File; tagMode: "merge" | "override" }) => {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("tagMode", tagMode);
       const response = await fetch("/api/import", {
         method: "POST",
         body: formData,
@@ -122,7 +126,7 @@ export default function Import() {
 
   const handleUpload = () => {
     if (selectedFile) {
-      uploadMutation.mutate(selectedFile);
+      uploadMutation.mutate({ file: selectedFile, tagMode });
     }
   };
 
@@ -207,32 +211,55 @@ export default function Import() {
           </div>
 
           {selectedFile && (
-            <div className="flex gap-2">
-              <Button
-                onClick={handleUpload}
-                disabled={uploadMutation.isPending}
-                className="flex-1"
-                data-testid="button-start-import"
-              >
-                {uploadMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Start Import
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setSelectedFile(null)}
-                data-testid="button-clear-file"
-              >
-                Clear
-              </Button>
+            <div className="space-y-4">
+              <div className="rounded-md border p-4">
+                <h4 className="font-medium mb-3">Tag handling for existing emails</h4>
+                <RadioGroup
+                  value={tagMode}
+                  onValueChange={(value) => setTagMode(value as "merge" | "override")}
+                  className="space-y-2"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="merge" id="merge" data-testid="radio-tag-merge" />
+                    <Label htmlFor="merge" className="font-normal cursor-pointer">
+                      Merge tags - Add new tags to existing ones
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="override" id="override" data-testid="radio-tag-override" />
+                    <Label htmlFor="override" className="font-normal cursor-pointer">
+                      Override tags - Replace all existing tags with new ones
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleUpload}
+                  disabled={uploadMutation.isPending}
+                  className="flex-1"
+                  data-testid="button-start-import"
+                >
+                  {uploadMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Start Import
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedFile(null)}
+                  data-testid="button-clear-file"
+                >
+                  Clear
+                </Button>
+              </div>
             </div>
           )}
 

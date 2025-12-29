@@ -946,7 +946,9 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      console.log(`[IMPORT] File received: ${req.file.originalname}, size: ${req.file.size} bytes`);
+      // Get tag mode from form data (default to merge for backwards compatibility)
+      const tagMode = (req.body.tagMode === "override") ? "override" : "merge";
+      console.log(`[IMPORT] File received: ${req.file.originalname}, size: ${req.file.size} bytes, tagMode: ${tagMode}`);
       
       // Count lines without loading entire file into memory for line count
       const content = req.file.buffer.toString("utf-8");
@@ -969,6 +971,7 @@ export async function registerRoutes(
       const job = await storage.createImportJob({
         filename: req.file.originalname,
         totalRows: totalDataRows,
+        tagMode: tagMode,
       });
       console.log(`[IMPORT] Created import job: ${job.id}`);
 
@@ -1497,6 +1500,11 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     throw new Error(`CSV file not found: ${csvFilePath}`);
   }
   
+  // Get import job to retrieve tagMode
+  const importJob = await storage.getImportJob(importJobId);
+  const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
+  console.log(`[IMPORT] ${importJobId}: Using tag mode: ${tagMode}`);
+  
   // Read file content - for production with huge files, we'd use streaming
   // but for reliability we read the full file
   const csvContent = fs.readFileSync(csvFilePath, 'utf-8');
@@ -1572,7 +1580,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     // Bulk upsert using PostgreSQL ON CONFLICT
     if (batchRows.length > 0) {
       try {
-        const result = await bulkUpsertSubscribers(importJobId, batchRows);
+        const result = await bulkUpsertSubscribers(importJobId, batchRows, tagMode);
         newSubscribers += result.inserted;
         updatedSubscribers += result.updated;
       } catch (err: any) {
@@ -1582,7 +1590,9 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           try {
             const existing = await storage.getSubscriberByEmail(row.email);
             if (existing) {
-              const mergedTags = [...new Set([...(existing.tags || []), ...row.tags])];
+              const mergedTags = tagMode === "override" 
+                ? row.tags 
+                : [...new Set([...(existing.tags || []), ...row.tags])];
               await storage.updateSubscriber(existing.id, { tags: mergedTags });
               updatedSubscribers++;
             } else {
@@ -1640,7 +1650,8 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
 // This is 10-100x faster than individual INSERT statements
 async function bulkUpsertSubscribers(
   jobId: string,
-  rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>
+  rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
+  tagMode: "merge" | "override" = "merge"
 ): Promise<{ inserted: number; updated: number }> {
   if (rows.length === 0) {
     return { inserted: 0, updated: 0 };
@@ -1681,39 +1692,69 @@ async function bulkUpsertSubscribers(
       // First aggregate duplicate emails within the staging batch to preserve all tags
       // Uses LEFT JOIN LATERAL to preserve rows with empty tag arrays
       // Uses line_number for deterministic IP selection (last row wins)
-      const mergeResult = await db.execute(sql`
-        WITH aggregated_staging AS (
-          SELECT 
-            s.email,
-            COALESCE(
-              array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
-              ARRAY[]::text[]
-            ) AS tags,
-            (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
-          FROM import_staging s
-          LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
-          WHERE s.job_id = ${jobId}
-          GROUP BY s.email
-        ),
-        merge_data AS (
-          INSERT INTO subscribers (email, tags, ip_address, import_date)
-          SELECT email, tags, ip_address, NOW()
-          FROM aggregated_staging
-          ON CONFLICT (email) DO UPDATE 
-          SET tags = COALESCE(
-            (SELECT array_agg(DISTINCT t) 
-             FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
-             WHERE t IS NOT NULL),
-            ARRAY[]::text[]
+      // tagMode determines whether to merge or override existing tags
+      const mergeResult = tagMode === "override" 
+        ? await db.execute(sql`
+          WITH aggregated_staging AS (
+            SELECT 
+              s.email,
+              COALESCE(
+                array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
+                ARRAY[]::text[]
+              ) AS tags,
+              (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
+            FROM import_staging s
+            LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
+            WHERE s.job_id = ${jobId}
+            GROUP BY s.email
           ),
-          ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-          RETURNING (xmax = 0) AS is_insert
-        )
-        SELECT 
-          COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-          COUNT(*) FILTER (WHERE is_insert = false) AS updated
-        FROM merge_data
-      `);
+          merge_data AS (
+            INSERT INTO subscribers (email, tags, ip_address, import_date)
+            SELECT email, tags, ip_address, NOW()
+            FROM aggregated_staging
+            ON CONFLICT (email) DO UPDATE 
+            SET tags = EXCLUDED.tags,
+            ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
+            RETURNING (xmax = 0) AS is_insert
+          )
+          SELECT 
+            COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
+            COUNT(*) FILTER (WHERE is_insert = false) AS updated
+          FROM merge_data
+        `)
+        : await db.execute(sql`
+          WITH aggregated_staging AS (
+            SELECT 
+              s.email,
+              COALESCE(
+                array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
+                ARRAY[]::text[]
+              ) AS tags,
+              (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
+            FROM import_staging s
+            LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
+            WHERE s.job_id = ${jobId}
+            GROUP BY s.email
+          ),
+          merge_data AS (
+            INSERT INTO subscribers (email, tags, ip_address, import_date)
+            SELECT email, tags, ip_address, NOW()
+            FROM aggregated_staging
+            ON CONFLICT (email) DO UPDATE 
+            SET tags = COALESCE(
+              (SELECT array_agg(DISTINCT t) 
+               FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
+               WHERE t IS NOT NULL),
+              ARRAY[]::text[]
+            ),
+            ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
+            RETURNING (xmax = 0) AS is_insert
+          )
+          SELECT 
+            COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
+            COUNT(*) FILTER (WHERE is_insert = false) AS updated
+          FROM merge_data
+        `);
       
       // Step 3: Clear staging for this job
       await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${jobId}`);
@@ -1731,17 +1772,26 @@ async function bulkUpsertSubscribers(
       // Fall back to individual inserts for this chunk
       for (const row of chunk) {
         try {
-          const result = await db.execute(sql`
-            INSERT INTO subscribers (email, tags, ip_address, import_date)
-            VALUES (${row.email.toLowerCase()}, ${row.tags}::text[], ${row.ipAddress}, NOW())
-            ON CONFLICT (email) DO UPDATE 
-            SET tags = (
-              SELECT array_agg(DISTINCT t) 
-              FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
-              WHERE t IS NOT NULL
-            )
-            RETURNING (xmax = 0) AS is_insert
-          `);
+          const result = tagMode === "override"
+            ? await db.execute(sql`
+              INSERT INTO subscribers (email, tags, ip_address, import_date)
+              VALUES (${row.email.toLowerCase()}, ${row.tags}::text[], ${row.ipAddress}, NOW())
+              ON CONFLICT (email) DO UPDATE 
+              SET tags = EXCLUDED.tags
+              RETURNING (xmax = 0) AS is_insert
+            `)
+            : await db.execute(sql`
+              INSERT INTO subscribers (email, tags, ip_address, import_date)
+              VALUES (${row.email.toLowerCase()}, ${row.tags}::text[], ${row.ipAddress}, NOW())
+              ON CONFLICT (email) DO UPDATE 
+              SET tags = COALESCE(
+                (SELECT array_agg(DISTINCT t) 
+                 FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
+                 WHERE t IS NOT NULL),
+                ARRAY[]::text[]
+              )
+              RETURNING (xmax = 0) AS is_insert
+            `);
           
           if (result.rows.length > 0) {
             const isInsert = (result.rows[0] as any).is_insert;

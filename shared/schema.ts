@@ -153,6 +153,7 @@ export const importJobs = pgTable("import_jobs", {
   updatedSubscribers: integer("updated_subscribers").notNull().default(0),
   failedRows: integer("failed_rows").notNull().default(0),
   status: text("status").notNull().default("pending"),
+  tagMode: text("tag_mode").notNull().default("merge"),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
