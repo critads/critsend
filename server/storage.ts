@@ -332,23 +332,50 @@ export class DatabaseStorage implements IStorage {
       const rule = rules[i];
       let condition: ReturnType<typeof sql>;
       
-      switch (rule.operator) {
-        case "contains":
-          // Check if any tag contains the value (using LIKE pattern)
-          condition = sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
-          break;
-        case "not_contains":
-          condition = sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
-          break;
-        case "equals":
-          // Check if exact tag exists
-          condition = sql`${rule.value} = ANY(${subscribers.tags})`;
-          break;
-        case "not_equals":
-          condition = sql`NOT (${rule.value} = ANY(${subscribers.tags}))`;
-          break;
-        default:
-          continue;
+      if (rule.field === "email") {
+        // Email field filtering
+        switch (rule.operator) {
+          case "contains":
+            condition = sql`${subscribers.email} ILIKE ${'%' + rule.value + '%'}`;
+            break;
+          case "not_contains":
+            condition = sql`${subscribers.email} NOT ILIKE ${'%' + rule.value + '%'}`;
+            break;
+          case "equals":
+            condition = sql`LOWER(${subscribers.email}) = LOWER(${rule.value})`;
+            break;
+          case "not_equals":
+            condition = sql`LOWER(${subscribers.email}) != LOWER(${rule.value})`;
+            break;
+          case "starts_with":
+            condition = sql`${subscribers.email} ILIKE ${rule.value + '%'}`;
+            break;
+          case "ends_with":
+            condition = sql`${subscribers.email} ILIKE ${'%' + rule.value}`;
+            break;
+          default:
+            continue;
+        }
+      } else {
+        // Tags field filtering (default)
+        switch (rule.operator) {
+          case "contains":
+            // Check if any tag contains the value (using LIKE pattern)
+            condition = sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+            break;
+          case "not_contains":
+            condition = sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+            break;
+          case "equals":
+            // Check if exact tag exists
+            condition = sql`${rule.value} = ANY(${subscribers.tags})`;
+            break;
+          case "not_equals":
+            condition = sql`NOT (${rule.value} = ANY(${subscribers.tags}))`;
+            break;
+          default:
+            continue;
+        }
       }
       
       conditions.push(condition);
