@@ -44,6 +44,7 @@ export interface IStorage {
   createSubscriber(data: InsertSubscriber): Promise<Subscriber>;
   updateSubscriber(id: string, data: Partial<InsertSubscriber>): Promise<Subscriber | undefined>;
   deleteSubscriber(id: string): Promise<void>;
+  deleteAllSubscribers(): Promise<number>;
   getSubscribersForSegment(segmentId: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string): Promise<number>;
   
@@ -247,6 +248,11 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSubscriber(id: string): Promise<void> {
     await db.delete(subscribers).where(eq(subscribers.id, id));
+  }
+
+  async deleteAllSubscribers(): Promise<number> {
+    const result = await db.delete(subscribers).returning({ id: subscribers.id });
+    return result.length;
   }
 
   async getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]> {
