@@ -40,8 +40,30 @@ export const mtas = pgTable("mtas", {
   trackingDomain: text("tracking_domain"),
   openTrackingDomain: text("open_tracking_domain"),
   isActive: boolean("is_active").notNull().default(true),
+  mode: text("mode").notNull().default("real"), // "real" or "nullsink"
+  simulatedLatencyMs: integer("simulated_latency_ms").default(0), // Latency to simulate for nullsink
+  failureRate: integer("failure_rate").default(0), // Percentage of simulated failures (0-100)
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// Null-sink captures - logs emails captured during test campaigns
+export const nullsinkCaptures = pgTable("nullsink_captures", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
+  subscriberId: varchar("subscriber_id").references(() => subscribers.id),
+  mtaId: varchar("mta_id").references(() => mtas.id),
+  fromEmail: text("from_email").notNull(),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  messageSize: integer("message_size").default(0), // Size in bytes
+  status: text("status").notNull().default("captured"), // captured, simulated_failure
+  handshakeTimeMs: integer("handshake_time_ms").default(0),
+  totalTimeMs: integer("total_time_ms").default(0),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => ({
+  campaignIdx: index("nullsink_captures_campaign_idx").on(table.campaignId),
+  timestampIdx: index("nullsink_captures_timestamp_idx").on(table.timestamp),
+}));
 
 // Email headers
 export const emailHeaders = pgTable("email_headers", {
@@ -301,6 +323,10 @@ export const insertErrorLogSchema = createInsertSchema(errorLogs).omit({
   id: true, 
   timestamp: true,
 });
+export const insertNullsinkCaptureSchema = createInsertSchema(nullsinkCaptures).omit({ 
+  id: true, 
+  timestamp: true,
+});
 
 // Types
 export type Subscriber = typeof subscribers.$inferSelect;
@@ -329,6 +355,10 @@ export type ErrorLog = typeof errorLogs.$inferSelect;
 export type InsertErrorLog = z.infer<typeof insertErrorLogSchema>;
 export type ErrorLogType = "send_failed" | "import_failed" | "import_row_failed" | "campaign_failed" | "system_error";
 export type ErrorLogSeverity = "error" | "warning" | "info";
+
+export type NullsinkCapture = typeof nullsinkCaptures.$inferSelect;
+export type InsertNullsinkCapture = z.infer<typeof insertNullsinkCaptureSchema>;
+export type MtaMode = "real" | "nullsink";
 
 export type CampaignJob = typeof campaignJobs.$inferSelect;
 export type CampaignJobStatus = "pending" | "processing" | "completed" | "failed";

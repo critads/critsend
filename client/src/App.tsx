@@ -22,6 +22,7 @@ import Analytics from "@/pages/analytics";
 import Headers from "@/pages/headers";
 import ApiDocs from "@/pages/api-docs";
 import ErrorLogs from "@/pages/error-logs";
+import TestMetrics from "@/pages/test-metrics";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -42,6 +43,7 @@ function Router() {
       <Route path="/headers" component={Headers} />
       <Route path="/api-docs" component={ApiDocs} />
       <Route path="/error-logs" component={ErrorLogs} />
+      <Route path="/test-metrics" component={TestMetrics} />
       <Route component={NotFound} />
     </Switch>
   );

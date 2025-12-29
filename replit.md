@@ -143,6 +143,15 @@ npm run build        # Build for production
 - **TLS Security**: Certificate validation enabled by default (override with `SMTP_SKIP_TLS_VERIFY=true`)
 - **Tracking Injection**: Automatic open pixel and click tracking URL rewriting
 
+### Nullsink SMTP Testing Server
+- **Built-in Test MTA**: Internal SMTP server (port 2525) for testing campaigns without sending real emails
+- **MTA Mode Field**: MTAs can be set to "real" or "nullsink" mode
+- **Configurable Latency**: Simulate network delays (0-5000ms) for realistic throughput testing
+- **Failure Injection**: Configurable failure rate (0-100%) for stress testing error handling
+- **Capture Storage**: All test emails stored in `nullsink_captures` table with timing metrics
+- **Test Metrics Dashboard**: Real-time throughput stats, emails/second, average latency
+- **Race-Condition Safe**: Per-send latency/failure simulation prevents config clobber between concurrent campaigns
+
 ### Session Management
 - **PostgreSQL Sessions**: Using `connect-pg-simple` for persistent sessions
 - **Secure Cookies**: Production-grade cookie settings with 30-day expiry

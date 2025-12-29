@@ -11,6 +11,7 @@ import {
   Download,
   Send,
   AlertCircle,
+  FlaskConical,
 } from "lucide-react";
 import {
   Sidebar,
@@ -63,6 +64,11 @@ const settingsNavItems = [
     title: "Analytics",
     url: "/analytics",
     icon: BarChart3,
+  },
+  {
+    title: "Test Metrics",
+    url: "/test-metrics",
+    icon: FlaskConical,
   },
 ];
 

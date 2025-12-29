@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Server, Plus, MoreVertical, Trash2, Edit2, Eye, EyeOff, CheckCircle2, XCircle } from "lucide-react";
+import { Server, Plus, MoreVertical, Trash2, Edit2, Eye, EyeOff, CheckCircle2, XCircle, FlaskConical } from "lucide-react";
 import type { Mta, InsertMta } from "@shared/schema";
 
 export default function MTAs() {
@@ -41,6 +42,9 @@ export default function MTAs() {
     trackingDomain: "",
     openTrackingDomain: "",
     isActive: true,
+    mode: "real",
+    simulatedLatencyMs: 0,
+    failureRate: 0,
   });
   const { toast } = useToast();
 
@@ -118,6 +122,9 @@ export default function MTAs() {
       trackingDomain: "",
       openTrackingDomain: "",
       isActive: true,
+      mode: "real",
+      simulatedLatencyMs: 0,
+      failureRate: 0,
     });
     setShowPassword(false);
   };
@@ -133,6 +140,9 @@ export default function MTAs() {
       trackingDomain: mta.trackingDomain || "",
       openTrackingDomain: mta.openTrackingDomain || "",
       isActive: mta.isActive,
+      mode: mta.mode || "real",
+      simulatedLatencyMs: mta.simulatedLatencyMs ?? 0,
+      failureRate: mta.failureRate ?? 0,
     });
   };
 
@@ -256,6 +266,73 @@ export default function MTAs() {
             data-testid="switch-mta-active"
           />
         </div>
+        <div className="sm:col-span-2 space-y-3 p-3 rounded-md bg-muted/50">
+          <div>
+            <Label>Mode</Label>
+            <p className="text-sm text-muted-foreground">
+              Choose how this MTA handles email delivery
+            </p>
+          </div>
+          <RadioGroup
+            value={formData.mode || "real"}
+            onValueChange={(value) => setFormData({ ...formData, mode: value })}
+            className="flex flex-col gap-3"
+            data-testid="radio-mta-mode"
+          >
+            <div className="flex items-center space-x-3">
+              <RadioGroupItem value="real" id="mode-real" data-testid="radio-mode-real" />
+              <Label htmlFor="mode-real" className="font-normal cursor-pointer">
+                <span className="font-medium">Real</span>
+                <span className="text-muted-foreground ml-1">- Send emails via SMTP server</span>
+              </Label>
+            </div>
+            <div className="flex items-center space-x-3">
+              <RadioGroupItem value="nullsink" id="mode-nullsink" data-testid="radio-mode-nullsink" />
+              <Label htmlFor="mode-nullsink" className="font-normal cursor-pointer">
+                <span className="font-medium">Nullsink (Test Mode)</span>
+                <span className="text-muted-foreground ml-1">- Capture emails without sending</span>
+              </Label>
+            </div>
+          </RadioGroup>
+        </div>
+        {formData.mode === "nullsink" && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="mta-latency">Simulated Latency (ms)</Label>
+              <Input
+                id="mta-latency"
+                type="number"
+                min="0"
+                placeholder="0"
+                value={formData.simulatedLatencyMs ?? 0}
+                onChange={(e) => setFormData({ ...formData, simulatedLatencyMs: parseInt(e.target.value) || 0 })}
+                data-testid="input-mta-latency"
+              />
+              <p className="text-xs text-muted-foreground">
+                Delay in milliseconds to simulate network latency
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="mta-failure-rate">Failure Rate (%)</Label>
+              <Input
+                id="mta-failure-rate"
+                type="number"
+                min="0"
+                max="100"
+                placeholder="0"
+                value={formData.failureRate ?? 0}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || 0;
+                  setFormData({ ...formData, failureRate: Math.min(100, Math.max(0, value)) });
+                }}
+                data-testid="input-mta-failure-rate"
+              />
+              <p className="text-xs text-muted-foreground">
+                Percentage of emails that will simulate delivery failure (0-100)
+              </p>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -316,7 +393,7 @@ export default function MTAs() {
                     <Server className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <CardTitle className="text-lg truncate">{mta.name}</CardTitle>
                       {mta.isActive ? (
                         <Badge variant="secondary" className="gap-1">
@@ -327,6 +404,12 @@ export default function MTAs() {
                         <Badge variant="outline" className="gap-1">
                           <XCircle className="h-3 w-3" />
                           Inactive
+                        </Badge>
+                      )}
+                      {mta.mode === "nullsink" && (
+                        <Badge variant="outline" className="gap-1 text-amber-600 border-amber-600 dark:text-amber-500 dark:border-amber-500" data-testid={`badge-test-mode-${mta.id}`}>
+                          <FlaskConical className="h-3 w-3" />
+                          Test Mode
                         </Badge>
                       )}
                     </div>

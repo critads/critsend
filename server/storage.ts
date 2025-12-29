@@ -32,6 +32,9 @@ import {
   type ImportJobQueueStatus,
   type ErrorLog,
   type InsertErrorLog,
+  nullsinkCaptures,
+  type NullsinkCapture,
+  type InsertNullsinkCapture,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
@@ -157,6 +160,23 @@ export interface IStorage {
   
   // Health Check
   healthCheck(): Promise<boolean>;
+  
+  // Nullsink Captures
+  createNullsinkCapture(data: InsertNullsinkCapture): Promise<NullsinkCapture>;
+  getNullsinkCaptures(options?: {
+    campaignId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ captures: NullsinkCapture[]; total: number }>;
+  getNullsinkMetrics(campaignId?: string): Promise<{
+    totalEmails: number;
+    successfulEmails: number;
+    failedEmails: number;
+    avgHandshakeTimeMs: number;
+    avgTotalTimeMs: number;
+    emailsPerSecond: number;
+  }>;
+  clearNullsinkCaptures(campaignId?: string): Promise<number>;
   
   // Dashboard
   getDashboardStats(): Promise<{
@@ -1202,6 +1222,84 @@ export class DatabaseStorage implements IStorage {
   async healthCheck(): Promise<boolean> {
     const result = await db.execute(sql`SELECT 1 as ok`);
     return result.rows.length > 0;
+  }
+
+  // Nullsink Captures
+  async createNullsinkCapture(data: InsertNullsinkCapture): Promise<NullsinkCapture> {
+    const [capture] = await db.insert(nullsinkCaptures).values(data).returning();
+    return capture;
+  }
+
+  async getNullsinkCaptures(options?: {
+    campaignId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ captures: NullsinkCapture[]; total: number }> {
+    const limit = options?.limit || 100;
+    const offset = options?.offset || 0;
+    
+    const whereClause = options?.campaignId 
+      ? eq(nullsinkCaptures.campaignId, options.campaignId) 
+      : undefined;
+    
+    const [captures, [{ count }]] = await Promise.all([
+      whereClause
+        ? db.select().from(nullsinkCaptures).where(whereClause).orderBy(desc(nullsinkCaptures.timestamp)).limit(limit).offset(offset)
+        : db.select().from(nullsinkCaptures).orderBy(desc(nullsinkCaptures.timestamp)).limit(limit).offset(offset),
+      whereClause
+        ? db.select({ count: sql<number>`count(*)` }).from(nullsinkCaptures).where(whereClause)
+        : db.select({ count: sql<number>`count(*)` }).from(nullsinkCaptures),
+    ]);
+    
+    return { captures, total: Number(count) };
+  }
+
+  async getNullsinkMetrics(campaignId?: string): Promise<{
+    totalEmails: number;
+    successfulEmails: number;
+    failedEmails: number;
+    avgHandshakeTimeMs: number;
+    avgTotalTimeMs: number;
+    emailsPerSecond: number;
+  }> {
+    const whereClause = campaignId 
+      ? sql`WHERE campaign_id = ${campaignId}` 
+      : sql``;
+    
+    const result = await db.execute(sql`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'captured') as successful,
+        COUNT(*) FILTER (WHERE status = 'simulated_failure') as failed,
+        COALESCE(AVG(handshake_time_ms), 0) as avg_handshake,
+        COALESCE(AVG(total_time_ms), 0) as avg_total,
+        COALESCE(
+          COUNT(*) / NULLIF(EXTRACT(EPOCH FROM (MAX(timestamp) - MIN(timestamp))), 0),
+          0
+        ) as emails_per_second
+      FROM nullsink_captures
+      ${whereClause}
+    `);
+    
+    const row = result.rows[0] as any;
+    return {
+      totalEmails: Number(row?.total || 0),
+      successfulEmails: Number(row?.successful || 0),
+      failedEmails: Number(row?.failed || 0),
+      avgHandshakeTimeMs: Number(row?.avg_handshake || 0),
+      avgTotalTimeMs: Number(row?.avg_total || 0),
+      emailsPerSecond: Number(row?.emails_per_second || 0),
+    };
+  }
+
+  async clearNullsinkCaptures(campaignId?: string): Promise<number> {
+    if (campaignId) {
+      const result = await db.delete(nullsinkCaptures).where(eq(nullsinkCaptures.campaignId, campaignId));
+      return result.rowCount || 0;
+    } else {
+      const result = await db.delete(nullsinkCaptures);
+      return result.rowCount || 0;
+    }
   }
 }
 

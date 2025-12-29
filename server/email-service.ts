@@ -1,11 +1,12 @@
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
-import type { Mta, Campaign, Subscriber } from "@shared/schema";
+import type { Mta, Campaign, Subscriber, InsertNullsinkCapture } from "@shared/schema";
 import {
   generateSignedOpenTrackingUrl,
   generateSignedClickTrackingUrl,
   generateSignedUnsubscribeUrl,
 } from "./tracking";
+import { getNullsinkServer } from "./nullsink-smtp";
 
 const transporterPool: Map<string, Transporter> = new Map();
 
@@ -283,6 +284,140 @@ export async function verifyTransporter(mta: Mta): Promise<{ success: boolean; e
     return {
       success: false,
       error: error.message || "Failed to verify SMTP connection",
+    };
+  }
+}
+
+// Nullsink email sending - simulates SMTP but doesn't actually send
+export interface NullsinkSendResult extends SendEmailResult {
+  capture?: InsertNullsinkCapture;
+}
+
+export async function sendEmailWithNullsink(
+  mta: Mta,
+  subscriber: Subscriber,
+  campaign: Campaign,
+  trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">
+): Promise<NullsinkSendResult> {
+  // If MTA is in real mode, use normal sending
+  if ((mta as any).mode !== "nullsink") {
+    return sendEmail(mta, subscriber, campaign, trackingOptions);
+  }
+
+  // Nullsink mode - simulate sending
+  const startTime = Date.now();
+  const nullsinkServer = getNullsinkServer();
+  
+  // Ensure nullsink server is running
+  if (!nullsinkServer.isRunning()) {
+    await nullsinkServer.start();
+  }
+
+  // Get MTA-specific settings (don't modify global server config to avoid race conditions)
+  const simulatedLatencyMs = (mta as any).simulatedLatencyMs || 0;
+  const failureRate = (mta as any).failureRate || 0;
+
+  // Build the email content similar to normal sending
+  let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
+  const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
+  if (baseUrl && htmlContent.includes("{{unsubscribe_url}}")) {
+    const unsubscribeUrl = generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id);
+    htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
+  }
+  
+  htmlContent = addTrackingToHtml(htmlContent, {
+    campaignId: campaign.id,
+    subscriberId: subscriber.id,
+    trackOpens: trackingOptions.trackOpens,
+    trackClicks: trackingOptions.trackClicks,
+    trackingDomain: trackingOptions.trackingDomain,
+    openTrackingDomain: trackingOptions.openTrackingDomain,
+    openTag: trackingOptions.openTag,
+    clickTag: trackingOptions.clickTag,
+  });
+
+  const subject = personalizeContent(campaign.subject, subscriber);
+
+  // Create a transporter to the nullsink server
+  const nullsinkTransporter = nodemailer.createTransport({
+    host: "localhost",
+    port: 2525,
+    secure: false,
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+
+  const mailOptions = {
+    from: `"${campaign.fromName}" <${campaign.fromEmail}>`,
+    replyTo: campaign.replyEmail || campaign.fromEmail,
+    to: subscriber.email,
+    subject: subject,
+    html: htmlContent,
+  };
+
+  const handshakeTime = Date.now() - startTime;
+
+  try {
+    await nullsinkTransporter.sendMail(mailOptions);
+    
+    // Apply simulated latency locally (per-send, not global server config)
+    if (simulatedLatencyMs > 0) {
+      await sleep(simulatedLatencyMs);
+    }
+    
+    // Check if we should simulate a failure locally (per-send, not global server config)
+    const shouldFail = Math.random() * 100 < failureRate;
+    
+    const totalTime = Date.now() - startTime;
+    
+    const capture: InsertNullsinkCapture = {
+      campaignId: campaign.id,
+      subscriberId: subscriber.id,
+      mtaId: mta.id,
+      fromEmail: campaign.fromEmail,
+      toEmail: subscriber.email,
+      subject: subject,
+      messageSize: Buffer.byteLength(htmlContent, 'utf8'),
+      status: shouldFail ? "simulated_failure" : "captured",
+      handshakeTimeMs: handshakeTime,
+      totalTimeMs: totalTime,
+    };
+
+    if (shouldFail) {
+      return {
+        success: false,
+        error: "Simulated SMTP failure",
+        capture,
+      };
+    }
+
+    return {
+      success: true,
+      messageId: `nullsink-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      capture,
+    };
+  } catch (error: any) {
+    const totalTime = Date.now() - startTime;
+    
+    // Real error (e.g., nullsink server not running) - still record capture for visibility
+    const capture: InsertNullsinkCapture = {
+      campaignId: campaign.id,
+      subscriberId: subscriber.id,
+      mtaId: mta.id,
+      fromEmail: campaign.fromEmail,
+      toEmail: subscriber.email,
+      subject: subject,
+      messageSize: Buffer.byteLength(htmlContent, 'utf8'),
+      status: "simulated_failure",
+      handshakeTimeMs: handshakeTime,
+      totalTimeMs: totalTime,
+    };
+
+    return {
+      success: false,
+      error: error.message || "Nullsink send failed",
+      capture,
     };
   }
 }

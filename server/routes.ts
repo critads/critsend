@@ -13,7 +13,8 @@ import {
   insertCampaignSchema,
 } from "@shared/schema";
 import { z } from "zod";
-import { sendEmail, verifyTransporter, closeTransporter } from "./email-service";
+import { sendEmail, sendEmailWithNullsink, verifyTransporter, closeTransporter } from "./email-service";
+import { getNullsinkServer, startNullsinkServer, stopNullsinkServer } from "./nullsink-smtp";
 import { verifyTrackingSignature } from "./tracking";
 import * as cheerio from "cheerio";
 import * as fs from "fs";
@@ -339,6 +340,129 @@ export async function registerRoutes(
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch metrics" });
+    }
+  });
+
+  // Nullsink SMTP Server Control
+  app.get("/api/nullsink/status", async (_req: Request, res: Response) => {
+    try {
+      const server = getNullsinkServer();
+      const config = server.getConfig();
+      const metrics = server.getMetrics();
+      
+      res.json({
+        running: server.isRunning(),
+        config: {
+          port: config.port,
+          simulatedLatencyMs: config.simulatedLatencyMs,
+          failureRate: config.failureRate,
+        },
+        metrics: {
+          totalEmails: metrics.totalEmails,
+          successfulEmails: metrics.successfulEmails,
+          failedEmails: metrics.failedEmails,
+          averageTimeMs: Math.round(metrics.averageTimeMs * 100) / 100,
+          emailsPerSecond: Math.round(metrics.emailsPerSecond * 100) / 100,
+          startTime: metrics.startTime?.toISOString() || null,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get nullsink status" });
+    }
+  });
+
+  app.post("/api/nullsink/start", async (_req: Request, res: Response) => {
+    try {
+      const server = getNullsinkServer();
+      if (!server.isRunning()) {
+        await server.start();
+      }
+      res.json({ success: true, message: "Nullsink server started" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to start nullsink server" });
+    }
+  });
+
+  app.post("/api/nullsink/stop", async (_req: Request, res: Response) => {
+    try {
+      const server = getNullsinkServer();
+      if (server.isRunning()) {
+        await server.stop();
+      }
+      res.json({ success: true, message: "Nullsink server stopped" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to stop nullsink server" });
+    }
+  });
+
+  app.post("/api/nullsink/reset", async (_req: Request, res: Response) => {
+    try {
+      const server = getNullsinkServer();
+      server.resetMetrics();
+      res.json({ success: true, message: "Nullsink metrics reset" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to reset nullsink metrics" });
+    }
+  });
+
+  app.get("/api/nullsink/captures", async (req: Request, res: Response) => {
+    try {
+      const campaignId = req.query.campaignId as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const offset = parseInt(req.query.offset as string) || 0;
+      
+      const result = await storage.getNullsinkCaptures({ campaignId, limit, offset });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get nullsink captures" });
+    }
+  });
+
+  app.get("/api/nullsink/metrics", async (req: Request, res: Response) => {
+    try {
+      const campaignId = req.query.campaignId as string | undefined;
+      const metrics = await storage.getNullsinkMetrics(campaignId);
+      
+      // Also get in-memory metrics from the server
+      const server = getNullsinkServer();
+      const liveMetrics = server.getMetrics();
+      
+      res.json({
+        database: {
+          totalEmails: metrics.totalEmails,
+          successfulEmails: metrics.successfulEmails,
+          failedEmails: metrics.failedEmails,
+          averageHandshakeTimeMs: Math.round(metrics.avgHandshakeTimeMs * 100) / 100,
+          averageTotalTimeMs: Math.round(metrics.avgTotalTimeMs * 100) / 100,
+          emailsPerSecond: Math.round(metrics.emailsPerSecond * 100) / 100,
+        },
+        live: {
+          totalEmails: liveMetrics.totalEmails,
+          successfulEmails: liveMetrics.successfulEmails,
+          failedEmails: liveMetrics.failedEmails,
+          averageTimeMs: Math.round(liveMetrics.averageTimeMs * 100) / 100,
+          emailsPerSecond: Math.round(liveMetrics.emailsPerSecond * 100) / 100,
+          isRunning: liveMetrics.isRunning,
+          startTime: liveMetrics.startTime?.toISOString() || null,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get nullsink metrics" });
+    }
+  });
+
+  app.delete("/api/nullsink/captures", async (req: Request, res: Response) => {
+    try {
+      const campaignId = req.query.campaignId as string | undefined;
+      const deleted = await storage.clearNullsinkCaptures(campaignId);
+      
+      // Also reset in-memory metrics
+      const server = getNullsinkServer();
+      server.resetMetrics();
+      
+      res.json({ success: true, deleted });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to clear nullsink captures" });
     }
   });
 
@@ -1906,8 +2030,8 @@ async function processCampaignInternal(campaignId: string) {
       let sendSuccess = true;
       try {
         if (mta) {
-          // Real SMTP sending via configured MTA
-          const result = await sendEmail(mta, subscriber, campaign, {
+          // Use nullsink-aware sending (routes to real SMTP or nullsink based on MTA mode)
+          const result = await sendEmailWithNullsink(mta, subscriber, campaign, {
             trackOpens: campaign.trackOpens,
             trackClicks: campaign.trackClicks,
             trackingDomain: mta.trackingDomain,
@@ -1917,6 +2041,16 @@ async function processCampaignInternal(campaignId: string) {
           });
           
           sendSuccess = result.success;
+          
+          // If using nullsink mode, store the capture
+          if ((mta as any).mode === "nullsink" && result.capture) {
+            try {
+              await storage.createNullsinkCapture(result.capture);
+            } catch (captureErr) {
+              console.error(`Failed to store nullsink capture:`, captureErr);
+            }
+          }
+          
           if (!result.success) {
             console.error(`Failed to send to ${subscriber.email}: ${result.error}`);
             try {
@@ -1927,13 +2061,14 @@ async function processCampaignInternal(campaignId: string) {
                 email: subscriber.email,
                 campaignId: campaign.id,
                 subscriberId: subscriber.id,
-                details: `MTA: ${mta.name}, Retryable: ${result.retryable ? "yes" : "no"}`,
+                details: `MTA: ${mta.name}, Mode: ${(mta as any).mode || 'real'}, Retryable: ${result.retryable ? "yes" : "no"}`,
               });
             } catch (logError) {
               console.error("Failed to log error:", logError);
             }
           } else {
-            console.log(`Email sent to ${subscriber.email}, messageId: ${result.messageId}`);
+            const modeLabel = (mta as any).mode === "nullsink" ? "[NULLSINK] " : "";
+            console.log(`${modeLabel}Email sent to ${subscriber.email}, messageId: ${result.messageId}`);
           }
         } else {
           // No MTA configured - simulate sending for demo purposes
