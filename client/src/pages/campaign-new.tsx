@@ -85,6 +85,8 @@ export default function CampaignNew() {
   const [sendingTest, setSendingTest] = useState(false);
   const [assetSessionId, setAssetSessionId] = useState<string | null>(null);
   const [processingImages, setProcessingImages] = useState(false);
+  const [campaignId, setCampaignId] = useState<number | null>(null);
+  const [autoSaving, setAutoSaving] = useState(false);
   const { toast } = useToast();
 
   const processHtmlImages = async (html: string): Promise<string> => {
@@ -221,10 +223,15 @@ export default function CampaignNew() {
   }, [formData.segmentId]);
 
   const createMutation = useMutation({
-    mutationFn: (data: Partial<InsertCampaign>) =>
-      apiRequest("POST", "/api/campaigns", data),
-    onSuccess: () => {
+    mutationFn: async (data: Partial<InsertCampaign>) => {
+      const res = await apiRequest("POST", "/api/campaigns", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      if (data?.id) {
+        setCampaignId(data.id);
+      }
       toast({
         title: "Campaign created",
         description: "Your campaign has been saved as draft.",
@@ -240,9 +247,40 @@ export default function CampaignNew() {
     },
   });
 
+  const autoSaveMutation = useMutation({
+    mutationFn: async (data: Partial<InsertCampaign>) => {
+      if (campaignId) {
+        const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
+        return res.json();
+      } else {
+        const res = await apiRequest("POST", "/api/campaigns", data);
+        return res.json();
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      if (data?.id && !campaignId) {
+        setCampaignId(data.id);
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Auto-save failed",
+        description: "Could not save your progress. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const sendMutation = useMutation({
-    mutationFn: (data: Partial<InsertCampaign>) =>
-      apiRequest("POST", "/api/campaigns", { ...data, status: formData.scheduledAt ? "scheduled" : "sending" }),
+    mutationFn: async (data: Partial<InsertCampaign>) => {
+      const sendData = { ...data, status: formData.scheduledAt ? "scheduled" : "sending" };
+      if (campaignId) {
+        return apiRequest("PATCH", `/api/campaigns/${campaignId}`, sendData);
+      } else {
+        return apiRequest("POST", "/api/campaigns", sendData);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       toast({
@@ -327,9 +365,17 @@ export default function CampaignNew() {
     }
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
     if (isStepValid(currentStep) && currentStep < 6) {
-      setCurrentStep(currentStep + 1);
+      setAutoSaving(true);
+      try {
+        await autoSaveMutation.mutateAsync(formData);
+        setCurrentStep(currentStep + 1);
+      } catch {
+        // Error already handled by mutation's onError
+      } finally {
+        setAutoSaving(false);
+      }
     }
   };
 
@@ -339,8 +385,21 @@ export default function CampaignNew() {
     }
   };
 
-  const handleSaveDraft = () => {
-    createMutation.mutate(formData);
+  const handleSaveDraft = async () => {
+    if (campaignId) {
+      try {
+        await autoSaveMutation.mutateAsync(formData);
+        toast({
+          title: "Campaign saved",
+          description: "Your campaign has been updated.",
+        });
+        navigate("/campaigns");
+      } catch {
+        // Error handled by mutation
+      }
+    } else {
+      createMutation.mutate(formData);
+    }
   };
 
   const handleSend = () => {
@@ -910,19 +969,28 @@ export default function CampaignNew() {
           <Button
             variant="outline"
             onClick={handleSaveDraft}
-            disabled={createMutation.isPending || processingImages}
+            disabled={createMutation.isPending || autoSaving || processingImages}
             data-testid="button-save-draft"
           >
-            {createMutation.isPending ? "Saving..." : "Save Draft"}
+            {createMutation.isPending || (autoSaving && !isStepValid(currentStep)) ? "Saving..." : "Save Draft"}
           </Button>
           {currentStep < 6 ? (
             <Button
               onClick={nextStep}
-              disabled={!isStepValid(currentStep)}
+              disabled={!isStepValid(currentStep) || autoSaving || processingImages}
               data-testid="button-next-step"
             >
-              Next
-              <ArrowRight className="h-4 w-4 ml-2" />
+              {autoSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  Next
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </>
+              )}
             </Button>
           ) : (
             <Button
