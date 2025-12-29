@@ -550,6 +550,16 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/subscribers", async (req: Request, res: Response) => {
+    try {
+      const deletedCount = await storage.deleteAllSubscribers();
+      res.json({ deleted: deletedCount, message: `Successfully deleted ${deletedCount} subscribers` });
+    } catch (error) {
+      console.error("Error deleting all subscribers:", error);
+      res.status(500).json({ error: "Failed to delete all subscribers" });
+    }
+  });
+
   // ============ SEGMENTS ============
   app.get("/api/segments", async (req: Request, res: Response) => {
     try {
