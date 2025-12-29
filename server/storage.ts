@@ -127,9 +127,11 @@ export interface IStorage {
   getActiveJobs(): Promise<CampaignJob[]>;
   cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
   
-  // Import Job Queue (PostgreSQL-backed)
-  enqueueImportJob(importJobId: string, csvContent: string): Promise<ImportJobQueueItem>;
+  // Import Job Queue (PostgreSQL-backed with file storage)
+  enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number): Promise<ImportJobQueueItem>;
   claimNextImportJob(workerId: string): Promise<ImportJobQueueItem | null>;
+  updateImportQueueProgress(queueId: string, processedLines: number): Promise<void>;
+  updateImportQueueHeartbeat(queueId: string): Promise<void>;
   completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
   getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
@@ -810,11 +812,13 @@ export class DatabaseStorage implements IStorage {
     return result.rows.length;
   }
 
-  // Import Job Queue (PostgreSQL-backed)
-  async enqueueImportJob(importJobId: string, csvContent: string): Promise<ImportJobQueueItem> {
+  // Import Job Queue (PostgreSQL-backed with file storage)
+  async enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number): Promise<ImportJobQueueItem> {
     const [job] = await db.insert(importJobQueue).values({
       importJobId,
-      csvContent,
+      csvFilePath,
+      totalLines,
+      processedLines: 0,
       status: "pending",
     }).returning();
     return job;
@@ -825,6 +829,7 @@ export class DatabaseStorage implements IStorage {
       UPDATE import_job_queue
       SET status = 'processing',
           started_at = NOW(),
+          heartbeat = NOW(),
           worker_id = ${workerId}
       WHERE id = (
         SELECT id FROM import_job_queue
@@ -844,14 +849,34 @@ export class DatabaseStorage implements IStorage {
     return {
       id: row.id,
       importJobId: row.import_job_id,
-      csvContent: row.csv_content,
+      csvFilePath: row.csv_file_path,
+      totalLines: row.total_lines,
+      processedLines: row.processed_lines,
       status: row.status,
       createdAt: new Date(row.created_at),
       startedAt: row.started_at ? new Date(row.started_at) : null,
       completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      heartbeat: row.heartbeat ? new Date(row.heartbeat) : null,
       workerId: row.worker_id,
       errorMessage: row.error_message,
     };
+  }
+
+  async updateImportQueueProgress(queueId: string, processedLines: number): Promise<void> {
+    await db.execute(sql`
+      UPDATE import_job_queue
+      SET processed_lines = ${processedLines},
+          heartbeat = NOW()
+      WHERE id = ${queueId}
+    `);
+  }
+
+  async updateImportQueueHeartbeat(queueId: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE import_job_queue
+      SET heartbeat = NOW()
+      WHERE id = ${queueId}
+    `);
   }
 
   async cancelImportJob(importJobId: string): Promise<boolean> {
@@ -909,29 +934,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async cleanupStaleImportJobs(maxAgeMinutes: number = 30): Promise<number> {
+    // Jobs with no heartbeat update for 30+ minutes are considered dead
     const result = await db.execute(sql`
       UPDATE import_job_queue
       SET status = 'failed',
           completed_at = NOW(),
-          error_message = 'Job timed out - worker may have crashed'
+          error_message = 'Job timed out - no heartbeat received'
       WHERE status = 'processing'
-        AND started_at < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes}
+        AND (heartbeat IS NULL OR heartbeat < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes})
       RETURNING id
     `);
     return result.rows.length;
   }
 
   async recoverStuckImportJobs(): Promise<number> {
-    // Reset jobs stuck in processing for more than 15 minutes back to pending
-    // This handles cases where the worker crashed or server redeployed
-    // Using 15 minutes to allow large imports to complete their first batch
+    // Reset jobs where heartbeat stopped (worker crashed/redeployed)
+    // If no heartbeat for 2 minutes, worker is likely dead
     const queueResult = await db.execute(sql`
       UPDATE import_job_queue
       SET status = 'pending',
           started_at = NULL,
+          heartbeat = NULL,
           worker_id = NULL
       WHERE status = 'processing'
-        AND started_at < NOW() - INTERVAL '15 minutes'
+        AND (heartbeat IS NULL OR heartbeat < NOW() - INTERVAL '2 minutes')
       RETURNING import_job_id
     `);
     
