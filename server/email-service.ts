@@ -277,6 +277,18 @@ function isTransientError(error: any): boolean {
 
 export async function verifyTransporter(mta: Mta): Promise<{ success: boolean; error?: string }> {
   try {
+    // For nullsink mode, verify the nullsink server is running instead of real SMTP
+    if ((mta as any).mode === "nullsink") {
+      const nullsinkServer = getNullsinkServer();
+      if (!nullsinkServer.isRunning()) {
+        // Try to start the nullsink server
+        await nullsinkServer.start();
+      }
+      // Nullsink server is ready
+      return { success: true };
+    }
+    
+    // For real mode, verify actual SMTP connection
     const transporter = createTransporter(mta);
     await transporter.verify();
     return { success: true };
