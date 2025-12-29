@@ -1705,6 +1705,8 @@ async function checkMtaRecovery() {
       
       if (verifyResult.success) {
         console.log(`MTA ${mta.name} is back online - resuming campaign ${campaign.id} (${campaign.name})`);
+        // Clear any stuck processing jobs before enqueuing new one
+        await storage.clearStuckJobsForCampaign(campaign.id);
         // Clear pause reason and set status back to sending
         await storage.updateCampaign(campaign.id, { status: "sending", pauseReason: null });
         // Re-enqueue for processing
