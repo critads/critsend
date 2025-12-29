@@ -274,27 +274,60 @@ export default function CampaignNew() {
 
   const sendMutation = useMutation({
     mutationFn: async (data: Partial<InsertCampaign>) => {
-      const sendData = { ...data, status: formData.scheduledAt ? "scheduled" : "sending" };
-      if (campaignId) {
-        return apiRequest("PATCH", `/api/campaigns/${campaignId}`, sendData);
+      // Step 1: Ensure campaign is saved first to get a valid campaignId
+      let currentCampaignId = campaignId;
+      
+      if (!currentCampaignId) {
+        // Create the campaign first
+        console.log("[SendMutation] No campaign ID, creating new campaign...");
+        const createRes = await apiRequest("POST", "/api/campaigns", data);
+        if (!createRes.ok) {
+          const errorData = await createRes.json();
+          throw new Error(errorData.error || "Failed to create campaign");
+        }
+        const createdCampaign = await createRes.json();
+        currentCampaignId = createdCampaign.id;
+        setCampaignId(currentCampaignId);
+        console.log("[SendMutation] Created campaign:", currentCampaignId);
       } else {
-        return apiRequest("POST", "/api/campaigns", sendData);
+        // Save any pending changes first
+        console.log("[SendMutation] Saving campaign data to:", currentCampaignId);
+        const saveRes = await apiRequest("PATCH", `/api/campaigns/${currentCampaignId}`, data);
+        if (!saveRes.ok) {
+          const errorData = await saveRes.json();
+          throw new Error(errorData.error || "Failed to save campaign");
+        }
       }
+      
+      // Step 2: Call the dedicated send endpoint with scheduledAt if set
+      console.log("[SendMutation] Calling /send endpoint for campaign:", currentCampaignId);
+      const sendPayload = formData.scheduledAt ? { scheduledAt: formData.scheduledAt } : {};
+      const sendRes = await apiRequest("POST", `/api/campaigns/${currentCampaignId}/send`, sendPayload);
+      
+      if (!sendRes.ok) {
+        const errorData = await sendRes.json();
+        console.error("[SendMutation] Send failed:", errorData);
+        throw new Error(errorData.details?.join(", ") || errorData.error || "Failed to start campaign");
+      }
+      
+      const result = await sendRes.json();
+      console.log("[SendMutation] Campaign started successfully:", result);
+      return result;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      const isScheduled = !!formData.scheduledAt;
       toast({
-        title: formData.scheduledAt ? "Campaign scheduled" : "Campaign started",
-        description: formData.scheduledAt
-          ? "Your campaign has been scheduled for sending."
-          : "Your campaign is now being sent.",
+        title: isScheduled ? "Campaign scheduled" : "Campaign started",
+        description: result.message || (isScheduled ? "Your campaign has been scheduled." : "Your campaign is now being sent."),
       });
       navigate("/campaigns");
     },
-    onError: () => {
+    onError: (error: Error) => {
+      console.error("[SendMutation] Error:", error);
       toast({
-        title: "Error",
-        description: "Failed to start campaign. Please try again.",
+        title: "Failed to start campaign",
+        description: error.message || "Please check campaign settings and try again.",
         variant: "destructive",
       });
     },

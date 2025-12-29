@@ -1085,6 +1085,148 @@ export async function registerRoutes(
     }
   });
 
+  // ============ DEDICATED CAMPAIGN SEND ENDPOINT ============
+  // This endpoint atomically saves campaign data, validates, sets status to sending/scheduled, and queues the job
+  app.post("/api/campaigns/:id/send", async (req: Request, res: Response) => {
+    const campaignId = req.params.id;
+    const timestamp = new Date().toISOString();
+    const isScheduled = !!req.body.scheduledAt;
+    
+    console.log(`[CAMPAIGN_SEND] ${timestamp} - Starting ${isScheduled ? 'schedule' : 'send'} process for campaign ${campaignId}`);
+    console.log(`[CAMPAIGN_SEND] ${timestamp} - Request body:`, JSON.stringify(req.body, null, 2));
+    
+    try {
+      // Step 1: Verify campaign exists
+      const existingCampaign = await storage.getCampaign(campaignId);
+      if (!existingCampaign) {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} not found`);
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      
+      console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign found, current status: ${existingCampaign.status}`);
+      
+      // Step 2: Validate campaign is in a sendable state
+      if (existingCampaign.status === "sending") {
+        console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign already sending`);
+        return res.status(400).json({ error: "Campaign is already sending" });
+      }
+      if (existingCampaign.status === "completed") {
+        console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign already completed`);
+        return res.status(400).json({ error: "Campaign has already completed" });
+      }
+      
+      // Step 3: Merge and save any final data from the request body (including scheduledAt)
+      const updateData = { ...req.body };
+      delete updateData.status; // We'll set status ourselves
+      
+      if (Object.keys(updateData).length > 0) {
+        console.log(`[CAMPAIGN_SEND] ${timestamp} - Saving final campaign data`);
+        await storage.updateCampaign(campaignId, updateData);
+      }
+      
+      // Step 4: Re-fetch to get the latest state
+      const refreshedCampaign = await storage.getCampaign(campaignId);
+      if (!refreshedCampaign) {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - Campaign disappeared after update`);
+        return res.status(500).json({ error: "Campaign update failed" });
+      }
+      
+      // Step 5: Validate required fields for sending
+      const validationErrors: string[] = [];
+      if (!refreshedCampaign.name) validationErrors.push("Campaign name is required");
+      if (!refreshedCampaign.segmentId) validationErrors.push("Segment is required");
+      if (!refreshedCampaign.mtaId) validationErrors.push("MTA server is required");
+      if (!refreshedCampaign.fromName) validationErrors.push("Sender name is required");
+      if (!refreshedCampaign.fromEmail) validationErrors.push("Sender email is required");
+      if (!refreshedCampaign.subject) validationErrors.push("Subject line is required");
+      if (!refreshedCampaign.htmlContent) validationErrors.push("Email content is required");
+      
+      if (validationErrors.length > 0) {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - Validation failed:`, validationErrors);
+        return res.status(400).json({ 
+          error: "Campaign validation failed", 
+          details: validationErrors 
+        });
+      }
+      
+      // Step 6: Verify MTA exists and is active
+      const mta = await storage.getMta(refreshedCampaign.mtaId!);
+      if (!mta) {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - MTA not found: ${refreshedCampaign.mtaId}`);
+        return res.status(400).json({ error: "Selected MTA server not found" });
+      }
+      if (!mta.isActive) {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - MTA is not active: ${mta.name}`);
+        return res.status(400).json({ error: "Selected MTA server is not active" });
+      }
+      
+      // Step 7: Verify segment exists and has subscribers
+      const segment = await storage.getSegment(refreshedCampaign.segmentId!);
+      if (!segment) {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - Segment not found: ${refreshedCampaign.segmentId}`);
+        return res.status(400).json({ error: "Selected segment not found" });
+      }
+      
+      const subscriberCount = await storage.countSubscribersForSegment(refreshedCampaign.segmentId!);
+      console.log(`[CAMPAIGN_SEND] ${timestamp} - Segment '${segment.name}' has ${subscriberCount} subscribers`);
+      
+      if (subscriberCount === 0) {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - Segment has no subscribers`);
+        return res.status(400).json({ error: "Selected segment has no subscribers" });
+      }
+      
+      // Step 8: Handle scheduled vs immediate send
+      if (isScheduled) {
+        // For scheduled campaigns, just update status to "scheduled"
+        console.log(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'scheduled' for ${req.body.scheduledAt}`);
+        const updatedCampaign = await storage.updateCampaign(campaignId, { 
+          status: "scheduled",
+          scheduledAt: new Date(req.body.scheduledAt)
+        });
+        
+        if (!updatedCampaign || updatedCampaign.status !== "scheduled") {
+          console.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to schedule campaign`);
+          return res.status(500).json({ error: "Failed to schedule campaign" });
+        }
+        
+        console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} scheduled successfully`);
+        return res.json({ 
+          success: true, 
+          campaign: updatedCampaign,
+          message: `Campaign scheduled for ${subscriberCount} subscribers` 
+        });
+      }
+      
+      // Step 9: Atomically update status to "sending" (immediate send)
+      console.log(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'sending'`);
+      const updatedCampaign = await storage.updateCampaign(campaignId, { status: "sending" });
+      
+      if (!updatedCampaign || updatedCampaign.status !== "sending") {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to update campaign status`);
+        return res.status(500).json({ error: "Failed to start campaign - status update failed" });
+      }
+      
+      // Step 10: Queue the campaign for processing (don't await - let it run in background)
+      console.log(`[CAMPAIGN_SEND] ${timestamp} - Queuing campaign for processing`);
+      processCampaign(campaignId).catch((queueError: any) => {
+        console.error(`[CAMPAIGN_SEND] ${timestamp} - Background queue error for ${campaignId}:`, queueError);
+      });
+      console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
+      
+      // Step 11: Success - return the campaign immediately
+      console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} started successfully`);
+      res.json({ 
+        success: true, 
+        campaign: updatedCampaign,
+        message: `Campaign started with ${subscriberCount} subscribers` 
+      });
+      
+    } catch (error: any) {
+      console.error(`[CAMPAIGN_SEND] ${timestamp} - Unexpected error:`, error);
+      res.status(500).json({ error: error.message || "Failed to start campaign" });
+    }
+  });
+
   // ============ IMPORT ============
   // Ensure uploads directory exists
   const UPLOADS_DIR = path.join(process.cwd(), "uploads", "imports");
