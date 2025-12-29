@@ -1004,11 +1004,15 @@ export async function registerRoutes(
 
   app.patch("/api/campaigns/:id", async (req: Request, res: Response) => {
     try {
+      console.log(`PATCH /api/campaigns/${req.params.id} - Body:`, JSON.stringify(req.body));
+      
       // Get the current campaign to check if status is changing
       const existingCampaign = await storage.getCampaign(req.params.id);
       if (!existingCampaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
+      
+      console.log(`Campaign ${req.params.id} current status: ${existingCampaign.status}, new status: ${req.body.status || 'unchanged'}`);
       
       const campaign = await storage.updateCampaign(req.params.id, req.body);
       if (!campaign) {
@@ -1018,7 +1022,9 @@ export async function registerRoutes(
       // If status changed to sending, start the campaign processing
       if (existingCampaign.status !== "sending" && campaign.status === "sending") {
         console.log(`Starting campaign ${campaign.id} via PATCH - queueing for processing`);
-        processCampaign(campaign.id).catch(console.error);
+        processCampaign(campaign.id).catch((err) => {
+          console.error(`Failed to queue campaign ${campaign.id}:`, err);
+        });
       }
       
       res.json(campaign);
