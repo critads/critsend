@@ -115,6 +115,8 @@ export interface IStorage {
   recordFirstOpen(campaignId: string, subscriberId: string): Promise<boolean>;
   recordFirstClick(campaignId: string, subscriberId: string): Promise<boolean>;
   getCampaignSend(campaignId: string, subscriberId: string): Promise<CampaignSend | undefined>;
+  getUniqueOpenCount(campaignId: string): Promise<number>;
+  getUniqueClickCount(campaignId: string): Promise<number>;
   
   // Import Jobs
   getImportJobs(): Promise<ImportJob[]>;
@@ -750,6 +752,22 @@ export class DatabaseStorage implements IStorage {
     return result.rows.length > 0;
   }
 
+  async getUniqueOpenCount(campaignId: string): Promise<number> {
+    const result = await db.execute(sql`
+      SELECT COUNT(*) as count FROM campaign_sends 
+      WHERE campaign_id = ${campaignId} AND first_open_at IS NOT NULL
+    `);
+    return Number((result.rows[0] as any)?.count || 0);
+  }
+
+  async getUniqueClickCount(campaignId: string): Promise<number> {
+    const result = await db.execute(sql`
+      SELECT COUNT(*) as count FROM campaign_sends 
+      WHERE campaign_id = ${campaignId} AND first_click_at IS NOT NULL
+    `);
+    return Number((result.rows[0] as any)?.count || 0);
+  }
+
   // Import Jobs
   async getImportJobs(): Promise<ImportJob[]> {
     return db.select().from(importJobs).orderBy(desc(importJobs.createdAt));
@@ -1089,15 +1107,17 @@ export class DatabaseStorage implements IStorage {
 
     const campaignMetrics = await Promise.all(
       allCampaigns.map(async (campaign) => {
-        const stats = await this.getCampaignStats(campaign.id);
-        const opens = stats.filter(s => s.type === "open").length;
-        const clicks = stats.filter(s => s.type === "click").length;
+        // Use unique counts from campaign_sends for accurate rates
+        const [uniqueOpens, uniqueClicks] = await Promise.all([
+          this.getUniqueOpenCount(campaign.id),
+          this.getUniqueClickCount(campaign.id),
+        ]);
         return {
           id: campaign.id,
           name: campaign.name,
           sentCount: campaign.sentCount,
-          openRate: campaign.sentCount > 0 ? (opens / campaign.sentCount) * 100 : 0,
-          clickRate: campaign.sentCount > 0 ? (clicks / campaign.sentCount) * 100 : 0,
+          openRate: campaign.sentCount > 0 ? (uniqueOpens / campaign.sentCount) * 100 : 0,
+          clickRate: campaign.sentCount > 0 ? (uniqueClicks / campaign.sentCount) * 100 : 0,
         };
       })
     );
@@ -1123,15 +1143,17 @@ export class DatabaseStorage implements IStorage {
     const campaign = await this.getCampaign(campaignId);
     if (!campaign) return undefined;
 
-    const stats = await this.getCampaignStats(campaignId);
-    
-    const opens = stats.filter(s => s.type === "open");
-    const clicks = stats.filter(s => s.type === "click");
-    
-    const uniqueOpeners = new Set(opens.map(o => o.subscriberId)).size;
-    const uniqueClickers = new Set(clicks.map(c => c.subscriberId)).size;
+    // Get unique counts from campaign_sends (more accurate - based on first_open_at/first_click_at)
+    const [uniqueOpeners, uniqueClickers] = await Promise.all([
+      this.getUniqueOpenCount(campaignId),
+      this.getUniqueClickCount(campaignId),
+    ]);
 
-    // Top links
+    // Get stats for link-level analytics and recent activity
+    const stats = await this.getCampaignStats(campaignId);
+    const clicks = stats.filter(s => s.type === "click");
+
+    // Top links (all clicks, not just unique)
     const linkCounts: Record<string, number> = {};
     clicks.forEach(c => {
       if (c.link) {
@@ -1157,12 +1179,15 @@ export class DatabaseStorage implements IStorage {
       })
     );
 
+    // Count total opens from campaign_stats (all events including repeat opens)
+    const opens = stats.filter(s => s.type === "open");
+    
     return {
       campaign,
-      totalOpens: opens.length,
-      uniqueOpens: uniqueOpeners,
-      totalClicks: clicks.length,
-      uniqueClicks: uniqueClickers,
+      totalOpens: opens.length, // All opens for total count
+      uniqueOpens: uniqueOpeners, // Unique opens from campaign_sends.first_open_at
+      totalClicks: clicks.length, // Total clicks for link analytics
+      uniqueClicks: uniqueClickers, // Unique clicks from campaign_sends.first_click_at
       openRate: campaign.sentCount > 0 ? (uniqueOpeners / campaign.sentCount) * 100 : 0,
       clickRate: campaign.sentCount > 0 ? (uniqueClickers / campaign.sentCount) * 100 : 0,
       topLinks,

@@ -1486,16 +1486,21 @@ export async function registerRoutes(
     }
     
     try {
-      // Record the open
+      // Check if this is the first open for this subscriber/campaign (unique per email per campaign)
+      const isFirstOpen = await storage.recordFirstOpen(campaignId, subscriberId);
+      
+      // Always record the open for activity history/analytics
       await storage.addCampaignStat(campaignId, subscriberId, "open");
       
-      // Add tag if configured
-      const campaign = await storage.getCampaign(campaignId);
-      if (campaign?.openTag) {
-        const subscriber = await storage.getSubscriber(subscriberId);
-        if (subscriber) {
-          const tags = [...new Set([...(subscriber.tags || []), campaign.openTag])];
-          await storage.updateSubscriber(subscriberId, { tags });
+      // Add tag only on first open (unique open per email per campaign)
+      if (isFirstOpen) {
+        const campaign = await storage.getCampaign(campaignId);
+        if (campaign?.openTag) {
+          const subscriber = await storage.getSubscriber(subscriberId);
+          if (subscriber) {
+            const tags = [...new Set([...(subscriber.tags || []), campaign.openTag])];
+            await storage.updateSubscriber(subscriberId, { tags });
+          }
         }
       }
       
@@ -1523,16 +1528,21 @@ export async function registerRoutes(
     }
     
     try {
-      // Record the click
+      // Check if this is the first click for this subscriber/campaign (unique per email per campaign)
+      const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
+      
+      // Always record the click for link-level analytics (topLinks needs all clicks)
       await storage.addCampaignStat(campaignId, subscriberId, "click", url);
       
-      // Add tag if configured
-      const campaign = await storage.getCampaign(campaignId);
-      if (campaign?.clickTag) {
-        const subscriber = await storage.getSubscriber(subscriberId);
-        if (subscriber) {
-          const tags = [...new Set([...(subscriber.tags || []), campaign.clickTag])];
-          await storage.updateSubscriber(subscriberId, { tags });
+      // Add tag only on first click (unique click per email per campaign)
+      if (isFirstClick) {
+        const campaign = await storage.getCampaign(campaignId);
+        if (campaign?.clickTag) {
+          const subscriber = await storage.getSubscriber(subscriberId);
+          if (subscriber) {
+            const tags = [...new Set([...(subscriber.tags || []), campaign.clickTag])];
+            await storage.updateSubscriber(subscriberId, { tags });
+          }
         }
       }
       
