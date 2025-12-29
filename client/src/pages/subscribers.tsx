@@ -23,6 +23,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -40,6 +50,7 @@ import {
   Tag,
   X,
   Plus,
+  AlertTriangle,
 } from "lucide-react";
 import type { Subscriber } from "@shared/schema";
 
@@ -61,6 +72,7 @@ export default function Subscribers() {
   const [newSubscriberEmail, setNewSubscriberEmail] = useState("");
   const [newSubscriberTags, setNewSubscriberTags] = useState<string[]>([]);
   const [newSubscriberTag, setNewSubscriberTag] = useState("");
+  const [showFlushConfirm, setShowFlushConfirm] = useState(false);
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<SubscribersResponse>({
@@ -140,6 +152,29 @@ export default function Subscribers() {
     },
   });
 
+  const flushAllMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/subscribers");
+      return res.json() as Promise<{ deleted: number; message: string }>;
+    },
+    onSuccess: (response: { deleted: number; message: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
+      setShowFlushConfirm(false);
+      setPage(1);
+      toast({
+        title: "All subscribers deleted",
+        description: response.message || "Your subscriber list has been cleared.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete all subscribers. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleAddNewSubscriberTag = () => {
     if (newSubscriberTag.trim()) {
       setNewSubscriberTags([...newSubscriberTags, newSubscriberTag.trim().toUpperCase()]);
@@ -192,10 +227,21 @@ export default function Subscribers() {
             Manage your email list with {data?.total?.toLocaleString() || 0} subscribers
           </p>
         </div>
-        <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-subscriber">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Subscriber
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-subscriber">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Subscriber
+          </Button>
+          <Button 
+            variant="destructive" 
+            onClick={() => setShowFlushConfirm(true)}
+            disabled={!data?.total || data.total === 0}
+            data-testid="button-flush-all-subscribers"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Flush All
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -512,6 +558,35 @@ export default function Subscribers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={showFlushConfirm} onOpenChange={setShowFlushConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete All Subscribers?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete all{" "}
+              <strong>{data?.total?.toLocaleString() || 0}</strong> subscribers from your email list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-flush">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                flushAllMutation.mutate();
+              }}
+              disabled={flushAllMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-flush"
+            >
+              {flushAllMutation.isPending ? "Deleting..." : "Yes, delete all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
