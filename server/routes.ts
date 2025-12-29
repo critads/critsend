@@ -1700,10 +1700,11 @@ async function bulkUpsertSubscribers(
           SELECT email, tags, ip_address, NOW()
           FROM aggregated_staging
           ON CONFLICT (email) DO UPDATE 
-          SET tags = (
-            SELECT array_agg(DISTINCT t) 
-            FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
-            WHERE t IS NOT NULL
+          SET tags = COALESCE(
+            (SELECT array_agg(DISTINCT t) 
+             FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
+             WHERE t IS NOT NULL),
+            ARRAY[]::text[]
           ),
           ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
           RETURNING (xmax = 0) AS is_insert
