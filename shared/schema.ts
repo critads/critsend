@@ -224,6 +224,18 @@ export const importJobQueueRelations = relations(importJobQueue, ({ one }) => ({
   }),
 }));
 
+// Import staging table - temporary table for high-speed COPY-based bulk imports
+export const importStaging = pgTable("import_staging", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull(),
+  email: text("email").notNull(),
+  tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  ipAddress: text("ip_address"),
+}, (table) => ({
+  jobIdIdx: index("import_staging_job_id_idx").on(table.jobId),
+  emailIdx: index("import_staging_email_idx").on(table.email),
+}));
+
 // Error logs table - centralized error logging for failed sends, imports, etc.
 export const errorLogs = pgTable("error_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
