@@ -1613,12 +1613,12 @@ export async function registerRoutes(
   return httpServer;
 }
 
-// Sending speed configurations (emails per minute)
-const SPEED_CONFIG: Record<string, number> = {
-  slow: 500,
-  medium: 1000,
-  fast: 2000,
-  godzilla: 3000,
+// Sending speed configurations (emails per minute and concurrent workers)
+const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: number }> = {
+  slow: { emailsPerMinute: 500, concurrency: 5 },
+  medium: { emailsPerMinute: 1000, concurrency: 10 },
+  fast: { emailsPerMinute: 2000, concurrency: 20 },
+  godzilla: { emailsPerMinute: 3000, concurrency: 50 },
 };
 
 // ============ POSTGRESQL-BACKED JOB QUEUE FOR CAMPAIGN SERIALIZATION ============
@@ -2115,7 +2115,7 @@ async function processCampaignInternal(campaignId: string) {
   }
   
   // Fetch MTA configuration if specified
-  let mta = null;
+  let mta: Awaited<ReturnType<typeof storage.getMta>> | null = null;
   if (campaign.mtaId) {
     mta = await storage.getMta(campaign.mtaId);
     if (!mta) {
@@ -2149,21 +2149,107 @@ async function processCampaignInternal(campaignId: string) {
     startedAt: new Date(),
   });
   
-  // Calculate delay based on sending speed
+  // Get speed configuration for parallel processing
   const speedKey = campaign.sendingSpeed || "medium";
-  const emailsPerMinute = SPEED_CONFIG[speedKey] || 1000;
-  const delayBetweenEmails = Math.floor(60000 / emailsPerMinute); // ms per email
+  const speedConfig = SPEED_CONFIG[speedKey] || SPEED_CONFIG.medium;
+  const { emailsPerMinute, concurrency } = speedConfig;
+  
+  // Calculate delay between batches to respect rate limits
+  // For parallel sending: we send `concurrency` emails at once, then wait
+  const batchDelayMs = Math.floor((concurrency / emailsPerMinute) * 60000);
+  
+  console.log(`[CAMPAIGN] ${campaignId}: Starting parallel send - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min`);
   
   // Process in batches of 1000 to avoid memory issues
   const BATCH_SIZE = 1000;
   let offset = 0;
   let processedCount = 0;
+  let totalSent = 0;
+  let totalFailed = 0;
+  const startTime = Date.now();
   
+  // Capture campaign reference for closure (guaranteed defined at this point)
+  const campaignRef = campaign;
+  const mtaRef = mta;
+  
+  // Helper function to send a single email (used by parallel workers)
+  async function sendSingleEmail(subscriber: any): Promise<{ success: boolean; email: string }> {
+    // Reserve send slot BEFORE attempting to send
+    const reserved = await storage.reserveSendSlot(campaignId, subscriber.id);
+    
+    if (!reserved) {
+      // Email was already reserved/sent to this subscriber - skip
+      return { success: true, email: subscriber.email }; // Count as processed, not failed
+    }
+    
+    let sendSuccess = true;
+    try {
+      if (mtaRef) {
+        // Use nullsink-aware sending (routes to real SMTP or nullsink based on MTA mode)
+        const result = await sendEmailWithNullsink(mtaRef, subscriber, campaignRef, {
+          trackOpens: campaignRef.trackOpens,
+          trackClicks: campaignRef.trackClicks,
+          trackingDomain: mtaRef.trackingDomain,
+          openTrackingDomain: mtaRef.openTrackingDomain,
+          openTag: campaignRef.openTag,
+          clickTag: campaignRef.clickTag,
+        });
+        
+        sendSuccess = result.success;
+        
+        // If using nullsink mode, store the capture
+        if ((mtaRef as any).mode === "nullsink" && result.capture) {
+          try {
+            await storage.createNullsinkCapture(result.capture);
+          } catch (captureErr) {
+            // Ignore capture errors
+          }
+        }
+        
+        if (!result.success) {
+          console.error(`Failed to send to ${subscriber.email}: ${result.error}`);
+          await storage.logError({
+            type: "send_failed",
+            severity: "error",
+            message: `Failed to send email: ${result.error}`,
+            email: subscriber.email,
+            campaignId: campaignRef.id,
+            subscriberId: subscriber.id,
+            details: `MTA: ${mtaRef.name}, Mode: ${(mtaRef as any).mode || 'real'}`,
+          }).catch(() => {});
+        }
+      }
+    } catch (error: any) {
+      console.error(`Exception sending to ${subscriber.email}:`, error.message);
+      sendSuccess = false;
+      await storage.logError({
+        type: "send_failed",
+        severity: "error",
+        message: `Exception during email send: ${error?.message || "Unknown error"}`,
+        email: subscriber.email,
+        campaignId: campaignRef.id,
+        subscriberId: subscriber.id,
+        details: error?.stack || String(error),
+      }).catch(() => {});
+    }
+    
+    // Finalize the send with the result
+    try {
+      await storage.finalizeSend(campaignId, subscriber.id, sendSuccess);
+    } catch (finalizeError: any) {
+      console.error(`INVARIANT VIOLATION during finalize for ${subscriber.email}: ${finalizeError.message}`);
+      await storage.forceFailPendingSend(campaignId, subscriber.id).catch(() => {});
+    }
+    
+    return { success: sendSuccess, email: subscriber.email };
+  }
+  
+  // Process batches with parallel workers
   while (true) {
     // Check if campaign was paused or cancelled (atomic read)
     const currentCampaign = await storage.getCampaign(campaignId);
     if (!currentCampaign || currentCampaign.status !== "sending") {
-      console.log(`Campaign ${campaignId} paused/cancelled at ${processedCount} processed`);
+      console.log(`[CAMPAIGN] ${campaignId}: Paused/cancelled at ${processedCount} processed`);
       break;
     }
     
@@ -2175,119 +2261,49 @@ async function processCampaignInternal(campaignId: string) {
       break;
     }
     
-    for (const subscriber of batch) {
-      // Check pause status periodically (every 100 emails)
-      if (processedCount % 100 === 0) {
+    // Process this batch in parallel chunks
+    for (let i = 0; i < batch.length; i += concurrency) {
+      // Check pause status at start of each parallel chunk
+      if (i > 0 && i % (concurrency * 10) === 0) {
         const checkCampaign = await storage.getCampaign(campaignId);
         if (!checkCampaign || checkCampaign.status !== "sending") {
-          console.log(`Campaign ${campaignId} paused during batch at ${processedCount}`);
+          console.log(`[CAMPAIGN] ${campaignId}: Paused during batch at ${processedCount}`);
           return;
         }
       }
       
-      // STEP 1: Reserve send slot BEFORE attempting to send
-      // This is critical for race condition prevention - the reservation happens
-      // atomically before any SMTP attempt, preventing duplicates even if
-      // multiple workers try to process the same subscriber
-      const reserved = await storage.reserveSendSlot(campaignId, subscriber.id);
+      // Get chunk of subscribers for parallel processing
+      const chunk = batch.slice(i, i + concurrency);
       
-      if (!reserved) {
-        // Email was already reserved/sent to this subscriber - skip
-        console.log(`Skipping duplicate send to ${subscriber.email} for campaign ${campaignId}`);
+      // Send all emails in this chunk in parallel
+      const results = await Promise.allSettled(
+        chunk.map(subscriber => sendSingleEmail(subscriber))
+      );
+      
+      // Count results
+      for (const result of results) {
         processedCount++;
-        continue;
-      }
-      
-      // STEP 2: Attempt to send email
-      let sendSuccess = true;
-      try {
-        if (mta) {
-          // Use nullsink-aware sending (routes to real SMTP or nullsink based on MTA mode)
-          const result = await sendEmailWithNullsink(mta, subscriber, campaign, {
-            trackOpens: campaign.trackOpens,
-            trackClicks: campaign.trackClicks,
-            trackingDomain: mta.trackingDomain,
-            openTrackingDomain: mta.openTrackingDomain,
-            openTag: campaign.openTag,
-            clickTag: campaign.clickTag,
-          });
-          
-          sendSuccess = result.success;
-          
-          // If using nullsink mode, store the capture
-          if ((mta as any).mode === "nullsink" && result.capture) {
-            try {
-              await storage.createNullsinkCapture(result.capture);
-            } catch (captureErr) {
-              console.error(`Failed to store nullsink capture:`, captureErr);
-            }
-          }
-          
-          if (!result.success) {
-            console.error(`Failed to send to ${subscriber.email}: ${result.error}`);
-            try {
-              await storage.logError({
-                type: "send_failed",
-                severity: "error",
-                message: `Failed to send email: ${result.error}`,
-                email: subscriber.email,
-                campaignId: campaign.id,
-                subscriberId: subscriber.id,
-                details: `MTA: ${mta.name}, Mode: ${(mta as any).mode || 'real'}, Retryable: ${result.retryable ? "yes" : "no"}`,
-              });
-            } catch (logError) {
-              console.error("Failed to log error:", logError);
-            }
+        if (result.status === "fulfilled") {
+          if (result.value.success) {
+            totalSent++;
           } else {
-            const modeLabel = (mta as any).mode === "nullsink" ? "[NULLSINK] " : "";
-            console.log(`${modeLabel}Email sent to ${subscriber.email}, messageId: ${result.messageId}`);
+            totalFailed++;
           }
         } else {
-          // No MTA configured - simulate sending for demo purposes
-          console.log(`[SIMULATED] Email to ${subscriber.email} (no MTA configured)`);
-        }
-        
-        // Apply rate limiting based on sending speed
-        if (delayBetweenEmails > 0) {
-          await new Promise(resolve => setTimeout(resolve, delayBetweenEmails));
-        }
-      } catch (error: any) {
-        console.error(`Failed to send to ${subscriber.email}:`, error);
-        sendSuccess = false;
-        try {
-          await storage.logError({
-            type: "send_failed",
-            severity: "error",
-            message: `Exception during email send: ${error?.message || "Unknown error"}`,
-            email: subscriber.email,
-            campaignId: campaign.id,
-            subscriberId: subscriber.id,
-            details: error?.stack || String(error),
-          });
-        } catch (logError) {
-          console.error("Failed to log error:", logError);
+          totalFailed++;
         }
       }
       
-      // STEP 3: Finalize the send with the result (update status + counters atomically)
-      // This updates the 'pending' record to 'sent' or 'failed' and adjusts counters
-      // finalizeSend throws if no pending row found (invariant violation)
-      try {
-        await storage.finalizeSend(campaignId, subscriber.id, sendSuccess);
-      } catch (finalizeError: any) {
-        // Invariant violation: pending row missing or already finalized
-        // Attempt to reconcile by force-failing this send record (if it still exists)
-        console.error(`INVARIANT VIOLATION during finalize for ${subscriber.email}: ${finalizeError.message}`);
-        try {
-          // Atomic reconciliation: Mark as failed if still pending (handles edge cases)
-          await storage.forceFailPendingSend(campaignId, subscriber.id);
-        } catch (reconcileError) {
-          console.error(`Failed to reconcile send for ${subscriber.email}:`, reconcileError);
-        }
+      // Apply rate limiting between parallel batches
+      if (batchDelayMs > 0 && i + concurrency < batch.length) {
+        await new Promise(resolve => setTimeout(resolve, batchDelayMs));
       }
-      
-      processedCount++;
     }
+    
+    // Log progress every batch
+    const elapsed = (Date.now() - startTime) / 1000;
+    const rate = processedCount / elapsed * 60;
+    console.log(`[CAMPAIGN] ${campaignId}: Progress ${processedCount}/${total} (${rate.toFixed(0)}/min) - Sent: ${totalSent}, Failed: ${totalFailed}`);
     
     offset += BATCH_SIZE;
   }
