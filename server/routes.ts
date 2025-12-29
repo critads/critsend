@@ -1678,12 +1678,26 @@ async function bulkUpsertSubscribers(
       await pool.query(insertSql, params);
       
       // Step 2: Merge from staging to subscribers with single SQL statement
+      // First aggregate duplicate emails within the staging batch to preserve all tags
+      // Uses LEFT JOIN LATERAL to preserve rows with empty tag arrays
       const mergeResult = await db.execute(sql`
-        WITH merge_data AS (
+        WITH aggregated_staging AS (
+          SELECT 
+            s.email,
+            COALESCE(
+              array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
+              ARRAY[]::text[]
+            ) AS tags,
+            MAX(s.ip_address) AS ip_address
+          FROM import_staging s
+          LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
+          WHERE s.job_id = ${jobId}
+          GROUP BY s.email
+        ),
+        merge_data AS (
           INSERT INTO subscribers (email, tags, ip_address, import_date)
-          SELECT DISTINCT ON (email) email, tags, ip_address, NOW()
-          FROM import_staging
-          WHERE job_id = ${jobId}
+          SELECT email, tags, ip_address, NOW()
+          FROM aggregated_staging
           ON CONFLICT (email) DO UPDATE 
           SET tags = (
             SELECT array_agg(DISTINCT t) 
