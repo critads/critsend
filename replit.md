@@ -6,7 +6,7 @@ A powerful email marketing platform capable of managing multi-million email prof
 
 Critsend is a full-featured email marketing tool with:
 - Subscriber management with tag-based segmentation
-- CSV import/export with batch processing (20,000 rows per batch)
+- CSV import/export with production-grade batch processing (5,000 rows per batch)
 - Campaign creation wizard with WYSIWYG HTML editing
 - Multiple MTA (Mail Transfer Agent) configurations
 - Email tracking (opens/clicks)
@@ -125,9 +125,17 @@ npm run build        # Build for production
 
 ### PostgreSQL-Backed Job Queues
 - **Campaign Jobs**: `campaign_jobs` table with `FOR UPDATE SKIP LOCKED` for race-condition-free multi-worker processing
-- **Import Jobs**: `import_job_queue` table for background CSV processing with progress tracking
-- **Crash Recovery**: Stale jobs automatically recovered (30min for imports, 2min for campaigns)
+- **Import Jobs**: `import_job_queue` table for background CSV processing with file-based storage
+- **Crash Recovery**: Stale jobs automatically recovered (2min heartbeat timeout for imports, 30min for campaigns)
 - **Horizontal Scaling**: Multiple workers can safely claim jobs using row-level locking
+
+### Production-Grade CSV Import Processing
+- **File-Based Storage**: CSV files stored on disk (`uploads/imports/{job_id}.csv`) instead of database
+- **Chunked Processing**: 5,000-row batches for bounded memory usage
+- **Heartbeat Mechanism**: Workers update heartbeat every 30 seconds; jobs with no heartbeat for 2 minutes are recovered
+- **Bulk Upserts**: PostgreSQL `ON CONFLICT` with tag array merging for 10x+ performance
+- **Progress Tracking**: Real-time `processed_lines` / `total_lines` updates
+- **Automatic Cleanup**: CSV files deleted after successful processing to save disk space
 
 ### Real SMTP Email Sending
 - **Nodemailer**: Connection pooling (5 connections, 100 messages per connection)
