@@ -976,7 +976,8 @@ export async function registerRoutes(
       });
     } catch (error) {
       console.error("Error processing HTML:", error);
-      res.status(500).json({ error: "Failed to process HTML content" });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: `Failed to process HTML content: ${errorMessage}` });
     }
   });
 
@@ -1003,10 +1004,23 @@ export async function registerRoutes(
 
   app.patch("/api/campaigns/:id", async (req: Request, res: Response) => {
     try {
+      // Get the current campaign to check if status is changing
+      const existingCampaign = await storage.getCampaign(req.params.id);
+      if (!existingCampaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      
       const campaign = await storage.updateCampaign(req.params.id, req.body);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
+      
+      // If status changed to sending, start the campaign processing
+      if (existingCampaign.status !== "sending" && campaign.status === "sending") {
+        console.log(`Starting campaign ${campaign.id} via PATCH - queueing for processing`);
+        processCampaign(campaign.id).catch(console.error);
+      }
+      
       res.json(campaign);
     } catch (error) {
       console.error("Error updating campaign:", error);
