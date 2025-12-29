@@ -173,7 +173,7 @@ export default function Segments() {
     }
   };
 
-  const SegmentForm = () => (
+const segmentFormContent = (
     <div className="space-y-6">
       <div className="space-y-2">
         <Label htmlFor="segment-name">Segment Name</Label>
@@ -291,7 +291,7 @@ export default function Segments() {
                 Define rules to group subscribers based on their tags
               </DialogDescription>
             </DialogHeader>
-            <SegmentForm />
+            {segmentFormContent}
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
                 Cancel
@@ -402,7 +402,7 @@ export default function Segments() {
               Update the rules for this segment
             </DialogDescription>
           </DialogHeader>
-          <SegmentForm />
+          {segmentFormContent}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingSegment(null)}>
               Cancel
