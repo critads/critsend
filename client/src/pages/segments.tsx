@@ -31,18 +31,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Filter, Plus, MoreVertical, Trash2, Edit2, Users, X } from "lucide-react";
+import { Filter, Plus, MoreVertical, Trash2, Edit2, Users, X, Mail, Tag } from "lucide-react";
 import type { Segment, SegmentRule } from "@shared/schema";
+import { fieldOperators, operatorLabels } from "@shared/schema";
 
 interface SegmentWithCount extends Segment {
   subscriberCount?: number;
 }
 
-const operatorLabels: Record<string, string> = {
-  contains: "contains",
-  not_contains: "does not contain",
-  equals: "equals",
-  not_equals: "does not equal",
+const fieldLabels: Record<string, string> = {
+  tags: "Tags",
+  email: "Email",
 };
 
 export default function Segments() {
@@ -145,7 +144,20 @@ export default function Segments() {
   };
 
   const updateRule = (index: number, updates: Partial<SegmentRule>) => {
-    setRules(rules.map((rule, i) => (i === index ? { ...rule, ...updates } : rule)));
+    setRules(rules.map((rule, i) => {
+      if (i !== index) return rule;
+      // When field changes, reset operator to first valid operator for new field
+      if (updates.field && updates.field !== rule.field) {
+        const newOperators = fieldOperators[updates.field];
+        const operatorValid = newOperators.includes(rule.operator as any);
+        return { 
+          ...rule, 
+          ...updates, 
+          operator: operatorValid ? rule.operator : newOperators[0] 
+        };
+      }
+      return { ...rule, ...updates };
+    }));
   };
 
   const handleSubmit = () => {
@@ -221,13 +233,27 @@ const segmentFormContent = (
                 </SelectContent>
               </Select>
             )}
-            <div className="flex gap-2 items-center">
-              <Select value="tags" disabled>
-                <SelectTrigger className="w-28">
-                  <SelectValue placeholder="Field" />
+            <div className="flex gap-2 items-center flex-wrap">
+              <Select
+                value={rule.field}
+                onValueChange={(v) => updateRule(index, { field: v as "tags" | "email" })}
+              >
+                <SelectTrigger className="w-28" data-testid={`select-field-${index}`}>
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="tags">Tags</SelectItem>
+                  <SelectItem value="tags">
+                    <span className="flex items-center gap-1">
+                      <Tag className="h-3 w-3" />
+                      Tags
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="email">
+                    <span className="flex items-center gap-1">
+                      <Mail className="h-3 w-3" />
+                      Email
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <Select
@@ -238,17 +264,20 @@ const segmentFormContent = (
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="contains">contains</SelectItem>
-                  <SelectItem value="not_contains">does not contain</SelectItem>
-                  <SelectItem value="equals">equals</SelectItem>
-                  <SelectItem value="not_equals">does not equal</SelectItem>
+                  {fieldOperators[rule.field].map((op) => (
+                    <SelectItem key={op} value={op}>
+                      {operatorLabels[op]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Input
-                placeholder="Tag value..."
+                placeholder={rule.field === "email" ? "e.g., @gmail.com" : "Tag value..."}
                 value={rule.value}
-                onChange={(e) => updateRule(index, { value: e.target.value.toUpperCase() })}
-                className="flex-1"
+                onChange={(e) => updateRule(index, { 
+                  value: rule.field === "tags" ? e.target.value.toUpperCase() : e.target.value 
+                })}
+                className="flex-1 min-w-[150px]"
                 data-testid={`input-rule-value-${index}`}
               />
               {rules.length > 1 && (
@@ -274,7 +303,7 @@ const segmentFormContent = (
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Segments</h1>
           <p className="text-muted-foreground">
-            Create and manage audience segments based on tags
+            Create and manage audience segments based on tags or email
           </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -288,7 +317,7 @@ const segmentFormContent = (
             <DialogHeader>
               <DialogTitle>Create Segment</DialogTitle>
               <DialogDescription>
-                Define rules to group subscribers based on their tags
+                Define rules to group subscribers based on tags or email
               </DialogDescription>
             </DialogHeader>
             {segmentFormContent}
@@ -361,7 +390,10 @@ const segmentFormContent = (
                           {rule.logic || "AND"}
                         </Badge>
                       )}
-                      <span className="text-sm">Tags</span>
+                      <span className="text-sm flex items-center gap-1">
+                        {rule.field === "email" ? <Mail className="h-3 w-3" /> : <Tag className="h-3 w-3" />}
+                        {fieldLabels[rule.field] || rule.field}
+                      </span>
                       <Badge variant="secondary" className="text-xs">
                         {operatorLabels[rule.operator]}
                       </Badge>
@@ -384,7 +416,7 @@ const segmentFormContent = (
             <Filter className="h-16 w-16 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-semibold mb-2">No segments yet</h3>
             <p className="text-muted-foreground max-w-md mb-4">
-              Create segments to target specific groups of subscribers based on their tags.
+              Create segments to target specific groups of subscribers based on tags or email.
             </p>
             <Button onClick={() => setIsCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
