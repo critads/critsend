@@ -95,7 +95,10 @@ function isBlockedHost(hostname: string): boolean {
 }
 
 async function downloadImage(url: string, destPath: string, redirectCount = 0): Promise<boolean> {
-  if (redirectCount > 3) return false;
+  if (redirectCount > 3) {
+    console.log(`[Image download] Failed: ${url} - too many redirects`);
+    return false;
+  }
   
   let urlObj: URL;
   let resolvedIP: string;
@@ -104,10 +107,12 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
     urlObj = new URL(url);
     
     if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
+      console.log(`[Image download] Failed: ${url} - invalid protocol`);
       return false;
     }
     
     if (isBlockedHost(urlObj.hostname)) {
+      console.log(`[Image download] Failed: ${url} - blocked host`);
       return false;
     }
     
@@ -115,9 +120,11 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
     resolvedIP = result.address;
     
     if (isBlockedIP(resolvedIP)) {
+      console.log(`[Image download] Failed: ${url} - blocked IP ${resolvedIP}`);
       return false;
     }
-  } catch {
+  } catch (error) {
+    console.log(`[Image download] Failed: ${url} - DNS/URL error: ${error}`);
     return false;
   }
   
@@ -181,6 +188,7 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
       }
       
       if (response.statusCode !== 200) {
+        console.log(`[Image download] Failed: ${url} - HTTP ${response.statusCode}`);
         resolve(false);
         return;
       }
@@ -217,11 +225,13 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
       });
     });
     
-    request.on("error", () => {
+    request.on("error", (err) => {
+      console.log(`[Image download] Failed: ${url} - network error: ${err.message}`);
       resolve(false);
     });
     
     request.on("timeout", () => {
+      console.log(`[Image download] Failed: ${url} - timeout`);
       request.destroy();
       resolve(false);
     });

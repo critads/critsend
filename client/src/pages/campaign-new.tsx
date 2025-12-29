@@ -111,9 +111,10 @@ export default function CampaignNew() {
       return data.html;
     } catch (error) {
       console.error("Error processing HTML images:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       toast({
         title: "Image processing failed",
-        description: "Could not download images. Using original HTML.",
+        description: `Could not process images: ${errorMessage}. Using original HTML.`,
         variant: "destructive",
       });
       return html;
