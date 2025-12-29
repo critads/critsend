@@ -126,6 +126,7 @@ export interface IStorage {
   enqueueCampaignJob(campaignId: string): Promise<CampaignJob>;
   claimNextJob(workerId: string): Promise<CampaignJob | null>;
   completeJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
+  clearStuckJobsForCampaign(campaignId: string): Promise<number>;
   getJobStatus(campaignId: string): Promise<CampaignJobStatus | null>;
   getActiveJobs(): Promise<CampaignJob[]>;
   cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
@@ -819,6 +820,26 @@ export class DatabaseStorage implements IStorage {
         errorMessage: errorMessage || null,
       })
       .where(eq(campaignJobs.id, jobId));
+  }
+
+  async clearStuckJobsForCampaign(campaignId: string): Promise<number> {
+    // Mark any pending/processing jobs as cancelled so resume can create a new job
+    const result = await db.update(campaignJobs)
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: "Cancelled for campaign resume",
+      })
+      .where(
+        and(
+          eq(campaignJobs.campaignId, campaignId),
+          or(
+            eq(campaignJobs.status, "pending"),
+            eq(campaignJobs.status, "processing")
+          )
+        )
+      );
+    return (result as any).rowCount || 0;
   }
 
   async getJobStatus(campaignId: string): Promise<CampaignJobStatus | null> {

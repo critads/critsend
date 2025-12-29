@@ -1072,7 +1072,10 @@ export async function registerRoutes(
 
   app.post("/api/campaigns/:id/resume", async (req: Request, res: Response) => {
     try {
-      const campaign = await storage.updateCampaign(req.params.id, { status: "sending" });
+      // Clear any stuck processing jobs for this campaign before resuming
+      await storage.clearStuckJobsForCampaign(req.params.id);
+      
+      const campaign = await storage.updateCampaign(req.params.id, { status: "sending", pauseReason: null });
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
