@@ -92,6 +92,7 @@ export const campaigns = pgTable("campaigns", {
   sendingSpeed: text("sending_speed").notNull().default("medium"),
   scheduledAt: timestamp("scheduled_at"),
   status: text("status").notNull().default("draft"),
+  pauseReason: text("pause_reason"),
   openTag: text("open_tag"),
   clickTag: text("click_tag"),
   unsubscribeTag: text("unsubscribe_tag"),

@@ -1674,6 +1674,35 @@ async function pollForJobs() {
   }
 }
 
+// Check for paused campaigns due to MTA down and auto-resume when MTA is back
+let mtaRecoveryInterval: NodeJS.Timeout | null = null;
+async function checkMtaRecovery() {
+  try {
+    // Get all campaigns paused due to MTA being down
+    const pausedCampaigns = await storage.getCampaignsByPauseReason("mta_down");
+    
+    for (const campaign of pausedCampaigns) {
+      if (!campaign.mtaId) continue;
+      
+      const mta = await storage.getMta(campaign.mtaId);
+      if (!mta) continue;
+      
+      // Try to verify MTA connection
+      const verifyResult = await verifyTransporter(mta);
+      
+      if (verifyResult.success) {
+        console.log(`MTA ${mta.name} is back online - resuming campaign ${campaign.id} (${campaign.name})`);
+        // Clear pause reason and set status back to sending
+        await storage.updateCampaign(campaign.id, { status: "sending", pauseReason: null });
+        // Re-enqueue for processing
+        await storage.enqueueCampaignJob(campaign.id);
+      }
+    }
+  } catch (error) {
+    console.error("Error checking MTA recovery:", error);
+  }
+}
+
 // Start the background job processor
 function startJobProcessor() {
   if (jobPollingInterval) {
@@ -1690,6 +1719,12 @@ function startJobProcessor() {
   
   // Also start the import job processor
   startImportJobProcessor();
+  
+  // Start MTA recovery checker - check every 30 seconds for MTA-down paused campaigns
+  if (!mtaRecoveryInterval) {
+    mtaRecoveryInterval = setInterval(checkMtaRecovery, 30000);
+    console.log("MTA recovery checker started (30s interval)");
+  }
 }
 
 // Stop the background job processor
@@ -1698,6 +1733,11 @@ function stopJobProcessor() {
     clearInterval(jobPollingInterval);
     jobPollingInterval = null;
     console.log("Job processor stopped");
+  }
+  if (mtaRecoveryInterval) {
+    clearInterval(mtaRecoveryInterval);
+    mtaRecoveryInterval = null;
+    console.log("MTA recovery checker stopped");
   }
   stopImportJobProcessor();
 }
@@ -2128,7 +2168,9 @@ async function processCampaignInternal(campaignId: string) {
     const verifyResult = await verifyTransporter(mta);
     if (!verifyResult.success) {
       console.error(`Campaign ${campaignId}: SMTP verification failed: ${verifyResult.error}`);
-      await storage.updateCampaignStatusAtomic(campaignId, "failed");
+      // Pause instead of fail - will auto-resume when MTA is back online
+      await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
+      console.log(`Campaign ${campaignId}: Paused due to MTA unavailable - will auto-resume when MTA is back`);
       return;
     }
     console.log(`Campaign ${campaignId}: SMTP connection verified for MTA ${mta.name}`);

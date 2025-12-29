@@ -483,6 +483,11 @@ export class DatabaseStorage implements IStorage {
     return campaign;
   }
 
+  async getCampaignsByPauseReason(reason: string): Promise<Campaign[]> {
+    return db.select().from(campaigns)
+      .where(and(eq(campaigns.status, "paused"), eq(campaigns.pauseReason, reason)));
+  }
+
   async createCampaign(data: InsertCampaign): Promise<Campaign> {
     const [campaign] = await db.insert(campaigns).values(data).returning();
     return campaign;
