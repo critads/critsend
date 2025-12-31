@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
-import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,7 +223,7 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {campaign.scheduledAt
-                          ? format(parseISO(campaign.scheduledAt.toString()), "MMM d, yyyy HH:mm")
+                          ? new Date(campaign.scheduledAt).toLocaleString()
                           : "Not scheduled"}
                       </TableCell>
                       <TableCell>
