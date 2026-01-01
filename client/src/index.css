@@ -2,65 +2,87 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE - MailerLite-inspired green theme with gradient sidebar */
+/* LIGHT MODE - MailerLite-inspired clean design with light sidebar and green accents */
 :root {
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  --background: 0 0% 97%;
-  --foreground: 160 10% 15%;
-  --border: 160 10% 90%;
+  
+  /* Main surfaces - soft gray background, white cards */
+  --background: 150 5% 95%;
+  --foreground: 150 10% 15%;
+  --border: 150 5% 88%;
   --card: 0 0% 100%;
-  --card-foreground: 160 10% 15%;
-  --card-border: 160 10% 92%;
-  --sidebar: 152 100% 12%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 152 60% 18%;
-  --sidebar-primary: 152 76% 42%;
+  --card-foreground: 150 10% 15%;
+  --card-border: 150 5% 90%;
+  
+  /* Light sidebar with subtle styling */
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 150 10% 35%;
+  --sidebar-border: 150 5% 90%;
+  --sidebar-primary: 152 76% 36%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 152 50% 20%;
-  --sidebar-accent-foreground: 0 0% 98%;
+  --sidebar-accent: 152 45% 95%;
+  --sidebar-accent-foreground: 152 76% 30%;
   --sidebar-ring: 152 76% 42%;
+  
+  /* Popover/dropdown */
   --popover: 0 0% 100%;
-  --popover-foreground: 160 10% 15%;
-  --popover-border: 160 10% 90%;
-  --primary: 152 76% 42%;
+  --popover-foreground: 150 10% 15%;
+  --popover-border: 150 5% 88%;
+  
+  /* Primary green accent - used sparingly */
+  --primary: 152 76% 36%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 160 10% 94%;
-  --secondary-foreground: 160 10% 15%;
-  --muted: 160 10% 96%;
-  --muted-foreground: 160 10% 45%;
-  --accent: 152 30% 92%;
-  --accent-foreground: 160 10% 15%;
+  
+  /* Secondary/muted colors */
+  --secondary: 150 5% 94%;
+  --secondary-foreground: 150 10% 25%;
+  --muted: 150 5% 96%;
+  --muted-foreground: 150 8% 45%;
+  --accent: 152 40% 95%;
+  --accent-foreground: 152 60% 28%;
+  
+  /* Status colors */
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
-  --input: 160 10% 85%;
+  
+  /* Form inputs */
+  --input: 150 5% 88%;
   --ring: 152 76% 42%;
+  
+  /* Charts */
   --chart-1: 152 76% 42%;
   --chart-2: 199 89% 48%;
   --chart-3: 262 83% 58%;
   --chart-4: 24 95% 53%;
   --chart-5: 340 82% 52%;
+  
+  /* Typography */
   --font-sans: Inter, system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: 'JetBrains Mono', Menlo, monospace;
-  --radius: .5rem;
-  --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.03);
-  --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.04);
-  --shadow-sm: 0px 2px 4px -1px hsl(0 0% 0% / 0.06), 0px 1px 2px -1px hsl(0 0% 0% / 0.04);
-  --shadow: 0px 4px 6px -1px hsl(0 0% 0% / 0.08), 0px 2px 4px -2px hsl(0 0% 0% / 0.05);
-  --shadow-md: 0px 6px 10px -2px hsl(0 0% 0% / 0.1), 0px 3px 6px -3px hsl(0 0% 0% / 0.06);
-  --shadow-lg: 0px 10px 15px -3px hsl(0 0% 0% / 0.1), 0px 4px 6px -4px hsl(0 0% 0% / 0.05);
-  --shadow-xl: 0px 20px 25px -5px hsl(0 0% 0% / 0.1), 0px 8px 10px -6px hsl(0 0% 0% / 0.05);
-  --shadow-2xl: 0px 25px 50px -12px hsl(0 0% 0% / 0.25);
+  
+  /* Spacing and radius */
+  --radius: .375rem;
+  
+  /* Shadows - subtle for clean look */
+  --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.02);
+  --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.03);
+  --shadow-sm: 0px 2px 4px -1px hsl(0 0% 0% / 0.04), 0px 1px 2px -1px hsl(0 0% 0% / 0.03);
+  --shadow: 0px 4px 6px -1px hsl(0 0% 0% / 0.05), 0px 2px 4px -2px hsl(0 0% 0% / 0.03);
+  --shadow-md: 0px 6px 10px -2px hsl(0 0% 0% / 0.06), 0px 3px 6px -3px hsl(0 0% 0% / 0.04);
+  --shadow-lg: 0px 10px 15px -3px hsl(0 0% 0% / 0.07), 0px 4px 6px -4px hsl(0 0% 0% / 0.04);
+  --shadow-xl: 0px 20px 25px -5px hsl(0 0% 0% / 0.08), 0px 8px 10px -6px hsl(0 0% 0% / 0.04);
+  --shadow-2xl: 0px 25px 50px -12px hsl(0 0% 0% / 0.15);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
-  /* Sidebar gradient colors */
-  --sidebar-gradient-from: 152 76% 32%;
-  --sidebar-gradient-to: 160 40% 8%;
+  /* Sidebar glow effect - green gradient on left edge */
+  --sidebar-glow-color: 152 76% 42%;
+  --sidebar-glow-intensity: 0.15;
 
 /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -103,40 +125,58 @@
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
-  --background: 160 20% 8%;
-  --foreground: 0 0% 98%;
-  --border: 160 15% 18%;
-  --card: 160 15% 12%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 160 15% 16%;
-  --sidebar: 160 30% 6%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 160 30% 12%;
-  --sidebar-primary: 152 76% 48%;
-  --sidebar-primary-foreground: 160 20% 8%;
-  --sidebar-accent: 152 40% 16%;
-  --sidebar-accent-foreground: 0 0% 98%;
-  --sidebar-ring: 152 76% 48%;
-  --popover: 160 15% 12%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 160 15% 18%;
-  --primary: 152 76% 48%;
-  --primary-foreground: 160 20% 8%;
-  --secondary: 160 15% 18%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 160 15% 14%;
-  --muted-foreground: 160 10% 60%;
-  --accent: 152 30% 18%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 84% 50%;
+  
+  /* Main surfaces */
+  --background: 150 10% 10%;
+  --foreground: 0 0% 95%;
+  --border: 150 8% 18%;
+  --card: 150 8% 14%;
+  --card-foreground: 0 0% 95%;
+  --card-border: 150 8% 20%;
+  
+  /* Dark sidebar */
+  --sidebar: 150 10% 8%;
+  --sidebar-foreground: 0 0% 70%;
+  --sidebar-border: 150 8% 15%;
+  --sidebar-primary: 152 76% 50%;
+  --sidebar-primary-foreground: 150 10% 8%;
+  --sidebar-accent: 152 30% 18%;
+  --sidebar-accent-foreground: 152 60% 70%;
+  --sidebar-ring: 152 76% 50%;
+  
+  /* Popover */
+  --popover: 150 8% 14%;
+  --popover-foreground: 0 0% 95%;
+  --popover-border: 150 8% 20%;
+  
+  /* Primary */
+  --primary: 152 76% 50%;
+  --primary-foreground: 150 10% 8%;
+  
+  /* Secondary/muted */
+  --secondary: 150 8% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 150 8% 16%;
+  --muted-foreground: 150 5% 55%;
+  --accent: 152 25% 20%;
+  --accent-foreground: 152 60% 75%;
+  
+  /* Status */
+  --destructive: 0 84% 55%;
   --destructive-foreground: 0 0% 100%;
-  --input: 160 15% 22%;
-  --ring: 152 76% 48%;
+  
+  /* Forms */
+  --input: 150 8% 22%;
+  --ring: 152 76% 50%;
+  
+  /* Charts */
   --chart-1: 152 76% 55%;
   --chart-2: 199 89% 55%;
   --chart-3: 262 83% 65%;
   --chart-4: 24 95% 60%;
   --chart-5: 340 82% 65%;
+  
+  /* Shadows */
   --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.05);
   --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.08);
   --shadow-sm: 0px 2px 4px -1px hsl(0 0% 0% / 0.1), 0px 1px 2px -1px hsl(0 0% 0% / 0.06);
@@ -146,9 +186,9 @@
   --shadow-xl: 0px 20px 25px -5px hsl(0 0% 0% / 0.2), 0px 8px 10px -6px hsl(0 0% 0% / 0.1);
   --shadow-2xl: 0px 25px 50px -12px hsl(0 0% 0% / 0.4);
 
-  /* Sidebar gradient colors - dark mode */
-  --sidebar-gradient-from: 152 60% 18%;
-  --sidebar-gradient-to: 160 40% 5%;
+  /* Sidebar glow - dark mode */
+  --sidebar-glow-color: 152 76% 50%;
+  --sidebar-glow-intensity: 0.1;
 
 /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -324,8 +364,37 @@
     color: hsl(var(--stat-orange));
   }
 
-  /* Sidebar gradient utility */
-  .sidebar-gradient {
-    background: linear-gradient(180deg, hsl(var(--sidebar-gradient-from)) 0%, hsl(var(--sidebar-gradient-to)) 100%);
+  /* Sidebar with subtle left-edge glow (MailerLite style) */
+  .sidebar-glow {
+    position: relative;
+    background: hsl(var(--sidebar));
+  }
+  .sidebar-glow::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, 
+      hsl(var(--sidebar-glow-color) / var(--sidebar-glow-intensity)) 0%,
+      hsl(var(--sidebar-glow-color) / calc(var(--sidebar-glow-intensity) * 2)) 30%,
+      hsl(var(--sidebar-glow-color) / var(--sidebar-glow-intensity)) 100%
+    );
+    z-index: 1;
+  }
+  .sidebar-glow::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 80px;
+    background: linear-gradient(90deg, 
+      hsl(var(--sidebar-glow-color) / calc(var(--sidebar-glow-intensity) * 0.5)) 0%,
+      transparent 100%
+    );
+    pointer-events: none;
+    z-index: 0;
   }
 }

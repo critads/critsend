@@ -1,117 +1,124 @@
 # Critsend Design Guidelines
 
 ## Design Approach
-**Selected Approach:** MailerLite-Inspired Modern Design  
-**Justification:** Clean, professional email marketing platform with excellent usability. Green color scheme conveys growth and reliability. Gradient sidebar creates visual depth while maintaining clarity.
+**Selected Approach:** MailerLite-Inspired Clean Minimal Design  
+**Justification:** Light, spacious interface that prioritizes usability and readability. Green is used sparingly as an accent color for actions and active states. White sidebar with subtle left-edge glow creates visual interest while maintaining a clean aesthetic.
 
-**Reference Inspiration:** MailerLite's modern UI + clean typography + gradient sidebar design
+**Reference Inspiration:** MailerLite's 2024 UI refresh - light sidebar, gray canvas background, white content cards, minimal shadows
 
 ## Color System
 
 ### Primary Colors
-- **Primary Green:** HSL 152 76% 42% - Used for buttons, links, active states
-- **Primary Dark:** HSL 160 50% 10% - Dark accents and text
-
-### Sidebar Gradient
-- **From:** HSL 152 76% 28% (bright green)
-- **To:** HSL 160 50% 10% (dark forest)
-- **Direction:** Top to bottom (180deg)
+- **Primary Green:** HSL 152 76% 36% - Used sparingly for action buttons, links, active states
+- **Accent Green:** HSL 152 40% 95% - Light green for selected states and hover backgrounds
 
 ### Light Mode
-- **Background:** HSL 0 0% 97% (light gray-white)
+- **Background:** HSL 150 5% 95% (soft gray - canvas background)
 - **Card Background:** HSL 0 0% 100% (pure white)
-- **Foreground:** HSL 160 10% 15% (dark charcoal)
-- **Muted:** HSL 160 10% 96% (very light gray)
-- **Border:** HSL 160 10% 90% (subtle gray)
+- **Foreground:** HSL 150 10% 15% (dark charcoal)
+- **Muted Foreground:** HSL 150 8% 45% (medium gray for secondary text)
+- **Border:** HSL 150 5% 88% (very subtle gray)
+
+### Sidebar (Light Mode)
+- **Background:** HSL 0 0% 100% (white)
+- **Foreground:** HSL 150 10% 35% (gray text)
+- **Active State:** HSL 152 45% 95% background with HSL 152 76% 30% text
+- **Left Edge Glow:** Subtle green gradient on left edge (4px wide)
 
 ### Dark Mode
-- **Background:** HSL 160 20% 8% (dark green-gray)
-- **Card Background:** HSL 160 15% 12% (slightly elevated)
-- **Foreground:** HSL 0 0% 98% (near white)
-- **Primary:** HSL 152 76% 48% (brighter green for contrast)
+- **Background:** HSL 150 10% 10% (dark gray)
+- **Card Background:** HSL 150 8% 14% (elevated dark)
+- **Foreground:** HSL 0 0% 95% (near white)
+- **Muted Foreground:** HSL 150 5% 55% (muted gray)
+- **Primary:** HSL 152 76% 50% (brighter green for contrast)
 
 ## Typography
 - **Primary Font:** Inter (Google Fonts)
-- **Monospace Font:** JetBrains Mono (for email addresses, API keys, SMTP settings)
+- **Monospace Font:** JetBrains Mono (for technical content)
 
 **Hierarchy:**
-- Page Titles: text-2xl font-semibold
+- Page Titles: text-2xl font-semibold (used sparingly)
 - Section Headers: text-lg font-semibold
 - Card Titles: text-base font-medium
 - Body Text: text-sm font-normal
 - Helper Text: text-sm text-muted-foreground
-- Data Labels: text-xs uppercase tracking-wide font-medium
+- Data Labels: text-[11px] uppercase tracking-wider font-medium text-muted-foreground/60
 - Code/Technical: font-mono text-sm
 
 ## Layout System
-**Spacing Units:** Tailwind units of 2, 4, 6, 8, 12, 16  
+
+**Spacing Philosophy:** Generous whitespace for a clean, breathable design
+
+**Spacing Units:** Use Tailwind units of 2, 3, 4, 6, 8, 12
 **Common Patterns:**
-- Page padding: p-6
-- Card padding: p-6
+- Page padding: p-6 or p-8
+- Card padding: p-5 or p-6
 - Section gaps: space-y-6
 - Form field gaps: space-y-4
-- Button spacing: Use button variants, not custom padding
+- Tight element spacing: space-y-0.5 or space-y-1
 
 **Grid Structure:**
-- Dashboard stats: grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6
-- Campaign lists: Single column with full-width cards
-- Settings panels: Two-column split
+- Dashboard stats: grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4
+- Main content: White cards on gray background
+- Sidebar width: 14rem (224px)
 
 ## Component Library
 
-**Navigation:**
-- Left sidebar (240px) with gradient background
-- Navigation items: White text with white/10 hover background
-- Active items: white/15 background
-- Section labels: Uppercase, white/40 color
-- Clean header with minimal elements
+### Sidebar
+- White/light background (not dark gradient)
+- Subtle green glow on left edge using CSS pseudo-elements
+- Navigation items use muted-foreground color
+- Active items get light green background (sidebar-accent) with green text
+- Section labels: Uppercase, very small (11px), muted color
+- Compact navigation buttons (h-9 rounded-md)
 
-**Sidebar Styling:**
-- Gradient background from green to dark
-- White text throughout
-- Subtle white/10 borders
-- Rounded-lg navigation buttons
-- No section labels for main nav (cleaner look)
+### Header
+- White background (bg-card)
+- Minimal height (h-12)
+- Subtle bottom border
+- Contains only essential controls (sidebar toggle, theme toggle)
 
-**Dashboard Cards:**
-- White background with subtle border
-- Minimal shadow usage
-- Stat cards: Large number display with trend indicators
-- Quick action buttons prominently placed
+### Dashboard Cards
+- White background with very subtle shadow (shadow-sm)
+- Hover state: slightly stronger shadow (shadow-md)
+- Clean borders using border-border
+- Stat cards: Icon in colored circle, large number display
 
-**Buttons:**
-- Primary: Green background, white text
+### Buttons
+- Primary: Green background (#00a651), white text - use sparingly
 - Secondary: Light gray background
-- Destructive: Red for dangerous actions
-- Ghost: Transparent with hover state
+- Ghost: Transparent with subtle hover state
 - Outline: Border only
+- Destructive: Red for dangerous actions
+- All buttons use rounded-md (small radius)
 
-**Forms:**
-- Grouped sections with dividers
-- Field labels above inputs
-- Inline validation with icon indicators
-- Help text below fields in muted color
+### Forms
+- Clean field styling with subtle borders
+- Labels above inputs
+- Help text in muted-foreground
+- Error states in destructive color
 
-**Status Badges:**
-- Use badge variants for states
-- Draft, Scheduled, Sending, Sent, Paused (color-coded)
-- Rounded pill shape
+### Status Badges
+- Small, rounded pill shape
+- Color-coded for different states
+- Use secondary variant as default
 
 ## Responsive Behavior
 - Mobile: Single column, hamburger menu
-- Tablet: Collapsed sidebar, two-column grids
-- Desktop: Full sidebar, multi-column layouts
+- Tablet: Collapsed sidebar icon-only mode
+- Desktop: Full sidebar with text labels
 
 ## Animations
 **Minimal & Purposeful:**
-- Smooth transitions for dropdowns (duration-200)
-- Fade-in for modals
-- Skeleton loaders for data fetching
-- NO scroll animations or decorative motion
+- transition-colors for hover states
+- transition-shadow for card hovers
+- duration-200 for smooth but quick transitions
+- NO decorative animations
 
 ## Key Design Principles
-1. **Clean & Professional:** Minimal visual clutter
-2. **Consistent Spacing:** Same padding across similar elements
-3. **Clear Hierarchy:** Use typography and color to guide attention
-4. **Accessible:** Good contrast ratios, clear focus states
-5. **Responsive:** Works well on all device sizes
+1. **Light & Spacious:** White cards on gray background creates clear content separation
+2. **Green as Accent:** Use green sparingly for actions and active states, not as dominant color
+3. **Consistent Radius:** rounded-md (0.375rem) throughout for subtle rounding
+4. **Clean Typography:** Clear hierarchy with restrained use of font weights
+5. **Subtle Shadows:** Very light shadows that don't distract
+6. **Token-Based:** All colors through CSS variables for easy theming

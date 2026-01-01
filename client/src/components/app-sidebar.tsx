@@ -101,22 +101,19 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   return (
-    <Sidebar 
-      className="border-r-0 sidebar-gradient"
-    >
-      <SidebarHeader className="p-5 border-b border-sidebar-border">
+    <Sidebar className="border-r border-sidebar-border sidebar-glow">
+      <SidebarHeader className="p-4 pb-6">
         <Link href="/">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-sidebar-accent">
-              <Send className="w-5 h-5 text-sidebar-foreground" />
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
+              <Send className="w-4 h-4 text-primary-foreground" />
             </div>
-            <div className="flex flex-col">
-              <span className="text-lg font-bold tracking-tight text-sidebar-foreground">critsend</span>
-            </div>
+            <span className="text-base font-semibold text-foreground">critsend</span>
           </div>
         </Link>
       </SidebarHeader>
-      <SidebarContent className="px-3 py-4">
+      
+      <SidebarContent className="px-3">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">
@@ -125,11 +122,11 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
-                    className="h-10 rounded-lg transition-all duration-200 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground"
+                    className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
-                      <item.icon className="w-5 h-5" />
-                      <span className="font-medium">{item.title}</span>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -139,7 +136,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="text-sidebar-foreground/40 text-xs font-medium uppercase tracking-wider mb-2 px-3">
+          <SidebarGroupLabel className="text-muted-foreground/60 text-[11px] font-medium uppercase tracking-wider mb-1.5 px-2">
             Configuration
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -149,11 +146,11 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
-                    className="h-10 rounded-lg transition-all duration-200 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground"
+                    className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
-                      <item.icon className="w-5 h-5" />
-                      <span className="font-medium">{item.title}</span>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -163,7 +160,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="text-sidebar-foreground/40 text-xs font-medium uppercase tracking-wider mb-2 px-3">
+          <SidebarGroupLabel className="text-muted-foreground/60 text-[11px] font-medium uppercase tracking-wider mb-1.5 px-2">
             Tools
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -173,11 +170,11 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
-                    className="h-10 rounded-lg transition-all duration-200 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground"
+                    className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(' ', '-')}`}>
-                      <item.icon className="w-5 h-5" />
-                      <span className="font-medium">{item.title}</span>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -186,10 +183,11 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-2 text-xs text-sidebar-foreground/50">
+      
+      <SidebarFooter className="p-3 mt-auto">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer px-2 py-1.5 rounded-md hover:bg-accent transition-colors">
           <HelpCircle className="w-4 h-4" />
-          <span>Help</span>
+          <span>Help & Support</span>
         </div>
       </SidebarFooter>
     </Sidebar>
