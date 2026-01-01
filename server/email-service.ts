@@ -134,6 +134,23 @@ export function personalizeContent(
   return personalized;
 }
 
+// Rewrite local image URLs to use the image hosting domain
+export function rewriteImageUrls(html: string, imageHostingDomain: string | null | undefined): string {
+  if (!imageHostingDomain) {
+    return html;
+  }
+  
+  // Normalize the domain - remove trailing slash if present
+  const domain = imageHostingDomain.replace(/\/$/, "");
+  
+  // Match src="/images/..." patterns and replace with full URL
+  // Also handles src='/images/...' (single quotes)
+  return html.replace(
+    /src=(["'])\/images\//g,
+    `src=$1${domain}/images/`
+  );
+}
+
 async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -154,6 +171,9 @@ export async function sendEmail(
   const transporter = createTransporter(mta);
 
   let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
+  
+  // Rewrite local image URLs to use the MTA's image hosting domain
+  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain);
   
   // Add signed unsubscribe URL placeholder replacement
   const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
@@ -336,6 +356,9 @@ export async function sendEmailWithNullsink(
 
   // Build the email content similar to normal sending
   let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
+  
+  // Rewrite local image URLs to use the MTA's image hosting domain
+  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain);
   const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
   if (baseUrl && htmlContent.includes("{{unsubscribe_url}}")) {
     const unsubscribeUrl = generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id);

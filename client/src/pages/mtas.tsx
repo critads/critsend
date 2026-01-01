@@ -41,6 +41,7 @@ export default function MTAs() {
     password: "",
     trackingDomain: "",
     openTrackingDomain: "",
+    imageHostingDomain: "",
     isActive: true,
     mode: "real",
     simulatedLatencyMs: 0,
@@ -121,6 +122,7 @@ export default function MTAs() {
       password: "",
       trackingDomain: "",
       openTrackingDomain: "",
+      imageHostingDomain: "",
       isActive: true,
       mode: "real",
       simulatedLatencyMs: 0,
@@ -139,6 +141,7 @@ export default function MTAs() {
       password: mta.password,
       trackingDomain: mta.trackingDomain || "",
       openTrackingDomain: mta.openTrackingDomain || "",
+      imageHostingDomain: mta.imageHostingDomain || "",
       isActive: mta.isActive,
       mode: mta.mode || "real",
       simulatedLatencyMs: mta.simulatedLatencyMs ?? 0,
@@ -253,6 +256,20 @@ export default function MTAs() {
             className="font-mono text-sm"
             data-testid="input-mta-open-tracking"
           />
+        </div>
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor="mta-image-hosting">Image Hosting Domain</Label>
+          <Input
+            id="mta-image-hosting"
+            placeholder="https://images.example.com"
+            value={formData.imageHostingDomain ?? ""}
+            onChange={(e) => setFormData({ ...formData, imageHostingDomain: e.target.value })}
+            className="font-mono text-sm"
+            data-testid="input-mta-image-hosting"
+          />
+          <p className="text-xs text-muted-foreground">
+            Domain to use for locally hosted email images (e.g., https://images.yourdomain.com)
+          </p>
         </div>
         <div className="flex items-center justify-between sm:col-span-2 p-3 rounded-md bg-muted/50">
           <div>

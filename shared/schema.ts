@@ -39,6 +39,7 @@ export const mtas = pgTable("mtas", {
   password: text("password"),
   trackingDomain: text("tracking_domain"),
   openTrackingDomain: text("open_tracking_domain"),
+  imageHostingDomain: text("image_hosting_domain"), // Domain for locally hosted email images
   isActive: boolean("is_active").notNull().default(true),
   mode: text("mode").notNull().default("real"), // "real" or "nullsink"
   simulatedLatencyMs: integer("simulated_latency_ms").default(0), // Latency to simulate for nullsink
