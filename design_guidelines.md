@@ -1,120 +1,104 @@
 # Critsend Design Guidelines
 
 ## Design Approach
-**Selected Approach:** Design System - Material Design 3  
-**Justification:** Email marketing platforms require information density, data visualization, complex forms, and real-time status updates. Material Design 3 provides robust components for data-heavy applications while maintaining clarity and usability.
+**Selected Approach:** MailerLite-Inspired Modern Design  
+**Justification:** Clean, professional email marketing platform with excellent usability. Green color scheme conveys growth and reliability. Gradient sidebar creates visual depth while maintaining clarity.
 
-**Reference Inspiration:** Mailchimp's dashboard clarity + Linear's modern typography + SendGrid's data presentation
+**Reference Inspiration:** MailerLite's modern UI + clean typography + gradient sidebar design
+
+## Color System
+
+### Primary Colors
+- **Primary Green:** HSL 152 76% 42% - Used for buttons, links, active states
+- **Primary Dark:** HSL 160 50% 10% - Dark accents and text
+
+### Sidebar Gradient
+- **From:** HSL 152 76% 28% (bright green)
+- **To:** HSL 160 50% 10% (dark forest)
+- **Direction:** Top to bottom (180deg)
+
+### Light Mode
+- **Background:** HSL 0 0% 97% (light gray-white)
+- **Card Background:** HSL 0 0% 100% (pure white)
+- **Foreground:** HSL 160 10% 15% (dark charcoal)
+- **Muted:** HSL 160 10% 96% (very light gray)
+- **Border:** HSL 160 10% 90% (subtle gray)
+
+### Dark Mode
+- **Background:** HSL 160 20% 8% (dark green-gray)
+- **Card Background:** HSL 160 15% 12% (slightly elevated)
+- **Foreground:** HSL 0 0% 98% (near white)
+- **Primary:** HSL 152 76% 48% (brighter green for contrast)
 
 ## Typography
 - **Primary Font:** Inter (Google Fonts)
 - **Monospace Font:** JetBrains Mono (for email addresses, API keys, SMTP settings)
 
 **Hierarchy:**
-- Page Titles: text-3xl font-bold
-- Section Headers: text-xl font-semibold
-- Card Titles: text-lg font-medium
-- Body Text: text-base font-normal
-- Helper Text: text-sm text-gray-600
+- Page Titles: text-2xl font-semibold
+- Section Headers: text-lg font-semibold
+- Card Titles: text-base font-medium
+- Body Text: text-sm font-normal
+- Helper Text: text-sm text-muted-foreground
 - Data Labels: text-xs uppercase tracking-wide font-medium
 - Code/Technical: font-mono text-sm
 
 ## Layout System
 **Spacing Units:** Tailwind units of 2, 4, 6, 8, 12, 16  
 **Common Patterns:**
-- Page padding: p-6 lg:p-8
+- Page padding: p-6
 - Card padding: p-6
 - Section gaps: space-y-6
 - Form field gaps: space-y-4
-- Button spacing: px-6 py-3
+- Button spacing: Use button variants, not custom padding
 
 **Grid Structure:**
 - Dashboard stats: grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6
 - Campaign lists: Single column with full-width cards
-- Settings panels: Two-column split (lg:grid-cols-3) - sidebar + content
+- Settings panels: Two-column split
 
 ## Component Library
 
 **Navigation:**
-- Persistent left sidebar (280px) with collapsible mobile drawer
-- Top bar: Breadcrumbs, user profile, notifications
-- Sidebar sections: Dashboard, Campaigns, Subscribers, Segments, MTAs, Analytics, Settings, API Docs
+- Left sidebar (240px) with gradient background
+- Navigation items: White text with white/10 hover background
+- Active items: white/15 background
+- Section labels: Uppercase, white/40 color
+- Clean header with minimal elements
+
+**Sidebar Styling:**
+- Gradient background from green to dark
+- White text throughout
+- Subtle white/10 borders
+- Rounded-lg navigation buttons
+- No section labels for main nav (cleaner look)
 
 **Dashboard Cards:**
-- Elevated cards with subtle shadow (shadow-sm)
+- White background with subtle border
+- Minimal shadow usage
 - Stat cards: Large number display with trend indicators
 - Quick action buttons prominently placed
 
-**Data Tables:**
-- Striped rows for readability
-- Sticky headers on scroll
-- Row actions dropdown (3-dot menu)
-- Inline editing for tags
-- Bulk selection checkboxes
-- Pagination + item count display
+**Buttons:**
+- Primary: Green background, white text
+- Secondary: Light gray background
+- Destructive: Red for dangerous actions
+- Ghost: Transparent with hover state
+- Outline: Border only
 
 **Forms:**
 - Grouped sections with dividers
-- Field labels above inputs (not floating)
+- Field labels above inputs
 - Inline validation with icon indicators
-- Help text below fields
-- Multi-step wizard for campaign creation (stepper component)
-- Tag input: Chip-based interface with autocomplete
-
-**Progress Indicators:**
-- Import progress: Horizontal bar with percentage + status text
-- Campaign sending: Real-time progress with stats (sent/pending/failed)
-- Background jobs: Toast notifications with live updates
-
-**Campaign Builder:**
-- Vertical step progression (left sidebar)
-- Preview panel (right side) for email rendering
-- Sticky action buttons (Save Draft, Schedule, Send)
-
-**Stats/Analytics:**
-- Line charts for opens/clicks over time
-- Donut charts for engagement metrics
-- Heatmap for optimal send times
-- Exportable data tables
-
-**Modals:**
-- Delete confirmations with warning styling
-- API key display with copy button
-- Import CSV: Drag-drop zone with file preview
-
-**Buttons:**
-- Primary: Solid with high contrast
-- Secondary: Outlined
-- Danger: Red accent for destructive actions
-- Icon buttons for inline actions
-- Loading states with spinner
+- Help text below fields in muted color
 
 **Status Badges:**
+- Use badge variants for states
 - Draft, Scheduled, Sending, Sent, Paused (color-coded)
-- Tag badges with remove icon
-- Rounded-full pill shape
-
-## Special Features
-
-**Real-time Updates:**
-- WebSocket indicators for live job status
-- Auto-refreshing counters
-- Toast notifications for background processes
-
-**WYSIWYG Editor:**
-- Full-width modal editor
-- Toolbar with formatting options
-- Code view toggle
-- Preview device selector (desktop/mobile)
-
-**API Documentation:**
-- Code snippets with syntax highlighting
-- Copy-to-clipboard functionality
-- Interactive request/response examples
-- Endpoint list with method badges (GET, POST, etc.)
+- Rounded pill shape
 
 ## Responsive Behavior
-- Mobile: Single column, hamburger menu, simplified tables (card view)
+- Mobile: Single column, hamburger menu
 - Tablet: Collapsed sidebar, two-column grids
 - Desktop: Full sidebar, multi-column layouts
 
@@ -125,5 +109,9 @@
 - Skeleton loaders for data fetching
 - NO scroll animations or decorative motion
 
-## Images
-**No hero images required** - This is a utility application focused on functionality, not marketing. Focus on data visualization and interface clarity.
+## Key Design Principles
+1. **Clean & Professional:** Minimal visual clutter
+2. **Consistent Spacing:** Same padding across similar elements
+3. **Clear Hierarchy:** Use typography and color to guide attention
+4. **Accessible:** Good contrast ratios, clear focus states
+5. **Responsive:** Works well on all device sizes

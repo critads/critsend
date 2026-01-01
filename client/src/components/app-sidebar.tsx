@@ -12,6 +12,8 @@ import {
   Send,
   AlertCircle,
   FlaskConical,
+  Settings,
+  HelpCircle,
 } from "lucide-react";
 import {
   Sidebar,
@@ -33,6 +35,11 @@ const mainNavItems = [
     icon: LayoutDashboard,
   },
   {
+    title: "Campaigns",
+    url: "/campaigns",
+    icon: Mail,
+  },
+  {
     title: "Subscribers",
     url: "/subscribers",
     icon: Users,
@@ -41,11 +48,6 @@ const mainNavItems = [
     title: "Segments",
     url: "/segments",
     icon: Filter,
-  },
-  {
-    title: "Campaigns",
-    url: "/campaigns",
-    icon: Mail,
   },
 ];
 
@@ -99,33 +101,31 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   return (
-    <Sidebar className="border-r-0">
-      <SidebarHeader className="p-5 border-b border-sidebar-border/50">
+    <Sidebar 
+      className="border-r-0 sidebar-gradient"
+    >
+      <SidebarHeader className="p-5 border-b border-sidebar-border">
         <Link href="/">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-500 shadow-lg shadow-cyan-500/20">
-              <Send className="w-5 h-5 text-white" />
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-sidebar-accent">
+              <Send className="w-5 h-5 text-sidebar-foreground" />
             </div>
             <div className="flex flex-col">
-              <span className="text-lg font-bold tracking-tight text-sidebar-foreground">Critsend</span>
-              <span className="text-xs text-sidebar-foreground/60">Email Marketing</span>
+              <span className="text-lg font-bold tracking-tight text-sidebar-foreground">critsend</span>
             </div>
           </div>
         </Link>
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/40 text-xs font-semibold uppercase tracking-wider mb-2">
-            Main
-          </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="space-y-1">
+            <SidebarMenu className="space-y-0.5">
               {mainNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
-                    className="h-10 rounded-lg transition-all duration-200"
+                    className="h-10 rounded-lg transition-all duration-200 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
                       <item.icon className="w-5 h-5" />
@@ -139,17 +139,17 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="text-sidebar-foreground/40 text-xs font-semibold uppercase tracking-wider mb-2">
+          <SidebarGroupLabel className="text-sidebar-foreground/40 text-xs font-medium uppercase tracking-wider mb-2 px-3">
             Configuration
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="space-y-1">
+            <SidebarMenu className="space-y-0.5">
               {settingsNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
-                    className="h-10 rounded-lg transition-all duration-200"
+                    className="h-10 rounded-lg transition-all duration-200 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
                       <item.icon className="w-5 h-5" />
@@ -163,17 +163,17 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="text-sidebar-foreground/40 text-xs font-semibold uppercase tracking-wider mb-2">
+          <SidebarGroupLabel className="text-sidebar-foreground/40 text-xs font-medium uppercase tracking-wider mb-2 px-3">
             Tools
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="space-y-1">
+            <SidebarMenu className="space-y-0.5">
               {toolsNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
-                    className="h-10 rounded-lg transition-all duration-200"
+                    className="h-10 rounded-lg transition-all duration-200 text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-foreground"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(' ', '-')}`}>
                       <item.icon className="w-5 h-5" />
@@ -186,10 +186,10 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4 border-t border-sidebar-border/50">
+      <SidebarFooter className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-2 text-xs text-sidebar-foreground/50">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span>System Online</span>
+          <HelpCircle className="w-4 h-4" />
+          <span>Help</span>
         </div>
       </SidebarFooter>
     </Sidebar>

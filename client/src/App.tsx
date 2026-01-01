@@ -51,7 +51,7 @@ function Router() {
 
 function App() {
   const sidebarStyle = {
-    "--sidebar-width": "16rem",
+    "--sidebar-width": "15rem",
     "--sidebar-width-icon": "3rem",
   };
 
@@ -60,14 +60,14 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-            <div className="flex h-screen w-full">
+            <div className="flex h-screen w-full bg-background">
               <AppSidebar />
               <div className="flex flex-col flex-1 min-w-0">
-                <header className="flex items-center justify-between gap-4 p-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-                  <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <header className="flex items-center justify-between gap-4 h-14 px-4 border-b bg-card sticky top-0 z-50">
+                  <SidebarTrigger data-testid="button-sidebar-toggle" className="text-foreground" />
                   <ThemeToggle />
                 </header>
-                <main className="flex-1 overflow-auto bg-muted/30">
+                <main className="flex-1 overflow-auto bg-background">
                   <Router />
                 </main>
               </div>
