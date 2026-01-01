@@ -101,7 +101,7 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   return (
-    <Sidebar className="border-r border-sidebar-border sidebar-glow">
+    <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="p-4 pb-6">
         <Link href="/">
           <div className="flex items-center gap-2.5">
