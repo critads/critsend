@@ -829,13 +829,50 @@ export async function registerRoutes(
   // Send test email endpoint - Always uses Resend HTTP API (bypasses SMTP restrictions)
   app.post("/api/campaigns/test", async (req: Request, res: Response) => {
     try {
-      const { email, fromName, fromEmail, subject, preheader, htmlContent } = req.body;
+      const { 
+        email, 
+        mtaId,
+        fromName, 
+        fromEmail, 
+        subject, 
+        preheader, 
+        htmlContent,
+        companyAddress,
+        unsubscribeText,
+        trackOpens,
+        trackClicks,
+      } = req.body;
       
       if (!email || !fromEmail || !subject || !htmlContent) {
         return res.status(400).json({ error: "Missing required fields (email, fromEmail, subject, htmlContent)" });
       }
       
       console.log(`[TEST EMAIL] Sending test email via Resend API to: ${email}`);
+      
+      // Get MTA tracking domain if provided
+      let trackingDomain: string | undefined;
+      let imageHostingDomain: string | undefined;
+      if (mtaId) {
+        const mta = await storage.getMta(mtaId);
+        if (mta) {
+          trackingDomain = mta.trackingDomain || undefined;
+          imageHostingDomain = (mta as any).imageHostingDomain || undefined;
+        }
+      }
+      
+      // Rewrite local image URLs if image hosting domain is configured
+      let processedHtmlContent = htmlContent;
+      if (imageHostingDomain) {
+        const { rewriteImageUrls } = await import("./email-service");
+        processedHtmlContent = rewriteImageUrls(processedHtmlContent, imageHostingDomain);
+      }
+      
+      // Build email headers (similar to real campaign sending)
+      const headers: Record<string, string> = {
+        "X-Campaign-ID": "test-campaign",
+        "X-Subscriber-ID": "test-subscriber",
+        "X-Test-Email": "true",
+      };
       
       // Use Resend HTTP API for test emails (works in Replit environment)
       const { sendTestEmailViaResend } = await import("./resend-client");
@@ -845,7 +882,12 @@ export async function registerRoutes(
         fromName: fromName || "Test",
         fromEmail,
         subject,
-        htmlContent,
+        htmlContent: processedHtmlContent,
+        preheader,
+        companyAddress,
+        unsubscribeText,
+        trackingDomain,
+        headers,
       });
       
       if (result.success) {

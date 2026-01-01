@@ -307,6 +307,10 @@ export default function CampaignEdit() {
         subject: formData.subject,
         preheader: formData.preheader,
         htmlContent: formData.htmlContent,
+        companyAddress: formData.companyAddress,
+        unsubscribeText: formData.unsubscribeText,
+        trackOpens: formData.trackOpens,
+        trackClicks: formData.trackClicks,
       });
       
       if (res.ok) {

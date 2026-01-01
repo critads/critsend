@@ -45,6 +45,33 @@ export async function getResendClient() {
   };
 }
 
+// Build email footer with unsubscribe link and company address
+function buildEmailFooter(options: {
+  unsubscribeText?: string;
+  companyAddress?: string;
+  unsubscribeUrl?: string;
+}): string {
+  const parts: string[] = [];
+  
+  if (options.unsubscribeUrl && options.unsubscribeText) {
+    parts.push(`<a href="${options.unsubscribeUrl}" style="color: #666; text-decoration: underline;">${options.unsubscribeText}</a>`);
+  }
+  
+  if (options.companyAddress) {
+    parts.push(`<span style="color: #888;">${options.companyAddress}</span>`);
+  }
+  
+  if (parts.length === 0) {
+    return '';
+  }
+  
+  return `
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; font-size: 12px; color: #666;">
+      ${parts.join(' | ')}
+    </div>
+  `;
+}
+
 // Send a test email using Resend HTTP API
 export async function sendTestEmailViaResend(options: {
   to: string;
@@ -53,6 +80,11 @@ export async function sendTestEmailViaResend(options: {
   subject: string;
   htmlContent: string;
   replyTo?: string;
+  preheader?: string;
+  companyAddress?: string;
+  unsubscribeText?: string;
+  trackingDomain?: string;
+  headers?: Record<string, string>;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const { client } = await getResendClient();
@@ -61,12 +93,49 @@ export async function sendTestEmailViaResend(options: {
       ? `${options.fromName} <${options.fromEmail}>`
       : options.fromEmail;
     
+    // Build the complete HTML content
+    let finalHtml = options.htmlContent;
+    
+    // Add preheader if provided
+    if (options.preheader) {
+      const preheaderHtml = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${options.preheader}</span>`;
+      finalHtml = preheaderHtml + finalHtml;
+    }
+    
+    // Build unsubscribe URL for test (using a placeholder since there's no real subscriber)
+    let unsubscribeUrl: string | undefined;
+    if (options.trackingDomain && options.unsubscribeText) {
+      // For test emails, we use a dummy unsubscribe URL (it won't actually work but shows the format)
+      const baseUrl = options.trackingDomain.replace(/\/$/, '');
+      unsubscribeUrl = `${baseUrl}/api/unsubscribe/test-campaign/test-subscriber?sig=test`;
+    }
+    
+    // Replace {{unsubscribe_url}} placeholder if present
+    if (unsubscribeUrl && finalHtml.includes('{{unsubscribe_url}}')) {
+      finalHtml = finalHtml.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
+    }
+    
+    // Add footer with unsubscribe link and company address
+    const footer = buildEmailFooter({
+      unsubscribeText: options.unsubscribeText,
+      companyAddress: options.companyAddress,
+      unsubscribeUrl: unsubscribeUrl,
+    });
+    
+    // Insert footer before closing body tag, or append at end
+    if (finalHtml.includes('</body>')) {
+      finalHtml = finalHtml.replace('</body>', footer + '</body>');
+    } else {
+      finalHtml = finalHtml + footer;
+    }
+    
     const result = await client.emails.send({
       from: fromAddress,
       to: [options.to],
       subject: options.subject,
-      html: options.htmlContent,
+      html: finalHtml,
       replyTo: options.replyTo || options.fromEmail,
+      headers: options.headers,
     });
     
     if (result.error) {
