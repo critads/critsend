@@ -861,7 +861,7 @@ export async function registerRoutes(
         trackClicks: false,
       };
       
-      const result = await sendEmail(mta, testSubscriber as any, testCampaign as any, {
+      const result = await sendEmailWithNullsink(mta, testSubscriber as any, testCampaign as any, {
         trackOpens: false,
         trackClicks: false,
       });
