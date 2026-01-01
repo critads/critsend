@@ -311,10 +311,15 @@ export async function sendEmailWithNullsink(
   campaign: Campaign,
   trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">
 ): Promise<NullsinkSendResult> {
+  console.log(`[NULLSINK] sendEmailWithNullsink called, mta.mode = "${(mta as any).mode}"`);
+  
   // If MTA is in real mode, use normal sending
   if ((mta as any).mode !== "nullsink") {
+    console.log(`[NULLSINK] Using real sendEmail because mode is not "nullsink"`);
     return sendEmail(mta, subscriber, campaign, trackingOptions);
   }
+  
+  console.log(`[NULLSINK] Using nullsink path`);
 
   // Nullsink mode - simulate sending
   const startTime = Date.now();

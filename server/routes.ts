@@ -840,6 +840,8 @@ export async function registerRoutes(
         return res.status(404).json({ error: "MTA not found" });
       }
       
+      console.log(`[TEST EMAIL] MTA: ${mta.name}, mode: ${(mta as any).mode}, hostname: ${mta.hostname}`);
+      
       // Create a mock subscriber for the test
       const testSubscriber = {
         id: "test-subscriber",
