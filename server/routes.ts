@@ -826,46 +826,26 @@ export async function registerRoutes(
 
   // ============ CAMPAIGNS ============
   
-  // Send test email endpoint
+  // Send test email endpoint - Always uses Resend HTTP API (bypasses SMTP restrictions)
   app.post("/api/campaigns/test", async (req: Request, res: Response) => {
     try {
-      const { email, mtaId, fromName, fromEmail, subject, preheader, htmlContent } = req.body;
+      const { email, fromName, fromEmail, subject, preheader, htmlContent } = req.body;
       
-      if (!email || !mtaId || !fromEmail || !subject || !htmlContent) {
-        return res.status(400).json({ error: "Missing required fields" });
+      if (!email || !fromEmail || !subject || !htmlContent) {
+        return res.status(400).json({ error: "Missing required fields (email, fromEmail, subject, htmlContent)" });
       }
       
-      const mta = await storage.getMta(mtaId);
-      if (!mta) {
-        return res.status(404).json({ error: "MTA not found" });
-      }
+      console.log(`[TEST EMAIL] Sending test email via Resend API to: ${email}`);
       
-      console.log(`[TEST EMAIL] MTA: ${mta.name}, mode: ${(mta as any).mode}, hostname: ${mta.hostname}`);
+      // Use Resend HTTP API for test emails (works in Replit environment)
+      const { sendTestEmailViaResend } = await import("./resend-client");
       
-      // Create a mock subscriber for the test
-      const testSubscriber = {
-        id: "test-subscriber",
-        email,
-        tags: ["TEST"],
-        importDate: new Date(),
-      };
-      
-      // Create a mock campaign for the test
-      const testCampaign = {
-        id: "test-campaign",
-        name: "Test Email",
+      const result = await sendTestEmailViaResend({
+        to: email,
         fromName: fromName || "Test",
         fromEmail,
         subject,
-        preheader: preheader || "",
         htmlContent,
-        trackOpens: false,
-        trackClicks: false,
-      };
-      
-      const result = await sendEmailWithNullsink(mta, testSubscriber as any, testCampaign as any, {
-        trackOpens: false,
-        trackClicks: false,
       });
       
       if (result.success) {
