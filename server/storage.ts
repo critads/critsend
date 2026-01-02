@@ -11,6 +11,7 @@ import {
   campaignJobs,
   importJobQueue,
   errorLogs,
+  pendingTagOperations,
   type Subscriber,
   type InsertSubscriber,
   type Segment,
@@ -35,6 +36,7 @@ import {
   nullsinkCaptures,
   type NullsinkCapture,
   type InsertNullsinkCapture,
+  type PendingTagOperation,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
@@ -161,6 +163,15 @@ export interface IStorage {
     last24Hours: number;
   }>;
   clearErrorLogs(beforeDate?: Date): Promise<number>;
+  
+  // Tag Queue Operations (for reliable tag additions with retry logic)
+  enqueueTagOperation(subscriberId: string, tagType: "positive" | "negative", tagValue: string, eventType: "open" | "click" | "unsubscribe", campaignId?: string): Promise<void>;
+  claimPendingTagOperations(limit?: number): Promise<Array<{ id: string; subscriberId: string; tagType: string; tagValue: string; eventType: string; retryCount: number }>>;
+  completeTagOperation(operationId: string): Promise<void>;
+  failTagOperation(operationId: string, error: string): Promise<void>;
+  getTagQueueStats(): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
+  cleanupCompletedTagOperations(olderThanDays?: number): Promise<number>;
+  addTagToSubscriber(subscriberId: string, tagType: "positive" | "negative", tagValue: string): Promise<boolean>;
   
   // Health Check
   healthCheck(): Promise<boolean>;
@@ -1341,6 +1352,142 @@ export class DatabaseStorage implements IStorage {
   async healthCheck(): Promise<boolean> {
     const result = await db.execute(sql`SELECT 1 as ok`);
     return result.rows.length > 0;
+  }
+
+  // Tag Queue Operations - for reliable tag additions with retry logic
+  async enqueueTagOperation(
+    subscriberId: string,
+    tagType: "positive" | "negative",
+    tagValue: string,
+    eventType: "open" | "click" | "unsubscribe",
+    campaignId?: string
+  ): Promise<void> {
+    await db.insert(pendingTagOperations).values({
+      subscriberId,
+      tagType,
+      tagValue,
+      eventType,
+      campaignId,
+      status: "pending",
+    });
+  }
+
+  async claimPendingTagOperations(limit: number = 100): Promise<Array<{
+    id: string;
+    subscriberId: string;
+    tagType: string;
+    tagValue: string;
+    eventType: string;
+    retryCount: number;
+  }>> {
+    // Use FOR UPDATE SKIP LOCKED to safely claim pending operations
+    const result = await db.execute(sql`
+      UPDATE pending_tag_operations
+      SET status = 'processing'
+      WHERE id IN (
+        SELECT id FROM pending_tag_operations
+        WHERE status = 'pending'
+          AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+        ORDER BY created_at
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id, subscriber_id, tag_type, tag_value, event_type, retry_count
+    `);
+    
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      subscriberId: row.subscriber_id,
+      tagType: row.tag_type,
+      tagValue: row.tag_value,
+      eventType: row.event_type,
+      retryCount: Number(row.retry_count),
+    }));
+  }
+
+  async completeTagOperation(operationId: string): Promise<void> {
+    await db.update(pendingTagOperations)
+      .set({
+        status: "completed",
+        processedAt: new Date(),
+      })
+      .where(eq(pendingTagOperations.id, operationId));
+  }
+
+  async failTagOperation(operationId: string, error: string): Promise<void> {
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s for retries
+    await db.execute(sql`
+      UPDATE pending_tag_operations
+      SET 
+        status = CASE WHEN retry_count >= max_retries - 1 THEN 'failed' ELSE 'pending' END,
+        retry_count = retry_count + 1,
+        last_error = ${error},
+        next_retry_at = CASE 
+          WHEN retry_count >= max_retries - 1 THEN NULL
+          ELSE NOW() + (POWER(2, retry_count) * INTERVAL '1 second')
+        END
+      WHERE id = ${operationId}
+    `);
+  }
+
+  async getTagQueueStats(): Promise<{
+    pending: number;
+    processing: number;
+    completed: number;
+    failed: number;
+  }> {
+    const result = await db.execute(sql`
+      SELECT 
+        COUNT(*) FILTER (WHERE status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE status = 'processing') as processing,
+        COUNT(*) FILTER (WHERE status = 'completed') as completed,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed
+      FROM pending_tag_operations
+    `);
+    
+    const row = result.rows[0] as any;
+    return {
+      pending: Number(row?.pending || 0),
+      processing: Number(row?.processing || 0),
+      completed: Number(row?.completed || 0),
+      failed: Number(row?.failed || 0),
+    };
+  }
+
+  async cleanupCompletedTagOperations(olderThanDays: number = 7): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+    
+    const result = await db.delete(pendingTagOperations)
+      .where(and(
+        eq(pendingTagOperations.status, "completed"),
+        sql`${pendingTagOperations.processedAt} < ${cutoffDate}`
+      ));
+    
+    return result.rowCount || 0;
+  }
+
+  // Atomic tag addition - adds tag to subscriber with array deduplication
+  async addTagToSubscriber(
+    subscriberId: string,
+    tagType: "positive" | "negative",
+    tagValue: string
+  ): Promise<boolean> {
+    const column = tagType === "positive" ? "positive_tags" : "negative_tags";
+    
+    const result = await db.execute(sql`
+      UPDATE subscribers
+      SET ${sql.raw(column)} = array_append(
+        array_remove(${sql.raw(column)}, ${tagValue}),
+        ${tagValue}
+      )
+      WHERE id = ${subscriberId}
+      AND NOT (${tagValue} = ANY(${sql.raw(column)}))
+      RETURNING id
+    `);
+    
+    // If no rows affected, tag already exists - that's still a success
+    return true;
   }
 
   // Nullsink Captures

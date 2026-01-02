@@ -300,6 +300,39 @@ export const errorLogsRelations = relations(errorLogs, ({ one }) => ({
   }),
 }));
 
+// Pending tag operations - queue for reliable tag additions with retry logic
+export const pendingTagOperations = pgTable("pending_tag_operations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id, { onDelete: 'cascade' }),
+  campaignId: varchar("campaign_id").references(() => campaigns.id),
+  tagType: text("tag_type").notNull(), // "positive" or "negative"
+  tagValue: text("tag_value").notNull(),
+  eventType: text("event_type").notNull(), // "open", "click", "unsubscribe"
+  status: text("status").notNull().default("pending"), // pending, processing, completed, failed
+  retryCount: integer("retry_count").notNull().default(0),
+  maxRetries: integer("max_retries").notNull().default(5),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+  nextRetryAt: timestamp("next_retry_at"),
+}, (table) => ({
+  subscriberIdx: index("pending_tag_ops_subscriber_idx").on(table.subscriberId),
+  statusIdx: index("pending_tag_ops_status_idx").on(table.status),
+  createdAtIdx: index("pending_tag_ops_created_at_idx").on(table.createdAt),
+  nextRetryIdx: index("pending_tag_ops_next_retry_idx").on(table.nextRetryAt),
+}));
+
+export const pendingTagOperationsRelations = relations(pendingTagOperations, ({ one }) => ({
+  subscriber: one(subscribers, {
+    fields: [pendingTagOperations.subscriberId],
+    references: [subscribers.id],
+  }),
+  campaign: one(campaigns, {
+    fields: [pendingTagOperations.campaignId],
+    references: [campaigns.id],
+  }),
+}));
+
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true });
 export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true, createdAt: true });
@@ -368,6 +401,10 @@ export type MtaMode = "real" | "nullsink";
 
 export type CampaignJob = typeof campaignJobs.$inferSelect;
 export type CampaignJobStatus = "pending" | "processing" | "completed" | "failed";
+
+export type PendingTagOperation = typeof pendingTagOperations.$inferSelect;
+export type TagOperationType = "positive" | "negative";
+export type TagEventType = "open" | "click" | "unsubscribe";
 
 export type ImportJobQueueItem = typeof importJobQueue.$inferSelect;
 export type ImportJobQueueStatus = "pending" | "processing" | "completed" | "failed";

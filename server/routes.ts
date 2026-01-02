@@ -353,6 +353,20 @@ export async function registerRoutes(
     }
   });
 
+  // Tag Queue Stats - for monitoring reliable tag additions
+  app.get("/api/tag-queue/stats", async (_req: Request, res: Response) => {
+    try {
+      const stats = await storage.getTagQueueStats();
+      res.json({
+        timestamp: new Date().toISOString(),
+        tagQueue: stats,
+        status: stats.failed > 0 ? "warning" : "healthy"
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch tag queue stats" });
+    }
+  });
+
   // Nullsink SMTP Server Control
   app.get("/api/nullsink/status", async (_req: Request, res: Response) => {
     try {
@@ -1529,20 +1543,18 @@ export async function registerRoutes(
       // Always record the open for activity history/analytics
       await storage.addCampaignStat(campaignId, subscriberId, "open");
       
-      // Add tag only on first open (unique open per email per campaign)
+      // Return pixel immediately - don't block on tag processing
+      returnPixel();
+      
+      // Queue tag addition asynchronously (fire-and-forget)
+      // This ensures 100% delivery with retry logic, without delaying the response
       if (isFirstOpen) {
         const campaign = await storage.getCampaign(campaignId);
         if (campaign?.openTag) {
-          const subscriber = await storage.getSubscriber(subscriberId);
-          if (subscriber) {
-            // Add open tag to positiveTags
-            const positiveTags = [...new Set([...(subscriber.positiveTags || []), campaign.openTag])];
-            await storage.updateSubscriber(subscriberId, { positiveTags });
-          }
+          storage.enqueueTagOperation(subscriberId, "positive", campaign.openTag, "open", campaignId)
+            .catch(err => console.error("Failed to enqueue open tag:", err));
         }
       }
-      
-      returnPixel();
     } catch (error) {
       console.error("Error tracking open:", error);
       returnPixel();
@@ -1572,21 +1584,18 @@ export async function registerRoutes(
       // Always record the click for link-level analytics (topLinks needs all clicks)
       await storage.addCampaignStat(campaignId, subscriberId, "click", url);
       
-      // Add tag only on first click (unique click per email per campaign)
+      // Redirect to actual URL immediately - don't block on tag processing
+      res.redirect(url);
+      
+      // Queue tag addition asynchronously (fire-and-forget)
+      // This ensures 100% delivery with retry logic, without delaying the redirect
       if (isFirstClick) {
         const campaign = await storage.getCampaign(campaignId);
         if (campaign?.clickTag) {
-          const subscriber = await storage.getSubscriber(subscriberId);
-          if (subscriber) {
-            // Add click tag to positiveTags
-            const positiveTags = [...new Set([...(subscriber.positiveTags || []), campaign.clickTag])];
-            await storage.updateSubscriber(subscriberId, { positiveTags });
-          }
+          storage.enqueueTagOperation(subscriberId, "positive", campaign.clickTag, "click", campaignId)
+            .catch(err => console.error("Failed to enqueue click tag:", err));
         }
       }
-      
-      // Redirect to actual URL
-      res.redirect(url);
     } catch (error) {
       console.error("Error tracking click:", error);
       res.redirect(url);
@@ -1626,16 +1635,7 @@ export async function registerRoutes(
       const campaign = await storage.getCampaign(campaignId);
       const subscriber = await storage.getSubscriber(subscriberId);
       
-      if (subscriber) {
-        // Add BCK tag and unsubscribe tag to negativeTags
-        const negativeTags = [...new Set([
-          ...(subscriber.negativeTags || []),
-          "BCK",
-          ...(campaign?.unsubscribeTag ? [campaign.unsubscribeTag] : []),
-        ])];
-        await storage.updateSubscriber(subscriberId, { negativeTags });
-      }
-      
+      // Send confirmation page immediately - don't block on tag processing
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -1656,6 +1656,20 @@ export async function registerRoutes(
         </body>
         </html>
       `);
+      
+      // Queue tag additions asynchronously (fire-and-forget)
+      // This ensures 100% delivery with retry logic, without delaying the response
+      if (subscriber) {
+        // BCK tag is always added (blocklist)
+        storage.enqueueTagOperation(subscriberId, "negative", "BCK", "unsubscribe", campaignId)
+          .catch(err => console.error("Failed to enqueue BCK tag:", err));
+        
+        // Add campaign-specific unsubscribe tag if configured
+        if (campaign?.unsubscribeTag) {
+          storage.enqueueTagOperation(subscriberId, "negative", campaign.unsubscribeTag, "unsubscribe", campaignId)
+            .catch(err => console.error("Failed to enqueue unsubscribe tag:", err));
+        }
+      }
     } catch (error) {
       console.error("Error unsubscribing:", error);
       res.status(500).send("An error occurred");
@@ -1663,6 +1677,70 @@ export async function registerRoutes(
   });
 
   return httpServer;
+}
+
+// ============ TAG QUEUE WORKER ============
+// Background worker that processes pending tag operations with retry logic
+let tagQueueInterval: NodeJS.Timeout | null = null;
+
+async function processTagQueue() {
+  try {
+    // Claim pending operations
+    const operations = await storage.claimPendingTagOperations(50);
+    
+    if (operations.length === 0) {
+      return;
+    }
+    
+    // Process each operation
+    for (const op of operations) {
+      try {
+        // Use atomic tag addition
+        await storage.addTagToSubscriber(
+          op.subscriberId,
+          op.tagType as "positive" | "negative",
+          op.tagValue
+        );
+        
+        // Mark as completed
+        await storage.completeTagOperation(op.id);
+      } catch (error: any) {
+        console.error(`Failed to process tag operation ${op.id}:`, error);
+        await storage.failTagOperation(op.id, error.message || "Unknown error");
+      }
+    }
+    
+    if (operations.length > 0) {
+      console.log(`Processed ${operations.length} tag operations`);
+    }
+  } catch (error) {
+    console.error("Error in tag queue processing:", error);
+  }
+}
+
+// Start the tag queue worker
+export function startTagQueueWorker() {
+  if (tagQueueInterval) {
+    return; // Already running
+  }
+  
+  console.log("Starting tag queue worker...");
+  
+  // Process immediately, then every 500ms
+  processTagQueue();
+  tagQueueInterval = setInterval(processTagQueue, 500);
+  
+  // Cleanup completed operations every hour
+  setInterval(async () => {
+    try {
+      const cleaned = await storage.cleanupCompletedTagOperations(7);
+      if (cleaned > 0) {
+        console.log(`Cleaned up ${cleaned} completed tag operations`);
+      }
+    } catch (error) {
+      console.error("Error cleaning up tag operations:", error);
+    }
+  }, 60 * 60 * 1000);
 }
 
 // Sending speed configurations (emails per minute and concurrent workers)
