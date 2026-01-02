@@ -135,7 +135,7 @@ export default function Headers() {
     }
   };
 
-  const HeaderForm = () => (
+  const headerFormContent = (
     <div className="space-y-6">
       <div className="space-y-2">
         <Label htmlFor="header-name">Header Name *</Label>
@@ -143,7 +143,7 @@ export default function Headers() {
           id="header-name"
           placeholder="X-Custom-Header or List-Unsubscribe"
           value={formData.name || ""}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
           className="font-mono"
           data-testid="input-header-name"
         />
@@ -157,8 +157,8 @@ export default function Headers() {
           <Input
             id="header-value"
             placeholder="header-value"
-            value={formData.value}
-            onChange={(e) => setFormData({ ...formData, value: e.target.value })}
+            value={formData.value || ""}
+            onChange={(e) => setFormData((prev) => ({ ...prev, value: e.target.value }))}
             className="font-mono flex-1"
             data-testid="input-header-value"
           />
@@ -166,7 +166,7 @@ export default function Headers() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setFormData({ ...formData, value: "{UNSUBSCRIBE}" })}
+            onClick={() => setFormData((prev) => ({ ...prev, value: "{UNSUBSCRIBE}" }))}
             data-testid="button-insert-unsubscribe"
           >
             <Link2 className="h-4 w-4 mr-1.5" />
@@ -187,7 +187,7 @@ export default function Headers() {
         <Switch
           id="header-default"
           checked={formData.isDefault}
-          onCheckedChange={(checked) => setFormData({ ...formData, isDefault: checked })}
+          onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, isDefault: checked }))}
           data-testid="switch-header-default"
         />
       </div>
@@ -217,7 +217,7 @@ export default function Headers() {
                 Create a custom X- header for your email campaigns
               </DialogDescription>
             </DialogHeader>
-            <HeaderForm />
+            {headerFormContent}
             <DialogFooter>
               <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>
                 Cancel
@@ -327,7 +327,7 @@ export default function Headers() {
               Update this custom X- header
             </DialogDescription>
           </DialogHeader>
-          <HeaderForm />
+          {headerFormContent}
           <DialogFooter>
             <Button variant="outline" onClick={() => { setEditingHeader(null); resetForm(); }}>
               Cancel
