@@ -874,6 +874,17 @@ export async function registerRoutes(
         "X-Test-Email": "true",
       };
       
+      // Add default custom headers with {UNSUBSCRIBE} placeholder replacement
+      const defaultHeaders = await storage.getDefaultHeaders();
+      const testUnsubscribeUrl = trackingDomain 
+        ? `${trackingDomain.replace(/\/$/, "")}/api/unsubscribe/test-campaign/test-subscriber`
+        : "#unsubscribe-placeholder";
+      
+      for (const header of defaultHeaders) {
+        const resolvedValue = header.value.replace(/\{UNSUBSCRIBE\}/gi, testUnsubscribeUrl);
+        headers[header.name] = resolvedValue;
+      }
+      
       // Use Resend HTTP API for test emails (works in Replit environment)
       const { sendTestEmailViaResend } = await import("./resend-client");
       
