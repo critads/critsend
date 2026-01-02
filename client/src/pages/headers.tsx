@@ -128,13 +128,10 @@ export default function Headers() {
       return;
     }
 
-    const headerName = formData.name?.startsWith("X-") ? formData.name : `X-${formData.name}`;
-    const data = { ...formData, name: headerName };
-
     if (editingHeader) {
-      updateMutation.mutate({ id: editingHeader.id, data });
+      updateMutation.mutate({ id: editingHeader.id, data: formData });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(formData);
     }
   };
 
@@ -142,19 +139,16 @@ export default function Headers() {
     <div className="space-y-6">
       <div className="space-y-2">
         <Label htmlFor="header-name">Header Name *</Label>
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground font-mono">X-</span>
-          <Input
-            id="header-name"
-            placeholder="Custom-Header"
-            value={formData.name?.replace(/^X-/, "") || ""}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="font-mono"
-            data-testid="input-header-name"
-          />
-        </div>
+        <Input
+          id="header-name"
+          placeholder="X-Custom-Header or List-Unsubscribe"
+          value={formData.name || ""}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          className="font-mono"
+          data-testid="input-header-name"
+        />
         <p className="text-xs text-muted-foreground">
-          Custom email headers should start with X-
+          Custom headers typically start with X- but standard headers like List-Unsubscribe are also supported
         </p>
       </div>
       <div className="space-y-2">
