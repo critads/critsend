@@ -166,7 +166,8 @@ export async function sendEmail(
   mta: Mta,
   subscriber: Subscriber,
   campaign: Campaign,
-  trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">
+  trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">,
+  customHeaders?: Record<string, string>
 ): Promise<SendEmailResult> {
   const transporter = createTransporter(mta);
 
@@ -219,6 +220,21 @@ export async function sendEmail(
   }
   if (campaign.clickTag) {
     mailOptions.headers["X-Click-Tag"] = campaign.clickTag;
+  }
+  
+  // Apply custom headers with {UNSUBSCRIBE} placeholder replacement
+  if (customHeaders) {
+    const unsubscribeUrl = baseUrl ? generateSignedUnsubscribeUrl(
+      baseUrl,
+      campaign.id,
+      subscriber.id
+    ) : "";
+    
+    for (const [headerName, headerValue] of Object.entries(customHeaders)) {
+      // Replace {UNSUBSCRIBE} placeholder with actual unsubscribe URL
+      const resolvedValue = headerValue.replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl);
+      mailOptions.headers[headerName] = resolvedValue;
+    }
   }
 
   let lastError: Error | null = null;
@@ -329,14 +345,15 @@ export async function sendEmailWithNullsink(
   mta: Mta,
   subscriber: Subscriber,
   campaign: Campaign,
-  trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">
+  trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">,
+  customHeaders?: Record<string, string>
 ): Promise<NullsinkSendResult> {
   console.log(`[NULLSINK] sendEmailWithNullsink called, mta.mode = "${(mta as any).mode}"`);
   
   // If MTA is in real mode, use normal sending
   if ((mta as any).mode !== "nullsink") {
     console.log(`[NULLSINK] Using real sendEmail because mode is not "nullsink"`);
-    return sendEmail(mta, subscriber, campaign, trackingOptions);
+    return sendEmail(mta, subscriber, campaign, trackingOptions, customHeaders);
   }
   
   console.log(`[NULLSINK] Using nullsink path`);
@@ -388,12 +405,32 @@ export async function sendEmailWithNullsink(
     },
   });
 
+  const headers: Record<string, string> = {
+    "X-Campaign-ID": campaign.id,
+    "X-Subscriber-ID": subscriber.id,
+  };
+  
+  // Apply custom headers with {UNSUBSCRIBE} placeholder replacement
+  if (customHeaders) {
+    const unsubscribeUrl = baseUrl ? generateSignedUnsubscribeUrl(
+      baseUrl,
+      campaign.id,
+      subscriber.id
+    ) : "";
+    
+    for (const [headerName, headerValue] of Object.entries(customHeaders)) {
+      const resolvedValue = headerValue.replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl);
+      headers[headerName] = resolvedValue;
+    }
+  }
+  
   const mailOptions = {
     from: `"${campaign.fromName}" <${campaign.fromEmail}>`,
     replyTo: campaign.replyEmail || campaign.fromEmail,
     to: subscriber.email,
     subject: subject,
     html: htmlContent,
+    headers,
   };
 
   const handshakeTime = Date.now() - startTime;

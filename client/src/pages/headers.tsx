@@ -26,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { FileCode, Plus, Trash2, Edit2, AlertCircle } from "lucide-react";
+import { FileCode, Plus, Trash2, Edit2, AlertCircle, Link2 } from "lucide-react";
 import type { EmailHeader, InsertEmailHeader } from "@shared/schema";
 
 export default function Headers() {
@@ -159,14 +159,29 @@ export default function Headers() {
       </div>
       <div className="space-y-2">
         <Label htmlFor="header-value">Header Value *</Label>
-        <Input
-          id="header-value"
-          placeholder="header-value"
-          value={formData.value}
-          onChange={(e) => setFormData({ ...formData, value: e.target.value })}
-          className="font-mono"
-          data-testid="input-header-value"
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            id="header-value"
+            placeholder="header-value"
+            value={formData.value}
+            onChange={(e) => setFormData({ ...formData, value: e.target.value })}
+            className="font-mono flex-1"
+            data-testid="input-header-value"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setFormData({ ...formData, value: "{UNSUBSCRIBE}" })}
+            data-testid="button-insert-unsubscribe"
+          >
+            <Link2 className="h-4 w-4 mr-1.5" />
+            Unsubscribe
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Use <code className="px-1 py-0.5 rounded bg-muted font-mono">{"{UNSUBSCRIBE}"}</code> to auto-insert the campaign unsubscribe link
+        </p>
       </div>
       <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
         <div>

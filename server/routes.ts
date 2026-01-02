@@ -2253,6 +2253,13 @@ async function processCampaignInternal(campaignId: string) {
   const campaignRef = campaign;
   const mtaRef = mta;
   
+  // Fetch default headers and convert to Record<string, string>
+  const defaultHeaders = await storage.getDefaultHeaders();
+  const customHeadersMap: Record<string, string> = {};
+  for (const header of defaultHeaders) {
+    customHeadersMap[header.name] = header.value;
+  }
+  
   // Helper function to send a single email (used by parallel workers)
   async function sendSingleEmail(subscriber: any): Promise<{ success: boolean; email: string }> {
     // Reserve send slot BEFORE attempting to send
@@ -2274,7 +2281,7 @@ async function processCampaignInternal(campaignId: string) {
           openTrackingDomain: mtaRef.openTrackingDomain,
           openTag: campaignRef.openTag,
           clickTag: campaignRef.clickTag,
-        });
+        }, customHeadersMap);
         
         sendSuccess = result.success;
         

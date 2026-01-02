@@ -67,6 +67,7 @@ export interface IStorage {
   
   // Email Headers
   getHeaders(): Promise<EmailHeader[]>;
+  getDefaultHeaders(): Promise<EmailHeader[]>;
   getHeader(id: string): Promise<EmailHeader | undefined>;
   createHeader(data: InsertEmailHeader): Promise<EmailHeader>;
   updateHeader(id: string, data: Partial<InsertEmailHeader>): Promise<EmailHeader | undefined>;
@@ -455,6 +456,10 @@ export class DatabaseStorage implements IStorage {
   // Email Headers
   async getHeaders(): Promise<EmailHeader[]> {
     return db.select().from(emailHeaders);
+  }
+
+  async getDefaultHeaders(): Promise<EmailHeader[]> {
+    return db.select().from(emailHeaders).where(eq(emailHeaders.isDefault, true));
   }
 
   async getHeader(id: string): Promise<EmailHeader | undefined> {
