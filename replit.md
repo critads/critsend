@@ -161,10 +161,19 @@ npm run build        # Build for production
 - **Timing-Safe Comparison**: Prevents timing attacks on signature verification
 - **Required Secrets**: Application fails fast if `TRACKING_SECRET` or `SESSION_SECRET` missing
 
+### Reliable Tag Queue System
+- **Fire-and-Forget Tracking**: Tracking endpoints return immediately (1x1 pixel or redirect), queueing tag operations asynchronously
+- **Guaranteed Delivery**: `pending_tag_operations` table stores pending tag additions with retry logic
+- **Background Worker**: Processes tag queue every 500ms with atomic PostgreSQL operations
+- **Exponential Backoff**: Failed operations retry with delays of 1s, 2s, 4s, 8s, 16s (max 5 retries)
+- **Automatic Cleanup**: Successfully processed operations removed; failed operations kept for debugging
+- **Monitoring Endpoint**: `GET /api/tag-queue/stats` returns pending/processing/completed/failed counts
+
 ### Health & Monitoring
 - `GET /api/health` - Database connection status and uptime
 - `GET /api/health/ready` - Readiness probe for orchestration
 - `GET /api/metrics` - Campaign/subscriber/tracking metrics
+- `GET /api/tag-queue/stats` - Tag queue processing statistics
 
 ## Concurrency & Data Integrity
 
