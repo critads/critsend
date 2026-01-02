@@ -124,6 +124,8 @@ export default function CampaignEdit() {
   const { data: campaign, isLoading: loadingCampaign } = useQuery<Campaign>({
     queryKey: ["/api/campaigns", campaignId],
     enabled: !!campaignId,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   useEffect(() => {
@@ -246,6 +248,14 @@ export default function CampaignEdit() {
   const updateMutation = useMutation({
     mutationFn: (data: Partial<InsertCampaign>) =>
       apiRequest("PATCH", `/api/campaigns/${campaignId}`, data),
+    onMutate: async (newData) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/campaigns", campaignId] });
+      const previousCampaign = queryClient.getQueryData(["/api/campaigns", campaignId]);
+      queryClient.setQueryData(["/api/campaigns", campaignId], (old: Campaign | undefined) => 
+        old ? { ...old, ...newData } : old
+      );
+      return { previousCampaign };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
@@ -255,7 +265,10 @@ export default function CampaignEdit() {
       });
       navigate("/campaigns");
     },
-    onError: () => {
+    onError: (_error, _newData, context) => {
+      if (context?.previousCampaign) {
+        queryClient.setQueryData(["/api/campaigns", campaignId], context.previousCampaign);
+      }
       toast({
         title: "Error",
         description: "Failed to update campaign. Please try again.",
@@ -267,6 +280,14 @@ export default function CampaignEdit() {
   const sendMutation = useMutation({
     mutationFn: (data: Partial<InsertCampaign>) =>
       apiRequest("PATCH", `/api/campaigns/${campaignId}`, { ...data, status: formData.scheduledAt ? "scheduled" : "sending" }),
+    onMutate: async (newData) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/campaigns", campaignId] });
+      const previousCampaign = queryClient.getQueryData(["/api/campaigns", campaignId]);
+      queryClient.setQueryData(["/api/campaigns", campaignId], (old: Campaign | undefined) => 
+        old ? { ...old, ...newData } : old
+      );
+      return { previousCampaign };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
@@ -278,7 +299,10 @@ export default function CampaignEdit() {
       });
       navigate("/campaigns");
     },
-    onError: () => {
+    onError: (_error, _newData, context) => {
+      if (context?.previousCampaign) {
+        queryClient.setQueryData(["/api/campaigns", campaignId], context.previousCampaign);
+      }
       toast({
         title: "Error",
         description: "Failed to start campaign. Please try again.",
@@ -337,6 +361,20 @@ export default function CampaignEdit() {
     setFormData({ ...formData, [field]: value });
   };
 
+  const autoSaveMutation = useMutation({
+    mutationFn: (data: Partial<InsertCampaign>) =>
+      apiRequest("PATCH", `/api/campaigns/${campaignId}`, data),
+    onMutate: async (newData) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.setQueryData(["/api/campaigns", campaignId], (old: Campaign | undefined) => 
+        old ? { ...old, ...newData } : old
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+    },
+  });
+
   const isStepValid = (step: number): boolean => {
     switch (step) {
       case 1:
@@ -358,12 +396,14 @@ export default function CampaignEdit() {
 
   const nextStep = () => {
     if (isStepValid(currentStep) && currentStep < 6) {
+      autoSaveMutation.mutate(formData);
       setCurrentStep(currentStep + 1);
     }
   };
 
   const prevStep = () => {
     if (currentStep > 1) {
+      autoSaveMutation.mutate(formData);
       setCurrentStep(currentStep - 1);
     }
   };
