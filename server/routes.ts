@@ -586,9 +586,11 @@ export async function registerRoutes(
       // Check if email already exists
       const existing = await storage.getSubscriberByEmail(data.email);
       if (existing) {
-        // Update tags instead
+        // Update tags instead - merge with existing
         const updated = await storage.updateSubscriber(existing.id, {
           tags: [...new Set([...(existing.tags || []), ...(data.tags || [])])],
+          positiveTags: [...new Set([...(existing.positiveTags || []), ...(data.positiveTags || [])])],
+          negativeTags: [...new Set([...(existing.negativeTags || []), ...(data.negativeTags || [])])],
         });
         return res.json(updated);
       }
