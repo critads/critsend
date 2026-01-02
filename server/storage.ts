@@ -360,8 +360,44 @@ export class DatabaseStorage implements IStorage {
           default:
             continue;
         }
+      } else if (rule.field === "positiveTags") {
+        // Positive tags field filtering
+        switch (rule.operator) {
+          case "contains":
+            condition = sql`EXISTS (SELECT 1 FROM unnest(${subscribers.positiveTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+            break;
+          case "not_contains":
+            condition = sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.positiveTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+            break;
+          case "equals":
+            condition = sql`${rule.value} = ANY(${subscribers.positiveTags})`;
+            break;
+          case "not_equals":
+            condition = sql`NOT (${rule.value} = ANY(${subscribers.positiveTags}))`;
+            break;
+          default:
+            continue;
+        }
+      } else if (rule.field === "negativeTags") {
+        // Negative tags field filtering
+        switch (rule.operator) {
+          case "contains":
+            condition = sql`EXISTS (SELECT 1 FROM unnest(${subscribers.negativeTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+            break;
+          case "not_contains":
+            condition = sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.negativeTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+            break;
+          case "equals":
+            condition = sql`${rule.value} = ANY(${subscribers.negativeTags})`;
+            break;
+          case "not_equals":
+            condition = sql`NOT (${rule.value} = ANY(${subscribers.negativeTags}))`;
+            break;
+          default:
+            continue;
+        }
       } else {
-        // Tags field filtering (default)
+        // Tags field filtering (default - legacy support)
         switch (rule.operator) {
           case "contains":
             // Check if any tag contains the value (using LIKE pattern)

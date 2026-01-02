@@ -51,7 +51,7 @@ export default function Segments() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rules, setRules] = useState<SegmentRule[]>([
-    { field: "tags", operator: "contains", value: "" },
+    { field: "positiveTags", operator: "contains", value: "" },
   ]);
   const { toast } = useToast();
 
@@ -123,18 +123,18 @@ export default function Segments() {
   const resetForm = () => {
     setName("");
     setDescription("");
-    setRules([{ field: "tags", operator: "contains", value: "" }]);
+    setRules([{ field: "positiveTags", operator: "contains", value: "" }]);
   };
 
   const handleEditClick = (segment: SegmentWithCount) => {
     setEditingSegment(segment);
     setName(segment.name);
     setDescription(segment.description || "");
-    setRules((segment.rules as SegmentRule[]) || [{ field: "tags", operator: "contains", value: "" }]);
+    setRules((segment.rules as SegmentRule[]) || [{ field: "positiveTags", operator: "contains", value: "" }]);
   };
 
   const addRule = () => {
-    setRules([...rules, { field: "tags", operator: "contains", value: "", logic: "AND" }]);
+    setRules([...rules, { field: "positiveTags", operator: "contains", value: "", logic: "AND" }]);
   };
 
   const removeRule = (index: number) => {
@@ -236,16 +236,28 @@ const segmentFormContent = (
             <div className="flex gap-2 items-center flex-wrap">
               <Select
                 value={rule.field}
-                onValueChange={(v) => updateRule(index, { field: v as "tags" | "email" })}
+                onValueChange={(v) => updateRule(index, { field: v as "tags" | "positiveTags" | "negativeTags" | "email" })}
               >
-                <SelectTrigger className="w-28" data-testid={`select-field-${index}`}>
+                <SelectTrigger className="w-36" data-testid={`select-field-${index}`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="positiveTags">
+                    <span className="flex items-center gap-1">
+                      <Tag className="h-3 w-3 text-green-600" />
+                      Positive Tags
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="negativeTags">
+                    <span className="flex items-center gap-1">
+                      <Tag className="h-3 w-3 text-red-600" />
+                      Negative Tags
+                    </span>
+                  </SelectItem>
                   <SelectItem value="tags">
                     <span className="flex items-center gap-1">
                       <Tag className="h-3 w-3" />
-                      Tags
+                      All Tags
                     </span>
                   </SelectItem>
                   <SelectItem value="email">
@@ -275,7 +287,7 @@ const segmentFormContent = (
                 placeholder={rule.field === "email" ? "e.g., @gmail.com" : "Tag value..."}
                 value={rule.value}
                 onChange={(e) => updateRule(index, { 
-                  value: rule.field === "tags" ? e.target.value.toUpperCase() : e.target.value 
+                  value: rule.field !== "email" ? e.target.value.toUpperCase() : e.target.value 
                 })}
                 className="flex-1 min-w-[150px]"
                 data-testid={`input-rule-value-${index}`}
