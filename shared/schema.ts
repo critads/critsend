@@ -8,12 +8,16 @@ export const subscribers = pgTable("subscribers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),
   tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  positiveTags: text("positive_tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  negativeTags: text("negative_tags").array().notNull().default(sql`ARRAY[]::text[]`),
   ipAddress: text("ip_address"),
   importDate: timestamp("import_date").notNull().defaultNow(),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
   // GIN index for faster array containment queries on tags
   tagsGinIdx: index("tags_gin_idx").using("gin", table.tags),
+  positiveTagsGinIdx: index("positive_tags_gin_idx").using("gin", table.positiveTags),
+  negativeTagsGinIdx: index("negative_tags_gin_idx").using("gin", table.negativeTags),
 }));
 
 export const subscribersRelations = relations(subscribers, ({ many }) => ({
