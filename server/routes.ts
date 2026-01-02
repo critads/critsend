@@ -1535,8 +1535,9 @@ export async function registerRoutes(
         if (campaign?.openTag) {
           const subscriber = await storage.getSubscriber(subscriberId);
           if (subscriber) {
-            const tags = [...new Set([...(subscriber.tags || []), campaign.openTag])];
-            await storage.updateSubscriber(subscriberId, { tags });
+            // Add open tag to positiveTags
+            const positiveTags = [...new Set([...(subscriber.positiveTags || []), campaign.openTag])];
+            await storage.updateSubscriber(subscriberId, { positiveTags });
           }
         }
       }
@@ -1577,8 +1578,9 @@ export async function registerRoutes(
         if (campaign?.clickTag) {
           const subscriber = await storage.getSubscriber(subscriberId);
           if (subscriber) {
-            const tags = [...new Set([...(subscriber.tags || []), campaign.clickTag])];
-            await storage.updateSubscriber(subscriberId, { tags });
+            // Add click tag to positiveTags
+            const positiveTags = [...new Set([...(subscriber.positiveTags || []), campaign.clickTag])];
+            await storage.updateSubscriber(subscriberId, { positiveTags });
           }
         }
       }
@@ -1625,13 +1627,13 @@ export async function registerRoutes(
       const subscriber = await storage.getSubscriber(subscriberId);
       
       if (subscriber) {
-        // Add BCK tag (blocklist) and unsubscribe tag if configured
-        const tags = [...new Set([
-          ...(subscriber.tags || []),
+        // Add BCK tag and unsubscribe tag to negativeTags
+        const negativeTags = [...new Set([
+          ...(subscriber.negativeTags || []),
           "BCK",
           ...(campaign?.unsubscribeTag ? [campaign.unsubscribeTag] : []),
         ])];
-        await storage.updateSubscriber(subscriberId, { tags });
+        await storage.updateSubscriber(subscriberId, { negativeTags });
       }
       
       res.send(`
