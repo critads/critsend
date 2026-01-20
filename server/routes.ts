@@ -2719,11 +2719,16 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           await processBatch();
         }
         
-        // If cancelled, update final progress and exit without marking complete
-        if (isCancelled) {
+        // Re-check cancellation status from database before marking complete
+        // This handles the race condition where cancel request arrived after last batch started
+        const currentJob = await storage.getImportJob(importJobId);
+        const wasExternallyCancelled = currentJob?.status === 'cancelled';
+        
+        // If cancelled (either by our flag or externally), don't mark as completed
+        if (isCancelled || wasExternallyCancelled) {
           console.log(`[IMPORT] ${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (processed: ${processedRows})`);
           
-          // Update final progress so user knows where we stopped
+          // Update final progress so user knows where we stopped (but don't override cancelled status)
           await storage.updateImportJob(importJobId, {
             processedRows,
             newSubscribers,

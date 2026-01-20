@@ -164,6 +164,8 @@ export default function Import() {
       });
     },
     onError: () => {
+      // Also refetch on error to update UI with actual status
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
       toast({
         title: "Cancel failed",
         description: "Could not cancel the import. It may have already completed.",
