@@ -24,8 +24,12 @@ import * as https from "https";
 import * as http from "http";
 import * as dns from "dns";
 import { promisify } from "util";
+import { ObjectStorageService } from "./replit_integrations/object_storage";
 
 const dnsLookup = promisify(dns.lookup);
+
+// Object storage service for persistent file storage (survives deployments)
+const objectStorageService = new ObjectStorageService();
 
 // Ensure uploads directory exists for disk storage
 const UPLOADS_DIR_BASE = path.join(process.cwd(), "uploads", "imports");
@@ -1412,14 +1416,22 @@ export async function registerRoutes(
       });
       console.log(`[IMPORT] Created import job: ${job.id}`);
 
-      // Rename file to use job ID for easier tracking
-      const finalCsvPath = path.join(UPLOADS_DIR_BASE, `${job.id}.csv`);
-      fs.renameSync(csvFilePath, finalCsvPath);
-      console.log(`[IMPORT] Renamed CSV to: ${finalCsvPath}`);
+      // Upload file to persistent object storage (survives deployments)
+      const objectStoragePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
+      console.log(`[IMPORT] Uploaded to object storage: ${objectStoragePath}`);
+      
+      // Verify the file exists in object storage
+      const objectExists = await objectStorageService.objectExists(objectStoragePath);
+      if (!objectExists) {
+        throw new Error(`Object storage verification failed: ${objectStoragePath} does not exist after upload`);
+      }
+      
+      // Delete local temp file after successful upload
+      try { fs.unlinkSync(csvFilePath); } catch {}
 
-      // Enqueue for background processing with file path and size for progress tracking
-      const queueItem = await storage.enqueueImportJob(job.id, finalCsvPath, lineCount, fileSizeBytes);
-      console.log(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, file size: ${fileSizeBytes} bytes`);
+      // Enqueue for background processing with object storage path and size for progress tracking
+      const queueItem = await storage.enqueueImportJob(job.id, objectStoragePath, lineCount, fileSizeBytes);
+      console.log(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, object storage path: ${objectStoragePath}`);
 
       // Return immediately with job ID for progress tracking
       res.status(202).json(job);
@@ -1701,22 +1713,26 @@ export async function registerRoutes(
       });
       console.log(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       
-      // Rename to use job ID
-      const finalCsvPath = path.join(UPLOADS_DIR_BASE, `${job.id}.csv`);
-      fs.renameSync(tempCsvPath, finalCsvPath);
+      // Upload assembled file to persistent object storage (survives deployments)
+      const objectStoragePath = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
+      console.log(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${objectStoragePath}`);
       
-      // Verify the file exists after rename (critical check)
-      if (!fs.existsSync(finalCsvPath)) {
-        throw new Error(`File verification failed: ${finalCsvPath} does not exist after rename`);
+      // Verify the file exists in object storage
+      const objectExists = await objectStorageService.objectExists(objectStoragePath);
+      if (!objectExists) {
+        throw new Error(`Object storage verification failed: ${objectStoragePath} does not exist after upload`);
       }
       
-      // Get actual file size after rename to confirm
-      const verifiedSize = fs.statSync(finalCsvPath).size;
-      console.log(`[CHUNKED] ${uploadId}: File verified at ${finalCsvPath}, size: ${verifiedSize} bytes`);
+      // Get file size for verification
+      const verifiedSize = fs.statSync(tempCsvPath).size;
+      console.log(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
       
-      // Enqueue for processing
-      const queueItem = await storage.enqueueImportJob(job.id, finalCsvPath, lineCount, verifiedSize);
-      console.log(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued`);
+      // Enqueue for processing with object storage path
+      const queueItem = await storage.enqueueImportJob(job.id, objectStoragePath, lineCount, verifiedSize);
+      console.log(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued with object storage path`);
+      
+      // Delete local temp file after successful upload to object storage
+      try { fs.unlinkSync(tempCsvPath); } catch {}
       
       // Cleanup
       chunkedUploads.delete(uploadId);
@@ -2418,17 +2434,40 @@ async function pollForImportJobs() {
 // Production-ready streaming import processor optimized for 7M+ rows
 // Uses readline for memory-efficient line-by-line processing
 // Supports resume from last checkpoint if interrupted
+// Supports both object storage paths (/objects/...) and local filesystem paths (legacy)
 async function processImportFromQueue(queueId: string, importJobId: string, csvFilePath: string) {
   console.log(`[IMPORT] Processing job ${importJobId} from file: ${csvFilePath}`);
   
-  // Check file exists
-  if (!fs.existsSync(csvFilePath)) {
-    throw new Error(`CSV file not found: ${csvFilePath}. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.`);
-  }
+  // Determine if this is an object storage path or local filesystem path
+  const isObjectStorage = csvFilePath.startsWith('/objects/');
+  let fileSizeBytes: number;
+  let fileStream: NodeJS.ReadableStream;
   
-  // Get file size and queue item for resume capability
-  const fileStat = fs.statSync(csvFilePath);
-  const fileSizeBytes = fileStat.size;
+  if (isObjectStorage) {
+    // Object storage path - use ObjectStorageService
+    const objectExists = await objectStorageService.objectExists(csvFilePath);
+    if (!objectExists) {
+      throw new Error(`CSV file not found in object storage: ${csvFilePath}. This can happen if the file was deleted or never uploaded. Please re-upload the file.`);
+    }
+    // Get file stream from object storage
+    fileStream = await objectStorageService.getObjectStream(csvFilePath);
+    // Get file size from queue item (stored when file was uploaded)
+    const queueItemForSize = await storage.getImportQueueItem(queueId);
+    fileSizeBytes = queueItemForSize?.fileSizeBytes || 0;
+    console.log(`[IMPORT] ${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
+  } else {
+    // Local filesystem path (legacy support for in-progress imports)
+    if (!fs.existsSync(csvFilePath)) {
+      throw new Error(`CSV file not found: ${csvFilePath}. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.`);
+    }
+    const fileStat = fs.statSync(csvFilePath);
+    fileSizeBytes = fileStat.size;
+    fileStream = fs.createReadStream(csvFilePath, { 
+      encoding: 'utf-8',
+      highWaterMark: 256 * 1024 // 256KB buffer for better IO performance
+    });
+    console.log(`[IMPORT] ${importJobId}: Using local filesystem (legacy), size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
+  }
   const queueItem = await storage.getImportQueueItem(queueId);
   const resumeFromLine = queueItem?.lastCheckpointLine || 0;
   
@@ -2485,12 +2524,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   let batchNumber = 0;
   const startTime = Date.now();
   
-  // Create readline interface for streaming
-  const fileStream = fs.createReadStream(csvFilePath, { 
-    encoding: 'utf-8',
-    highWaterMark: 256 * 1024 // 256KB buffer for better IO performance
-  });
-  
+  // Create readline interface for streaming using the fileStream created earlier
   const rl = readline.createInterface({
     input: fileStream,
     crlfDelay: Infinity
@@ -2691,10 +2725,21 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         
         // Clean up the CSV file after successful processing
         try {
-          fs.unlinkSync(csvFilePath);
-          console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file`);
+          if (isObjectStorage) {
+            // Delete from object storage
+            const deleted = await objectStorageService.deleteStorageObject(csvFilePath);
+            if (deleted) {
+              console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage`);
+            } else {
+              console.error(`[IMPORT] ${importJobId}: Failed to delete CSV file from object storage: ${csvFilePath}`);
+            }
+          } else {
+            // Delete from local filesystem (legacy)
+            fs.unlinkSync(csvFilePath);
+            console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem`);
+          }
         } catch (err) {
-          console.error(`[IMPORT] Failed to clean up CSV file: ${csvFilePath}`);
+          console.error(`[IMPORT] Failed to clean up CSV file: ${csvFilePath}`, err);
         }
         
         const totalDuration = (Date.now() - startTime) / 1000;

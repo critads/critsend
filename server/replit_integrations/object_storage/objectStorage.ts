@@ -237,6 +237,131 @@ export class ObjectStorageService {
       requestedPermission: requestedPermission ?? ObjectPermission.READ,
     });
   }
+
+  // Upload a local file to object storage (server-side operation)
+  async uploadLocalFile(localFilePath: string, objectName: string): Promise<string> {
+    const fs = await import('fs');
+    const privateObjectDir = this.getPrivateObjectDir();
+    const fullPath = `${privateObjectDir}/imports/${objectName}`;
+    const { bucketName, objectName: objName } = parseObjectPath(fullPath);
+    
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objName);
+    
+    // Stream upload from local file to GCS
+    await new Promise<void>((resolve, reject) => {
+      const readStream = fs.createReadStream(localFilePath);
+      const writeStream = file.createWriteStream({
+        resumable: false,
+        contentType: 'text/csv',
+      });
+      
+      readStream.on('error', reject);
+      writeStream.on('error', reject);
+      writeStream.on('finish', () => resolve());
+      
+      readStream.pipe(writeStream);
+    });
+    
+    // Return the storage path for later reference
+    return `/objects/imports/${objectName}`;
+  }
+
+  // Delete an object from storage (server-side operation)
+  async deleteStorageObject(objectPath: string): Promise<boolean> {
+    try {
+      if (!objectPath.startsWith('/objects/')) {
+        return false;
+      }
+      
+      const parts = objectPath.slice(1).split('/');
+      if (parts.length < 2) {
+        return false;
+      }
+      
+      const entityId = parts.slice(1).join('/');
+      let entityDir = this.getPrivateObjectDir();
+      if (!entityDir.endsWith('/')) {
+        entityDir = `${entityDir}/`;
+      }
+      
+      const objectEntityPath = `${entityDir}${entityId}`;
+      const { bucketName, objectName } = parseObjectPath(objectEntityPath);
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+      
+      const [exists] = await file.exists();
+      if (!exists) {
+        return false;
+      }
+      
+      await file.delete();
+      return true;
+    } catch (error) {
+      console.error('Error deleting storage object:', error);
+      return false;
+    }
+  }
+
+  // Get a readable stream for an object (server-side operation)
+  async getObjectStream(objectPath: string): Promise<NodeJS.ReadableStream> {
+    if (!objectPath.startsWith('/objects/')) {
+      throw new ObjectNotFoundError();
+    }
+    
+    const parts = objectPath.slice(1).split('/');
+    if (parts.length < 2) {
+      throw new ObjectNotFoundError();
+    }
+    
+    const entityId = parts.slice(1).join('/');
+    let entityDir = this.getPrivateObjectDir();
+    if (!entityDir.endsWith('/')) {
+      entityDir = `${entityDir}/`;
+    }
+    
+    const objectEntityPath = `${entityDir}${entityId}`;
+    const { bucketName, objectName } = parseObjectPath(objectEntityPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+    
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new ObjectNotFoundError();
+    }
+    
+    return file.createReadStream();
+  }
+
+  // Check if an object exists in storage
+  async objectExists(objectPath: string): Promise<boolean> {
+    try {
+      if (!objectPath.startsWith('/objects/')) {
+        return false;
+      }
+      
+      const parts = objectPath.slice(1).split('/');
+      if (parts.length < 2) {
+        return false;
+      }
+      
+      const entityId = parts.slice(1).join('/');
+      let entityDir = this.getPrivateObjectDir();
+      if (!entityDir.endsWith('/')) {
+        entityDir = `${entityDir}/`;
+      }
+      
+      const objectEntityPath = `${entityDir}${entityId}`;
+      const { bucketName, objectName } = parseObjectPath(objectEntityPath);
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+      
+      const [exists] = await file.exists();
+      return exists;
+    } catch (error) {
+      return false;
+    }
+  }
 }
 
 function parseObjectPath(path: string): {
