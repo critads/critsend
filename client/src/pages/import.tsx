@@ -41,6 +41,12 @@ export default function Import() {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ file, tagMode }: { file: File; tagMode: "merge" | "override" }) => {
+      // Check file size before upload (1GB limit)
+      const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
+      if (file.size > MAX_FILE_SIZE) {
+        throw new Error(`File too large. Maximum size is 1GB, your file is ${(file.size / (1024 * 1024)).toFixed(0)}MB.`);
+      }
+      
       const formData = new FormData();
       formData.append("file", file);
       formData.append("tagMode", tagMode);
@@ -49,7 +55,9 @@ export default function Import() {
         body: formData,
       });
       if (!response.ok) {
-        throw new Error("Upload failed");
+        const errorData = await response.json().catch(() => null);
+        const errorMessage = errorData?.message || errorData?.error || `Upload failed (${response.status})`;
+        throw new Error(errorMessage);
       }
       return response.json();
     },
@@ -62,10 +70,10 @@ export default function Import() {
         description: "Your CSV is being processed in the background.",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Import failed",
-        description: "Failed to upload file. Please try again.",
+        description: error.message || "Failed to upload file. Please try again.",
         variant: "destructive",
       });
     },

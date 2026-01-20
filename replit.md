@@ -6,7 +6,7 @@ A powerful email marketing platform capable of managing multi-million email prof
 
 Critsend is a full-featured email marketing tool with:
 - Subscriber management with tag-based segmentation
-- CSV import/export with production-grade batch processing (5,000 rows per batch)
+- CSV import/export with production-grade batch processing (20,000 rows per batch, 1GB file limit)
 - Campaign creation wizard with WYSIWYG HTML editing
 - Multiple MTA (Mail Transfer Agent) configurations
 - Email tracking (opens/clicks)

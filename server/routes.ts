@@ -46,7 +46,7 @@ const importDiskStorage = multer.diskStorage({
 
 const uploadToDisk = multer({ 
   storage: importDiskStorage,
-  limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit
+  limits: { fileSize: 1024 * 1024 * 1024 } // 1GB limit
 });
 
 // Memory storage for small file uploads (images, etc.)
