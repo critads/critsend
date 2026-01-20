@@ -140,10 +140,12 @@ export interface IStorage {
   cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
   
   // Import Job Queue (PostgreSQL-backed with file storage)
-  enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number): Promise<ImportJobQueueItem>;
+  enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number, fileSizeBytes?: number): Promise<ImportJobQueueItem>;
   claimNextImportJob(workerId: string): Promise<ImportJobQueueItem | null>;
   updateImportQueueProgress(queueId: string, processedLines: number): Promise<void>;
+  updateImportQueueProgressWithCheckpoint(queueId: string, processedLines: number, processedBytes: number, lastCheckpointLine: number): Promise<void>;
   updateImportQueueHeartbeat(queueId: string): Promise<void>;
+  getImportQueueItem(queueId: string): Promise<ImportJobQueueItem | null>;
   completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
   getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;

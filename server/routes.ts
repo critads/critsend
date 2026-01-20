@@ -1377,11 +1377,12 @@ export async function registerRoutes(
       
       await new Promise<void>((resolve, reject) => {
         let lastChar = '';
-        lineCountStream.on('data', (chunk: string) => {
-          for (let i = 0; i < chunk.length; i++) {
-            if (chunk[i] === '\n') lineCount++;
+        lineCountStream.on('data', (chunk: string | Buffer) => {
+          const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+          for (let i = 0; i < str.length; i++) {
+            if (str[i] === '\n') lineCount++;
           }
-          lastChar = chunk[chunk.length - 1];
+          lastChar = str[str.length - 1];
         });
         lineCountStream.on('end', () => {
           // Add 1 if file doesn't end with newline
@@ -2265,13 +2266,8 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         currentLineNumber++;
         processedBytes += Buffer.byteLength(line, 'utf-8') + 1; // +1 for newline
         
-        // Skip lines if resuming from checkpoint
-        if (currentLineNumber <= resumeFromLine) {
-          return;
-        }
-        
-        // Parse header on first line
-        if (!headerParsed) {
+        // Always parse header from first line, even when resuming
+        if (!headerParsed && currentLineNumber === 1) {
           header = line.split(';').map(h => h.trim().toLowerCase());
           emailIdx = header.indexOf('email');
           tagsIdx = header.indexOf('tags');
@@ -2290,6 +2286,12 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           }
           
           headerParsed = true;
+          return;
+        }
+        
+        // Skip data lines if resuming from checkpoint (resume from line N means start processing at line N+1)
+        // resumeFromLine stores the last successfully processed line number
+        if (currentLineNumber <= resumeFromLine) {
           return;
         }
         
