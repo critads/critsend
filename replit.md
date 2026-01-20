@@ -138,13 +138,19 @@ npm run build        # Build for production
 - **Error Recovery**: Automatic cleanup of temp files and remaining chunks on failure
 - **Upload Sessions**: 1-hour auto-expiry for abandoned upload sessions
 
+### Persistent Object Storage for CSV Files
+- **Replit App Storage**: CSV files stored in Google Cloud Storage-backed object storage (`/objects/imports/{job_id}.csv`)
+- **Survives Deployments**: Files persist across redeployments, unlike local filesystem storage
+- **Streaming Uploads**: Files assembled locally from chunks, then streamed to object storage
+- **Streaming Downloads**: Import processor reads files directly from object storage as a stream (memory efficient)
+- **Backwards Compatibility**: Legacy local filesystem paths still supported for in-progress imports
+- **Automatic Cleanup**: CSV files deleted from object storage after successful processing
+
 ### Production-Grade CSV Import Processing
-- **File-Based Storage**: CSV files stored on disk (`uploads/imports/{job_id}.csv`) instead of database
 - **Chunked Processing**: 5,000-row batches for bounded memory usage
 - **Heartbeat Mechanism**: Workers update heartbeat every 30 seconds; jobs with no heartbeat for 2 minutes are recovered
 - **Bulk Upserts**: PostgreSQL `ON CONFLICT` with tag array merging for 10x+ performance
 - **Progress Tracking**: Real-time `processed_lines` / `total_lines` updates
-- **Automatic Cleanup**: CSV files deleted after successful processing to save disk space
 
 ### Real SMTP Email Sending
 - **Nodemailer**: Connection pooling (5 connections, 100 messages per connection)
