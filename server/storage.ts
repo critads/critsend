@@ -12,6 +12,7 @@ import {
   importJobQueue,
   errorLogs,
   pendingTagOperations,
+  flushJobs,
   type Subscriber,
   type InsertSubscriber,
   type Segment,
@@ -37,6 +38,8 @@ import {
   type NullsinkCapture,
   type InsertNullsinkCapture,
   type PendingTagOperation,
+  type FlushJob,
+  type FlushJobStatus,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
@@ -172,6 +175,16 @@ export interface IStorage {
   getTagQueueStats(): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
   cleanupCompletedTagOperations(olderThanDays?: number): Promise<number>;
   addTagToSubscriber(subscriberId: string, tagType: "positive" | "negative", tagValue: string): Promise<boolean>;
+  
+  // Flush Jobs (for subscriber deletion with progress)
+  createFlushJob(totalRows: number): Promise<FlushJob>;
+  getFlushJob(id: string): Promise<FlushJob | undefined>;
+  claimFlushJob(workerId: string): Promise<FlushJob | null>;
+  updateFlushJobProgress(jobId: string, processedRows: number): Promise<void>;
+  completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void>;
+  cancelFlushJob(jobId: string): Promise<boolean>;
+  deleteSubscriberBatch(batchSize: number): Promise<number>;
+  countAllSubscribers(): Promise<number>;
   
   // Health Check
   healthCheck(): Promise<boolean>;
@@ -1352,6 +1365,98 @@ export class DatabaseStorage implements IStorage {
   async healthCheck(): Promise<boolean> {
     const result = await db.execute(sql`SELECT 1 as ok`);
     return result.rows.length > 0;
+  }
+
+  // Flush Jobs - for subscriber deletion with progress tracking
+  async createFlushJob(totalRows: number): Promise<FlushJob> {
+    const result = await db.insert(flushJobs).values({
+      totalRows,
+      status: "pending",
+    }).returning();
+    return result[0];
+  }
+
+  async getFlushJob(id: string): Promise<FlushJob | undefined> {
+    const result = await db.select().from(flushJobs).where(eq(flushJobs.id, id));
+    return result[0];
+  }
+
+  async claimFlushJob(workerId: string): Promise<FlushJob | null> {
+    const result = await db.execute(sql`
+      UPDATE flush_jobs
+      SET status = 'processing', started_at = NOW(), heartbeat = NOW(), worker_id = ${workerId}
+      WHERE id = (
+        SELECT id FROM flush_jobs
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *
+    `);
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0] as any;
+    return {
+      id: row.id,
+      totalRows: row.total_rows,
+      processedRows: row.processed_rows,
+      status: row.status,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      heartbeat: row.heartbeat,
+      workerId: row.worker_id,
+      errorMessage: row.error_message,
+    };
+  }
+
+  async updateFlushJobProgress(jobId: string, processedRows: number): Promise<void> {
+    await db.update(flushJobs)
+      .set({ processedRows, heartbeat: new Date() })
+      .where(eq(flushJobs.id, jobId));
+  }
+
+  async completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void> {
+    await db.update(flushJobs)
+      .set({ 
+        status, 
+        completedAt: new Date(),
+        errorMessage: errorMessage || null,
+      })
+      .where(eq(flushJobs.id, jobId));
+  }
+
+  async cancelFlushJob(jobId: string): Promise<boolean> {
+    const result = await db.update(flushJobs)
+      .set({ 
+        status: "cancelled", 
+        completedAt: new Date(),
+        errorMessage: "Cancelled by user",
+      })
+      .where(and(
+        eq(flushJobs.id, jobId),
+        or(eq(flushJobs.status, "pending"), eq(flushJobs.status, "processing"))
+      ))
+      .returning();
+    return result.length > 0;
+  }
+
+  async deleteSubscriberBatch(batchSize: number): Promise<number> {
+    // Delete a batch of subscribers using a CTE for efficiency
+    const result = await db.execute(sql`
+      WITH to_delete AS (
+        SELECT id FROM subscribers
+        LIMIT ${batchSize}
+      )
+      DELETE FROM subscribers
+      WHERE id IN (SELECT id FROM to_delete)
+    `);
+    return (result.rowCount as number) || 0;
+  }
+
+  async countAllSubscribers(): Promise<number> {
+    const result = await db.execute(sql`SELECT COUNT(*) as count FROM subscribers`);
+    return parseInt(result.rows[0]?.count as string || "0", 10);
   }
 
   // Tag Queue Operations - for reliable tag additions with retry logic
