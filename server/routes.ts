@@ -1488,6 +1488,283 @@ export async function registerRoutes(
     }
   });
 
+  // ============ CHUNKED UPLOAD ============
+  // For large files (>50MB), use chunked upload to bypass platform request size limits
+  const CHUNKS_DIR = path.join(process.cwd(), "uploads", "chunks");
+  if (!fs.existsSync(CHUNKS_DIR)) {
+    fs.mkdirSync(CHUNKS_DIR, { recursive: true });
+  }
+
+  // Track active chunked uploads in memory (simple approach - survives page refresh but not server restart)
+  const chunkedUploads = new Map<string, {
+    filename: string;
+    tagMode: "merge" | "override";
+    totalChunks: number;
+    totalSize: number;
+    receivedChunks: Set<number>;
+    createdAt: Date;
+  }>();
+
+  // Cleanup old chunked uploads (older than 1 hour)
+  setInterval(() => {
+    const now = Date.now();
+    for (const [uploadId, upload] of chunkedUploads.entries()) {
+      if (now - upload.createdAt.getTime() > 60 * 60 * 1000) {
+        // Delete chunk files
+        for (let i = 0; i < upload.totalChunks; i++) {
+          const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${i}`);
+          try { fs.unlinkSync(chunkPath); } catch {}
+        }
+        chunkedUploads.delete(uploadId);
+        console.log(`[CHUNKED] Cleaned up stale upload: ${uploadId}`);
+      }
+    }
+  }, 5 * 60 * 1000); // Check every 5 minutes
+
+  // Start a chunked upload session
+  app.post("/api/import/chunked/start", async (req: Request, res: Response) => {
+    try {
+      const { filename, tagMode, totalChunks, totalSize } = req.body;
+      
+      if (!filename || !totalChunks || !totalSize) {
+        return res.status(400).json({ error: "Missing required fields: filename, totalChunks, totalSize" });
+      }
+      
+      const uploadId = `chunk_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      
+      chunkedUploads.set(uploadId, {
+        filename,
+        tagMode: tagMode === "override" ? "override" : "merge",
+        totalChunks: parseInt(totalChunks),
+        totalSize: parseInt(totalSize),
+        receivedChunks: new Set(),
+        createdAt: new Date(),
+      });
+      
+      console.log(`[CHUNKED] Started upload: ${uploadId}, file: ${filename}, ${totalChunks} chunks, ${Math.round(totalSize / 1024 / 1024)}MB`);
+      
+      res.json({ uploadId, message: "Chunked upload started" });
+    } catch (error) {
+      console.error("[CHUNKED] Error starting upload:", error);
+      res.status(500).json({ error: "Failed to start chunked upload" });
+    }
+  });
+
+  // Upload a single chunk (use raw body to handle binary data efficiently)
+  app.post("/api/import/chunked/:uploadId/chunk/:chunkIndex", uploadToDisk.single("chunk"), async (req: Request, res: Response) => {
+    try {
+      const { uploadId, chunkIndex } = req.params;
+      const index = parseInt(chunkIndex);
+      
+      // Validate chunkIndex is a valid number
+      if (isNaN(index) || index < 0) {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: "Invalid chunk index" });
+      }
+      
+      const upload = chunkedUploads.get(uploadId);
+      if (!upload) {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ error: "Upload session not found or expired" });
+      }
+      
+      // Validate chunkIndex is within expected range
+      if (index >= upload.totalChunks) {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: `Chunk index ${index} exceeds total chunks ${upload.totalChunks}` });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ error: "No chunk data received" });
+      }
+      
+      // Move chunk to chunks directory with proper naming
+      const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${index}`);
+      fs.renameSync(req.file.path, chunkPath);
+      
+      upload.receivedChunks.add(index);
+      
+      console.log(`[CHUNKED] ${uploadId}: Received chunk ${index + 1}/${upload.totalChunks}`);
+      
+      res.json({ 
+        success: true, 
+        chunkIndex: index,
+        receivedChunks: upload.receivedChunks.size,
+        totalChunks: upload.totalChunks,
+        progress: Math.round((upload.receivedChunks.size / upload.totalChunks) * 100)
+      });
+    } catch (error) {
+      console.error("[CHUNKED] Error receiving chunk:", error);
+      if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+      res.status(500).json({ error: "Failed to receive chunk" });
+    }
+  });
+
+  // Complete chunked upload - assemble chunks and start import
+  app.post("/api/import/chunked/:uploadId/complete", async (req: Request, res: Response) => {
+    const tempCsvPath = path.join(UPLOADS_DIR_BASE, `upload-${Date.now()}-temp.csv`);
+    let writeStream: fs.WriteStream | null = null;
+    
+    try {
+      const { uploadId } = req.params;
+      
+      const upload = chunkedUploads.get(uploadId);
+      if (!upload) {
+        return res.status(404).json({ error: "Upload session not found or expired" });
+      }
+      
+      // Verify all chunks received
+      if (upload.receivedChunks.size !== upload.totalChunks) {
+        const missing = [];
+        for (let i = 0; i < upload.totalChunks; i++) {
+          if (!upload.receivedChunks.has(i)) missing.push(i);
+        }
+        return res.status(400).json({ 
+          error: `Missing chunks: ${missing.join(", ")}`,
+          receivedChunks: upload.receivedChunks.size,
+          totalChunks: upload.totalChunks
+        });
+      }
+      
+      console.log(`[CHUNKED] ${uploadId}: All ${upload.totalChunks} chunks received, assembling file...`);
+      
+      // Assemble chunks into final CSV file using streaming (memory-efficient)
+      writeStream = fs.createWriteStream(tempCsvPath);
+      
+      // Stream each chunk to the output file (avoids loading all chunks into memory)
+      for (let i = 0; i < upload.totalChunks; i++) {
+        const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${i}`);
+        
+        // Check if chunk file exists
+        if (!fs.existsSync(chunkPath)) {
+          throw new Error(`Missing chunk file: ${i}`);
+        }
+        
+        // Stream chunk to output file
+        await new Promise<void>((resolve, reject) => {
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.on('error', reject);
+          readStream.on('end', () => {
+            // Delete chunk after streaming
+            try { fs.unlinkSync(chunkPath); } catch {}
+            resolve();
+          });
+          readStream.pipe(writeStream!, { end: false });
+        });
+      }
+      
+      await new Promise<void>((resolve, reject) => {
+        writeStream!.end((err: Error | null) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
+      const fileSizeBytes = fs.statSync(tempCsvPath).size;
+      console.log(`[CHUNKED] ${uploadId}: File assembled: ${tempCsvPath}, size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
+      
+      // Stream-based line counting
+      let lineCount = 0;
+      const lineCountStream = fs.createReadStream(tempCsvPath, { encoding: 'utf-8', highWaterMark: 64 * 1024 });
+      
+      await new Promise<void>((resolve, reject) => {
+        let lastChar = '';
+        lineCountStream.on('data', (chunk: string | Buffer) => {
+          const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+          for (let i = 0; i < str.length; i++) {
+            if (str[i] === '\n') lineCount++;
+          }
+          lastChar = str[str.length - 1];
+        });
+        lineCountStream.on('end', () => {
+          if (lastChar && lastChar !== '\n') lineCount++;
+          resolve();
+        });
+        lineCountStream.on('error', reject);
+      });
+      
+      console.log(`[CHUNKED] ${uploadId}: Line count: ${lineCount}`);
+      
+      if (lineCount < 2) {
+        fs.unlinkSync(tempCsvPath);
+        chunkedUploads.delete(uploadId);
+        return res.status(400).json({ error: "CSV file is empty or invalid" });
+      }
+      
+      const totalDataRows = lineCount - 1;
+      
+      // Create import job
+      const job = await storage.createImportJob({
+        filename: upload.filename,
+        totalRows: totalDataRows,
+        tagMode: upload.tagMode,
+      });
+      console.log(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
+      
+      // Rename to use job ID
+      const finalCsvPath = path.join(UPLOADS_DIR_BASE, `${job.id}.csv`);
+      fs.renameSync(tempCsvPath, finalCsvPath);
+      
+      // Enqueue for processing
+      const queueItem = await storage.enqueueImportJob(job.id, finalCsvPath, lineCount, fileSizeBytes);
+      console.log(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued`);
+      
+      // Cleanup
+      chunkedUploads.delete(uploadId);
+      
+      res.status(202).json(job);
+    } catch (error: any) {
+      console.error("[CHUNKED] Error completing upload:", error);
+      
+      // Cleanup on error: remove temp file if it exists
+      try { 
+        if (fs.existsSync(tempCsvPath)) {
+          fs.unlinkSync(tempCsvPath); 
+        }
+      } catch {}
+      
+      // Close write stream if open
+      if (writeStream) {
+        try { writeStream.destroy(); } catch {}
+      }
+      
+      // Cleanup any remaining chunk files for this upload
+      const { uploadId } = req.params;
+      const upload = chunkedUploads.get(uploadId);
+      if (upload) {
+        for (let i = 0; i < upload.totalChunks; i++) {
+          const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${i}`);
+          try { fs.unlinkSync(chunkPath); } catch {}
+        }
+        chunkedUploads.delete(uploadId);
+      }
+      
+      res.status(500).json({ error: error.message || "Failed to complete chunked upload" });
+    }
+  });
+
+  // Get chunked upload status
+  app.get("/api/import/chunked/:uploadId/status", async (req: Request, res: Response) => {
+    try {
+      const upload = chunkedUploads.get(req.params.uploadId);
+      if (!upload) {
+        return res.status(404).json({ error: "Upload session not found or expired" });
+      }
+      
+      res.json({
+        uploadId: req.params.uploadId,
+        filename: upload.filename,
+        totalChunks: upload.totalChunks,
+        receivedChunks: upload.receivedChunks.size,
+        progress: Math.round((upload.receivedChunks.size / upload.totalChunks) * 100),
+        createdAt: upload.createdAt,
+      });
+    } catch (error) {
+      console.error("[CHUNKED] Error fetching status:", error);
+      res.status(500).json({ error: "Failed to fetch upload status" });
+    }
+  });
+
   // ============ EXPORT ============
   app.get("/api/export", async (req: Request, res: Response) => {
     try {

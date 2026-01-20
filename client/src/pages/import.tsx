@@ -26,6 +26,8 @@ export default function Import() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [tagMode, setTagMode] = useState<"merge" | "override">("merge");
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isChunkedUpload, setIsChunkedUpload] = useState(false);
   const { toast } = useToast();
 
   const { data: jobs, isLoading, refetch } = useQuery<ImportJob[]>({
@@ -41,12 +43,78 @@ export default function Import() {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ file, tagMode }: { file: File; tagMode: "merge" | "override" }) => {
-      // Check file size before upload (1GB limit)
       const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
+      const CHUNK_SIZE = 25 * 1024 * 1024; // 25MB chunks (safe for platform limits)
+      const USE_CHUNKED_THRESHOLD = 25 * 1024 * 1024; // Use chunked for files > 25MB
+      
       if (file.size > MAX_FILE_SIZE) {
         throw new Error(`File too large. Maximum size is 1GB, your file is ${(file.size / (1024 * 1024)).toFixed(0)}MB.`);
       }
       
+      // For files > 25MB, use chunked upload to bypass platform limits
+      if (file.size > USE_CHUNKED_THRESHOLD) {
+        setIsChunkedUpload(true);
+        setUploadProgress(0);
+        
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        
+        // Step 1: Start chunked upload session
+        const startResponse = await fetch("/api/import/chunked/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            tagMode,
+            totalChunks,
+            totalSize: file.size,
+          }),
+        });
+        
+        if (!startResponse.ok) {
+          const errorData = await startResponse.json().catch(() => null);
+          throw new Error(errorData?.error || "Failed to start chunked upload");
+        }
+        
+        const { uploadId } = await startResponse.json();
+        
+        // Step 2: Upload chunks sequentially
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, file.size);
+          const chunk = file.slice(start, end);
+          
+          const chunkFormData = new FormData();
+          chunkFormData.append("chunk", chunk, `chunk_${i}`);
+          
+          const chunkResponse = await fetch(`/api/import/chunked/${uploadId}/chunk/${i}`, {
+            method: "POST",
+            body: chunkFormData,
+          });
+          
+          if (!chunkResponse.ok) {
+            const errorData = await chunkResponse.json().catch(() => null);
+            throw new Error(errorData?.error || `Failed to upload chunk ${i + 1}/${totalChunks}`);
+          }
+          
+          const progress = Math.round(((i + 1) / totalChunks) * 100);
+          setUploadProgress(progress);
+        }
+        
+        // Step 3: Complete the upload
+        const completeResponse = await fetch(`/api/import/chunked/${uploadId}/complete`, {
+          method: "POST",
+        });
+        
+        if (!completeResponse.ok) {
+          const errorData = await completeResponse.json().catch(() => null);
+          throw new Error(errorData?.error || "Failed to complete chunked upload");
+        }
+        
+        setIsChunkedUpload(false);
+        return completeResponse.json();
+      }
+      
+      // For smaller files, use regular upload
       const formData = new FormData();
       formData.append("file", file);
       formData.append("tagMode", tagMode);
@@ -65,12 +133,16 @@ export default function Import() {
       queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
       setSelectedFile(null);
+      setUploadProgress(0);
+      setIsChunkedUpload(false);
       toast({
         title: "Import started",
         description: "Your CSV is being processed in the background.",
       });
     },
     onError: (error: Error) => {
+      setUploadProgress(0);
+      setIsChunkedUpload(false);
       toast({
         title: "Import failed",
         description: error.message || "Failed to upload file. Please try again.",
@@ -241,6 +313,18 @@ export default function Import() {
                   </div>
                 </RadioGroup>
               </div>
+              {isChunkedUpload && uploadMutation.isPending && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Uploading large file in chunks...</span>
+                    <span className="font-medium">{uploadProgress}%</span>
+                  </div>
+                  <Progress value={uploadProgress} className="h-2" />
+                  <p className="text-xs text-muted-foreground">
+                    Large files ({(selectedFile?.size || 0) > 25 * 1024 * 1024 ? `${Math.round((selectedFile?.size || 0) / (1024 * 1024))}MB` : ''}) are uploaded in 25MB chunks to ensure reliable delivery.
+                  </p>
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button
                   onClick={handleUpload}
@@ -251,7 +335,7 @@ export default function Import() {
                   {uploadMutation.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Uploading...
+                      {isChunkedUpload ? `Uploading... ${uploadProgress}%` : "Uploading..."}
                     </>
                   ) : (
                     <>
