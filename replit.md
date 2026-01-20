@@ -169,6 +169,13 @@ npm run build        # Build for production
 - **Automatic Cleanup**: Successfully processed operations removed; failed operations kept for debugging
 - **Monitoring Endpoint**: `GET /api/tag-queue/stats` returns pending/processing/completed/failed counts
 
+### Subscriber Flush Job System
+- **Background Deletion**: `DELETE /api/subscribers` starts a background job instead of immediate deletion (returns 202 with jobId)
+- **Batch Processing**: Deletes 10,000 subscribers per batch with 50ms delay between batches to prevent database overload
+- **Progress Tracking**: `GET /api/subscribers/flush/:id` returns real-time progress (processedRows, totalRows, status)
+- **Cancellation Support**: `POST /api/subscribers/flush/:id/cancel` stops the job mid-process
+- **UI Progress Bar**: Frontend shows real-time deletion progress with ability to cancel
+
 ### Health & Monitoring
 - `GET /api/health` - Database connection status and uptime
 - `GET /api/health/ready` - Readiness probe for orchestration
