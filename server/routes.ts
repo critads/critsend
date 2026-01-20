@@ -2530,9 +2530,37 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     crlfDelay: Infinity
   });
   
+  // Cancellation flag - checked after each batch
+  let isCancelled = false;
+  
+  // Helper to check if job was cancelled
+  async function checkCancellation(): Promise<boolean> {
+    try {
+      const job = await storage.getImportJob(importJobId);
+      if (job?.status === 'cancelled') {
+        console.log(`[IMPORT] ${importJobId}: Job cancelled by user, stopping processing`);
+        isCancelled = true;
+        return true;
+      }
+    } catch (err) {
+      // Ignore errors checking cancellation
+    }
+    return false;
+  }
+  
+  // Helper to yield to event loop - prevents blocking other requests
+  function yieldToEventLoop(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
+  }
+  
   // Process function for batch
   async function processBatch(): Promise<void> {
     if (batchRows.length === 0) return;
+    
+    // Check for cancellation before processing each batch
+    if (await checkCancellation()) {
+      return;
+    }
     
     batchNumber++;
     const batchStart = Date.now();
@@ -2595,6 +2623,9 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       lastCheckpointLine = processedRows;
       console.log(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${processedRows} rows processed`);
     }
+    
+    // Yield to event loop to prevent blocking other requests during large imports
+    await yieldToEventLoop();
   }
   
   // Process file line by line
@@ -2661,6 +2692,13 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           if (batchRows.length >= BATCH_SIZE) {
             rl.pause(); // Pause reading while processing
             await processBatch();
+            
+            // If cancelled, close the stream and exit
+            if (isCancelled) {
+              rl.close();
+              return;
+            }
+            
             rl.resume(); // Resume reading
           }
         } catch (parseErr) {
@@ -2676,9 +2714,48 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     
     rl.on('close', async () => {
       try {
-        // Process remaining rows in final batch
-        if (batchRows.length > 0) {
+        // Process remaining rows in final batch (if not cancelled)
+        if (batchRows.length > 0 && !isCancelled) {
           await processBatch();
+        }
+        
+        // If cancelled, update final progress and exit without marking complete
+        if (isCancelled) {
+          console.log(`[IMPORT] ${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (processed: ${processedRows})`);
+          
+          // Update final progress so user knows where we stopped
+          await storage.updateImportJob(importJobId, {
+            processedRows,
+            newSubscribers,
+            updatedSubscribers,
+            failedRows,
+          });
+          
+          // Clean up the CSV file even when cancelled
+          try {
+            if (isObjectStorage) {
+              await objectStorageService.deleteStorageObject(csvFilePath);
+              console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage after cancellation`);
+            } else {
+              fs.unlinkSync(csvFilePath);
+              console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem after cancellation`);
+            }
+          } catch (cleanupErr) {
+            console.error(`[IMPORT] Failed to clean up CSV file after cancellation: ${csvFilePath}`, cleanupErr);
+          }
+          
+          // Recreate GIN indexes if they were dropped
+          if (ginIndexesDropped) {
+            try {
+              console.log(`[IMPORT] ${importJobId}: Recreating GIN indexes after cancelled import`);
+              await storage.recreateSubscriberGinIndexes();
+            } catch (indexErr) {
+              console.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes after cancellation`);
+            }
+          }
+          
+          resolve();
+          return;
         }
         
         // Mark complete and cleanup file
