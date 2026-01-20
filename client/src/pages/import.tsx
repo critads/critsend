@@ -269,12 +269,12 @@ export default function Import() {
               CSV Format
             </h4>
             <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
-{`email,tags,ip_address
-john@example.com,VIP;NEWSLETTER,192.168.1.1
-jane@example.com,NEWSLETTER,192.168.1.2`}
+{`email;tags;ip_address
+john@example.com;VIP,SOLDES,PROMO;192.168.1.1
+jane@example.com;NEWSLETTER;192.168.1.2`}
             </pre>
             <p className="text-xs text-muted-foreground mt-2">
-              Tags must be separated by semicolons (;). Tags are automatically converted to uppercase.
+              Columns are separated by semicolons (;). Tags are separated by commas (,) and automatically converted to uppercase.
               Imports are processed in batches of 5,000 rows. Existing emails will have their tags updated based on the selected tag mode.
             </p>
           </div>

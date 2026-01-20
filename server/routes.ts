@@ -2109,7 +2109,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     throw new Error('CSV file is empty');
   }
   
-  const header = headerLine.split(',').map(h => h.trim().toLowerCase());
+  const header = headerLine.split(';').map(h => h.trim().toLowerCase());
   console.log(`[IMPORT] ${importJobId}: Header columns: ${header.join(', ')}`);
   
   const emailIdx = header.indexOf('email');
@@ -2148,7 +2148,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       }
       
       try {
-        const cols = line.split(',').map(c => c.trim());
+        const cols = line.split(';').map(c => c.trim());
         const email = cols[emailIdx]?.toLowerCase();
         
         if (!email || !email.includes('@')) {
@@ -2158,7 +2158,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         }
         
         const tags = tagsIdx >= 0 && cols[tagsIdx]
-          ? cols[tagsIdx].split(';').map(t => t.trim().toUpperCase()).filter(Boolean)
+          ? cols[tagsIdx].split(',').map(t => t.trim().toUpperCase()).filter(Boolean)
           : [];
         const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
         
