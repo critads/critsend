@@ -1705,8 +1705,17 @@ export async function registerRoutes(
       const finalCsvPath = path.join(UPLOADS_DIR_BASE, `${job.id}.csv`);
       fs.renameSync(tempCsvPath, finalCsvPath);
       
+      // Verify the file exists after rename (critical check)
+      if (!fs.existsSync(finalCsvPath)) {
+        throw new Error(`File verification failed: ${finalCsvPath} does not exist after rename`);
+      }
+      
+      // Get actual file size after rename to confirm
+      const verifiedSize = fs.statSync(finalCsvPath).size;
+      console.log(`[CHUNKED] ${uploadId}: File verified at ${finalCsvPath}, size: ${verifiedSize} bytes`);
+      
       // Enqueue for processing
-      const queueItem = await storage.enqueueImportJob(job.id, finalCsvPath, lineCount, fileSizeBytes);
+      const queueItem = await storage.enqueueImportJob(job.id, finalCsvPath, lineCount, verifiedSize);
       console.log(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued`);
       
       // Cleanup
@@ -2414,7 +2423,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   
   // Check file exists
   if (!fs.existsSync(csvFilePath)) {
-    throw new Error(`CSV file not found: ${csvFilePath}`);
+    throw new Error(`CSV file not found: ${csvFilePath}. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.`);
   }
   
   // Get file size and queue item for resume capability
