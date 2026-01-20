@@ -645,11 +645,15 @@ export async function registerRoutes(
 
   app.delete("/api/subscribers", async (req: Request, res: Response) => {
     try {
-      const deletedCount = await storage.deleteAllSubscribers();
-      res.json({ deleted: deletedCount, message: `Successfully deleted ${deletedCount} subscribers` });
+      const totalRows = await storage.countAllSubscribers();
+      if (totalRows === 0) {
+        return res.json({ jobId: null, totalRows: 0, message: "No subscribers to delete" });
+      }
+      const job = await storage.createFlushJob(totalRows);
+      res.status(202).json({ jobId: job.id, totalRows: job.totalRows, message: "Deletion started in background" });
     } catch (error) {
-      console.error("Error deleting all subscribers:", error);
-      res.status(500).json({ error: "Failed to delete all subscribers" });
+      console.error("Error starting subscriber deletion:", error);
+      res.status(500).json({ error: "Failed to start subscriber deletion" });
     }
   });
 

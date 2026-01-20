@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import {
   Table,
   TableBody,
@@ -76,6 +77,7 @@ export default function Subscribers() {
   const [newSubscriberPositiveTag, setNewSubscriberPositiveTag] = useState("");
   const [newSubscriberNegativeTag, setNewSubscriberNegativeTag] = useState("");
   const [showFlushConfirm, setShowFlushConfirm] = useState(false);
+  const [flushJobId, setFlushJobId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<SubscribersResponse>({
@@ -156,24 +158,98 @@ export default function Subscribers() {
     },
   });
 
-  const flushAllMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("DELETE", "/api/subscribers");
-      return res.json() as Promise<{ deleted: number; message: string }>;
+  interface FlushJob {
+    id: string;
+    status: string;
+    totalRows: number;
+    processedRows: number;
+    errorMessage: string | null;
+  }
+
+  const { data: flushJob } = useQuery<FlushJob>({
+    queryKey: ["/api/subscribers/flush", flushJobId],
+    queryFn: async () => {
+      if (!flushJobId) throw new Error("No job ID");
+      const res = await fetch(`/api/subscribers/flush/${flushJobId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch flush job");
+      return res.json();
     },
-    onSuccess: (response: { deleted: number; message: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
+    enabled: !!flushJobId,
+    refetchInterval: flushJobId ? 1000 : false,
+  });
+
+  const cancelFlushMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await apiRequest("POST", `/api/subscribers/flush/${jobId}/cancel`);
+      return res.json();
+    },
+    onSuccess: () => {
+      setFlushJobId(null);
       setShowFlushConfirm(false);
-      setPage(1);
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
       toast({
-        title: "All subscribers deleted",
-        description: response.message || "Your subscriber list has been cleared.",
+        title: "Deletion cancelled",
+        description: "The subscriber deletion was stopped.",
       });
     },
     onError: () => {
       toast({
         title: "Error",
-        description: "Failed to delete all subscribers. Please try again.",
+        description: "Failed to cancel deletion.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (flushJob?.status === "completed") {
+      setFlushJobId(null);
+      setShowFlushConfirm(false);
+      setPage(1);
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
+      toast({
+        title: "All subscribers deleted",
+        description: `Successfully deleted ${flushJob.processedRows.toLocaleString()} subscribers.`,
+      });
+    } else if (flushJob?.status === "failed") {
+      setFlushJobId(null);
+      setShowFlushConfirm(false);
+      toast({
+        title: "Error",
+        description: flushJob.errorMessage || "Failed to delete subscribers.",
+        variant: "destructive",
+      });
+    } else if (flushJob?.status === "cancelled") {
+      setFlushJobId(null);
+      setShowFlushConfirm(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
+      toast({
+        title: "Deletion cancelled",
+        description: `Stopped after deleting ${flushJob.processedRows.toLocaleString()} subscribers.`,
+      });
+    }
+  }, [flushJob?.status]);
+
+  const flushAllMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/subscribers");
+      return res.json() as Promise<{ jobId: string | null; totalRows: number; message: string }>;
+    },
+    onSuccess: (response) => {
+      if (response.jobId) {
+        setFlushJobId(response.jobId);
+      } else {
+        setShowFlushConfirm(false);
+        toast({
+          title: "No subscribers to delete",
+          description: "Your subscriber list is already empty.",
+        });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to start subscriber deletion. Please try again.",
         variant: "destructive",
       });
     },
@@ -690,31 +766,62 @@ export default function Subscribers() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={showFlushConfirm} onOpenChange={setShowFlushConfirm}>
+      <AlertDialog open={showFlushConfirm} onOpenChange={(open) => !flushJobId && setShowFlushConfirm(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              Delete All Subscribers?
+              {flushJobId ? "Deleting Subscribers..." : "Delete All Subscribers?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete all{" "}
-              <strong>{data?.total?.toLocaleString() || 0}</strong> subscribers from your email list.
+              {flushJobId ? (
+                <div className="space-y-3 py-2">
+                  <div className="text-sm text-muted-foreground">
+                    Deleting subscribers in batches...
+                  </div>
+                  <Progress 
+                    value={flushJob?.totalRows ? (flushJob.processedRows / flushJob.totalRows) * 100 : 0} 
+                    className="h-2"
+                    data-testid="progress-flush"
+                  />
+                  <div className="text-sm font-medium text-center">
+                    {flushJob?.processedRows?.toLocaleString() || 0} / {flushJob?.totalRows?.toLocaleString() || data?.total?.toLocaleString() || 0} subscribers deleted
+                  </div>
+                </div>
+              ) : (
+                <>
+                  This action cannot be undone. This will permanently delete all{" "}
+                  <strong>{data?.total?.toLocaleString() || 0}</strong> subscribers from your email list.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-flush">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                flushAllMutation.mutate();
-              }}
-              disabled={flushAllMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              data-testid="button-confirm-flush"
-            >
-              {flushAllMutation.isPending ? "Deleting..." : "Yes, delete all"}
-            </AlertDialogAction>
+            {flushJobId ? (
+              <Button
+                variant="outline"
+                onClick={() => cancelFlushMutation.mutate(flushJobId)}
+                disabled={cancelFlushMutation.isPending}
+                data-testid="button-cancel-flush-job"
+              >
+                {cancelFlushMutation.isPending ? "Cancelling..." : "Cancel Deletion"}
+              </Button>
+            ) : (
+              <>
+                <AlertDialogCancel data-testid="button-cancel-flush">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    flushAllMutation.mutate();
+                  }}
+                  disabled={flushAllMutation.isPending}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  data-testid="button-confirm-flush"
+                >
+                  {flushAllMutation.isPending ? "Starting..." : "Yes, delete all"}
+                </AlertDialogAction>
+              </>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
