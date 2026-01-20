@@ -2158,6 +2158,24 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   const BATCH_SIZE = 20000; // 20k rows per batch for high throughput
   const HEARTBEAT_INTERVAL = 30000; // 30 seconds
   const CHECKPOINT_INTERVAL = 100000; // Checkpoint every 100k rows for resume
+  const LARGE_IMPORT_THRESHOLD = 100000; // Drop GIN indexes for imports > 100k rows
+  
+  // Determine if this is a large import that would benefit from GIN index deferral
+  const totalLines = queueItem?.totalLines || 0;
+  const isLargeImport = totalLines > LARGE_IMPORT_THRESHOLD;
+  let ginIndexesDropped = false;
+  
+  // For large imports on first run (not resume), drop GIN indexes for faster processing
+  if (isLargeImport && resumeFromLine === 0) {
+    try {
+      console.log(`[IMPORT] ${importJobId}: Large import detected (${totalLines} rows), dropping GIN indexes for faster processing`);
+      await storage.dropSubscriberGinIndexes();
+      ginIndexesDropped = true;
+    } catch (err: any) {
+      console.error(`[IMPORT] ${importJobId}: Failed to drop GIN indexes:`, err.message);
+      // Continue anyway - import will just be slower
+    }
+  }
   
   // Initialize counters - resume from existing progress if applicable
   let processedRows = resumeFromLine > 0 ? (importJob?.processedRows || 0) : 0;
@@ -2355,6 +2373,35 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         
         // Final checkpoint
         await storage.updateImportQueueProgressWithCheckpoint(queueId, processedRows, processedBytes, currentLineNumber);
+        
+        // Recreate GIN indexes if they were dropped for this import or are missing (e.g., from previous crashed run)
+        // Only check for large imports to avoid unnecessary index existence checks on small imports
+        if (isLargeImport) {
+          try {
+            const indexesPresent = await storage.areGinIndexesPresent();
+            if (!indexesPresent) {
+              console.log(`[IMPORT] ${importJobId}: GIN indexes missing (dropped=${ginIndexesDropped}), recreating after import`);
+              await storage.recreateSubscriberGinIndexes();
+            } else if (ginIndexesDropped) {
+              // This shouldn't happen, but log it for debugging
+              console.log(`[IMPORT] ${importJobId}: GIN indexes already present despite being dropped this run`);
+            }
+          } catch (indexErr: any) {
+            console.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes:`, indexErr.message);
+            // Log error but don't fail the import - indexes can be recreated manually
+            try {
+              await storage.logError({
+                type: "index_recreation_failed",
+                severity: "warning",
+                message: `Failed to recreate GIN indexes after import: ${indexErr.message}`,
+                importJobId,
+                details: indexErr?.stack || String(indexErr),
+              });
+            } catch (logErr) {
+              console.error(`[IMPORT] ${importJobId}: Failed to log index recreation error:`, logErr);
+            }
+          }
+        }
         
         // Clean up the CSV file after successful processing
         try {

@@ -151,6 +151,11 @@ export interface IStorage {
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
   recoverStuckImportJobs(): Promise<number>;
   
+  // GIN Index Management (for large import optimization)
+  dropSubscriberGinIndexes(): Promise<void>;
+  recreateSubscriberGinIndexes(): Promise<void>;
+  areGinIndexesPresent(): Promise<boolean>;
+  
   // Error Logs
   logError(data: InsertErrorLog): Promise<ErrorLog>;
   getErrorLogs(options?: {
@@ -1183,6 +1188,53 @@ export class DatabaseStorage implements IStorage {
     }
     
     return queueResult.rows.length;
+  }
+  
+  // GIN Index Management for large import optimization
+  async dropSubscriberGinIndexes(): Promise<void> {
+    console.log('[INDEX] Dropping GIN indexes for large import optimization...');
+    await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
+    await db.execute(sql`DROP INDEX IF EXISTS positive_tags_gin_idx`);
+    await db.execute(sql`DROP INDEX IF EXISTS negative_tags_gin_idx`);
+    console.log('[INDEX] GIN indexes dropped');
+  }
+  
+  async recreateSubscriberGinIndexes(): Promise<void> {
+    console.log('[INDEX] Recreating GIN indexes after import...');
+    // Use CONCURRENTLY to avoid blocking other operations
+    // Note: CONCURRENTLY can't run in a transaction, so we use separate statements
+    try {
+      await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
+    } catch (err: any) {
+      // Fall back to non-concurrent if CONCURRENTLY fails (e.g., already exists or transaction)
+      console.log('[INDEX] CONCURRENTLY failed for tags_gin_idx, trying regular CREATE INDEX');
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
+    }
+    try {
+      await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS positive_tags_gin_idx ON subscribers USING gin (positive_tags)`);
+    } catch (err: any) {
+      console.log('[INDEX] CONCURRENTLY failed for positive_tags_gin_idx, trying regular CREATE INDEX');
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS positive_tags_gin_idx ON subscribers USING gin (positive_tags)`);
+    }
+    try {
+      await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS negative_tags_gin_idx ON subscribers USING gin (negative_tags)`);
+    } catch (err: any) {
+      console.log('[INDEX] CONCURRENTLY failed for negative_tags_gin_idx, trying regular CREATE INDEX');
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS negative_tags_gin_idx ON subscribers USING gin (negative_tags)`);
+    }
+    console.log('[INDEX] GIN indexes recreated');
+  }
+  
+  async areGinIndexesPresent(): Promise<boolean> {
+    const result = await db.execute(sql`
+      SELECT COUNT(*) as count 
+      FROM pg_indexes 
+      WHERE schemaname = 'public' 
+        AND tablename = 'subscribers' 
+        AND indexname IN ('tags_gin_idx', 'positive_tags_gin_idx', 'negative_tags_gin_idx')
+    `);
+    const count = parseInt((result.rows[0] as any)?.count || '0', 10);
+    return count >= 3; // All 3 indexes should be present
   }
 
   // Dashboard
