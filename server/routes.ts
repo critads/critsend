@@ -5,6 +5,7 @@ import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 import multer from "multer";
 import { Readable } from "stream";
+import * as readline from "readline";
 import {
   insertSubscriberSchema,
   insertSegmentSchema,
@@ -26,6 +27,29 @@ import { promisify } from "util";
 
 const dnsLookup = promisify(dns.lookup);
 
+// Ensure uploads directory exists for disk storage
+const UPLOADS_DIR_BASE = path.join(process.cwd(), "uploads", "imports");
+if (!fs.existsSync(UPLOADS_DIR_BASE)) {
+  fs.mkdirSync(UPLOADS_DIR_BASE, { recursive: true });
+}
+
+// Use disk storage for imports to avoid memory issues with large files (300MB+)
+const importDiskStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, UPLOADS_DIR_BASE);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `upload-${uniqueSuffix}-${file.originalname}`);
+  }
+});
+
+const uploadToDisk = multer({ 
+  storage: importDiskStorage,
+  limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit
+});
+
+// Memory storage for small file uploads (images, etc.)
 const upload = multer({ storage: multer.memoryStorage() });
 
 const IMAGES_DIR = path.join(process.cwd(), "images");
@@ -1328,13 +1352,9 @@ export async function registerRoutes(
   });
 
   // ============ IMPORT ============
-  // Ensure uploads directory exists
-  const UPLOADS_DIR = path.join(process.cwd(), "uploads", "imports");
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-
-  app.post("/api/import", upload.single("file"), async (req: Request, res: Response) => {
+  // Use disk storage defined at module level (uploadToDisk)
+  
+  app.post("/api/import", uploadToDisk.single("file"), async (req: Request, res: Response) => {
     try {
       console.log(`[IMPORT] Received import request`);
       if (!req.file) {
@@ -1344,19 +1364,39 @@ export async function registerRoutes(
 
       // Get tag mode from form data (default to merge for backwards compatibility)
       const tagMode = (req.body.tagMode === "override") ? "override" : "merge";
-      console.log(`[IMPORT] File received: ${req.file.originalname}, size: ${req.file.size} bytes, tagMode: ${tagMode}`);
+      const fileSizeBytes = req.file.size;
+      console.log(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}`);
       
-      // Count lines without loading entire file into memory for line count
-      const content = req.file.buffer.toString("utf-8");
+      // For large files, use streaming line count instead of loading into memory
+      const csvFilePath = req.file.path;
+      console.log(`[IMPORT] File saved to disk: ${csvFilePath}`);
+      
+      // Stream-based line counting for memory efficiency
       let lineCount = 0;
-      for (let i = 0; i < content.length; i++) {
-        if (content[i] === '\n') lineCount++;
-      }
-      // Add 1 if file doesn't end with newline
-      if (content.length > 0 && content[content.length - 1] !== '\n') lineCount++;
+      const lineCountStream = fs.createReadStream(csvFilePath, { encoding: 'utf-8', highWaterMark: 64 * 1024 });
+      
+      await new Promise<void>((resolve, reject) => {
+        let lastChar = '';
+        lineCountStream.on('data', (chunk: string) => {
+          for (let i = 0; i < chunk.length; i++) {
+            if (chunk[i] === '\n') lineCount++;
+          }
+          lastChar = chunk[chunk.length - 1];
+        });
+        lineCountStream.on('end', () => {
+          // Add 1 if file doesn't end with newline
+          if (lastChar && lastChar !== '\n') lineCount++;
+          resolve();
+        });
+        lineCountStream.on('error', reject);
+      });
+      
+      console.log(`[IMPORT] Streaming line count complete: ${lineCount} lines`);
       
       if (lineCount < 2) {
         console.log(`[IMPORT] CSV empty or invalid, lines: ${lineCount}`);
+        // Clean up uploaded file
+        try { fs.unlinkSync(csvFilePath); } catch {}
         return res.status(400).json({ error: "CSV file is empty or invalid" });
       }
 
@@ -1371,19 +1411,23 @@ export async function registerRoutes(
       });
       console.log(`[IMPORT] Created import job: ${job.id}`);
 
-      // Save CSV file to disk instead of database
-      const csvFilePath = path.join(UPLOADS_DIR, `${job.id}.csv`);
-      fs.writeFileSync(csvFilePath, content);
-      console.log(`[IMPORT] Saved CSV to: ${csvFilePath}`);
+      // Rename file to use job ID for easier tracking
+      const finalCsvPath = path.join(UPLOADS_DIR_BASE, `${job.id}.csv`);
+      fs.renameSync(csvFilePath, finalCsvPath);
+      console.log(`[IMPORT] Renamed CSV to: ${finalCsvPath}`);
 
-      // Enqueue for background processing with file path (not content)
-      const queueItem = await storage.enqueueImportJob(job.id, csvFilePath, lineCount);
-      console.log(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}`);
+      // Enqueue for background processing with file path and size for progress tracking
+      const queueItem = await storage.enqueueImportJob(job.id, finalCsvPath, lineCount, fileSizeBytes);
+      console.log(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, file size: ${fileSizeBytes} bytes`);
 
       // Return immediately with job ID for progress tracking
       res.status(202).json(job);
     } catch (error) {
       console.error("[IMPORT] Error starting import:", error);
+      // Clean up uploaded file if it exists
+      if (req.file?.path) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
       res.status(500).json({ error: "Failed to start import" });
     }
   });
@@ -2084,7 +2128,9 @@ async function pollForImportJobs() {
   }
 }
 
-// Production-ready import processor with file-based streaming and bulk upserts
+// Production-ready streaming import processor optimized for 7M+ rows
+// Uses readline for memory-efficient line-by-line processing
+// Supports resume from last checkpoint if interrupted
 async function processImportFromQueue(queueId: string, importJobId: string, csvFilePath: string) {
   console.log(`[IMPORT] Processing job ${importJobId} from file: ${csvFilePath}`);
   
@@ -2093,111 +2139,100 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     throw new Error(`CSV file not found: ${csvFilePath}`);
   }
   
-  // Get import job to retrieve tagMode
+  // Get file size and queue item for resume capability
+  const fileStat = fs.statSync(csvFilePath);
+  const fileSizeBytes = fileStat.size;
+  const queueItem = await storage.getImportQueueItem(queueId);
+  const resumeFromLine = queueItem?.lastCheckpointLine || 0;
+  
+  // Get import job to retrieve tagMode and existing progress
   const importJob = await storage.getImportJob(importJobId);
   const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
-  console.log(`[IMPORT] ${importJobId}: Using tag mode: ${tagMode}`);
   
-  // Read file content - for production with huge files, we'd use streaming
-  // but for reliability we read the full file
-  const csvContent = fs.readFileSync(csvFilePath, 'utf-8');
-  const lines = csvContent.split('\n');
-  
-  // Parse header
-  const headerLine = lines[0];
-  if (!headerLine) {
-    throw new Error('CSV file is empty');
-  }
-  
-  const header = headerLine.split(';').map(h => h.trim().toLowerCase());
-  console.log(`[IMPORT] ${importJobId}: Header columns: ${header.join(', ')}`);
-  
-  const emailIdx = header.indexOf('email');
-  const tagsIdx = header.indexOf('tags');
-  const ipIdx = header.indexOf('ip_address');
-  
-  if (emailIdx === -1) {
-    await storage.updateImportJob(importJobId, {
-      status: 'failed',
-      errorMessage: "CSV must have an 'email' column",
-    });
-    throw new Error("CSV must have an 'email' column");
-  }
+  console.log(`[IMPORT] ${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, resume from line: ${resumeFromLine}`);
   
   await storage.updateImportJob(importJobId, { status: 'processing' });
   
-  const BATCH_SIZE = 5000; // Smaller batches for better memory and progress tracking
+  // Streaming batch configuration - larger batches for 7M row imports
+  const BATCH_SIZE = 20000; // 20k rows per batch for high throughput
   const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+  const CHECKPOINT_INTERVAL = 100000; // Checkpoint every 100k rows for resume
   
-  let processedRows = 0;
-  let newSubscribers = 0;
-  let updatedSubscribers = 0;
-  let failedRows = 0;
+  // Initialize counters - resume from existing progress if applicable
+  let processedRows = resumeFromLine > 0 ? (importJob?.processedRows || 0) : 0;
+  let newSubscribers = resumeFromLine > 0 ? (importJob?.newSubscribers || 0) : 0;
+  let updatedSubscribers = resumeFromLine > 0 ? (importJob?.updatedSubscribers || 0) : 0;
+  let failedRows = resumeFromLine > 0 ? (importJob?.failedRows || 0) : 0;
   let lastHeartbeat = Date.now();
+  let lastCheckpointLine = resumeFromLine;
+  let processedBytes = queueItem?.processedBytes || 0;
   
-  // Process data rows (skip header at index 0)
-  for (let batchStart = 1; batchStart < lines.length; batchStart += BATCH_SIZE) {
-    const batchEnd = Math.min(batchStart + BATCH_SIZE, lines.length);
-    const batchRows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }> = [];
+  // Header parsing state
+  let header: string[] = [];
+  let emailIdx = -1;
+  let tagsIdx = -1;
+  let ipIdx = -1;
+  let headerParsed = false;
+  
+  // Batch accumulator
+  let batchRows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }> = [];
+  let currentLineNumber = 0;
+  let batchNumber = 0;
+  const startTime = Date.now();
+  
+  // Create readline interface for streaming
+  const fileStream = fs.createReadStream(csvFilePath, { 
+    encoding: 'utf-8',
+    highWaterMark: 256 * 1024 // 256KB buffer for better IO performance
+  });
+  
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity
+  });
+  
+  // Process function for batch
+  async function processBatch(): Promise<void> {
+    if (batchRows.length === 0) return;
     
-    // Parse batch into structured data
-    for (let i = batchStart; i < batchEnd; i++) {
-      const line = lines[i];
-      if (!line || !line.trim()) {
-        continue; // Skip empty lines
-      }
-      
-      try {
-        const cols = line.split(';').map(c => c.trim());
-        const email = cols[emailIdx]?.toLowerCase();
-        
-        if (!email || !email.includes('@')) {
-          failedRows++;
-          processedRows++;
-          continue;
-        }
-        
-        const tags = tagsIdx >= 0 && cols[tagsIdx]
-          ? cols[tagsIdx].split(',').map(t => t.trim().toUpperCase()).filter(Boolean)
-          : [];
-        const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
-        
-        batchRows.push({ email, tags, ipAddress, lineNumber: i });
-        processedRows++;
-      } catch (err) {
-        failedRows++;
-        processedRows++;
-      }
-    }
+    batchNumber++;
+    const batchStart = Date.now();
     
-    // Bulk upsert using PostgreSQL ON CONFLICT
-    if (batchRows.length > 0) {
-      try {
-        const result = await bulkUpsertSubscribers(importJobId, batchRows, tagMode);
-        newSubscribers += result.inserted;
-        updatedSubscribers += result.updated;
-      } catch (err: any) {
-        console.error(`[IMPORT] Bulk upsert failed for batch:`, err.message);
-        // Fall back to individual inserts if bulk fails
-        for (const row of batchRows) {
-          try {
-            const existing = await storage.getSubscriberByEmail(row.email);
-            if (existing) {
-              const mergedTags = tagMode === "override" 
-                ? row.tags 
-                : [...new Set([...(existing.tags || []), ...row.tags])];
-              await storage.updateSubscriber(existing.id, { tags: mergedTags });
-              updatedSubscribers++;
-            } else {
-              await storage.createSubscriber(row);
-              newSubscribers++;
-            }
-          } catch (individualErr) {
-            failedRows++;
+    try {
+      const result = await bulkUpsertSubscribers(importJobId, batchRows, tagMode);
+      newSubscribers += result.inserted;
+      updatedSubscribers += result.updated;
+    } catch (err: any) {
+      console.error(`[IMPORT] Bulk upsert failed for batch ${batchNumber}:`, err.message);
+      // Fall back to individual inserts if bulk fails
+      for (const row of batchRows) {
+        try {
+          const existing = await storage.getSubscriberByEmail(row.email);
+          if (existing) {
+            const mergedTags = tagMode === "override" 
+              ? row.tags 
+              : [...new Set([...(existing.tags || []), ...row.tags])];
+            await storage.updateSubscriber(existing.id, { tags: mergedTags });
+            updatedSubscribers++;
+          } else {
+            await storage.createSubscriber(row);
+            newSubscribers++;
           }
+        } catch (individualErr) {
+          failedRows++;
         }
       }
     }
+    
+    const batchDuration = Date.now() - batchStart;
+    const rowsPerSecond = batchRows.length / (batchDuration / 1000);
+    const elapsedSec = (Date.now() - startTime) / 1000;
+    const totalRowsPerSecond = processedRows / elapsedSec;
+    
+    console.log(`[IMPORT] ${importJobId}: Batch ${batchNumber} (${batchRows.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s batch, ${Math.round(totalRowsPerSecond)}/s avg) - total: ${processedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
+    
+    // Clear batch
+    batchRows = [];
     
     // Update heartbeat and progress
     const now = Date.now();
@@ -2215,28 +2250,138 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       failedRows,
     });
     
-    console.log(`[IMPORT] ${importJobId}: Batch ${Math.ceil(batchStart / BATCH_SIZE)} - processed: ${processedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
+    // Checkpoint for resume capability (every 100k rows)
+    if (processedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
+      await storage.updateImportQueueProgressWithCheckpoint(queueId, processedRows, processedBytes, currentLineNumber);
+      lastCheckpointLine = processedRows;
+      console.log(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${processedRows} rows processed`);
+    }
   }
   
-  // Mark complete and cleanup file
-  await storage.updateImportJob(importJobId, {
-    status: 'completed',
-    completedAt: new Date(),
-    processedRows,
-    newSubscribers,
-    updatedSubscribers,
-    failedRows,
+  // Process file line by line
+  return new Promise<void>((resolve, reject) => {
+    rl.on('line', async (line: string) => {
+      try {
+        currentLineNumber++;
+        processedBytes += Buffer.byteLength(line, 'utf-8') + 1; // +1 for newline
+        
+        // Skip lines if resuming from checkpoint
+        if (currentLineNumber <= resumeFromLine) {
+          return;
+        }
+        
+        // Parse header on first line
+        if (!headerParsed) {
+          header = line.split(';').map(h => h.trim().toLowerCase());
+          emailIdx = header.indexOf('email');
+          tagsIdx = header.indexOf('tags');
+          ipIdx = header.indexOf('ip_address');
+          
+          console.log(`[IMPORT] ${importJobId}: Header columns: ${header.join(', ')}`);
+          
+          if (emailIdx === -1) {
+            rl.close();
+            await storage.updateImportJob(importJobId, {
+              status: 'failed',
+              errorMessage: "CSV must have an 'email' column",
+            });
+            reject(new Error("CSV must have an 'email' column"));
+            return;
+          }
+          
+          headerParsed = true;
+          return;
+        }
+        
+        // Skip empty lines
+        if (!line.trim()) {
+          return;
+        }
+        
+        // Parse data line
+        try {
+          const cols = line.split(';').map(c => c.trim());
+          const email = cols[emailIdx]?.toLowerCase();
+          
+          if (!email || !email.includes('@')) {
+            failedRows++;
+            processedRows++;
+            return;
+          }
+          
+          const tags = tagsIdx >= 0 && cols[tagsIdx]
+            ? cols[tagsIdx].split(',').map(t => t.trim().toUpperCase()).filter(Boolean)
+            : [];
+          const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
+          
+          batchRows.push({ email, tags, ipAddress, lineNumber: currentLineNumber });
+          processedRows++;
+          
+          // Process batch when full
+          if (batchRows.length >= BATCH_SIZE) {
+            rl.pause(); // Pause reading while processing
+            await processBatch();
+            rl.resume(); // Resume reading
+          }
+        } catch (parseErr) {
+          failedRows++;
+          processedRows++;
+        }
+      } catch (err) {
+        console.error(`[IMPORT] Error processing line ${currentLineNumber}:`, err);
+        failedRows++;
+        processedRows++;
+      }
+    });
+    
+    rl.on('close', async () => {
+      try {
+        // Process remaining rows in final batch
+        if (batchRows.length > 0) {
+          await processBatch();
+        }
+        
+        // Mark complete and cleanup file
+        await storage.updateImportJob(importJobId, {
+          status: 'completed',
+          completedAt: new Date(),
+          processedRows,
+          newSubscribers,
+          updatedSubscribers,
+          failedRows,
+        });
+        
+        // Final checkpoint
+        await storage.updateImportQueueProgressWithCheckpoint(queueId, processedRows, processedBytes, currentLineNumber);
+        
+        // Clean up the CSV file after successful processing
+        try {
+          fs.unlinkSync(csvFilePath);
+          console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file`);
+        } catch (err) {
+          console.error(`[IMPORT] Failed to clean up CSV file: ${csvFilePath}`);
+        }
+        
+        const totalDuration = (Date.now() - startTime) / 1000;
+        const finalRowsPerSecond = processedRows / totalDuration;
+        console.log(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - processed: ${processedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
+        
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    });
+    
+    rl.on('error', (err) => {
+      console.error(`[IMPORT] Stream error:`, err);
+      reject(err);
+    });
+    
+    fileStream.on('error', (err) => {
+      console.error(`[IMPORT] File stream error:`, err);
+      reject(err);
+    });
   });
-  
-  // Clean up the CSV file after successful processing
-  try {
-    fs.unlinkSync(csvFilePath);
-    console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file`);
-  } catch (err) {
-    console.error(`[IMPORT] Failed to clean up CSV file: ${csvFilePath}`);
-  }
-  
-  console.log(`[IMPORT] ${importJobId}: Complete - processed: ${processedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
 }
 
 // High-speed bulk upsert using staging table + single merge query

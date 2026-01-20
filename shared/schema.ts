@@ -227,12 +227,16 @@ export const campaignJobsRelations = relations(campaignJobs, ({ one }) => ({
 
 // Import job queue table - PostgreSQL-backed job queue for CSV import processing
 // Uses file-based storage for CSV content instead of storing in database
+// Optimized for resumable streaming of 7M+ row files
 export const importJobQueue = pgTable("import_job_queue", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   importJobId: varchar("import_job_id").notNull().references(() => importJobs.id),
   csvFilePath: text("csv_file_path").notNull(), // Path to CSV file on disk
   totalLines: integer("total_lines").notNull().default(0), // Total lines to process
   processedLines: integer("processed_lines").notNull().default(0), // Lines processed so far
+  fileSizeBytes: integer("file_size_bytes").notNull().default(0), // Total file size in bytes
+  processedBytes: integer("processed_bytes").notNull().default(0), // Bytes processed so far (for resume)
+  lastCheckpointLine: integer("last_checkpoint_line").notNull().default(0), // Last successfully processed line (for resume)
   status: text("status").notNull().default("pending"), // pending, processing, completed, failed
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),

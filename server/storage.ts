@@ -969,12 +969,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Import Job Queue (PostgreSQL-backed with file storage)
-  async enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number): Promise<ImportJobQueueItem> {
+  async enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number, fileSizeBytes: number = 0): Promise<ImportJobQueueItem> {
     const [job] = await db.insert(importJobQueue).values({
       importJobId,
       csvFilePath,
       totalLines,
       processedLines: 0,
+      fileSizeBytes,
+      processedBytes: 0,
+      lastCheckpointLine: 0,
       status: "pending",
     }).returning();
     return job;
@@ -1008,6 +1011,9 @@ export class DatabaseStorage implements IStorage {
       csvFilePath: row.csv_file_path,
       totalLines: row.total_lines,
       processedLines: row.processed_lines,
+      fileSizeBytes: row.file_size_bytes || 0,
+      processedBytes: row.processed_bytes || 0,
+      lastCheckpointLine: row.last_checkpoint_line || 0,
       status: row.status,
       createdAt: new Date(row.created_at),
       startedAt: row.started_at ? new Date(row.started_at) : null,
@@ -1025,6 +1031,53 @@ export class DatabaseStorage implements IStorage {
           heartbeat = NOW()
       WHERE id = ${queueId}
     `);
+  }
+  
+  // Extended progress update with byte tracking for resume capability
+  async updateImportQueueProgressWithCheckpoint(
+    queueId: string, 
+    processedLines: number, 
+    processedBytes: number, 
+    lastCheckpointLine: number
+  ): Promise<void> {
+    await db.execute(sql`
+      UPDATE import_job_queue
+      SET processed_lines = ${processedLines},
+          processed_bytes = ${processedBytes},
+          last_checkpoint_line = ${lastCheckpointLine},
+          heartbeat = NOW()
+      WHERE id = ${queueId}
+    `);
+  }
+  
+  // Get import queue item by ID
+  async getImportQueueItem(queueId: string): Promise<ImportJobQueueItem | null> {
+    const result = await db.execute(sql`
+      SELECT * FROM import_job_queue WHERE id = ${queueId}
+    `);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+    
+    const row = result.rows[0] as any;
+    return {
+      id: row.id,
+      importJobId: row.import_job_id,
+      csvFilePath: row.csv_file_path,
+      totalLines: row.total_lines,
+      processedLines: row.processed_lines,
+      fileSizeBytes: row.file_size_bytes || 0,
+      processedBytes: row.processed_bytes || 0,
+      lastCheckpointLine: row.last_checkpoint_line || 0,
+      status: row.status,
+      createdAt: new Date(row.created_at),
+      startedAt: row.started_at ? new Date(row.started_at) : null,
+      completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      heartbeat: row.heartbeat ? new Date(row.heartbeat) : null,
+      workerId: row.worker_id,
+      errorMessage: row.error_message,
+    };
   }
 
   async updateImportQueueHeartbeat(queueId: string): Promise<void> {
