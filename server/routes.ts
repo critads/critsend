@@ -653,6 +653,48 @@ export async function registerRoutes(
     }
   });
 
+  // ============ FLUSH JOBS (Subscriber deletion with progress) ============
+  app.post("/api/subscribers/flush", async (req: Request, res: Response) => {
+    try {
+      const totalRows = await storage.countAllSubscribers();
+      if (totalRows === 0) {
+        return res.json({ id: null, message: "No subscribers to delete" });
+      }
+      const job = await storage.createFlushJob(totalRows);
+      res.status(201).json(job);
+    } catch (error) {
+      console.error("Error creating flush job:", error);
+      res.status(500).json({ error: "Failed to create flush job" });
+    }
+  });
+
+  app.get("/api/subscribers/flush/:id", async (req: Request, res: Response) => {
+    try {
+      const job = await storage.getFlushJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: "Flush job not found" });
+      }
+      const percent = job.totalRows > 0 ? Math.round((job.processedRows / job.totalRows) * 100) : 0;
+      res.json({ ...job, percent });
+    } catch (error) {
+      console.error("Error fetching flush job:", error);
+      res.status(500).json({ error: "Failed to fetch flush job" });
+    }
+  });
+
+  app.post("/api/subscribers/flush/:id/cancel", async (req: Request, res: Response) => {
+    try {
+      const cancelled = await storage.cancelFlushJob(req.params.id);
+      if (!cancelled) {
+        return res.status(400).json({ error: "Cannot cancel job - it may already be completed or cancelled" });
+      }
+      res.json({ message: "Flush job cancelled" });
+    } catch (error) {
+      console.error("Error cancelling flush job:", error);
+      res.status(500).json({ error: "Failed to cancel flush job" });
+    }
+  });
+
   // ============ SEGMENTS ============
   app.get("/api/segments", async (req: Request, res: Response) => {
     try {
@@ -1758,6 +1800,81 @@ const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: numbe
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 let jobPollingInterval: NodeJS.Timeout | null = null;
 let importJobPollingInterval: NodeJS.Timeout | null = null;
+let flushJobPollingInterval: NodeJS.Timeout | null = null;
+
+// ============ FLUSH JOB PROCESSOR (Subscriber deletion with progress) ============
+const FLUSH_BATCH_SIZE = 10000; // Delete 10k subscribers per batch
+
+function startFlushJobProcessor() {
+  if (flushJobPollingInterval) {
+    return; // Already running
+  }
+  console.log(`Starting flush job processor with worker ID: ${WORKER_ID}`);
+  flushJobPollingInterval = setInterval(pollForFlushJobs, 1000);
+  pollForFlushJobs(); // Run immediately
+}
+
+function stopFlushJobProcessor() {
+  if (flushJobPollingInterval) {
+    clearInterval(flushJobPollingInterval);
+    flushJobPollingInterval = null;
+    console.log("Flush job processor stopped");
+  }
+}
+
+async function pollForFlushJobs() {
+  try {
+    const job = await storage.claimFlushJob(WORKER_ID);
+    if (!job) {
+      return; // No pending flush jobs
+    }
+    
+    console.log(`Worker ${WORKER_ID} claimed flush job ${job.id} (${job.totalRows} subscribers)`);
+    
+    try {
+      await processFlushJob(job.id, job.totalRows);
+      await storage.completeFlushJob(job.id, "completed");
+      console.log(`Flush job ${job.id} completed successfully`);
+    } catch (error: any) {
+      console.error(`Error processing flush job ${job.id}:`, error);
+      await storage.completeFlushJob(job.id, "failed", error.message || "Unknown error");
+    }
+  } catch (error) {
+    console.error("Error in flush job polling:", error);
+  }
+}
+
+async function processFlushJob(jobId: string, totalRows: number) {
+  let processedRows = 0;
+  
+  while (processedRows < totalRows) {
+    // Check if job was cancelled
+    const job = await storage.getFlushJob(jobId);
+    if (!job || job.status === "cancelled") {
+      console.log(`Flush job ${jobId} was cancelled`);
+      return;
+    }
+    
+    // Delete a batch
+    const deletedCount = await storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE);
+    
+    if (deletedCount === 0) {
+      // No more subscribers to delete
+      break;
+    }
+    
+    processedRows += deletedCount;
+    await storage.updateFlushJobProgress(jobId, processedRows);
+    
+    console.log(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} subscribers (${Math.round(processedRows/totalRows*100)}%)`);
+    
+    // Small delay to prevent overwhelming the database
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  
+  // Final update with actual count
+  await storage.updateFlushJobProgress(jobId, processedRows);
+}
 
 // Public function to start a campaign - enqueues to PostgreSQL-backed job queue
 async function processCampaign(campaignId: string) {
@@ -1852,6 +1969,9 @@ function startJobProcessor() {
   // Also start the import job processor
   startImportJobProcessor();
   
+  // Also start the flush job processor
+  startFlushJobProcessor();
+  
   // Start MTA recovery checker - check every 30 seconds for MTA-down paused campaigns
   if (!mtaRecoveryInterval) {
     mtaRecoveryInterval = setInterval(checkMtaRecovery, 30000);
@@ -1872,6 +1992,7 @@ function stopJobProcessor() {
     console.log("MTA recovery checker stopped");
   }
   stopImportJobProcessor();
+  stopFlushJobProcessor();
 }
 
 // ============ POSTGRESQL-BACKED JOB QUEUE FOR IMPORT PROCESSING ============
