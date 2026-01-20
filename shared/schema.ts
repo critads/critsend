@@ -333,6 +333,23 @@ export const pendingTagOperationsRelations = relations(pendingTagOperations, ({ 
   }),
 }));
 
+// Flush jobs table - tracks subscriber deletion progress
+export const flushJobs = pgTable("flush_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  totalRows: integer("total_rows").notNull().default(0),
+  processedRows: integer("processed_rows").notNull().default(0),
+  status: text("status").notNull().default("pending"), // pending, processing, completed, failed, cancelled
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  heartbeat: timestamp("heartbeat"),
+  workerId: text("worker_id"),
+  errorMessage: text("error_message"),
+}, (table) => ({
+  statusIdx: index("flush_jobs_status_idx").on(table.status),
+  createdAtIdx: index("flush_jobs_created_at_idx").on(table.createdAt),
+}));
+
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true });
 export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true, createdAt: true });
@@ -408,6 +425,9 @@ export type TagEventType = "open" | "click" | "unsubscribe";
 
 export type ImportJobQueueItem = typeof importJobQueue.$inferSelect;
 export type ImportJobQueueStatus = "pending" | "processing" | "completed" | "failed";
+
+export type FlushJob = typeof flushJobs.$inferSelect;
+export type FlushJobStatus = "pending" | "processing" | "completed" | "failed" | "cancelled";
 
 // Segment rule types - supports tags, positive/negative tags, and email filtering
 export const segmentRuleSchema = z.object({
