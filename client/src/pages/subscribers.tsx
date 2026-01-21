@@ -44,7 +44,6 @@ import {
   Search, 
   MoreVertical, 
   Trash2, 
-  Edit2, 
   ChevronLeft, 
   ChevronRight,
   Users,
@@ -68,14 +67,11 @@ export default function Subscribers() {
   const [page, setPage] = useState(1);
   const [editingSubscriber, setEditingSubscriber] = useState<Subscriber | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Subscriber | null>(null);
-  const [newPositiveTag, setNewPositiveTag] = useState("");
-  const [newNegativeTag, setNewNegativeTag] = useState("");
+  const [newTag, setNewTag] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newSubscriberEmail, setNewSubscriberEmail] = useState("");
-  const [newSubscriberPositiveTags, setNewSubscriberPositiveTags] = useState<string[]>([]);
-  const [newSubscriberNegativeTags, setNewSubscriberNegativeTags] = useState<string[]>([]);
-  const [newSubscriberPositiveTag, setNewSubscriberPositiveTag] = useState("");
-  const [newSubscriberNegativeTag, setNewSubscriberNegativeTag] = useState("");
+  const [newSubscriberTags, setNewSubscriberTags] = useState<string[]>([]);
+  const [newSubscriberTag, setNewSubscriberTag] = useState("");
   const [showFlushConfirm, setShowFlushConfirm] = useState(false);
   const [flushJobId, setFlushJobId] = useState<string | null>(null);
   const { toast } = useToast();
@@ -114,8 +110,8 @@ export default function Subscribers() {
   });
 
   const updateTagsMutation = useMutation({
-    mutationFn: ({ id, positiveTags, negativeTags }: { id: string; positiveTags: string[]; negativeTags: string[] }) =>
-      apiRequest("PATCH", `/api/subscribers/${id}`, { positiveTags, negativeTags }),
+    mutationFn: ({ id, tags }: { id: string; tags: string[] }) =>
+      apiRequest("PATCH", `/api/subscribers/${id}`, { tags }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
       setEditingSubscriber(null);
@@ -134,14 +130,13 @@ export default function Subscribers() {
   });
 
   const createSubscriberMutation = useMutation({
-    mutationFn: (data: { email: string; positiveTags: string[]; negativeTags: string[] }) =>
+    mutationFn: (data: { email: string; tags: string[] }) =>
       apiRequest("POST", "/api/subscribers", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
       setShowAddDialog(false);
       setNewSubscriberEmail("");
-      setNewSubscriberPositiveTags([]);
-      setNewSubscriberNegativeTags([]);
+      setNewSubscriberTags([]);
       toast({
         title: "Subscriber added",
         description: "The subscriber has been added to your list.",
@@ -255,64 +250,37 @@ export default function Subscribers() {
     },
   });
 
-  const handleAddNewSubscriberPositiveTag = () => {
-    if (newSubscriberPositiveTag.trim()) {
-      setNewSubscriberPositiveTags([...newSubscriberPositiveTags, newSubscriberPositiveTag.trim().toUpperCase()]);
-      setNewSubscriberPositiveTag("");
+  const handleAddNewSubscriberTag = () => {
+    if (newSubscriberTag.trim()) {
+      setNewSubscriberTags([...newSubscriberTags, newSubscriberTag.trim().toUpperCase()]);
+      setNewSubscriberTag("");
     }
   };
 
-  const handleAddNewSubscriberNegativeTag = () => {
-    if (newSubscriberNegativeTag.trim()) {
-      setNewSubscriberNegativeTags([...newSubscriberNegativeTags, newSubscriberNegativeTag.trim().toUpperCase()]);
-      setNewSubscriberNegativeTag("");
-    }
-  };
-
-  const handleRemoveNewSubscriberPositiveTag = (tagToRemove: string) => {
-    setNewSubscriberPositiveTags(newSubscriberPositiveTags.filter((t) => t !== tagToRemove));
-  };
-
-  const handleRemoveNewSubscriberNegativeTag = (tagToRemove: string) => {
-    setNewSubscriberNegativeTags(newSubscriberNegativeTags.filter((t) => t !== tagToRemove));
+  const handleRemoveNewSubscriberTag = (tagToRemove: string) => {
+    setNewSubscriberTags(newSubscriberTags.filter((t) => t !== tagToRemove));
   };
 
   const handleCreateSubscriber = () => {
     if (!newSubscriberEmail.trim()) return;
     createSubscriberMutation.mutate({
       email: newSubscriberEmail.trim().toLowerCase(),
-      positiveTags: newSubscriberPositiveTags,
-      negativeTags: newSubscriberNegativeTags,
+      tags: newSubscriberTags,
     });
   };
 
-  const handleAddPositiveTag = () => {
-    if (editingSubscriber && newPositiveTag.trim()) {
-      const updatedTags = [...(editingSubscriber.positiveTags || []), newPositiveTag.trim().toUpperCase()];
-      setEditingSubscriber({ ...editingSubscriber, positiveTags: updatedTags });
-      setNewPositiveTag("");
+  const handleAddTag = () => {
+    if (editingSubscriber && newTag.trim()) {
+      const updatedTags = [...(editingSubscriber.tags || []), newTag.trim().toUpperCase()];
+      setEditingSubscriber({ ...editingSubscriber, tags: updatedTags });
+      setNewTag("");
     }
   };
 
-  const handleAddNegativeTag = () => {
-    if (editingSubscriber && newNegativeTag.trim()) {
-      const updatedTags = [...(editingSubscriber.negativeTags || []), newNegativeTag.trim().toUpperCase()];
-      setEditingSubscriber({ ...editingSubscriber, negativeTags: updatedTags });
-      setNewNegativeTag("");
-    }
-  };
-
-  const handleRemovePositiveTag = (tagToRemove: string) => {
+  const handleRemoveTag = (tagToRemove: string) => {
     if (editingSubscriber) {
-      const updatedTags = (editingSubscriber.positiveTags || []).filter((t) => t !== tagToRemove);
-      setEditingSubscriber({ ...editingSubscriber, positiveTags: updatedTags });
-    }
-  };
-
-  const handleRemoveNegativeTag = (tagToRemove: string) => {
-    if (editingSubscriber) {
-      const updatedTags = (editingSubscriber.negativeTags || []).filter((t) => t !== tagToRemove);
-      setEditingSubscriber({ ...editingSubscriber, negativeTags: updatedTags });
+      const updatedTags = (editingSubscriber.tags || []).filter((t) => t !== tagToRemove);
+      setEditingSubscriber({ ...editingSubscriber, tags: updatedTags });
     }
   };
 
@@ -320,8 +288,7 @@ export default function Subscribers() {
     if (editingSubscriber) {
       updateTagsMutation.mutate({
         id: editingSubscriber.id,
-        positiveTags: editingSubscriber.positiveTags || [],
-        negativeTags: editingSubscriber.negativeTags || [],
+        tags: editingSubscriber.tags || [],
       });
     }
   };
@@ -386,8 +353,7 @@ export default function Subscribers() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Email</TableHead>
-                      <TableHead>Positive Tags</TableHead>
-                      <TableHead>Negative Tags</TableHead>
+                      <TableHead>Tags</TableHead>
                       <TableHead>IP Address</TableHead>
                       <TableHead>Import Date</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
@@ -401,8 +367,8 @@ export default function Subscribers() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {subscriber.positiveTags && subscriber.positiveTags.length > 0 ? (
-                              subscriber.positiveTags.slice(0, 3).map((tag) => (
+                            {subscriber.tags && subscriber.tags.length > 0 ? (
+                              subscriber.tags.slice(0, 3).map((tag) => (
                                 <Badge
                                   key={tag}
                                   variant="secondary"
@@ -414,31 +380,9 @@ export default function Subscribers() {
                             ) : (
                               <span className="text-muted-foreground text-sm">None</span>
                             )}
-                            {subscriber.positiveTags && subscriber.positiveTags.length > 3 && (
+                            {subscriber.tags && subscriber.tags.length > 3 && (
                               <Badge variant="outline" className="text-xs">
-                                +{subscriber.positiveTags.length - 3}
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {subscriber.negativeTags && subscriber.negativeTags.length > 0 ? (
-                              subscriber.negativeTags.slice(0, 3).map((tag) => (
-                                <Badge
-                                  key={tag}
-                                  variant="destructive"
-                                  className="text-xs"
-                                >
-                                  {tag}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-muted-foreground text-sm">None</span>
-                            )}
-                            {subscriber.negativeTags && subscriber.negativeTags.length > 3 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{subscriber.negativeTags.length - 3}
+                                +{subscriber.tags.length - 3}
                               </Badge>
                             )}
                           </div>
@@ -544,9 +488,9 @@ export default function Subscribers() {
           </DialogHeader>
           <div className="space-y-6">
             <div className="space-y-3">
-              <label className="text-sm font-medium">Positive Tags</label>
+              <label className="text-sm font-medium">Tags</label>
               <div className="flex flex-wrap gap-2">
-                {editingSubscriber?.positiveTags?.map((tag) => (
+                {editingSubscriber?.tags?.map((tag) => (
                   <Badge
                     key={tag}
                     variant="secondary"
@@ -554,72 +498,31 @@ export default function Subscribers() {
                   >
                     {tag}
                     <button
-                      onClick={() => handleRemovePositiveTag(tag)}
+                      onClick={() => handleRemoveTag(tag)}
                       className="ml-1 rounded-full p-0.5 hover:bg-background/20"
-                      data-testid={`button-remove-positive-tag-${tag}`}
+                      data-testid={`button-remove-tag-${tag}`}
                     >
                       <X className="h-3 w-3" />
                     </button>
                   </Badge>
                 ))}
-                {(!editingSubscriber?.positiveTags || editingSubscriber.positiveTags.length === 0) && (
-                  <span className="text-muted-foreground text-sm">No positive tags</span>
+                {(!editingSubscriber?.tags || editingSubscriber.tags.length === 0) && (
+                  <span className="text-muted-foreground text-sm">No tags</span>
                 )}
               </div>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Add positive tag..."
-                  value={newPositiveTag}
-                  onChange={(e) => setNewPositiveTag(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddPositiveTag()}
-                  data-testid="input-new-positive-tag"
+                  placeholder="Add tag..."
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
+                  data-testid="input-new-tag"
                 />
-                <Button onClick={handleAddPositiveTag} size="icon" data-testid="button-add-positive-tag">
+                <Button onClick={handleAddTag} size="icon" data-testid="button-add-tag">
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-            
-            <div className="space-y-3">
-              <label className="text-sm font-medium">Negative Tags</label>
-              <div className="flex flex-wrap gap-2">
-                {editingSubscriber?.negativeTags?.map((tag) => (
-                  <Badge
-                    key={tag}
-                    variant="destructive"
-                    className="gap-1 pr-1"
-                  >
-                    {tag}
-                    <button
-                      onClick={() => handleRemoveNegativeTag(tag)}
-                      className="ml-1 rounded-full p-0.5 hover:bg-background/20"
-                      data-testid={`button-remove-negative-tag-${tag}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-                {(!editingSubscriber?.negativeTags || editingSubscriber.negativeTags.length === 0) && (
-                  <span className="text-muted-foreground text-sm">No negative tags</span>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Add negative tag..."
-                  value={newNegativeTag}
-                  onChange={(e) => setNewNegativeTag(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddNegativeTag()}
-                  data-testid="input-new-negative-tag"
-                />
-                <Button onClick={handleAddNegativeTag} size="icon" data-testid="button-add-negative-tag">
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            
-            <p className="text-xs text-muted-foreground">
-              Positive tags are used for inclusion targeting. Negative tags exclude subscribers from campaigns.
-            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingSubscriber(null)}>
@@ -684,13 +587,13 @@ export default function Subscribers() {
             </div>
             
             <div className="space-y-3">
-              <label className="text-sm font-medium">Positive Tags (optional)</label>
+              <label className="text-sm font-medium">Tags (optional)</label>
               <div className="flex flex-wrap gap-2 min-h-[24px]">
-                {newSubscriberPositiveTags.map((tag) => (
+                {newSubscriberTags.map((tag) => (
                   <Badge key={tag} variant="secondary" className="gap-1 pr-1">
                     {tag}
                     <button
-                      onClick={() => handleRemoveNewSubscriberPositiveTag(tag)}
+                      onClick={() => handleRemoveNewSubscriberTag(tag)}
                       className="ml-1 rounded-full p-0.5 hover:bg-background/20"
                     >
                       <X className="h-3 w-3" />
@@ -700,51 +603,17 @@ export default function Subscribers() {
               </div>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Add positive tag..."
-                  value={newSubscriberPositiveTag}
-                  onChange={(e) => setNewSubscriberPositiveTag(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddNewSubscriberPositiveTag())}
-                  data-testid="input-new-subscriber-positive-tag"
+                  placeholder="Add tag..."
+                  value={newSubscriberTag}
+                  onChange={(e) => setNewSubscriberTag(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddNewSubscriberTag())}
+                  data-testid="input-new-subscriber-tag"
                 />
                 <Button 
                   type="button"
-                  onClick={handleAddNewSubscriberPositiveTag} 
+                  onClick={handleAddNewSubscriberTag} 
                   size="icon"
-                  data-testid="button-add-new-subscriber-positive-tag"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            
-            <div className="space-y-3">
-              <label className="text-sm font-medium">Negative Tags (optional)</label>
-              <div className="flex flex-wrap gap-2 min-h-[24px]">
-                {newSubscriberNegativeTags.map((tag) => (
-                  <Badge key={tag} variant="destructive" className="gap-1 pr-1">
-                    {tag}
-                    <button
-                      onClick={() => handleRemoveNewSubscriberNegativeTag(tag)}
-                      className="ml-1 rounded-full p-0.5 hover:bg-background/20"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Add negative tag..."
-                  value={newSubscriberNegativeTag}
-                  onChange={(e) => setNewSubscriberNegativeTag(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddNewSubscriberNegativeTag())}
-                  data-testid="input-new-subscriber-negative-tag"
-                />
-                <Button 
-                  type="button"
-                  onClick={handleAddNewSubscriberNegativeTag} 
-                  size="icon"
-                  data-testid="button-add-new-subscriber-negative-tag"
+                  data-testid="button-add-new-subscriber-tag"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>

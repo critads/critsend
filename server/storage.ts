@@ -175,13 +175,13 @@ export interface IStorage {
   clearErrorLogs(beforeDate?: Date): Promise<number>;
   
   // Tag Queue Operations (for reliable tag additions with retry logic)
-  enqueueTagOperation(subscriberId: string, tagType: "positive" | "negative", tagValue: string, eventType: "open" | "click" | "unsubscribe", campaignId?: string): Promise<void>;
-  claimPendingTagOperations(limit?: number): Promise<Array<{ id: string; subscriberId: string; tagType: string; tagValue: string; eventType: string; retryCount: number }>>;
+  enqueueTagOperation(subscriberId: string, tagValue: string, eventType: "open" | "click" | "unsubscribe", campaignId?: string): Promise<void>;
+  claimPendingTagOperations(limit?: number): Promise<Array<{ id: string; subscriberId: string; tagValue: string; eventType: string; retryCount: number }>>;
   completeTagOperation(operationId: string): Promise<void>;
   failTagOperation(operationId: string, error: string): Promise<void>;
   getTagQueueStats(): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
   cleanupCompletedTagOperations(olderThanDays?: number): Promise<number>;
-  addTagToSubscriber(subscriberId: string, tagType: "positive" | "negative", tagValue: string): Promise<boolean>;
+  addTagToSubscriber(subscriberId: string, tagValue: string): Promise<boolean>;
   
   // Flush Jobs (for subscriber deletion with progress)
   createFlushJob(totalRows: number): Promise<FlushJob>;
@@ -391,44 +391,8 @@ export class DatabaseStorage implements IStorage {
           default:
             continue;
         }
-      } else if (rule.field === "positiveTags") {
-        // Positive tags field filtering
-        switch (rule.operator) {
-          case "contains":
-            condition = sql`EXISTS (SELECT 1 FROM unnest(${subscribers.positiveTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
-            break;
-          case "not_contains":
-            condition = sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.positiveTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
-            break;
-          case "equals":
-            condition = sql`${rule.value} = ANY(${subscribers.positiveTags})`;
-            break;
-          case "not_equals":
-            condition = sql`NOT (${rule.value} = ANY(${subscribers.positiveTags}))`;
-            break;
-          default:
-            continue;
-        }
-      } else if (rule.field === "negativeTags") {
-        // Negative tags field filtering
-        switch (rule.operator) {
-          case "contains":
-            condition = sql`EXISTS (SELECT 1 FROM unnest(${subscribers.negativeTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
-            break;
-          case "not_contains":
-            condition = sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.negativeTags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
-            break;
-          case "equals":
-            condition = sql`${rule.value} = ANY(${subscribers.negativeTags})`;
-            break;
-          case "not_equals":
-            condition = sql`NOT (${rule.value} = ANY(${subscribers.negativeTags}))`;
-            break;
-          default:
-            continue;
-        }
       } else {
-        // Tags field filtering (default - legacy support)
+        // Tags field filtering
         switch (rule.operator) {
           case "contains":
             // Check if any tag contains the value (using LIKE pattern)
@@ -1194,8 +1158,6 @@ export class DatabaseStorage implements IStorage {
   async dropSubscriberGinIndexes(): Promise<void> {
     console.log('[INDEX] Dropping GIN indexes for large import optimization...');
     await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
-    await db.execute(sql`DROP INDEX IF EXISTS positive_tags_gin_idx`);
-    await db.execute(sql`DROP INDEX IF EXISTS negative_tags_gin_idx`);
     console.log('[INDEX] GIN indexes dropped');
   }
   
@@ -1210,18 +1172,6 @@ export class DatabaseStorage implements IStorage {
       console.log('[INDEX] CONCURRENTLY failed for tags_gin_idx, trying regular CREATE INDEX');
       await db.execute(sql`CREATE INDEX IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
     }
-    try {
-      await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS positive_tags_gin_idx ON subscribers USING gin (positive_tags)`);
-    } catch (err: any) {
-      console.log('[INDEX] CONCURRENTLY failed for positive_tags_gin_idx, trying regular CREATE INDEX');
-      await db.execute(sql`CREATE INDEX IF NOT EXISTS positive_tags_gin_idx ON subscribers USING gin (positive_tags)`);
-    }
-    try {
-      await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS negative_tags_gin_idx ON subscribers USING gin (negative_tags)`);
-    } catch (err: any) {
-      console.log('[INDEX] CONCURRENTLY failed for negative_tags_gin_idx, trying regular CREATE INDEX');
-      await db.execute(sql`CREATE INDEX IF NOT EXISTS negative_tags_gin_idx ON subscribers USING gin (negative_tags)`);
-    }
     console.log('[INDEX] GIN indexes recreated');
   }
   
@@ -1231,10 +1181,10 @@ export class DatabaseStorage implements IStorage {
       FROM pg_indexes 
       WHERE schemaname = 'public' 
         AND tablename = 'subscribers' 
-        AND indexname IN ('tags_gin_idx', 'positive_tags_gin_idx', 'negative_tags_gin_idx')
+        AND indexname = 'tags_gin_idx'
     `);
     const count = parseInt((result.rows[0] as any)?.count || '0', 10);
-    return count >= 3; // All 3 indexes should be present
+    return count >= 1;
   }
 
   // Dashboard
@@ -1569,14 +1519,13 @@ export class DatabaseStorage implements IStorage {
   // Tag Queue Operations - for reliable tag additions with retry logic
   async enqueueTagOperation(
     subscriberId: string,
-    tagType: "positive" | "negative",
     tagValue: string,
     eventType: "open" | "click" | "unsubscribe",
     campaignId?: string
   ): Promise<void> {
     await db.insert(pendingTagOperations).values({
       subscriberId,
-      tagType,
+      tagType: "tags", // Legacy field, now always just "tags"
       tagValue,
       eventType,
       campaignId,
@@ -1587,7 +1536,6 @@ export class DatabaseStorage implements IStorage {
   async claimPendingTagOperations(limit: number = 100): Promise<Array<{
     id: string;
     subscriberId: string;
-    tagType: string;
     tagValue: string;
     eventType: string;
     retryCount: number;
@@ -1604,13 +1552,12 @@ export class DatabaseStorage implements IStorage {
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING id, subscriber_id, tag_type, tag_value, event_type, retry_count
+      RETURNING id, subscriber_id, tag_value, event_type, retry_count
     `);
     
     return result.rows.map((row: any) => ({
       id: row.id,
       subscriberId: row.subscriber_id,
-      tagType: row.tag_type,
       tagValue: row.tag_value,
       eventType: row.event_type,
       retryCount: Number(row.retry_count),
@@ -1679,22 +1626,19 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount || 0;
   }
 
-  // Atomic tag addition - adds tag to subscriber with array deduplication
+  // Atomic tag addition - adds tag to subscriber's tags array with deduplication
   async addTagToSubscriber(
     subscriberId: string,
-    tagType: "positive" | "negative",
     tagValue: string
   ): Promise<boolean> {
-    const column = tagType === "positive" ? "positive_tags" : "negative_tags";
-    
     const result = await db.execute(sql`
       UPDATE subscribers
-      SET ${sql.raw(column)} = array_append(
-        array_remove(${sql.raw(column)}, ${tagValue}),
+      SET tags = array_append(
+        array_remove(tags, ${tagValue}),
         ${tagValue}
       )
       WHERE id = ${subscriberId}
-      AND NOT (${tagValue} = ANY(${sql.raw(column)}))
+      AND NOT (${tagValue} = ANY(tags))
       RETURNING id
     `);
     

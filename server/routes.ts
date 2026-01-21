@@ -631,8 +631,6 @@ export async function registerRoutes(
         // Update tags instead - merge with existing
         const updated = await storage.updateSubscriber(existing.id, {
           tags: [...new Set([...(existing.tags || []), ...(data.tags || [])])],
-          positiveTags: [...new Set([...(existing.positiveTags || []), ...(data.positiveTags || [])])],
-          negativeTags: [...new Set([...(existing.negativeTags || []), ...(data.negativeTags || [])])],
         });
         return res.json(updated);
       }
@@ -1944,7 +1942,7 @@ export async function registerRoutes(
       if (isFirstOpen) {
         const campaign = await storage.getCampaign(campaignId);
         if (campaign?.openTag) {
-          storage.enqueueTagOperation(subscriberId, "positive", campaign.openTag, "open", campaignId)
+          storage.enqueueTagOperation(subscriberId, campaign.openTag, "open", campaignId)
             .catch(err => console.error("Failed to enqueue open tag:", err));
         }
       }
@@ -1985,7 +1983,7 @@ export async function registerRoutes(
       if (isFirstClick) {
         const campaign = await storage.getCampaign(campaignId);
         if (campaign?.clickTag) {
-          storage.enqueueTagOperation(subscriberId, "positive", campaign.clickTag, "click", campaignId)
+          storage.enqueueTagOperation(subscriberId, campaign.clickTag, "click", campaignId)
             .catch(err => console.error("Failed to enqueue click tag:", err));
         }
       }
@@ -2054,12 +2052,12 @@ export async function registerRoutes(
       // This ensures 100% delivery with retry logic, without delaying the response
       if (subscriber) {
         // BCK tag is always added (blocklist)
-        storage.enqueueTagOperation(subscriberId, "negative", "BCK", "unsubscribe", campaignId)
+        storage.enqueueTagOperation(subscriberId, "BCK", "unsubscribe", campaignId)
           .catch(err => console.error("Failed to enqueue BCK tag:", err));
         
         // Add campaign-specific unsubscribe tag if configured
         if (campaign?.unsubscribeTag) {
-          storage.enqueueTagOperation(subscriberId, "negative", campaign.unsubscribeTag, "unsubscribe", campaignId)
+          storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
             .catch(err => console.error("Failed to enqueue unsubscribe tag:", err));
         }
       }
@@ -2091,7 +2089,6 @@ async function processTagQueue() {
         // Use atomic tag addition
         await storage.addTagToSubscriber(
           op.subscriberId,
-          op.tagType as "positive" | "negative",
           op.tagValue
         );
         
