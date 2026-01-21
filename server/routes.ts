@@ -2353,6 +2353,19 @@ function startImportJobProcessor() {
   
   console.log(`Starting import job processor with worker ID: ${WORKER_ID}`);
   
+  // Clean up orphaned import_staging data on startup - only for jobs that are not processing
+  // This prevents data loss for active imports while cleaning up stale data from crashed imports
+  db.execute(sql`
+    DELETE FROM import_staging s
+    WHERE NOT EXISTS (
+      SELECT 1 FROM import_jobs j 
+      WHERE j.id = s.job_id 
+      AND j.status = 'processing'
+    )
+  `)
+    .then(() => console.log('[IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)'))
+    .catch((err: any) => console.error('[IMPORT] Failed to clean up import_staging on startup:', err.message));
+  
   // Poll every 2 seconds for new import jobs
   importJobPollingInterval = setInterval(pollForImportJobs, 2000);
   
@@ -2517,13 +2530,29 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   }
   
   // Initialize counters - resume from existing progress if applicable
-  let processedRows = resumeFromLine > 0 ? (importJob?.processedRows || 0) : 0;
+  // parsedRows = lines read from CSV (fast, updated as we read)
+  // committedRows = rows actually committed to DB (updated after batch insert success)
+  // 
+  // IMPORTANT: On resume, we use committedRows as the source of truth for both counters
+  // to avoid mismatch issues when previous run parsed ahead of commits.
+  // Since we're resuming from a checkpoint line, any rows parsed but not committed are lost
+  // and will be re-parsed and re-processed.
   let newSubscribers = resumeFromLine > 0 ? (importJob?.newSubscribers || 0) : 0;
   let updatedSubscribers = resumeFromLine > 0 ? (importJob?.updatedSubscribers || 0) : 0;
   let failedRows = resumeFromLine > 0 ? (importJob?.failedRows || 0) : 0;
+  // committedRows = actual committed count (source of truth on resume)
+  let committedRows = resumeFromLine > 0 ? (newSubscribers + updatedSubscribers + failedRows) : 0;
+  // parsedRows = aligned with committedRows on resume (re-parsing from checkpoint will catch up)
+  let parsedRows = committedRows;
   let lastHeartbeat = Date.now();
   let lastCheckpointLine = resumeFromLine;
   let processedBytes = queueItem?.processedBytes || 0;
+  let lastCommitTime = Date.now(); // Track when we last had a successful DB commit
+  const STUCK_DETECTION_INTERVAL = 30000; // Warn if no commits for 30 seconds
+  
+  if (resumeFromLine > 0) {
+    console.log(`[IMPORT] ${importJobId}: Resuming from line ${resumeFromLine}, committed rows: ${committedRows} (new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows})`);
+  }
   
   // Header parsing state
   let header: string[] = [];
@@ -2555,18 +2584,27 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       }
       
       // Update progress in both tables for UI visibility
-      await storage.updateImportQueueProgress(queueId, processedRows);
+      // Use committedRows as the primary progress indicator (actual DB commits)
+      await storage.updateImportQueueProgress(queueId, committedRows);
       await storage.updateImportJob(importJobId, {
-        processedRows,
+        processedRows: committedRows, // Report committed rows as processed (actual progress)
         newSubscribers,
         updatedSubscribers,
         failedRows,
       });
       
-      // Log progress periodically
+      // Log progress periodically with both parsed and committed counts
       const elapsedSec = (now - startTime) / 1000;
-      const rowsPerSecond = processedRows / elapsedSec;
-      console.log(`[IMPORT] ${importJobId}: Progress update - ${processedRows.toLocaleString()} rows parsed (${Math.round(rowsPerSecond)}/s)`);
+      const commitRate = committedRows / elapsedSec;
+      const parseRate = parsedRows / elapsedSec;
+      const pendingCount = parsedRows - committedRows;
+      console.log(`[IMPORT] ${importJobId}: Progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), pending: ${pendingCount.toLocaleString()}, batches queued: ${pendingBatches.length}`);
+      
+      // Stuck detection: warn if no commits for 30 seconds AND we have pending batches
+      // Only warn if there's actual work pending (pendingBatches > 0) to avoid false positives
+      if (parsedRows > committedRows && pendingBatches.length > 0 && now - lastCommitTime > STUCK_DETECTION_INTERVAL) {
+        console.warn(`[IMPORT] ${importJobId}: WARNING - No DB commits in ${Math.round((now - lastCommitTime) / 1000)}s! Parsed: ${parsedRows}, Committed: ${committedRows}, Pending batches: ${pendingBatches.length}`);
+      }
     } catch (err) {
       console.error(`[IMPORT] ${importJobId}: Progress update failed:`, err);
     }
@@ -2617,9 +2655,10 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       const result = await bulkUpsertSubscribers(importJobId, batch, tagMode);
       inserted = result.inserted;
       updated = result.updated;
+      failed = result.failed; // bulkUpsertSubscribers now tracks failures internally
     } catch (err: any) {
-      console.error(`[IMPORT] Bulk upsert failed for batch ${batchNum}:`, err.message);
-      // Fall back to individual inserts if bulk fails
+      console.error(`[IMPORT] Bulk upsert completely failed for batch ${batchNum}:`, err.message);
+      // Fall back to individual inserts if bulk fails completely (rare)
       for (const row of batch) {
         try {
           const existing = await storage.getSubscriberByEmail(row.email);
@@ -2633,8 +2672,9 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
             await storage.createSubscriber(row);
             inserted++;
           }
-        } catch (individualErr) {
+        } catch (individualErr: any) {
           failed++;
+          console.error(`[IMPORT] Fallback insert failed for email ${row.email}: ${individualErr.message}`);
         }
       }
     }
@@ -2685,6 +2725,11 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     updatedSubscribers += totalUpdated;
     failedRows += totalFailed;
     
+    // Calculate how many rows were actually committed in this batch cycle
+    const batchRowsCommitted = totalInserted + totalUpdated + totalFailed;
+    committedRows += batchRowsCommitted;
+    lastCommitTime = Date.now(); // Track successful commit time
+    
     // Update progress after parallel batch processing
     const now = Date.now();
     if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
@@ -2692,25 +2737,27 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       lastHeartbeat = now;
     }
     
-    await storage.updateImportQueueProgress(queueId, processedRows);
+    // Use committedRows for all DB progress updates (actual committed data)
+    await storage.updateImportQueueProgress(queueId, committedRows);
     await storage.updateImportJob(importJobId, {
-      processedRows,
+      processedRows: committedRows, // Report committed rows as processed
       newSubscribers,
       updatedSubscribers,
       failedRows,
     });
     
     // Checkpoint for resume capability (every 100k rows)
-    if (processedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
-      await storage.updateImportQueueProgressWithCheckpoint(queueId, processedRows, processedBytes, currentLineNumber);
-      lastCheckpointLine = processedRows;
-      console.log(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${processedRows.toLocaleString()} rows processed`);
+    if (committedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
+      await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
+      lastCheckpointLine = committedRows;
+      console.log(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${committedRows.toLocaleString()} rows committed`);
     }
     
-    // Log overall progress
+    // Log overall progress with both parsed and committed counts
     const elapsedSec = (Date.now() - startTime) / 1000;
-    const totalRowsPerSecond = processedRows / elapsedSec;
-    console.log(`[IMPORT] ${importJobId}: Total progress: ${processedRows.toLocaleString()} rows, ${newSubscribers.toLocaleString()} new, ${updatedSubscribers.toLocaleString()} updated, ${failedRows.toLocaleString()} failed (${Math.round(totalRowsPerSecond)}/s avg)`);
+    const commitRate = committedRows / elapsedSec;
+    const pendingCount = parsedRows - committedRows;
+    console.log(`[IMPORT] ${importJobId}: Batch complete - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}, pending parse: ${pendingCount.toLocaleString()}`);
     
     // Resume reading if we were paused and now have room for more batches
     if (isReadingPaused && pendingBatches.length < MAX_PENDING_BATCHES) {
@@ -2730,8 +2777,9 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     pendingBatches.push([...batchRows]);
     batchRows = [];
     
-    // Process when we have enough batches or on final batch
-    if (pendingBatches.length >= PARALLEL_WORKERS) {
+    // Process more aggressively - start processing when we have 2+ batches (not 4)
+    // This ensures faster commits and prevents large queues building up
+    if (pendingBatches.length >= 2) {
       await processParallelBatches();
     }
   }
@@ -2783,8 +2831,11 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           const email = cols[emailIdx]?.toLowerCase();
           
           if (!email || !email.includes('@')) {
+            // Invalid email - count as parsed AND committed (immediate failure, nothing pending)
             failedRows++;
-            processedRows++;
+            parsedRows++;
+            committedRows++;
+            lastCommitTime = Date.now(); // Update commit time for immediate failures too
             return;
           }
           
@@ -2794,7 +2845,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
           
           batchRows.push({ email, tags, ipAddress, lineNumber: currentLineNumber });
-          processedRows++;
+          parsedRows++; // Only increment parsed here - committed happens after batch insert
           
           // Schedule progress update (timer handles actual DB writes, no blocking)
           scheduleProgressUpdate();
@@ -2817,13 +2868,19 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
             }
           }
         } catch (parseErr) {
+          // Parse error - count as parsed AND committed (immediate failure)
           failedRows++;
-          processedRows++;
+          parsedRows++;
+          committedRows++;
+          lastCommitTime = Date.now(); // Update commit time for immediate failures too
         }
       } catch (err) {
         console.error(`[IMPORT] Error processing line ${currentLineNumber}:`, err);
+        // Line processing error - count as parsed AND committed (immediate failure)
         failedRows++;
-        processedRows++;
+        parsedRows++;
+        committedRows++;
+        lastCommitTime = Date.now(); // Update commit time for immediate failures too
       }
     });
     
@@ -2849,11 +2906,11 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         
         // If cancelled (either by our flag or externally), don't mark as completed
         if (isCancelled || wasExternallyCancelled) {
-          console.log(`[IMPORT] ${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (processed: ${processedRows})`);
+          console.log(`[IMPORT] ${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (committed: ${committedRows}, parsed: ${parsedRows})`);
           
           // Update final progress so user knows where we stopped (but don't override cancelled status)
           await storage.updateImportJob(importJobId, {
-            processedRows,
+            processedRows: committedRows, // Report committed rows
             newSubscribers,
             updatedSubscribers,
             failedRows,
@@ -2890,14 +2947,14 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         await storage.updateImportJob(importJobId, {
           status: 'completed',
           completedAt: new Date(),
-          processedRows,
+          processedRows: committedRows, // Report committed rows as final count
           newSubscribers,
           updatedSubscribers,
           failedRows,
         });
         
         // Final checkpoint
-        await storage.updateImportQueueProgressWithCheckpoint(queueId, processedRows, processedBytes, currentLineNumber);
+        await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
         
         // Recreate GIN indexes if they were dropped for this import or are missing (e.g., from previous crashed run)
         // Only check for large imports to avoid unnecessary index existence checks on small imports
@@ -2948,8 +3005,8 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         }
         
         const totalDuration = (Date.now() - startTime) / 1000;
-        const finalRowsPerSecond = processedRows / totalDuration;
-        console.log(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - processed: ${processedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
+        const finalRowsPerSecond = committedRows / totalDuration;
+        console.log(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
         
         resolve();
       } catch (err) {
@@ -2977,9 +3034,9 @@ async function bulkUpsertSubscribers(
   jobId: string,
   rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
   tagMode: "merge" | "override" = "merge"
-): Promise<{ inserted: number; updated: number }> {
+): Promise<{ inserted: number; updated: number; failed: number }> {
   if (rows.length === 0) {
-    return { inserted: 0, updated: 0 };
+    return { inserted: 0, updated: 0, failed: 0 };
   }
   
   // Build multi-row VALUES clause for staging table
@@ -2987,6 +3044,7 @@ async function bulkUpsertSubscribers(
   const CHUNK_SIZE = 500; // Reasonable chunk for VALUES clause
   let totalInserted = 0;
   let totalUpdated = 0;
+  let totalFailed = 0;
   
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
@@ -3123,14 +3181,16 @@ async function bulkUpsertSubscribers(
             if (isInsert) totalInserted++;
             else totalUpdated++;
           }
-        } catch (individualErr) {
-          // Skip failed rows
+        } catch (individualErr: any) {
+          // Log each failed row for debugging and count it
+          totalFailed++;
+          console.error(`[IMPORT] Individual insert failed for email ${row.email}: ${individualErr.message}`);
         }
       }
     }
   }
   
-  return { inserted: totalInserted, updated: totalUpdated };
+  return { inserted: totalInserted, updated: totalUpdated, failed: totalFailed };
 }
 
 // Internal processing function - called by the job queue
