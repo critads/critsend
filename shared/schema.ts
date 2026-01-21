@@ -180,6 +180,7 @@ export const importJobs = pgTable("import_jobs", {
   tagMode: text("tag_mode").notNull().default("merge"),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
 });
 

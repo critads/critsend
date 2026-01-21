@@ -442,13 +442,17 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                           {((job.processedRows / job.totalRows) * 100).toFixed(1)}%
                         </span>
                       </div>
-                      {/* Speed and ETA calculation */}
-                      {job.processedRows > 0 && job.createdAt && (() => {
-                        const elapsedMs = Date.now() - new Date(job.createdAt).getTime();
-                        const elapsedSec = elapsedMs / 1000;
+                      {/* Speed and ETA calculation - use startedAt for accurate timing */}
+                      {job.processedRows > 0 && (() => {
+                        // Use startedAt (actual processing start) if available, fall back to createdAt
+                        const startTime = job.startedAt 
+                          ? new Date(job.startedAt).getTime() 
+                          : new Date(job.createdAt).getTime();
+                        const elapsedMs = Date.now() - startTime;
+                        const elapsedSec = Math.max(elapsedMs / 1000, 1); // Avoid division by zero
                         const rowsPerSec = job.processedRows / elapsedSec;
                         const remainingRows = job.totalRows - job.processedRows;
-                        const etaSec = remainingRows / rowsPerSec;
+                        const etaSec = rowsPerSec > 0 ? remainingRows / rowsPerSec : 0;
                         const etaMin = Math.round(etaSec / 60);
                         const etaHours = Math.floor(etaMin / 60);
                         const etaMinRemainder = etaMin % 60;
