@@ -442,6 +442,28 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                           {((job.processedRows / job.totalRows) * 100).toFixed(1)}%
                         </span>
                       </div>
+                      {/* Speed and ETA calculation */}
+                      {job.processedRows > 0 && job.createdAt && (() => {
+                        const elapsedMs = Date.now() - new Date(job.createdAt).getTime();
+                        const elapsedSec = elapsedMs / 1000;
+                        const rowsPerSec = job.processedRows / elapsedSec;
+                        const remainingRows = job.totalRows - job.processedRows;
+                        const etaSec = remainingRows / rowsPerSec;
+                        const etaMin = Math.round(etaSec / 60);
+                        const etaHours = Math.floor(etaMin / 60);
+                        const etaMinRemainder = etaMin % 60;
+                        
+                        return (
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <span className="text-green-600 font-medium">
+                              {Math.round(rowsPerSec * 60).toLocaleString()} rows/min
+                            </span>
+                            <span>
+                              ETA: {etaHours > 0 ? `${etaHours}h ${etaMinRemainder}m` : `${etaMin}m`}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 

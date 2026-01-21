@@ -2476,11 +2476,13 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   
   await storage.updateImportJob(importJobId, { status: 'processing' });
   
-  // Streaming batch configuration - larger batches for 7M row imports
-  const BATCH_SIZE = 20000; // 20k rows per batch for high throughput
+  // Streaming batch configuration - optimized for speed and progress visibility
+  const BATCH_SIZE = 5000; // 5k rows per batch for faster commits and progress updates
+  const PROGRESS_UPDATE_INTERVAL = 1000; // Update progress every 1000 parsed rows
   const HEARTBEAT_INTERVAL = 30000; // 30 seconds
   const CHECKPOINT_INTERVAL = 100000; // Checkpoint every 100k rows for resume
   const LARGE_IMPORT_THRESHOLD = 100000; // Drop GIN indexes for imports > 100k rows
+  const PARALLEL_WORKERS = 4; // Number of parallel batch insert workers
   
   // Determine if this is a large import that would benefit from GIN index deferral
   const totalLines = queueItem?.totalLines || 0;
@@ -2520,6 +2522,9 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   let currentLineNumber = 0;
   let batchNumber = 0;
   const startTime = Date.now();
+  let lastProgressUpdate = 0; // Track last progress update for frequent UI updates
+  let pendingBatches: Array<Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>> = [];
+  let activeBatchWorkers = 0;
   
   // Create readline interface for streaming using the fileStream created earlier
   const rl = readline.createInterface({
@@ -2550,26 +2555,50 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     return new Promise((resolve) => setImmediate(resolve));
   }
   
-  // Process function for batch
-  async function processBatch(): Promise<void> {
-    if (batchRows.length === 0) return;
-    
-    // Check for cancellation before processing each batch
-    if (await checkCancellation()) {
-      return;
+  // Update progress in database (called frequently for UI visibility)
+  async function updateProgress(): Promise<void> {
+    const now = Date.now();
+    // Only update if enough rows have been parsed since last update
+    if (processedRows - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
+      lastProgressUpdate = processedRows;
+      
+      // Update heartbeat if needed
+      if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+        await storage.updateImportQueueHeartbeat(queueId);
+        lastHeartbeat = now;
+      }
+      
+      // Update progress in both tables for UI visibility
+      await storage.updateImportQueueProgress(queueId, processedRows);
+      await storage.updateImportJob(importJobId, {
+        processedRows,
+        newSubscribers,
+        updatedSubscribers,
+        failedRows,
+      });
+      
+      // Log progress periodically
+      const elapsedSec = (Date.now() - startTime) / 1000;
+      const rowsPerSecond = processedRows / elapsedSec;
+      console.log(`[IMPORT] ${importJobId}: Progress update - ${processedRows.toLocaleString()} rows parsed (${Math.round(rowsPerSecond)}/s)`);
     }
-    
-    batchNumber++;
+  }
+  
+  // Process a single batch (can run in parallel)
+  async function processSingleBatch(batch: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>, batchNum: number): Promise<{ inserted: number; updated: number; failed: number }> {
     const batchStart = Date.now();
+    let inserted = 0;
+    let updated = 0;
+    let failed = 0;
     
     try {
-      const result = await bulkUpsertSubscribers(importJobId, batchRows, tagMode);
-      newSubscribers += result.inserted;
-      updatedSubscribers += result.updated;
+      const result = await bulkUpsertSubscribers(importJobId, batch, tagMode);
+      inserted = result.inserted;
+      updated = result.updated;
     } catch (err: any) {
-      console.error(`[IMPORT] Bulk upsert failed for batch ${batchNumber}:`, err.message);
+      console.error(`[IMPORT] Bulk upsert failed for batch ${batchNum}:`, err.message);
       // Fall back to individual inserts if bulk fails
-      for (const row of batchRows) {
+      for (const row of batch) {
         try {
           const existing = await storage.getSubscriberByEmail(row.email);
           if (existing) {
@@ -2577,35 +2606,58 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
               ? row.tags 
               : [...new Set([...(existing.tags || []), ...row.tags])];
             await storage.updateSubscriber(existing.id, { tags: mergedTags });
-            updatedSubscribers++;
+            updated++;
           } else {
             await storage.createSubscriber(row);
-            newSubscribers++;
+            inserted++;
           }
         } catch (individualErr) {
-          failedRows++;
+          failed++;
         }
       }
     }
     
     const batchDuration = Date.now() - batchStart;
-    const rowsPerSecond = batchRows.length / (batchDuration / 1000);
-    const elapsedSec = (Date.now() - startTime) / 1000;
-    const totalRowsPerSecond = processedRows / elapsedSec;
+    const rowsPerSecond = batch.length / (batchDuration / 1000);
+    console.log(`[IMPORT] ${importJobId}: Batch ${batchNum} (${batch.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s)`);
     
-    console.log(`[IMPORT] ${importJobId}: Batch ${batchNumber} (${batchRows.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s batch, ${Math.round(totalRowsPerSecond)}/s avg) - total: ${processedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
+    return { inserted, updated, failed };
+  }
+  
+  // Process batches in parallel for maximum throughput
+  async function processParallelBatches(): Promise<void> {
+    if (pendingBatches.length === 0) return;
     
-    // Clear batch
-    batchRows = [];
+    // Check for cancellation before processing
+    if (await checkCancellation()) {
+      return;
+    }
     
-    // Update heartbeat and progress
+    // Take up to PARALLEL_WORKERS batches to process in parallel
+    const batchesToProcess = pendingBatches.splice(0, PARALLEL_WORKERS);
+    
+    // Process all batches in parallel
+    const results = await Promise.all(
+      batchesToProcess.map((batch, idx) => {
+        batchNumber++;
+        return processSingleBatch(batch, batchNumber);
+      })
+    );
+    
+    // Aggregate results
+    for (const result of results) {
+      newSubscribers += result.inserted;
+      updatedSubscribers += result.updated;
+      failedRows += result.failed;
+    }
+    
+    // Update progress after parallel batch processing
     const now = Date.now();
     if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
       await storage.updateImportQueueHeartbeat(queueId);
       lastHeartbeat = now;
     }
     
-    // Update progress after each batch
     await storage.updateImportQueueProgress(queueId, processedRows);
     await storage.updateImportJob(importJobId, {
       processedRows,
@@ -2618,11 +2670,30 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     if (processedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
       await storage.updateImportQueueProgressWithCheckpoint(queueId, processedRows, processedBytes, currentLineNumber);
       lastCheckpointLine = processedRows;
-      console.log(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${processedRows} rows processed`);
+      console.log(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${processedRows.toLocaleString()} rows processed`);
     }
+    
+    // Log overall progress
+    const elapsedSec = (Date.now() - startTime) / 1000;
+    const totalRowsPerSecond = processedRows / elapsedSec;
+    console.log(`[IMPORT] ${importJobId}: Total progress: ${processedRows.toLocaleString()} rows, ${newSubscribers.toLocaleString()} new, ${updatedSubscribers.toLocaleString()} updated, ${failedRows.toLocaleString()} failed (${Math.round(totalRowsPerSecond)}/s avg)`);
     
     // Yield to event loop to prevent blocking other requests during large imports
     await yieldToEventLoop();
+  }
+  
+  // Legacy processBatch for compatibility - now queues batch for parallel processing
+  async function processBatch(): Promise<void> {
+    if (batchRows.length === 0) return;
+    
+    // Queue the current batch
+    pendingBatches.push([...batchRows]);
+    batchRows = [];
+    
+    // Process when we have enough batches or on final batch
+    if (pendingBatches.length >= PARALLEL_WORKERS) {
+      await processParallelBatches();
+    }
   }
   
   // Process file line by line
@@ -2685,6 +2756,9 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           batchRows.push({ email, tags, ipAddress, lineNumber: currentLineNumber });
           processedRows++;
           
+          // Update progress frequently for UI visibility (every PROGRESS_UPDATE_INTERVAL rows)
+          await updateProgress();
+          
           // Process batch when full
           if (batchRows.length >= BATCH_SIZE) {
             rl.pause(); // Pause reading while processing
@@ -2714,6 +2788,11 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         // Process remaining rows in final batch (if not cancelled)
         if (batchRows.length > 0 && !isCancelled) {
           await processBatch();
+        }
+        
+        // Process any remaining pending batches in parallel
+        while (pendingBatches.length > 0 && !isCancelled) {
+          await processParallelBatches();
         }
         
         // Re-check cancellation status from database before marking complete
