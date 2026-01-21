@@ -1086,13 +1086,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async completeImportQueueJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void> {
-    await db.update(importJobQueue)
-      .set({
-        status,
-        completedAt: new Date(),
-        errorMessage: errorMessage || null,
-      })
-      .where(eq(importJobQueue.id, jobId));
+    // Don't overwrite 'cancelled' status - if user cancelled, keep it cancelled
+    await db.execute(sql`
+      UPDATE import_job_queue
+      SET status = ${status},
+          completed_at = NOW(),
+          error_message = ${errorMessage || null}
+      WHERE id = ${jobId}
+        AND status != 'cancelled'
+    `);
   }
 
   async getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null> {
@@ -1130,15 +1132,21 @@ export class DatabaseStorage implements IStorage {
   async recoverStuckImportJobs(): Promise<number> {
     // Reset jobs where heartbeat stopped (worker crashed/redeployed)
     // If no heartbeat for 2 minutes, worker is likely dead
+    // IMPORTANT: Don't recover jobs where the corresponding import_job is already cancelled
     const queueResult = await db.execute(sql`
-      UPDATE import_job_queue
+      UPDATE import_job_queue q
       SET status = 'pending',
           started_at = NULL,
           heartbeat = NULL,
           worker_id = NULL
-      WHERE status = 'processing'
-        AND (heartbeat IS NULL OR heartbeat < NOW() - INTERVAL '2 minutes')
-      RETURNING import_job_id
+      WHERE q.status = 'processing'
+        AND (q.heartbeat IS NULL OR q.heartbeat < NOW() - INTERVAL '2 minutes')
+        AND NOT EXISTS (
+          SELECT 1 FROM import_jobs j 
+          WHERE j.id = q.import_job_id 
+          AND j.status = 'cancelled'
+        )
+      RETURNING q.import_job_id
     `);
     
     // Also reset the corresponding import jobs to pending

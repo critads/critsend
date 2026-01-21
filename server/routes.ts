@@ -2402,15 +2402,29 @@ async function pollForImportJobs() {
     
     try {
       await processImportFromQueue(queueItem.id, queueItem.importJobId, queueItem.csvFilePath);
-      await storage.completeImportQueueJob(queueItem.id, "completed");
-      console.log(`Import job ${queueItem.id} completed successfully`);
+      
+      // Check if job was cancelled during processing - don't mark as completed if so
+      const finalJob = await storage.getImportJob(queueItem.importJobId);
+      if (finalJob?.status === 'cancelled') {
+        console.log(`Import job ${queueItem.id} was cancelled during processing, not marking as completed`);
+      } else {
+        await storage.completeImportQueueJob(queueItem.id, "completed");
+        console.log(`Import job ${queueItem.id} completed successfully`);
+      }
     } catch (error: any) {
       console.error(`Error processing import job ${queueItem.id}:`, error);
-      await storage.completeImportQueueJob(queueItem.id, "failed", error.message || "Unknown error");
-      await storage.updateImportJob(queueItem.importJobId, {
-        status: "failed",
-        errorMessage: error.message || "Unknown error",
-      });
+      
+      // Check if job was cancelled - don't mark as failed if it was cancelled
+      const jobAfterError = await storage.getImportJob(queueItem.importJobId);
+      if (jobAfterError?.status === 'cancelled') {
+        console.log(`Import job ${queueItem.id} was cancelled, not marking as failed`);
+      } else {
+        await storage.completeImportQueueJob(queueItem.id, "failed", error.message || "Unknown error");
+        await storage.updateImportJob(queueItem.importJobId, {
+          status: "failed",
+          errorMessage: error.message || "Unknown error",
+        });
+      }
       try {
         await storage.logError({
           type: "import_failed",
