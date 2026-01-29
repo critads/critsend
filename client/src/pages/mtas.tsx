@@ -370,14 +370,16 @@ export default function MTAs() {
               Add MTA
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>Add Sending Server</DialogTitle>
               <DialogDescription>
                 Configure a new SMTP server for sending campaigns
               </DialogDescription>
             </DialogHeader>
-            {mtaFormContent}
+            <div className="flex-1 overflow-y-auto pr-2">
+              {mtaFormContent}
+            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>
                 Cancel
@@ -494,14 +496,16 @@ export default function MTAs() {
       )}
 
       <Dialog open={!!editingMta} onOpenChange={() => { setEditingMta(null); resetForm(); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Edit Sending Server</DialogTitle>
             <DialogDescription>
               Update the configuration for this SMTP server
             </DialogDescription>
           </DialogHeader>
-          {mtaFormContent}
+          <div className="flex-1 overflow-y-auto pr-2">
+            {mtaFormContent}
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setEditingMta(null); resetForm(); }}>
               Cancel
