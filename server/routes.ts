@@ -183,6 +183,8 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)",
       },
+      // Add servername for TLS SNI (required for HTTPS requests with custom lookup)
+      servername: urlObj.hostname,
     };
     
     const request = protocol.get(requestOptions, (response) => {
