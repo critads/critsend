@@ -250,10 +250,26 @@ export default function CampaignNew() {
   const autoSaveMutation = useMutation({
     mutationFn: async (data: Partial<InsertCampaign>) => {
       if (campaignId) {
-        const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
+        // For PATCH, convert empty strings to null for FK fields
+        const patchData = {
+          ...data,
+          mtaId: data.mtaId || null,
+          segmentId: data.segmentId || null,
+        };
+        const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, patchData);
         return res.json();
       } else {
-        const res = await apiRequest("POST", "/api/campaigns", data);
+        // When creating a new campaign, provide default values for required fields
+        // that may not be filled yet (they're on later steps)
+        // Convert empty strings to null for foreign key fields to avoid FK violations
+        const createData = {
+          ...data,
+          subject: data.subject || "(Draft)",
+          htmlContent: data.htmlContent || "<html><body></body></html>",
+          mtaId: data.mtaId || null,
+          segmentId: data.segmentId || null,
+        };
+        const res = await apiRequest("POST", "/api/campaigns", createData);
         return res.json();
       }
     },
