@@ -1106,7 +1106,16 @@ export async function registerRoutes(
 
   app.post("/api/campaigns", async (req: Request, res: Response) => {
     try {
-      const data = insertCampaignSchema.parse(req.body);
+      console.log("POST /api/campaigns - Body:", JSON.stringify(req.body));
+      
+      // Normalize empty FK strings to null before validation
+      const normalizedBody = {
+        ...req.body,
+        mtaId: req.body.mtaId || null,
+        segmentId: req.body.segmentId || null,
+      };
+      
+      const data = insertCampaignSchema.parse(normalizedBody);
       const campaign = await storage.createCampaign(data);
       
       // If status is sending, start the sending process
@@ -1115,9 +1124,11 @@ export async function registerRoutes(
         processCampaign(campaign.id).catch(console.error);
       }
       
+      console.log("Campaign created successfully:", campaign.id);
       res.status(201).json(campaign);
     } catch (error) {
       if (error instanceof z.ZodError) {
+        console.error("Campaign validation error:", error.errors);
         return res.status(400).json({ error: error.errors });
       }
       console.error("Error creating campaign:", error);
@@ -1137,7 +1148,16 @@ export async function registerRoutes(
       
       console.log(`Campaign ${req.params.id} current status: ${existingCampaign.status}, new status: ${req.body.status || 'unchanged'}`);
       
-      const campaign = await storage.updateCampaign(req.params.id, req.body);
+      // Normalize empty FK strings to null to avoid FK violations
+      const normalizedBody = { ...req.body };
+      if ('mtaId' in normalizedBody && !normalizedBody.mtaId) {
+        normalizedBody.mtaId = null;
+      }
+      if ('segmentId' in normalizedBody && !normalizedBody.segmentId) {
+        normalizedBody.segmentId = null;
+      }
+      
+      const campaign = await storage.updateCampaign(req.params.id, normalizedBody);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
