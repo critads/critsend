@@ -916,7 +916,7 @@ export async function registerRoutes(
 
   // ============ CAMPAIGNS ============
   
-  // Send test email endpoint - Always uses Resend HTTP API (bypasses SMTP restrictions)
+  // Send test email endpoint - Uses the selected MTA's SMTP configuration
   app.post("/api/campaigns/test", async (req: Request, res: Response) => {
     try {
       const { 
@@ -937,27 +937,13 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing required fields (email, fromEmail, subject, htmlContent)" });
       }
       
-      console.log(`[TEST EMAIL] Sending test email via Resend API to: ${email}`);
-      
-      // Get MTA tracking domain if provided
-      let trackingDomain: string | undefined;
-      let imageHostingDomain: string | undefined;
+      // Get MTA configuration
+      let mta = null;
       if (mtaId) {
-        const mta = await storage.getMta(mtaId);
-        if (mta) {
-          trackingDomain = mta.trackingDomain || undefined;
-          imageHostingDomain = (mta as any).imageHostingDomain || undefined;
-        }
+        mta = await storage.getMta(mtaId);
       }
       
-      // Rewrite local image URLs if image hosting domain is configured
-      let processedHtmlContent = htmlContent;
-      if (imageHostingDomain) {
-        const { rewriteImageUrls } = await import("./email-service");
-        processedHtmlContent = rewriteImageUrls(processedHtmlContent, imageHostingDomain);
-      }
-      
-      // Build email headers (similar to real campaign sending)
+      // Build email headers
       const headers: Record<string, string> = {
         "X-Campaign-ID": "test-campaign",
         "X-Subscriber-ID": "test-subscriber",
@@ -966,6 +952,7 @@ export async function registerRoutes(
       
       // Add default custom headers with {UNSUBSCRIBE} placeholder replacement
       const defaultHeaders = await storage.getDefaultHeaders();
+      const trackingDomain = mta?.trackingDomain || undefined;
       const testUnsubscribeUrl = trackingDomain 
         ? `${trackingDomain.replace(/\/$/, "")}/api/unsubscribe/test-campaign/test-subscriber`
         : "#unsubscribe-placeholder";
@@ -975,7 +962,34 @@ export async function registerRoutes(
         headers[header.name] = resolvedValue;
       }
       
-      // Use Resend HTTP API for test emails (works in Replit environment)
+      // If MTA is selected, use SMTP to send test email
+      if (mta) {
+        console.log(`[TEST EMAIL] Sending via MTA SMTP (${mta.name}) to: ${email}`);
+        const { sendTestEmailViaSMTP } = await import("./email-service");
+        
+        const result = await sendTestEmailViaSMTP(mta, {
+          to: email,
+          fromName: fromName || "Test",
+          fromEmail,
+          subject,
+          htmlContent,
+          preheader,
+          companyAddress,
+          unsubscribeText,
+          trackingDomain,
+          headers,
+        });
+        
+        if (result.success) {
+          res.json({ success: true, messageId: result.messageId });
+        } else {
+          res.status(500).json({ error: result.error || "Failed to send test email via SMTP" });
+        }
+        return;
+      }
+      
+      // Fallback to Resend API if no MTA selected
+      console.log(`[TEST EMAIL] No MTA selected, using Resend API to: ${email}`);
       const { sendTestEmailViaResend } = await import("./resend-client");
       
       const result = await sendTestEmailViaResend({
@@ -983,7 +997,7 @@ export async function registerRoutes(
         fromName: fromName || "Test",
         fromEmail,
         subject,
-        htmlContent: processedHtmlContent,
+        htmlContent,
         preheader,
         companyAddress,
         unsubscribeText,

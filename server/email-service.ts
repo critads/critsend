@@ -498,3 +498,98 @@ export async function sendEmailWithNullsink(
     };
   }
 }
+
+/**
+ * Send a test email via SMTP using the provided MTA configuration
+ * This is a simpler version of sendEmail that doesn't require a subscriber or campaign object
+ */
+export interface TestEmailOptions {
+  to: string;
+  fromName: string;
+  fromEmail: string;
+  subject: string;
+  htmlContent: string;
+  preheader?: string | null;
+  companyAddress?: string | null;
+  unsubscribeText?: string | null;
+  trackingDomain?: string | null;
+  headers?: Record<string, string>;
+}
+
+export async function sendTestEmailViaSMTP(
+  mta: Mta,
+  options: TestEmailOptions
+): Promise<SendEmailResult> {
+  // If MTA is in nullsink mode, just simulate success
+  if ((mta as any).mode === "nullsink") {
+    console.log(`[TEST EMAIL] Nullsink mode - simulating successful send to ${options.to}`);
+    return {
+      success: true,
+      messageId: `nullsink-test-${Date.now()}@local`,
+    };
+  }
+  
+  // Create transporter for this MTA
+  const transporter = createTransporter(mta);
+  
+  // Process HTML content - add preheader if provided
+  let htmlContent = options.htmlContent;
+  if (options.preheader) {
+    const preheaderHtml = `<div style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${options.preheader}</div>`;
+    htmlContent = htmlContent.replace(/(<body[^>]*>)/i, `$1${preheaderHtml}`);
+  }
+  
+  // Rewrite local image URLs if image hosting domain is configured
+  const imageHostingDomain = (mta as any).imageHostingDomain;
+  if (imageHostingDomain) {
+    htmlContent = rewriteImageUrls(htmlContent, imageHostingDomain);
+  }
+  
+  // Build mail options
+  const mailOptions: nodemailer.SendMailOptions = {
+    from: `${options.fromName} <${options.fromEmail}>`,
+    to: options.to,
+    subject: options.subject,
+    html: htmlContent,
+    headers: options.headers || {},
+  };
+  
+  // Attempt to send with retries
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`[TEST EMAIL] Sending via SMTP (${mta.hostname}:${mta.port}) to ${options.to}, attempt ${attempt}`);
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`[TEST EMAIL] Sent successfully, messageId: ${info.messageId}`);
+      return {
+        success: true,
+        messageId: info.messageId,
+      };
+    } catch (error: any) {
+      console.error(`[TEST EMAIL] SMTP error (attempt ${attempt}):`, error.message);
+      
+      // Check for transient errors that are worth retrying
+      const isTransient = 
+        error.code === "ECONNRESET" ||
+        error.code === "ETIMEDOUT" ||
+        error.code === "ECONNREFUSED" ||
+        error.responseCode === 421 ||
+        error.responseCode === 450 ||
+        error.responseCode === 451;
+      
+      if (isTransient && attempt < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+        continue;
+      }
+      
+      return {
+        success: false,
+        error: error.message || "SMTP send failed",
+      };
+    }
+  }
+  
+  return {
+    success: false,
+    error: "Max retries exceeded",
+  };
+}
