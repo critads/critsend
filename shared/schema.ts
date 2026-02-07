@@ -154,6 +154,7 @@ export const campaignSends = pgTable("campaign_sends", {
   // UNIQUE constraint ensures no email is sent twice per campaign per subscriber
   uniqueSend: uniqueIndex("campaign_sends_unique_idx").on(table.campaignId, table.subscriberId),
   campaignIdx: index("campaign_sends_campaign_idx").on(table.campaignId),
+  statusIdx: index("campaign_sends_status_idx").on(table.status),
 }));
 
 export const campaignSendsRelations = relations(campaignSends, ({ one }) => ({
@@ -182,7 +183,9 @@ export const importJobs = pgTable("import_jobs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => ({
+  statusCreatedIdx: index("import_jobs_status_created_idx").on(table.status, table.createdAt),
+}));
 
 // Dashboard cache
 export const dashboardCache = pgTable("dashboard_cache", {
@@ -213,6 +216,7 @@ export const campaignJobs = pgTable("campaign_jobs", {
   campaignIdx: index("campaign_jobs_campaign_idx").on(table.campaignId),
   statusIdx: index("campaign_jobs_status_idx").on(table.status),
   createdAtIdx: index("campaign_jobs_created_at_idx").on(table.createdAt),
+  statusCreatedIdx: index("campaign_jobs_status_created_idx").on(table.status, table.createdAt),
 }));
 
 export const campaignJobsRelations = relations(campaignJobs, ({ one }) => ({
@@ -321,6 +325,7 @@ export const pendingTagOperations = pgTable("pending_tag_operations", {
   statusIdx: index("pending_tag_ops_status_idx").on(table.status),
   createdAtIdx: index("pending_tag_ops_created_at_idx").on(table.createdAt),
   nextRetryIdx: index("pending_tag_ops_next_retry_idx").on(table.nextRetryAt),
+  statusRetryIdx: index("pending_tag_ops_status_retry_idx").on(table.status, table.nextRetryAt),
 }));
 
 export const pendingTagOperationsRelations = relations(pendingTagOperations, ({ one }) => ({

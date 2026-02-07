@@ -1,246 +1,53 @@
 # Critsend - Email Marketing Platform
 
-A powerful email marketing platform capable of managing multi-million email profiles with advanced segmentation, campaign management, and sending capabilities.
-
 ## Overview
 
-Critsend is a full-featured email marketing tool with:
-- Subscriber management with tag-based segmentation
-- CSV import/export with production-grade batch processing (5,000 rows per batch with 4 parallel workers, 1GB file limit via chunked upload)
-- Campaign creation wizard with WYSIWYG HTML editing
-- Multiple MTA (Mail Transfer Agent) configurations
-- Email tracking (opens/clicks)
-- Configurable sending speeds (500-3000 emails/min)
-- Unsubscribe handling with BCK blocklist tag
-- Complete REST API with documentation
+Critsend is an email marketing platform designed for managing and engaging with large subscriber bases. It offers advanced segmentation, campaign management, and robust email sending capabilities. The platform aims to provide a comprehensive solution for businesses needing to communicate effectively with multi-million email profiles. Its core capabilities include subscriber management with tag-based segmentation, CSV import/export, a campaign creation wizard with WYSIWYG editing, multiple Mail Transfer Agent (MTA) configurations, email tracking (opens/clicks), configurable sending speeds, unsubscribe handling, and a complete REST API.
 
-## Tech Stack
+## User Preferences
 
-- **Frontend**: React + TypeScript + Vite + TailwindCSS + Shadcn/UI
-- **Backend**: Express.js + TypeScript
-- **Database**: PostgreSQL with Drizzle ORM
-- **Routing**: Wouter (frontend)
-- **State Management**: TanStack Query
+I want iterative development.
+I prefer to be asked before making major changes.
+I prefer clear and concise explanations.
+I prefer high-quality code that is well-documented and maintainable.
+I prefer that you use a structured approach to problem-solving.
+I prefer that you break down complex tasks into smaller, manageable steps.
+Do not make changes to the `design_guidelines.md` file.
 
-## Project Structure
+## System Architecture
 
-```
-├── client/src/
-│   ├── components/         # UI components (shadcn, app-sidebar, theme)
-│   ├── pages/              # Page components
-│   │   ├── dashboard.tsx   # Main dashboard with stats
-│   │   ├── subscribers.tsx # Subscriber management with pagination
-│   │   ├── segments.tsx    # Segment builder with rules
-│   │   ├── mtas.tsx        # MTA configuration
-│   │   ├── campaigns.tsx   # Campaign listing
-│   │   ├── campaign-new.tsx # 6-step campaign wizard
-│   │   ├── import.tsx      # CSV import with drag-drop
-│   │   ├── export.tsx      # Export subscribers
-│   │   ├── analytics.tsx   # Detailed campaign metrics
-│   │   ├── headers.tsx     # Email headers management
-│   │   └── api-docs.tsx    # API documentation
-│   ├── lib/                # Query client and utilities
-│   └── App.tsx             # Main app with routing
-├── server/
-│   ├── index.ts            # Express server entry
-│   ├── routes.ts           # All API endpoints
-│   ├── storage.ts          # Database storage layer
-│   └── db.ts               # Drizzle database connection
-├── shared/
-│   └── schema.ts           # Database schema + types + Zod schemas
-└── design_guidelines.md    # UI design guidelines
-```
+The Critsend platform is built with a modern web stack. The frontend utilizes React with TypeScript, Vite, TailwindCSS, and Shadcn/UI for a responsive and modern user experience. Wouter handles client-side routing, and TanStack Query manages state. The backend is an Express.js application written in TypeScript, providing a comprehensive REST API. Data persistence is managed by PostgreSQL with Drizzle ORM.
 
-## Database Schema
+**Key Architectural Decisions & Features:**
 
-- **subscribers**: Email list with tags array, optimized for millions of records
-- **segments**: Rule-based filtering with AND/OR logic
-- **mtas**: SMTP server configurations
-- **campaigns**: Email campaigns with tracking settings
-- **campaignStats**: Opens, clicks, and link tracking
-- **importJobs**: CSV import job tracking
-- **emailHeaders**: Custom X-headers for emails
+*   **UI/UX:** Inspired by Material Design 3, featuring a clean aesthetic, dark/light mode, mobile responsiveness, and a card-based layout. It uses Inter for primary text and JetBrains Mono for code.
+*   **Data Management:**
+    *   **Subscriber Segmentation:** Rule-based filtering on tags, email, date_added, and IP address with nested group support. Utilizes PostgreSQL's GIN index for tags and `pg_trgm` for email fields to ensure high performance.
+    *   **Database Schema:** Optimized for large datasets, including tables for `subscribers`, `segments`, `mtas`, `campaigns`, `campaignStats`, `importJobs`, and `emailHeaders`.
+    *   **BCK Tag:** A special "BCK" tag automatically blocklists unsubscribed users from all campaigns.
+*   **Email Sending:**
+    *   **Configurable Sending Speeds:** Supports various speeds from 500 to 3,000 emails/minute.
+    *   **MTA Management:** Allows configuration of multiple SMTP servers using Nodemailer for sending.
+    *   **Tracking:** Implements open tracking (1x1 pixel) and click tracking (redirects) with optional tagging.
+    *   **Nullsink SMTP Server:** An internal SMTP server (port 2525) for testing campaigns without live sending, featuring configurable latency and failure injection.
+*   **Job Processing & Scalability:**
+    *   **PostgreSQL-Backed Job Queues:** Uses `campaign_jobs` and `import_job_queue` tables with `FOR UPDATE SKIP LOCKED` for concurrent and race-condition-free processing, enabling horizontal scaling and crash recovery.
+    *   **Chunked File Uploads:** Supports large CSV files (up to 1GB) via chunked uploads, streamed directly to object storage.
+    *   **Parallel Batch Processing:** CSV imports process 5,000-row batches with 4 concurrent workers for high throughput, utilizing bulk upserts with `ON CONFLICT` for efficiency.
+    *   **Reliable Tag Queue:** Asynchronously processes tag additions from tracking events using a `pending_tag_operations` table with retry logic and exponential backoff to ensure guaranteed delivery.
+    *   **Background Deletion:** Subscriber deletion is handled by a background flush job processing 10,000 subscribers per batch with progress tracking and cancellation support.
+*   **Security & Integrity:**
+    *   **Concurrency Control:** Employs `FOR UPDATE SKIP LOCKED`, atomic counter updates, `ON CONFLICT DO NOTHING`, and optimistic locking for campaign status to ensure data integrity during concurrent operations.
+    *   **Tracking URL Security:** HMAC-SHA256 signed URLs with timing-safe comparison to prevent tampering.
+    *   **Rate Limiting:** Implements API rate limiting for different endpoints to prevent abuse.
+    *   **HTML Sanitization:** Sanitizes campaign HTML content using `sanitize-html` to prevent script injection.
+    *   **Session Management:** Uses `connect-pg-simple` for persistent, secure PostgreSQL-backed sessions.
 
-## Key Features
+## External Dependencies
 
-### BCK Tag (Blocklist)
-Subscribers with the "BCK" tag are automatically excluded from all campaigns. This tag is added when someone unsubscribes.
-
-### Sending Speeds
-- Slow: 500 emails/min
-- Medium: 1,000 emails/min
-- Fast: 2,000 emails/min
-- Godzilla: 3,000 emails/min
-
-### Segment Rules
-Rules filter subscribers based on multiple fields with nested group support:
-- **Fields**: tags, email, date_added (subscription date), ip_address
-- **Tag operators**: contains, not_contains, equals (GIN-indexed via @>), not_equals
-- **Email operators**: contains, not_contains, equals, not_equals, starts_with, ends_with (trigram-indexed)
-- **Date operators**: before, after, between (with dual date pickers)
-- **IP operators**: equals, not_equals, starts_with, contains
-- **Logic**: AND, OR between rules
-- **Nested Groups**: Rule groups with internal combinator (Match ALL/Match ANY) for complex logic like (A OR B) AND (C OR D)
-- **Performance**: Segment count caching (60s TTL), pg_trgm index on email, GIN index on tags
-- **Validation**: Zod schema validates both flat rules and group structures via segmentRulesArraySchema
-
-### Tracking
-- Open tracking via 1x1 transparent pixel
-- Click tracking via redirect links
-- Optional tagging on open/click/unsubscribe
-
-## API Endpoints
-
-See `/api-docs` in the application for complete API documentation.
-
-### Main Endpoints
-- `GET/POST /api/subscribers` - List/create subscribers
-- `GET/POST /api/segments` - List/create segments
-- `GET/POST /api/mtas` - List/create MTAs
-- `GET/POST /api/campaigns` - List/create campaigns
-- `POST /api/import` - Upload CSV file
-- `GET /api/export` - Download subscribers as CSV
-- `GET /api/dashboard/stats` - Dashboard statistics
-- `GET /api/analytics/*` - Analytics data
-
-### Tracking Endpoints
-- `GET /api/track/open/:campaignId/:subscriberId` - Track email opens
-- `GET /api/track/click/:campaignId/:subscriberId` - Track link clicks
-- `GET /api/unsubscribe/:campaignId/:subscriberId` - Handle unsubscribes
-
-## Design Choices
-
-- Material Design 3 inspired with clean, modern look
-- Dark/light mode support
-- Mobile responsive design
-- Font: Inter (primary), JetBrains Mono (code/technical)
-- Primary color: Blue for action elements
-- Card-based layout for organization
-
-## Development Commands
-
-```bash
-npm run dev          # Start development server
-npm run db:push      # Push schema to database
-npm run build        # Build for production
-```
-
-## Production Architecture
-
-### PostgreSQL-Backed Job Queues
-- **Campaign Jobs**: `campaign_jobs` table with `FOR UPDATE SKIP LOCKED` for race-condition-free multi-worker processing
-- **Import Jobs**: `import_job_queue` table for background CSV processing with file-based storage
-- **Crash Recovery**: Stale jobs automatically recovered (2min heartbeat timeout for imports, 30min for campaigns)
-- **Horizontal Scaling**: Multiple workers can safely claim jobs using row-level locking
-
-### Chunked File Upload System
-- **Large File Support**: Files >25MB automatically use chunked upload (25MB chunks) to bypass platform request size limits
-- **Maximum File Size**: Supports files up to 1GB total size
-- **Streaming Assembly**: Chunks are streamed directly to output file during assembly, avoiding memory spikes
-- **Progress Tracking**: Real-time upload progress shown in UI as chunks are sent
-- **Validation**: Chunk index bounds validation prevents disk abuse; missing chunk detection before assembly
-- **Error Recovery**: Automatic cleanup of temp files and remaining chunks on failure
-- **Upload Sessions**: 1-hour auto-expiry for abandoned upload sessions
-
-### Persistent Object Storage for CSV Files
-- **Replit App Storage**: CSV files stored in Google Cloud Storage-backed object storage (`/objects/imports/{job_id}.csv`)
-- **Survives Deployments**: Files persist across redeployments, unlike local filesystem storage
-- **Streaming Uploads**: Files assembled locally from chunks, then streamed to object storage
-- **Streaming Downloads**: Import processor reads files directly from object storage as a stream (memory efficient)
-- **Backwards Compatibility**: Legacy local filesystem paths still supported for in-progress imports
-- **Automatic Cleanup**: CSV files deleted from object storage after successful processing
-
-### Production-Grade CSV Import Processing
-- **Parallel Batch Processing**: 5,000-row batches with 4 concurrent workers for ~10x faster imports
-- **Non-Blocking Progress**: Timer-based progress updates every 2 seconds (doesn't slow parsing)
-- **Backpressure Control**: Reading pauses when 8+ batches pending, resumes after processing
-- **Heartbeat Mechanism**: Workers update heartbeat every 30 seconds; jobs with no heartbeat for 2 minutes are recovered
-- **Bulk Upserts**: PostgreSQL `ON CONFLICT` with tag array merging for high throughput
-- **Progress Tracking**: Real-time `processed_rows` / `total_rows` with speed (rows/min) and ETA display
-- **startedAt Tracking**: Accurate ETA calculation based on actual processing start time
-
-### Real SMTP Email Sending
-- **Nodemailer**: Connection pooling (5 connections, 100 messages per connection)
-- **Retry Logic**: 3 retries with exponential backoff for transient errors
-- **TLS Security**: Certificate validation enabled by default (override with `SMTP_SKIP_TLS_VERIFY=true`)
-- **Tracking Injection**: Automatic open pixel and click tracking URL rewriting
-
-### Nullsink SMTP Testing Server
-- **Built-in Test MTA**: Internal SMTP server (port 2525) for testing campaigns without sending real emails
-- **MTA Mode Field**: MTAs can be set to "real" or "nullsink" mode
-- **Configurable Latency**: Simulate network delays (0-5000ms) for realistic throughput testing
-- **Failure Injection**: Configurable failure rate (0-100%) for stress testing error handling
-- **Capture Storage**: All test emails stored in `nullsink_captures` table with timing metrics
-- **Test Metrics Dashboard**: Real-time throughput stats, emails/second, average latency
-- **Race-Condition Safe**: Per-send latency/failure simulation prevents config clobber between concurrent campaigns
-
-### Session Management
-- **PostgreSQL Sessions**: Using `connect-pg-simple` for persistent sessions
-- **Secure Cookies**: Production-grade cookie settings with 30-day expiry
-
-### Tracking Security
-- **HMAC-SHA256 Signed URLs**: All tracking URLs are cryptographically signed
-- **Timing-Safe Comparison**: Prevents timing attacks on signature verification
-- **Required Secrets**: Application fails fast if `TRACKING_SECRET` or `SESSION_SECRET` missing
-
-### Reliable Tag Queue System
-- **Fire-and-Forget Tracking**: Tracking endpoints return immediately (1x1 pixel or redirect), queueing tag operations asynchronously
-- **Guaranteed Delivery**: `pending_tag_operations` table stores pending tag additions with retry logic
-- **Background Worker**: Processes tag queue every 500ms with atomic PostgreSQL operations
-- **Exponential Backoff**: Failed operations retry with delays of 1s, 2s, 4s, 8s, 16s (max 5 retries)
-- **Automatic Cleanup**: Successfully processed operations removed; failed operations kept for debugging
-- **Monitoring Endpoint**: `GET /api/tag-queue/stats` returns pending/processing/completed/failed counts
-
-### Subscriber Flush Job System
-- **Background Deletion**: `DELETE /api/subscribers` starts a background job instead of immediate deletion (returns 202 with jobId)
-- **Batch Processing**: Deletes 10,000 subscribers per batch with 50ms delay between batches to prevent database overload
-- **Progress Tracking**: `GET /api/subscribers/flush/:id` returns real-time progress (processedRows, totalRows, status)
-- **Cancellation Support**: `POST /api/subscribers/flush/:id/cancel` stops the job mid-process
-- **UI Progress Bar**: Frontend shows real-time deletion progress with ability to cancel
-
-### Health & Monitoring
-- `GET /api/health` - Database connection status and uptime
-- `GET /api/health/ready` - Readiness probe for orchestration
-- `GET /api/metrics` - Campaign/subscriber/tracking metrics
-- `GET /api/tag-queue/stats` - Tag queue processing statistics
-
-## Concurrency & Data Integrity
-
-The campaign sending system implements production-grade safeguards:
-
-### Race Condition Prevention
-- **Job Queue Serialization**: Campaigns are processed through PostgreSQL-backed job queue with `FOR UPDATE SKIP LOCKED` for multi-worker safety
-- **Atomic Counter Updates**: Uses SQL `SET sent_count = sent_count + 1` instead of read-then-write to prevent lost updates
-- **ON CONFLICT DO NOTHING**: campaign_sends table uses PostgreSQL's upsert pattern to atomically prevent duplicate sends
-- **Optimistic Locking**: Campaign status updates use expected status checks to prevent concurrent state changes
-
-### Database Integrity
-- **Unique Index**: `campaign_sends` has a unique constraint on `(campaign_id, subscriber_id)` enforced at database level
-- **GIN Index**: `subscribers.tags` uses a GIN index for fast array containment queries
-- **Single Transaction**: `recordSendAndUpdateCounters()` combines insert + counter updates in a single SQL CTE for atomicity
-
-### Key Storage Methods
-- `reserveSendSlot()` - Phase 1: Insert 'pending' record BEFORE SMTP attempt (prevents duplicates)
-- `finalizeSend()` - Phase 2: Update to 'sent'/'failed' and adjust counters AFTER SMTP result
-- `recordSendAndUpdateCounters()` - Combined method (deprecated, uses two-phase internally)
-- `updateCampaignStatusAtomic()` - Status changes with optimistic locking
-- `incrementCampaignSentCount()` / `incrementCampaignFailedCount()` - Thread-safe counter updates
-- `recoverOrphanedPendingSends()` - Cleanup stale pending rows (called at campaign start)
-- `forceFailPendingSend()` - Reconciliation for individual invariant violations
-
-## Environment Variables
-
-### Required
-- `DATABASE_URL` - PostgreSQL connection string
-- `SESSION_SECRET` - Secret for session signing (min 32 chars recommended)
-
-### Optional
-- `TRACKING_SECRET` - Separate secret for tracking URL signing (defaults to SESSION_SECRET)
-- `SMTP_SKIP_TLS_VERIFY` - Set to "true" to disable TLS certificate validation (development only)
-
-## Notes
-
-- Import processing uses 20,000 row batches to prevent memory issues
-- Campaign sending uses PostgreSQL-backed job queue for distributed processing
-- PostgreSQL GIN index on tags array for fast segment filtering
-- BCK tag always excludes subscribers from receiving newsletters
+*   **Database:** PostgreSQL
+*   **Frontend Frameworks/Libraries:** React, TypeScript, Vite, TailwindCSS, Shadcn/UI, Wouter, TanStack Query
+*   **Backend Frameworks/Libraries:** Express.js, TypeScript, Drizzle ORM
+*   **Email Sending:** Nodemailer
+*   **Security/Utilities:** `sanitize-html`, `connect-pg-simple`
+*   **Object Storage:** Replit App Storage (backed by Google Cloud Storage for CSV files)

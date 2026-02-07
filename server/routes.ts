@@ -26,6 +26,8 @@ import * as http from "http";
 import * as dns from "dns";
 import { promisify } from "util";
 import { ObjectStorageService } from "./replit_integrations/object_storage";
+import rateLimit from "express-rate-limit";
+import sanitizeHtml from "sanitize-html";
 
 const dnsLookup = promisify(dns.lookup);
 
@@ -288,10 +290,73 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 50);
 }
 
+function sanitizeCampaignHtml(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+      'img', 'style', 'head', 'html', 'body', 'meta', 'title',
+      'center', 'font', 'span', 'div', 'table', 'tr', 'td', 'th',
+      'thead', 'tbody', 'tfoot', 'caption', 'colgroup', 'col',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'br', 'p',
+      'a', 'b', 'i', 'u', 'em', 'strong', 'sup', 'sub',
+      'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+    ]),
+    allowedAttributes: {
+      '*': ['style', 'class', 'id', 'dir', 'lang', 'align', 'valign', 'bgcolor', 'background', 'width', 'height', 'border', 'cellpadding', 'cellspacing'],
+      'a': ['href', 'target', 'rel', 'title', 'name'],
+      'img': ['src', 'alt', 'title', 'width', 'height'],
+      'td': ['colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'bgcolor', 'style'],
+      'th': ['colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'bgcolor', 'style'],
+      'table': ['width', 'height', 'border', 'cellpadding', 'cellspacing', 'align', 'bgcolor', 'style'],
+      'font': ['color', 'size', 'face'],
+      'meta': ['charset', 'name', 'content', 'http-equiv'],
+    },
+    allowedSchemes: ['http', 'https', 'mailto', 'data'],
+    allowedSchemesByTag: {
+      img: ['http', 'https', 'data'],
+    },
+    allowVulnerableTags: false,
+  });
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const generalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later" },
+  });
+  app.use("/api/", generalLimiter);
+
+  const importLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many import requests, please try again later" },
+  });
+  app.use("/api/import", importLimiter);
+
+  const campaignLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many campaign requests, please try again later" },
+  });
+
+  const trackingLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use("/api/track/", trackingLimiter);
+  app.use("/api/unsubscribe/", trackingLimiter);
+
   // Serve static images from /images folder
   app.use("/images", express.static(IMAGES_DIR));
   
@@ -320,6 +385,22 @@ export async function registerRoutes(
       
       const memUsage = process.memoryUsage();
       
+      let queueDepths: any = {};
+      try {
+        const [campaignQueue, importQueue, tagQueue] = await Promise.all([
+          pool.query("SELECT COUNT(*) as count FROM campaign_jobs WHERE status IN ('pending', 'processing')"),
+          pool.query("SELECT COUNT(*) as count FROM import_job_queue WHERE status IN ('pending', 'processing')"),
+          pool.query("SELECT COUNT(*) as count FROM pending_tag_operations WHERE status IN ('pending', 'processing')"),
+        ]);
+        queueDepths = {
+          campaignJobs: parseInt(campaignQueue.rows[0]?.count || '0'),
+          importJobs: parseInt(importQueue.rows[0]?.count || '0'),
+          pendingTags: parseInt(tagQueue.rows[0]?.count || '0'),
+        };
+      } catch (queueErr) {
+        queueDepths = { error: "Failed to query queue depths" };
+      }
+
       res.json({
         status: "healthy",
         timestamp: new Date().toISOString(),
@@ -334,6 +415,13 @@ export async function registerRoutes(
           heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
           rssMB: Math.round(memUsage.rss / 1024 / 1024),
         },
+        workers: {
+          jobProcessor: !!jobPollingInterval,
+          importProcessor: !!importJobPollingInterval,
+          tagQueueWorker: !!tagQueueInterval,
+          flushProcessor: !!flushJobPollingInterval,
+        },
+        queues: queueDepths,
         version: "1.0.0"
       });
     } catch (error) {
@@ -1145,7 +1233,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/campaigns", async (req: Request, res: Response) => {
+  app.post("/api/campaigns", campaignLimiter, async (req: Request, res: Response) => {
     try {
       console.log("POST /api/campaigns - Body:", JSON.stringify(req.body));
       
@@ -1157,6 +1245,9 @@ export async function registerRoutes(
       };
       
       const data = insertCampaignSchema.parse(normalizedBody);
+      if (data.htmlContent) {
+        data.htmlContent = sanitizeCampaignHtml(data.htmlContent);
+      }
       const campaign = await storage.createCampaign(data);
       
       // If status is sending, start the sending process
@@ -1196,6 +1287,9 @@ export async function registerRoutes(
       }
       if ('segmentId' in normalizedBody && !normalizedBody.segmentId) {
         normalizedBody.segmentId = null;
+      }
+      if (normalizedBody.htmlContent) {
+        normalizedBody.htmlContent = sanitizeCampaignHtml(normalizedBody.htmlContent);
       }
       
       const campaign = await storage.updateCampaign(req.params.id, normalizedBody);
@@ -1854,34 +1948,58 @@ export async function registerRoutes(
     try {
       const fields = (req.query.fields as string)?.split(",") || ["email", "tags", "ipAddress", "importDate"];
       
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename=critsend-export-${new Date().toISOString().split("T")[0]}.csv`);
+      res.setHeader("Transfer-Encoding", "chunked");
+      
+      // Write header row
+      res.write(fields.join(",") + "\n");
+      
       let page = 1;
       const limit = 10000;
-      let csvContent = fields.join(",") + "\n";
       
       while (true) {
         const { subscribers: subs, total } = await storage.getSubscribers(page, limit);
         
+        // Build and write chunk for this page
+        let chunk = "";
         for (const sub of subs) {
           const row = fields.map(field => {
-            if (field === "email") return sub.email;
-            if (field === "tags") return (sub.tags || []).join(";");
-            if (field === "ipAddress") return sub.ipAddress || "";
-            if (field === "importDate") return sub.importDate.toISOString();
-            return "";
+            let val = "";
+            if (field === "email") val = sub.email;
+            else if (field === "tags") val = (sub.tags || []).join(";");
+            else if (field === "ipAddress") val = sub.ipAddress || "";
+            else if (field === "importDate") val = sub.importDate.toISOString();
+            if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+              return '"' + val.replace(/"/g, '""') + '"';
+            }
+            return val;
           });
-          csvContent += row.join(",") + "\n";
+          chunk += row.join(",") + "\n";
         }
         
-        if (page * limit >= total) break;
+        // Write this page's data and flush
+        if (chunk) {
+          const canContinue = res.write(chunk);
+          // Handle backpressure - wait for drain if buffer is full
+          if (!canContinue) {
+            await new Promise<void>(resolve => res.once("drain", resolve));
+          }
+        }
+        
+        if (page * limit >= total || subs.length === 0) break;
         page++;
       }
       
-      res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", `attachment; filename=critsend-export-${new Date().toISOString().split("T")[0]}.csv`);
-      res.send(csvContent);
+      res.end();
     } catch (error) {
       console.error("Error exporting:", error);
-      res.status(500).json({ error: "Failed to export" });
+      // Only send error if headers haven't been sent yet
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to export" });
+      } else {
+        res.end();
+      }
     }
   });
 

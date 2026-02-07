@@ -25,8 +25,7 @@ export function signTrackingUrl(
   const signature = crypto
     .createHmac("sha256", TRACKING_SECRET)
     .update(payload)
-    .digest("hex")
-    .substring(0, 16);
+    .digest("hex");
   
   return signature;
 }
