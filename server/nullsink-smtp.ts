@@ -1,5 +1,6 @@
 import { SMTPServer, SMTPServerSession, SMTPServerDataStream } from "smtp-server";
 import { EventEmitter } from "events";
+import { logger } from "./logger";
 
 export interface NullsinkConfig {
   port: number;
@@ -69,7 +70,7 @@ class NullsinkSMTPServer extends EventEmitter {
         disabledCommands: ["STARTTLS"],
         
         onConnect: (session: SMTPServerSession, callback: (err?: Error) => void) => {
-          console.log(`[NULLSINK] Connection from ${session.remoteAddress}`);
+          logger.info('NULLSINK connection received', { remoteAddress: session.remoteAddress });
           callback();
         },
 
@@ -164,12 +165,12 @@ class NullsinkSMTPServer extends EventEmitter {
       });
 
       this.server.on("error", (err) => {
-        console.error("[NULLSINK] Server error:", err);
+        logger.error('NULLSINK server error', { error: String(err) });
         this.emit("error", err);
       });
 
       this.server.listen(this.config.port, "0.0.0.0", () => {
-        console.log(`[NULLSINK] SMTP server listening on port ${this.config.port}`);
+        logger.info('NULLSINK SMTP server listening', { port: this.config.port });
         this.metrics.startTime = new Date();
         this.metrics.isRunning = true;
         this.emit("started");
@@ -186,7 +187,7 @@ class NullsinkSMTPServer extends EventEmitter {
       }
       
       this.server.close(() => {
-        console.log("[NULLSINK] SMTP server stopped");
+        logger.info('NULLSINK SMTP server stopped');
         this.server = null;
         this.metrics.isRunning = false;
         this.emit("stopped");
@@ -197,7 +198,7 @@ class NullsinkSMTPServer extends EventEmitter {
 
   updateConfig(config: Partial<NullsinkConfig>): void {
     this.config = { ...this.config, ...config };
-    console.log(`[NULLSINK] Config updated: latency=${this.config.simulatedLatencyMs}ms, failureRate=${this.config.failureRate}%`);
+    logger.info('NULLSINK config updated', { latency: this.config.simulatedLatencyMs, failureRate: this.config.failureRate });
   }
 
   resetMetrics(): void {
@@ -212,7 +213,7 @@ class NullsinkSMTPServer extends EventEmitter {
     };
     this.totalTimeMs = 0;
     this.captures = [];
-    console.log("[NULLSINK] Metrics reset");
+    logger.info('NULLSINK metrics reset');
   }
 
   getMetrics(): NullsinkMetrics {

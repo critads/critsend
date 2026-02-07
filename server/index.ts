@@ -26,6 +26,7 @@ async function gracefulShutdown(signal: string) {
   logger.info(`Received ${signal}, starting graceful shutdown...`, { signal });
   
   const SHUTDOWN_TIMEOUT = 15000;
+  const CONNECTION_DRAIN_TIMEOUT = 5000;
   
   const forceExitTimer = setTimeout(() => {
     logger.error('Graceful shutdown timed out, forcing exit');
@@ -34,21 +35,23 @@ async function gracefulShutdown(signal: string) {
   forceExitTimer.unref();
   
   try {
-    await new Promise<void>((resolve) => {
-      httpServer.close((err) => {
-        if (err) {
-          logger.error('Error closing HTTP server', { error: String(err) });
-        } else {
-          logger.info('HTTP server closed - no new connections');
-        }
-        resolve();
-      });
+    httpServer.close((err) => {
+      if (err) {
+        logger.error('Error closing HTTP server', { error: String(err) });
+      } else {
+        logger.info('HTTP server closed - no new connections');
+      }
     });
+    
+    setTimeout(() => {
+      logger.info('Destroying remaining keep-alive connections');
+      httpServer.closeAllConnections();
+    }, CONNECTION_DRAIN_TIMEOUT);
     
     stopAllBackgroundWorkers();
     logger.info('Background workers stopped');
     
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     const { pool } = await import("./db");
     await pool.end();
@@ -110,7 +113,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   req.setTimeout(timeout);
   res.setTimeout(timeout, () => {
     if (!res.headersSent) {
-      console.error(`[TIMEOUT] Request timed out: ${req.method} ${req.path} after ${timeout}ms`);
+      logger.error('Request timed out', { method: req.method, path: req.path, timeout });
       res.status(408).json({ error: "Request timed out" });
     }
   });
@@ -155,21 +158,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     return next();
   }
   const csrfToken = req.headers['x-csrf-token'] as string;
-  if (!csrfToken || csrfToken !== req.session.csrfToken) {
+  const sessionToken = req.session.csrfToken;
+  if (!csrfToken || !sessionToken || csrfToken.length !== sessionToken.length || !crypto.timingSafeEqual(Buffer.from(csrfToken), Buffer.from(sessionToken))) {
     return res.status(403).json({ error: 'Invalid CSRF token' });
   }
   next();
 });
 
 export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
+  logger.debug(message, { source });
 }
 
 app.use((req, res, next) => {
@@ -206,10 +203,11 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
+    const message = status >= 500 ? "Internal Server Error" : (err.message || "Internal Server Error");
+    logger.error('Unhandled route error', { status, error: err.message, stack: err.stack });
+    if (!res.headersSent) {
+      res.status(status).json({ error: message });
+    }
   });
 
   // importantly only setup vite in development and after

@@ -7,6 +7,7 @@ import {
   generateSignedUnsubscribeUrl,
 } from "./tracking";
 import { getNullsinkServer } from "./nullsink-smtp";
+import { logger } from "./logger";
 
 const transporterPool: Map<string, Transporter> = new Map();
 
@@ -253,7 +254,7 @@ export async function sendEmail(
       const isRetryable = isTransientError(error);
       
       if (!isRetryable || attempt === MAX_RETRIES) {
-        console.error(`Email send failed to ${subscriber.email} (attempt ${attempt}/${MAX_RETRIES}):`, error.message);
+        logger.error('Email send failed', { email: subscriber.email, attempt, maxRetries: MAX_RETRIES, errorMessage: error.message });
         return {
           success: false,
           error: error.message || "Unknown error",
@@ -261,7 +262,7 @@ export async function sendEmail(
         };
       }
 
-      console.warn(`Retrying email to ${subscriber.email} (attempt ${attempt}/${MAX_RETRIES}): ${error.message}`);
+      logger.warn('Retrying email send', { email: subscriber.email, attempt, maxRetries: MAX_RETRIES, errorMessage: error.message });
       await sleep(RETRY_DELAY_MS * attempt);
     }
   }
@@ -348,15 +349,15 @@ export async function sendEmailWithNullsink(
   trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">,
   customHeaders?: Record<string, string>
 ): Promise<NullsinkSendResult> {
-  console.log(`[NULLSINK] sendEmailWithNullsink called, mta.mode = "${(mta as any).mode}"`);
+  logger.info('sendEmailWithNullsink called', { mode: (mta as any).mode });
   
   // If MTA is in real mode, use normal sending
   if ((mta as any).mode !== "nullsink") {
-    console.log(`[NULLSINK] Using real sendEmail because mode is not "nullsink"`);
+    logger.info('Using real sendEmail because mode is not nullsink');
     return sendEmail(mta, subscriber, campaign, trackingOptions, customHeaders);
   }
   
-  console.log(`[NULLSINK] Using nullsink path`);
+  logger.info('Using nullsink path');
 
   // Nullsink mode - simulate sending
   const startTime = Date.now();
@@ -522,7 +523,7 @@ export async function sendTestEmailViaSMTP(
 ): Promise<SendEmailResult> {
   // If MTA is in nullsink mode, just simulate success
   if ((mta as any).mode === "nullsink") {
-    console.log(`[TEST EMAIL] Nullsink mode - simulating successful send to ${options.to}`);
+    logger.info('Nullsink mode - simulating successful send', { to: options.to });
     return {
       success: true,
       messageId: `nullsink-test-${Date.now()}@local`,
@@ -557,15 +558,15 @@ export async function sendTestEmailViaSMTP(
   // Attempt to send with retries
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`[TEST EMAIL] Sending via SMTP (${mta.hostname}:${mta.port}) to ${options.to}, attempt ${attempt}`);
+      logger.info('Sending via SMTP', { hostname: mta.hostname, port: mta.port, to: options.to, attempt });
       const info = await transporter.sendMail(mailOptions);
-      console.log(`[TEST EMAIL] Sent successfully, messageId: ${info.messageId}`);
+      logger.info('Sent successfully', { messageId: info.messageId });
       return {
         success: true,
         messageId: info.messageId,
       };
     } catch (error: any) {
-      console.error(`[TEST EMAIL] SMTP error (attempt ${attempt}):`, error.message);
+      logger.error('SMTP error', { attempt, errorMessage: error.message });
       
       // Check for transient errors that are worth retrying
       const isTransient = 

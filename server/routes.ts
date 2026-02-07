@@ -26,7 +26,9 @@ import * as http from "http";
 import * as dns from "dns";
 import { promisify } from "util";
 import { ObjectStorageService } from "./replit_integrations/object_storage";
+import crypto from "crypto";
 import rateLimit from "express-rate-limit";
+import { logger } from "./logger";
 import sanitizeHtml from "sanitize-html";
 
 const dnsLookup = promisify(dns.lookup);
@@ -84,11 +86,11 @@ function cleanupOrphanedTempSessions(): void {
           fs.unlinkSync(path.join(entryPath, file));
         }
         fs.rmdirSync(entryPath);
-        console.log(`Cleaned up orphaned temp session: ${entry}`);
+        logger.info(`Cleaned up orphaned temp session: ${entry}`);
       }
     }
   } catch (error) {
-    console.error("Error cleaning up temp sessions:", error);
+    logger.error("Error cleaning up temp sessions:", error);
   }
 }
 
@@ -127,7 +129,7 @@ function isBlockedHost(hostname: string): boolean {
 
 async function downloadImage(url: string, destPath: string, redirectCount = 0): Promise<boolean> {
   if (redirectCount > 3) {
-    console.log(`[Image download] Failed: ${url} - too many redirects`);
+    logger.info(`[Image download] Failed: ${url} - too many redirects`);
     return false;
   }
   
@@ -138,12 +140,12 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
     urlObj = new URL(url);
     
     if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
-      console.log(`[Image download] Failed: ${url} - invalid protocol`);
+      logger.info(`[Image download] Failed: ${url} - invalid protocol`);
       return false;
     }
     
     if (isBlockedHost(urlObj.hostname)) {
-      console.log(`[Image download] Failed: ${url} - blocked host`);
+      logger.info(`[Image download] Failed: ${url} - blocked host`);
       return false;
     }
     
@@ -151,11 +153,11 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
     resolvedIP = result.address;
     
     if (isBlockedIP(resolvedIP)) {
-      console.log(`[Image download] Failed: ${url} - blocked IP ${resolvedIP}`);
+      logger.info(`[Image download] Failed: ${url} - blocked IP ${resolvedIP}`);
       return false;
     }
   } catch (error) {
-    console.log(`[Image download] Failed: ${url} - DNS/URL error: ${error}`);
+    logger.info(`[Image download] Failed: ${url} - DNS/URL error: ${error}`);
     return false;
   }
   
@@ -221,7 +223,7 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
       }
       
       if (response.statusCode !== 200) {
-        console.log(`[Image download] Failed: ${url} - HTTP ${response.statusCode}`);
+        logger.info(`[Image download] Failed: ${url} - HTTP ${response.statusCode}`);
         resolve(false);
         return;
       }
@@ -259,12 +261,12 @@ async function downloadImage(url: string, destPath: string, redirectCount = 0): 
     });
     
     request.on("error", (err) => {
-      console.log(`[Image download] Failed: ${url} - network error: ${err.message}`);
+      logger.info(`[Image download] Failed: ${url} - network error: ${err.message}`);
       resolve(false);
     });
     
     request.on("timeout", () => {
-      console.log(`[Image download] Failed: ${url} - timeout`);
+      logger.info(`[Image download] Failed: ${url} - timeout`);
       request.destroy();
       resolve(false);
     });
@@ -666,7 +668,7 @@ export async function registerRoutes(
         importJobs: importJobs.rows
       });
     } catch (error) {
-      console.error("Error fetching import queue debug info:", error);
+      logger.error("Error fetching import queue debug info:", error);
       res.status(500).json({ error: "Failed to fetch debug info" });
     }
   });
@@ -682,7 +684,7 @@ export async function registerRoutes(
           : "No stuck jobs found to recover"
       });
     } catch (error) {
-      console.error("Error recovering stuck imports:", error);
+      logger.error("Error recovering stuck imports:", error);
       res.status(500).json({ error: "Failed to recover stuck imports" });
     }
   });
@@ -710,7 +712,7 @@ export async function registerRoutes(
       
       res.json(result.rows[0]);
     } catch (error) {
-      console.error("Error fetching queue details:", error);
+      logger.error("Error fetching queue details:", error);
       res.status(500).json({ error: "Failed to fetch queue details" });
     }
   });
@@ -729,7 +731,7 @@ export async function registerRoutes(
         totalPages: Math.ceil(result.total / limit),
       });
     } catch (error) {
-      console.error("Error fetching subscribers:", error);
+      logger.error("Error fetching subscribers:", error);
       res.status(500).json({ error: "Failed to fetch subscribers" });
     }
   });
@@ -745,7 +747,7 @@ export async function registerRoutes(
       }
       res.json(subscriber);
     } catch (error) {
-      console.error("Error fetching subscriber:", error);
+      logger.error("Error fetching subscriber:", error);
       res.status(500).json({ error: "Failed to fetch subscriber" });
     }
   });
@@ -771,7 +773,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating subscriber:", error);
+      logger.error("Error creating subscriber:", error);
       res.status(500).json({ error: "Failed to create subscriber" });
     }
   });
@@ -793,7 +795,7 @@ export async function registerRoutes(
       }
       res.json(subscriber);
     } catch (error) {
-      console.error("Error updating subscriber:", error);
+      logger.error("Error updating subscriber:", error);
       res.status(500).json({ error: "Failed to update subscriber" });
     }
   });
@@ -806,7 +808,7 @@ export async function registerRoutes(
       await storage.deleteSubscriber(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting subscriber:", error);
+      logger.error("Error deleting subscriber:", error);
       res.status(500).json({ error: "Failed to delete subscriber" });
     }
   });
@@ -820,7 +822,7 @@ export async function registerRoutes(
       const job = await storage.createFlushJob(totalRows);
       res.status(202).json({ jobId: job.id, totalRows: job.totalRows, message: "Deletion started in background" });
     } catch (error) {
-      console.error("Error starting subscriber deletion:", error);
+      logger.error("Error starting subscriber deletion:", error);
       res.status(500).json({ error: "Failed to start subscriber deletion" });
     }
   });
@@ -835,7 +837,7 @@ export async function registerRoutes(
       const job = await storage.createFlushJob(totalRows);
       res.status(201).json(job);
     } catch (error) {
-      console.error("Error creating flush job:", error);
+      logger.error("Error creating flush job:", error);
       res.status(500).json({ error: "Failed to create flush job" });
     }
   });
@@ -852,7 +854,7 @@ export async function registerRoutes(
       const percent = job.totalRows > 0 ? Math.round((job.processedRows / job.totalRows) * 100) : 0;
       res.json({ ...job, percent });
     } catch (error) {
-      console.error("Error fetching flush job:", error);
+      logger.error("Error fetching flush job:", error);
       res.status(500).json({ error: "Failed to fetch flush job" });
     }
   });
@@ -868,7 +870,7 @@ export async function registerRoutes(
       }
       res.json({ message: "Flush job cancelled" });
     } catch (error) {
-      console.error("Error cancelling flush job:", error);
+      logger.error("Error cancelling flush job:", error);
       res.status(500).json({ error: "Failed to cancel flush job" });
     }
   });
@@ -886,7 +888,7 @@ export async function registerRoutes(
       );
       res.json(segmentsWithCounts);
     } catch (error) {
-      console.error("Error fetching segments:", error);
+      logger.error("Error fetching segments:", error);
       res.status(500).json({ error: "Failed to fetch segments" });
     }
   });
@@ -902,7 +904,7 @@ export async function registerRoutes(
       }
       res.json(segment);
     } catch (error) {
-      console.error("Error fetching segment:", error);
+      logger.error("Error fetching segment:", error);
       res.status(500).json({ error: "Failed to fetch segment" });
     }
   });
@@ -915,7 +917,7 @@ export async function registerRoutes(
       const count = await storage.getSegmentSubscriberCountCached(req.params.id);
       res.json({ count });
     } catch (error) {
-      console.error("Error counting segment subscribers:", error);
+      logger.error("Error counting segment subscribers:", error);
       res.status(500).json({ error: "Failed to count subscribers" });
     }
   });
@@ -932,7 +934,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating segment:", error);
+      logger.error("Error creating segment:", error);
       res.status(500).json({ error: "Failed to create segment" });
     }
   });
@@ -954,7 +956,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error updating segment:", error);
+      logger.error("Error updating segment:", error);
       res.status(500).json({ error: "Failed to update segment" });
     }
   });
@@ -967,7 +969,7 @@ export async function registerRoutes(
       await storage.deleteSegment(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting segment:", error);
+      logger.error("Error deleting segment:", error);
       res.status(500).json({ error: "Failed to delete segment" });
     }
   });
@@ -978,7 +980,7 @@ export async function registerRoutes(
       const mtasList = await storage.getMtas();
       res.json(mtasList);
     } catch (error) {
-      console.error("Error fetching MTAs:", error);
+      logger.error("Error fetching MTAs:", error);
       res.status(500).json({ error: "Failed to fetch MTAs" });
     }
   });
@@ -994,7 +996,7 @@ export async function registerRoutes(
       }
       res.json(mta);
     } catch (error) {
-      console.error("Error fetching MTA:", error);
+      logger.error("Error fetching MTA:", error);
       res.status(500).json({ error: "Failed to fetch MTA" });
     }
   });
@@ -1008,7 +1010,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating MTA:", error);
+      logger.error("Error creating MTA:", error);
       res.status(500).json({ error: "Failed to create MTA" });
     }
   });
@@ -1024,7 +1026,7 @@ export async function registerRoutes(
       }
       res.json(mta);
     } catch (error) {
-      console.error("Error updating MTA:", error);
+      logger.error("Error updating MTA:", error);
       res.status(500).json({ error: "Failed to update MTA" });
     }
   });
@@ -1037,7 +1039,7 @@ export async function registerRoutes(
       await storage.deleteMta(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting MTA:", error);
+      logger.error("Error deleting MTA:", error);
       res.status(500).json({ error: "Failed to delete MTA" });
     }
   });
@@ -1048,7 +1050,7 @@ export async function registerRoutes(
       const headers = await storage.getHeaders();
       res.json(headers);
     } catch (error) {
-      console.error("Error fetching headers:", error);
+      logger.error("Error fetching headers:", error);
       res.status(500).json({ error: "Failed to fetch headers" });
     }
   });
@@ -1062,7 +1064,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating header:", error);
+      logger.error("Error creating header:", error);
       res.status(500).json({ error: "Failed to create header" });
     }
   });
@@ -1078,7 +1080,7 @@ export async function registerRoutes(
       }
       res.json(header);
     } catch (error) {
-      console.error("Error updating header:", error);
+      logger.error("Error updating header:", error);
       res.status(500).json({ error: "Failed to update header" });
     }
   });
@@ -1091,7 +1093,7 @@ export async function registerRoutes(
       await storage.deleteHeader(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting header:", error);
+      logger.error("Error deleting header:", error);
       res.status(500).json({ error: "Failed to delete header" });
     }
   });
@@ -1146,7 +1148,7 @@ export async function registerRoutes(
       
       // If MTA is selected, use SMTP to send test email
       if (mta) {
-        console.log(`[TEST EMAIL] Sending via MTA SMTP (${mta.name}) to: ${email}`);
+        logger.info(`[TEST EMAIL] Sending via MTA SMTP (${mta.name}) to: ${email}`);
         const { sendTestEmailViaSMTP } = await import("./email-service");
         
         const result = await sendTestEmailViaSMTP(mta, {
@@ -1171,7 +1173,7 @@ export async function registerRoutes(
       }
       
       // Fallback to Resend API if no MTA selected
-      console.log(`[TEST EMAIL] No MTA selected, using Resend API to: ${email}`);
+      logger.info(`[TEST EMAIL] No MTA selected, using Resend API to: ${email}`);
       const { sendTestEmailViaResend } = await import("./resend-client");
       
       const result = await sendTestEmailViaResend({
@@ -1193,8 +1195,8 @@ export async function registerRoutes(
         res.status(500).json({ error: result.error || "Failed to send test email" });
       }
     } catch (error: any) {
-      console.error("Error sending test email:", error);
-      res.status(500).json({ error: error.message || "Failed to send test email" });
+      logger.error("Error sending test email:", error);
+      res.status(500).json({ error: "Failed to send test email" });
     }
   });
   
@@ -1203,7 +1205,7 @@ export async function registerRoutes(
       const campaignsList = await storage.getCampaigns();
       res.json(campaignsList);
     } catch (error) {
-      console.error("Error fetching campaigns:", error);
+      logger.error("Error fetching campaigns:", error);
       res.status(500).json({ error: "Failed to fetch campaigns" });
     }
   });
@@ -1219,7 +1221,7 @@ export async function registerRoutes(
       }
       res.json(campaign);
     } catch (error) {
-      console.error("Error fetching campaign:", error);
+      logger.error("Error fetching campaign:", error);
       res.status(500).json({ error: "Failed to fetch campaign" });
     }
   });
@@ -1302,7 +1304,7 @@ export async function registerRoutes(
         failedUrls: failedImages
       });
     } catch (error) {
-      console.error("Error processing HTML:", error);
+      logger.error("Error processing HTML:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       res.status(500).json({ error: `Failed to process HTML content: ${errorMessage}` });
     }
@@ -1310,7 +1312,7 @@ export async function registerRoutes(
 
   app.post("/api/campaigns", campaignLimiter, async (req: Request, res: Response) => {
     try {
-      console.log("POST /api/campaigns - Body:", JSON.stringify(req.body));
+      logger.info("POST /api/campaigns - Body:", JSON.stringify(req.body));
       
       // Normalize empty FK strings to null before validation
       const normalizedBody = {
@@ -1328,17 +1330,17 @@ export async function registerRoutes(
       // If status is sending, start the sending process
       if (campaign.status === "sending") {
         // Start sending in background (simplified - real implementation would use job queue)
-        processCampaign(campaign.id).catch(console.error);
+        processCampaign(campaign.id).catch(err => logger.error('Failed to process campaign', { error: String(err) }));
       }
       
-      console.log("Campaign created successfully:", campaign.id);
+      logger.info("Campaign created successfully:", campaign.id);
       res.status(201).json(campaign);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        console.error("Campaign validation error:", error.errors);
+        logger.error("Campaign validation error:", error.errors);
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating campaign:", error);
+      logger.error("Error creating campaign:", error);
       res.status(500).json({ error: "Failed to create campaign" });
     }
   });
@@ -1348,7 +1350,7 @@ export async function registerRoutes(
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
-      console.log(`PATCH /api/campaigns/${req.params.id} - Body:`, JSON.stringify(req.body));
+      logger.info(`PATCH /api/campaigns/${req.params.id} - Body:`, JSON.stringify(req.body));
       
       // Get the current campaign to check if status is changing
       const existingCampaign = await storage.getCampaign(req.params.id);
@@ -1356,7 +1358,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Campaign not found" });
       }
       
-      console.log(`Campaign ${req.params.id} current status: ${existingCampaign.status}, new status: ${req.body.status || 'unchanged'}`);
+      logger.info(`Campaign ${req.params.id} current status: ${existingCampaign.status}, new status: ${req.body.status || 'unchanged'}`);
       
       // Normalize empty FK strings to null to avoid FK violations
       const normalizedBody = { ...req.body };
@@ -1377,15 +1379,15 @@ export async function registerRoutes(
       
       // If status changed to sending, start the campaign processing
       if (existingCampaign.status !== "sending" && campaign.status === "sending") {
-        console.log(`Starting campaign ${campaign.id} via PATCH - queueing for processing`);
+        logger.info(`Starting campaign ${campaign.id} via PATCH - queueing for processing`);
         processCampaign(campaign.id).catch((err) => {
-          console.error(`Failed to queue campaign ${campaign.id}:`, err);
+          logger.error(`Failed to queue campaign ${campaign.id}:`, err);
         });
       }
       
       res.json(campaign);
     } catch (error) {
-      console.error("Error updating campaign:", error);
+      logger.error("Error updating campaign:", error);
       res.status(500).json({ error: "Failed to update campaign" });
     }
   });
@@ -1398,7 +1400,7 @@ export async function registerRoutes(
       await storage.deleteCampaign(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting campaign:", error);
+      logger.error("Error deleting campaign:", error);
       res.status(500).json({ error: "Failed to delete campaign" });
     }
   });
@@ -1414,7 +1416,7 @@ export async function registerRoutes(
       }
       res.status(201).json(campaign);
     } catch (error) {
-      console.error("Error copying campaign:", error);
+      logger.error("Error copying campaign:", error);
       res.status(500).json({ error: "Failed to copy campaign" });
     }
   });
@@ -1430,7 +1432,7 @@ export async function registerRoutes(
       }
       res.json(campaign);
     } catch (error) {
-      console.error("Error pausing campaign:", error);
+      logger.error("Error pausing campaign:", error);
       res.status(500).json({ error: "Failed to pause campaign" });
     }
   });
@@ -1448,10 +1450,10 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Campaign not found" });
       }
       // Resume sending process
-      processCampaign(campaign.id).catch(console.error);
+      processCampaign(campaign.id).catch(err => logger.error('Failed to resume campaign', { error: String(err) }));
       res.json(campaign);
     } catch (error) {
-      console.error("Error resuming campaign:", error);
+      logger.error("Error resuming campaign:", error);
       res.status(500).json({ error: "Failed to resume campaign" });
     }
   });
@@ -1459,6 +1461,9 @@ export async function registerRoutes(
   // ============ DEDICATED CAMPAIGN SEND ENDPOINT ============
   // This endpoint atomically saves campaign data, validates, sets status to sending/scheduled, and queues the job
   app.post("/api/campaigns/:id/send", async (req: Request, res: Response) => {
+    if (isMemoryPressure) {
+      return res.status(503).json({ error: "Server under memory pressure. Please retry later.", retryAfter: 60 });
+    }
     const campaignId = req.params.id;
     const timestamp = new Date().toISOString();
     const isScheduled = !!req.body.scheduledAt;
@@ -1467,26 +1472,26 @@ export async function registerRoutes(
       return res.status(400).json({ error: "Invalid ID format" });
     }
     
-    console.log(`[CAMPAIGN_SEND] ${timestamp} - Starting ${isScheduled ? 'schedule' : 'send'} process for campaign ${campaignId}`);
-    console.log(`[CAMPAIGN_SEND] ${timestamp} - Request body:`, JSON.stringify(req.body, null, 2));
+    logger.info(`[CAMPAIGN_SEND] ${timestamp} - Starting ${isScheduled ? 'schedule' : 'send'} process for campaign ${campaignId}`);
+    logger.info(`[CAMPAIGN_SEND] ${timestamp} - Request body:`, JSON.stringify(req.body, null, 2));
     
     try {
       // Step 1: Verify campaign exists
       const existingCampaign = await storage.getCampaign(campaignId);
       if (!existingCampaign) {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} not found`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} not found`);
         return res.status(404).json({ error: "Campaign not found" });
       }
       
-      console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign found, current status: ${existingCampaign.status}`);
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign found, current status: ${existingCampaign.status}`);
       
       // Step 2: Validate campaign is in a sendable state
       if (existingCampaign.status === "sending") {
-        console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign already sending`);
+        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign already sending`);
         return res.status(400).json({ error: "Campaign is already sending" });
       }
       if (existingCampaign.status === "completed") {
-        console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign already completed`);
+        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign already completed`);
         return res.status(400).json({ error: "Campaign has already completed" });
       }
       
@@ -1495,14 +1500,14 @@ export async function registerRoutes(
       delete updateData.status; // We'll set status ourselves
       
       if (Object.keys(updateData).length > 0) {
-        console.log(`[CAMPAIGN_SEND] ${timestamp} - Saving final campaign data`);
+        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Saving final campaign data`);
         await storage.updateCampaign(campaignId, updateData);
       }
       
       // Step 4: Re-fetch to get the latest state
       const refreshedCampaign = await storage.getCampaign(campaignId);
       if (!refreshedCampaign) {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - Campaign disappeared after update`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Campaign disappeared after update`);
         return res.status(500).json({ error: "Campaign update failed" });
       }
       
@@ -1517,7 +1522,7 @@ export async function registerRoutes(
       if (!refreshedCampaign.htmlContent) validationErrors.push("Email content is required");
       
       if (validationErrors.length > 0) {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - Validation failed:`, validationErrors);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Validation failed:`, validationErrors);
         return res.status(400).json({ 
           error: "Campaign validation failed", 
           details: validationErrors 
@@ -1527,44 +1532,44 @@ export async function registerRoutes(
       // Step 6: Verify MTA exists and is active
       const mta = await storage.getMta(refreshedCampaign.mtaId!);
       if (!mta) {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - MTA not found: ${refreshedCampaign.mtaId}`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - MTA not found: ${refreshedCampaign.mtaId}`);
         return res.status(400).json({ error: "Selected MTA server not found" });
       }
       if (!mta.isActive) {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - MTA is not active: ${mta.name}`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - MTA is not active: ${mta.name}`);
         return res.status(400).json({ error: "Selected MTA server is not active" });
       }
       
       // Step 7: Verify segment exists and has subscribers
       const segment = await storage.getSegment(refreshedCampaign.segmentId!);
       if (!segment) {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - Segment not found: ${refreshedCampaign.segmentId}`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Segment not found: ${refreshedCampaign.segmentId}`);
         return res.status(400).json({ error: "Selected segment not found" });
       }
       
       const subscriberCount = await storage.countSubscribersForSegment(refreshedCampaign.segmentId!);
-      console.log(`[CAMPAIGN_SEND] ${timestamp} - Segment '${segment.name}' has ${subscriberCount} subscribers`);
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Segment '${segment.name}' has ${subscriberCount} subscribers`);
       
       if (subscriberCount === 0) {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - Segment has no subscribers`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Segment has no subscribers`);
         return res.status(400).json({ error: "Selected segment has no subscribers" });
       }
       
       // Step 8: Handle scheduled vs immediate send
       if (isScheduled) {
         // For scheduled campaigns, just update status to "scheduled"
-        console.log(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'scheduled' for ${req.body.scheduledAt}`);
+        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'scheduled' for ${req.body.scheduledAt}`);
         const updatedCampaign = await storage.updateCampaign(campaignId, { 
           status: "scheduled",
           scheduledAt: new Date(req.body.scheduledAt)
         });
         
         if (!updatedCampaign || updatedCampaign.status !== "scheduled") {
-          console.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to schedule campaign`);
+          logger.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to schedule campaign`);
           return res.status(500).json({ error: "Failed to schedule campaign" });
         }
         
-        console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} scheduled successfully`);
+        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} scheduled successfully`);
         return res.json({ 
           success: true, 
           campaign: updatedCampaign,
@@ -1573,23 +1578,23 @@ export async function registerRoutes(
       }
       
       // Step 9: Atomically update status to "sending" (immediate send)
-      console.log(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'sending'`);
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'sending'`);
       const updatedCampaign = await storage.updateCampaign(campaignId, { status: "sending" });
       
       if (!updatedCampaign || updatedCampaign.status !== "sending") {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to update campaign status`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to update campaign status`);
         return res.status(500).json({ error: "Failed to start campaign - status update failed" });
       }
       
       // Step 10: Queue the campaign for processing (don't await - let it run in background)
-      console.log(`[CAMPAIGN_SEND] ${timestamp} - Queuing campaign for processing`);
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Queuing campaign for processing`);
       processCampaign(campaignId).catch((queueError: any) => {
-        console.error(`[CAMPAIGN_SEND] ${timestamp} - Background queue error for ${campaignId}:`, queueError);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Background queue error for ${campaignId}:`, queueError);
       });
-      console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
       
       // Step 11: Success - return the campaign immediately
-      console.log(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} started successfully`);
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} started successfully`);
       res.json({ 
         success: true, 
         campaign: updatedCampaign,
@@ -1597,7 +1602,7 @@ export async function registerRoutes(
       });
       
     } catch (error: any) {
-      console.error(`[CAMPAIGN_SEND] ${timestamp} - Unexpected error:`, error);
+      logger.error(`[CAMPAIGN_SEND] ${timestamp} - Unexpected error:`, error);
       res.status(500).json({ error: error.message || "Failed to start campaign" });
     }
   });
@@ -1606,21 +1611,24 @@ export async function registerRoutes(
   // Use disk storage defined at module level (uploadToDisk)
   
   app.post("/api/import", uploadToDisk.single("file"), async (req: Request, res: Response) => {
+    if (isMemoryPressure) {
+      return res.status(503).json({ error: "Server under memory pressure. Please retry later.", retryAfter: 60 });
+    }
     try {
-      console.log(`[IMPORT] Received import request`);
+      logger.info(`[IMPORT] Received import request`);
       if (!req.file) {
-        console.log(`[IMPORT] No file in request`);
+        logger.info(`[IMPORT] No file in request`);
         return res.status(400).json({ error: "No file uploaded" });
       }
 
       // Get tag mode from form data (default to merge for backwards compatibility)
       const tagMode = (req.body.tagMode === "override") ? "override" : "merge";
       const fileSizeBytes = req.file.size;
-      console.log(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}`);
+      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}`);
       
       // For large files, use streaming line count instead of loading into memory
       const csvFilePath = req.file.path;
-      console.log(`[IMPORT] File saved to disk: ${csvFilePath}`);
+      logger.info(`[IMPORT] File saved to disk: ${csvFilePath}`);
       
       // Stream-based line counting for memory efficiency
       let lineCount = 0;
@@ -1643,17 +1651,17 @@ export async function registerRoutes(
         lineCountStream.on('error', reject);
       });
       
-      console.log(`[IMPORT] Streaming line count complete: ${lineCount} lines`);
+      logger.info(`[IMPORT] Streaming line count complete: ${lineCount} lines`);
       
       if (lineCount < 2) {
-        console.log(`[IMPORT] CSV empty or invalid, lines: ${lineCount}`);
+        logger.info(`[IMPORT] CSV empty or invalid, lines: ${lineCount}`);
         // Clean up uploaded file
         try { fs.unlinkSync(csvFilePath); } catch {}
         return res.status(400).json({ error: "CSV file is empty or invalid" });
       }
 
       const totalDataRows = lineCount - 1; // Exclude header
-      console.log(`[IMPORT] CSV has ${totalDataRows} data rows`);
+      logger.info(`[IMPORT] CSV has ${totalDataRows} data rows`);
 
       // Create import job record first to get ID
       const job = await storage.createImportJob({
@@ -1661,11 +1669,11 @@ export async function registerRoutes(
         totalRows: totalDataRows,
         tagMode: tagMode,
       });
-      console.log(`[IMPORT] Created import job: ${job.id}`);
+      logger.info(`[IMPORT] Created import job: ${job.id}`);
 
       // Upload file to persistent object storage (survives deployments)
       const objectStoragePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
-      console.log(`[IMPORT] Uploaded to object storage: ${objectStoragePath}`);
+      logger.info(`[IMPORT] Uploaded to object storage: ${objectStoragePath}`);
       
       // Verify the file exists in object storage
       const objectExists = await objectStorageService.objectExists(objectStoragePath);
@@ -1678,12 +1686,12 @@ export async function registerRoutes(
 
       // Enqueue for background processing with object storage path and size for progress tracking
       const queueItem = await storage.enqueueImportJob(job.id, objectStoragePath, lineCount, fileSizeBytes);
-      console.log(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, object storage path: ${objectStoragePath}`);
+      logger.info(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, object storage path: ${objectStoragePath}`);
 
       // Return immediately with job ID for progress tracking
       res.status(202).json(job);
     } catch (error) {
-      console.error("[IMPORT] Error starting import:", error);
+      logger.error("[IMPORT] Error starting import:", error);
       // Clean up uploaded file if it exists
       if (req.file?.path) {
         try { fs.unlinkSync(req.file.path); } catch {}
@@ -1697,7 +1705,7 @@ export async function registerRoutes(
       const jobs = await storage.getImportJobs();
       res.json(jobs);
     } catch (error) {
-      console.error("Error fetching import jobs:", error);
+      logger.error("Error fetching import jobs:", error);
       res.status(500).json({ error: "Failed to fetch import jobs" });
     }
   });
@@ -1709,13 +1717,13 @@ export async function registerRoutes(
       }
       const cancelled = await storage.cancelImportJob(req.params.id);
       if (cancelled) {
-        console.log(`[IMPORT] Import job ${req.params.id} cancelled by user`);
+        logger.info(`[IMPORT] Import job ${req.params.id} cancelled by user`);
         res.json({ success: true, message: "Import cancelled" });
       } else {
         res.status(400).json({ error: "Import cannot be cancelled (already completed or not found)" });
       }
     } catch (error) {
-      console.error("Error cancelling import:", error);
+      logger.error("Error cancelling import:", error);
       res.status(500).json({ error: "Failed to cancel import" });
     }
   });
@@ -1748,7 +1756,7 @@ export async function registerRoutes(
         completedAt: job.completedAt,
       });
     } catch (error) {
-      console.error("Error fetching import progress:", error);
+      logger.error("Error fetching import progress:", error);
       res.status(500).json({ error: "Failed to fetch import progress" });
     }
   });
@@ -1781,7 +1789,7 @@ export async function registerRoutes(
           try { fs.unlinkSync(chunkPath); } catch {}
         }
         chunkedUploads.delete(uploadId);
-        console.log(`[CHUNKED] Cleaned up stale upload: ${uploadId}`);
+        logger.info(`[CHUNKED] Cleaned up stale upload: ${uploadId}`);
       }
     }
   }, 5 * 60 * 1000); // Check every 5 minutes
@@ -1806,11 +1814,11 @@ export async function registerRoutes(
         createdAt: new Date(),
       });
       
-      console.log(`[CHUNKED] Started upload: ${uploadId}, file: ${filename}, ${totalChunks} chunks, ${Math.round(totalSize / 1024 / 1024)}MB`);
+      logger.info(`[CHUNKED] Started upload: ${uploadId}, file: ${filename}, ${totalChunks} chunks, ${Math.round(totalSize / 1024 / 1024)}MB`);
       
       res.json({ uploadId, message: "Chunked upload started" });
     } catch (error) {
-      console.error("[CHUNKED] Error starting upload:", error);
+      logger.error("[CHUNKED] Error starting upload:", error);
       res.status(500).json({ error: "Failed to start chunked upload" });
     }
   });
@@ -1849,7 +1857,7 @@ export async function registerRoutes(
       
       upload.receivedChunks.add(index);
       
-      console.log(`[CHUNKED] ${uploadId}: Received chunk ${index + 1}/${upload.totalChunks}`);
+      logger.info(`[CHUNKED] ${uploadId}: Received chunk ${index + 1}/${upload.totalChunks}`);
       
       res.json({ 
         success: true, 
@@ -1859,7 +1867,7 @@ export async function registerRoutes(
         progress: Math.round((upload.receivedChunks.size / upload.totalChunks) * 100)
       });
     } catch (error) {
-      console.error("[CHUNKED] Error receiving chunk:", error);
+      logger.error("[CHUNKED] Error receiving chunk:", error);
       if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
       res.status(500).json({ error: "Failed to receive chunk" });
     }
@@ -1891,7 +1899,7 @@ export async function registerRoutes(
         });
       }
       
-      console.log(`[CHUNKED] ${uploadId}: All ${upload.totalChunks} chunks received, assembling file...`);
+      logger.info(`[CHUNKED] ${uploadId}: All ${upload.totalChunks} chunks received, assembling file...`);
       
       // Assemble chunks into final CSV file using streaming (memory-efficient)
       writeStream = fs.createWriteStream(tempCsvPath);
@@ -1926,7 +1934,7 @@ export async function registerRoutes(
       });
       
       const fileSizeBytes = fs.statSync(tempCsvPath).size;
-      console.log(`[CHUNKED] ${uploadId}: File assembled: ${tempCsvPath}, size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
+      logger.info(`[CHUNKED] ${uploadId}: File assembled: ${tempCsvPath}, size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
       
       // Stream-based line counting
       let lineCount = 0;
@@ -1948,7 +1956,7 @@ export async function registerRoutes(
         lineCountStream.on('error', reject);
       });
       
-      console.log(`[CHUNKED] ${uploadId}: Line count: ${lineCount}`);
+      logger.info(`[CHUNKED] ${uploadId}: Line count: ${lineCount}`);
       
       if (lineCount < 2) {
         fs.unlinkSync(tempCsvPath);
@@ -1964,11 +1972,11 @@ export async function registerRoutes(
         totalRows: totalDataRows,
         tagMode: upload.tagMode,
       });
-      console.log(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
+      logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       
       // Upload assembled file to persistent object storage (survives deployments)
       const objectStoragePath = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
-      console.log(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${objectStoragePath}`);
+      logger.info(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${objectStoragePath}`);
       
       // Verify the file exists in object storage
       const objectExists = await objectStorageService.objectExists(objectStoragePath);
@@ -1978,11 +1986,11 @@ export async function registerRoutes(
       
       // Get file size for verification
       const verifiedSize = fs.statSync(tempCsvPath).size;
-      console.log(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
+      logger.info(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
       
       // Enqueue for processing with object storage path
       const queueItem = await storage.enqueueImportJob(job.id, objectStoragePath, lineCount, verifiedSize);
-      console.log(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued with object storage path`);
+      logger.info(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued with object storage path`);
       
       // Delete local temp file after successful upload to object storage
       try { fs.unlinkSync(tempCsvPath); } catch {}
@@ -1992,7 +2000,7 @@ export async function registerRoutes(
       
       res.status(202).json(job);
     } catch (error: any) {
-      console.error("[CHUNKED] Error completing upload:", error);
+      logger.error("[CHUNKED] Error completing upload:", error);
       
       // Cleanup on error: remove temp file if it exists
       try { 
@@ -2038,7 +2046,7 @@ export async function registerRoutes(
         createdAt: upload.createdAt,
       });
     } catch (error) {
-      console.error("[CHUNKED] Error fetching status:", error);
+      logger.error("[CHUNKED] Error fetching status:", error);
       res.status(500).json({ error: "Failed to fetch upload status" });
     }
   });
@@ -2093,7 +2101,7 @@ export async function registerRoutes(
       
       res.end();
     } catch (error) {
-      console.error("Error exporting:", error);
+      logger.error("Error exporting:", error);
       // Only send error if headers haven't been sent yet
       if (!res.headersSent) {
         res.status(500).json({ error: "Failed to export" });
@@ -2109,7 +2117,7 @@ export async function registerRoutes(
       const stats = await storage.getDashboardStats();
       res.json(stats);
     } catch (error) {
-      console.error("Error fetching dashboard stats:", error);
+      logger.error("Error fetching dashboard stats:", error);
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
     }
   });
@@ -2120,7 +2128,7 @@ export async function registerRoutes(
       const analytics = await storage.getOverallAnalytics();
       res.json(analytics);
     } catch (error) {
-      console.error("Error fetching overall analytics:", error);
+      logger.error("Error fetching overall analytics:", error);
       res.status(500).json({ error: "Failed to fetch analytics" });
     }
   });
@@ -2136,7 +2144,7 @@ export async function registerRoutes(
       }
       res.json(analytics);
     } catch (error) {
-      console.error("Error fetching campaign analytics:", error);
+      logger.error("Error fetching campaign analytics:", error);
       res.status(500).json({ error: "Failed to fetch campaign analytics" });
     }
   });
@@ -2160,7 +2168,7 @@ export async function registerRoutes(
       });
       res.json(result);
     } catch (error) {
-      console.error("Error fetching error logs:", error);
+      logger.error("Error fetching error logs:", error);
       res.status(500).json({ error: "Failed to fetch error logs" });
     }
   });
@@ -2170,7 +2178,7 @@ export async function registerRoutes(
       const stats = await storage.getErrorLogStats();
       res.json(stats);
     } catch (error) {
-      console.error("Error fetching error log stats:", error);
+      logger.error("Error fetching error log stats:", error);
       res.status(500).json({ error: "Failed to fetch error log stats" });
     }
   });
@@ -2181,7 +2189,7 @@ export async function registerRoutes(
       const count = await storage.clearErrorLogs(beforeDate);
       res.json({ deleted: count });
     } catch (error) {
-      console.error("Error clearing error logs:", error);
+      logger.error("Error clearing error logs:", error);
       res.status(500).json({ error: "Failed to clear error logs" });
     }
   });
@@ -2204,7 +2212,7 @@ export async function registerRoutes(
     
     // Verify signature before recording
     if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "open", sig)) {
-      console.warn(`Invalid tracking signature for open: campaign=${campaignId}, subscriber=${subscriberId}`);
+      logger.warn(`Invalid tracking signature for open: campaign=${campaignId}, subscriber=${subscriberId}`);
       return returnPixel();
     }
     
@@ -2224,11 +2232,11 @@ export async function registerRoutes(
         const campaign = await storage.getCampaign(campaignId);
         if (campaign?.openTag) {
           storage.enqueueTagOperation(subscriberId, campaign.openTag, "open", campaignId)
-            .catch(err => console.error("Failed to enqueue open tag:", err));
+            .catch(err => logger.error("Failed to enqueue open tag:", err));
         }
       }
     } catch (error) {
-      console.error("Error tracking open:", error);
+      logger.error("Error tracking open:", error);
       returnPixel();
     }
   });
@@ -2244,7 +2252,7 @@ export async function registerRoutes(
     
     // Verify signature before recording (include URL in signature verification)
     if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "click", sig, url)) {
-      console.warn(`Invalid tracking signature for click: campaign=${campaignId}, subscriber=${subscriberId}`);
+      logger.warn(`Invalid tracking signature for click: campaign=${campaignId}, subscriber=${subscriberId}`);
       // Still redirect to avoid broken user experience
       return res.redirect(url);
     }
@@ -2265,11 +2273,11 @@ export async function registerRoutes(
         const campaign = await storage.getCampaign(campaignId);
         if (campaign?.clickTag) {
           storage.enqueueTagOperation(subscriberId, campaign.clickTag, "click", campaignId)
-            .catch(err => console.error("Failed to enqueue click tag:", err));
+            .catch(err => logger.error("Failed to enqueue click tag:", err));
         }
       }
     } catch (error) {
-      console.error("Error tracking click:", error);
+      logger.error("Error tracking click:", error);
       res.redirect(url);
     }
   });
@@ -2280,7 +2288,7 @@ export async function registerRoutes(
     
     // Verify signature before processing unsubscribe
     if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "unsubscribe", sig)) {
-      console.warn(`Invalid tracking signature for unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
+      logger.warn(`Invalid tracking signature for unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
       return res.status(403).send(`
         <!DOCTYPE html>
         <html>
@@ -2334,22 +2342,38 @@ export async function registerRoutes(
       if (subscriber) {
         // BCK tag is always added (blocklist)
         storage.enqueueTagOperation(subscriberId, "BCK", "unsubscribe", campaignId)
-          .catch(err => console.error("Failed to enqueue BCK tag:", err));
+          .catch(err => logger.error("Failed to enqueue BCK tag:", err));
         
         // Add campaign-specific unsubscribe tag if configured
         if (campaign?.unsubscribeTag) {
           storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
-            .catch(err => console.error("Failed to enqueue unsubscribe tag:", err));
+            .catch(err => logger.error("Failed to enqueue unsubscribe tag:", err));
         }
       }
     } catch (error) {
-      console.error("Error unsubscribing:", error);
+      logger.error("Error unsubscribing:", error);
       res.status(500).send("An error occurred");
     }
   });
 
   // ============ BOUNCE/COMPLAINT WEBHOOKS ============
+  function verifyWebhookSecret(req: Request, res: Response): boolean {
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+    if (!webhookSecret) return true;
+    const providedSecret = req.headers['x-webhook-secret'] as string;
+    if (!providedSecret || Buffer.byteLength(providedSecret) !== Buffer.byteLength(webhookSecret)) {
+      res.status(401).json({ error: "Invalid webhook secret" });
+      return false;
+    }
+    if (!crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(webhookSecret))) {
+      res.status(401).json({ error: "Invalid webhook secret" });
+      return false;
+    }
+    return true;
+  }
+
   app.post("/api/webhooks/bounce", async (req: Request, res: Response) => {
+    if (!verifyWebhookSecret(req, res)) return;
     try {
       const bounceSchema = z.object({
         email: z.string().email(),
@@ -2372,7 +2396,7 @@ export async function registerRoutes(
           await storage.updateSubscriber(subscriber.id, {
             tags: [...currentTags, "BCK", `bounce:${data.type}`],
           });
-          console.log(`[BOUNCE] Blocklisted ${data.email} due to ${data.type}`);
+          logger.info(`[BOUNCE] Blocklisted ${data.email} due to ${data.type}`);
         }
       } else if (data.type === "soft_bounce") {
         const currentTags = subscriber.tags || [];
@@ -2384,7 +2408,7 @@ export async function registerRoutes(
         }
       }
       
-      await storage.createErrorLog({
+      await storage.logError({
         type: "send_failed",
         severity: "warning",
         message: `${data.type}: ${data.reason || 'No reason provided'}`,
@@ -2399,12 +2423,13 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error processing bounce webhook:", error);
+      logger.error("Error processing bounce webhook:", error);
       res.status(500).json({ error: "Failed to process bounce" });
     }
   });
 
   app.post("/api/webhooks/bounces/batch", async (req: Request, res: Response) => {
+    if (!verifyWebhookSecret(req, res)) return;
     try {
       const batchSchema = z.object({
         bounces: z.array(z.object({
@@ -2438,13 +2463,13 @@ export async function registerRoutes(
         processed++;
       }
       
-      console.log(`[BOUNCE] Batch processed: ${processed} bounces, ${blocklisted} blocklisted, ${notFound} not found`);
+      logger.info(`[BOUNCE] Batch processed: ${processed} bounces, ${blocklisted} blocklisted, ${notFound} not found`);
       res.json({ status: "ok", processed, blocklisted, notFound, total: bounces.length });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error processing batch bounces:", error);
+      logger.error("Error processing batch bounces:", error);
       res.status(500).json({ error: "Failed to process bounces" });
     }
   });
@@ -2477,16 +2502,16 @@ async function processTagQueue() {
         // Mark as completed
         await storage.completeTagOperation(op.id);
       } catch (error: any) {
-        console.error(`Failed to process tag operation ${op.id}:`, error);
+        logger.error(`Failed to process tag operation ${op.id}:`, error);
         await storage.failTagOperation(op.id, error.message || "Unknown error");
       }
     }
     
     if (operations.length > 0) {
-      console.log(`Processed ${operations.length} tag operations`);
+      logger.info(`Processed ${operations.length} tag operations`);
     }
   } catch (error) {
-    console.error("Error in tag queue processing:", error);
+    logger.error("Error in tag queue processing:", error);
   }
 }
 
@@ -2498,7 +2523,7 @@ export function startTagQueueWorker() {
     return; // Already running
   }
   
-  console.log("Starting tag queue worker...");
+  logger.info("Starting tag queue worker...");
   
   // Process immediately, then every 500ms
   processTagQueue();
@@ -2509,10 +2534,10 @@ export function startTagQueueWorker() {
     try {
       const cleaned = await storage.cleanupCompletedTagOperations(7);
       if (cleaned > 0) {
-        console.log(`Cleaned up ${cleaned} completed tag operations`);
+        logger.info(`Cleaned up ${cleaned} completed tag operations`);
       }
     } catch (error) {
-      console.error("Error cleaning up tag operations:", error);
+      logger.error("Error cleaning up tag operations:", error);
     }
   }, 60 * 60 * 1000);
 }
@@ -2526,15 +2551,15 @@ function stopTagQueueWorker() {
     clearInterval(tagCleanupInterval);
     tagCleanupInterval = null;
   }
-  console.log("Tag queue worker stopped");
+  logger.info("Tag queue worker stopped");
 }
 
 export function stopAllBackgroundWorkers() {
-  console.log("[SHUTDOWN] Stopping all background workers...");
+  logger.info("[SHUTDOWN] Stopping all background workers...");
   stopMemoryMonitor();
   stopJobProcessor();
   stopTagQueueWorker();
-  console.log("[SHUTDOWN] All background workers stopped");
+  logger.info("[SHUTDOWN] All background workers stopped");
 }
 
 // Sending speed configurations (emails per minute and concurrent workers)
@@ -2551,6 +2576,7 @@ const MEMORY_WARN_THRESHOLD_MB = 512;
 const MEMORY_CRITICAL_THRESHOLD_MB = 1024;
 let memoryCheckInterval: NodeJS.Timeout | null = null;
 let consecutiveHighMemoryCount = 0;
+export let isMemoryPressure = false;
 
 function startMemoryMonitor() {
   if (memoryCheckInterval) return;
@@ -2563,21 +2589,24 @@ function startMemoryMonitor() {
     
     if (heapUsedMB > MEMORY_CRITICAL_THRESHOLD_MB) {
       consecutiveHighMemoryCount++;
-      console.error(`[MEMORY] CRITICAL: Heap ${heapUsedMB}MB / ${heapTotalMB}MB, RSS ${rssMB}MB (consecutive high: ${consecutiveHighMemoryCount})`);
+      logger.error('Memory critical', { heapUsedMB, heapTotalMB, rssMB, consecutiveHighMemoryCount });
       
       if (global.gc) {
-        console.warn('[MEMORY] Forcing garbage collection');
+        logger.warn('Forcing garbage collection');
         global.gc();
       }
       
       if (consecutiveHighMemoryCount >= 5) {
-        console.error(`[MEMORY] FATAL: Memory has been critically high for ${consecutiveHighMemoryCount} consecutive checks. Consider restarting.`);
+        logger.error('Memory critically high for extended period', { consecutiveHighMemoryCount, heapUsedMB, heapTotalMB, rssMB });
       }
+      isMemoryPressure = true;
     } else if (heapUsedMB > MEMORY_WARN_THRESHOLD_MB) {
       consecutiveHighMemoryCount = 0;
-      console.warn(`[MEMORY] WARNING: Heap ${heapUsedMB}MB / ${heapTotalMB}MB, RSS ${rssMB}MB`);
+      isMemoryPressure = false;
+      logger.warn('Memory usage warning', { heapUsedMB, heapTotalMB, rssMB });
     } else {
       consecutiveHighMemoryCount = 0;
+      isMemoryPressure = false;
     }
   }, MEMORY_CHECK_INTERVAL);
 }
@@ -2605,7 +2634,7 @@ function startFlushJobProcessor() {
   if (flushJobPollingInterval) {
     return; // Already running
   }
-  console.log(`Starting flush job processor with worker ID: ${WORKER_ID}`);
+  logger.info(`Starting flush job processor with worker ID: ${WORKER_ID}`);
   flushJobPollingInterval = setInterval(pollForFlushJobs, 1000);
   pollForFlushJobs(); // Run immediately
 }
@@ -2614,30 +2643,34 @@ function stopFlushJobProcessor() {
   if (flushJobPollingInterval) {
     clearInterval(flushJobPollingInterval);
     flushJobPollingInterval = null;
-    console.log("Flush job processor stopped");
+    logger.info("Flush job processor stopped");
   }
 }
 
 async function pollForFlushJobs() {
+  if (isMemoryPressure) {
+    logger.warn('Skipping flush job poll - memory pressure active');
+    return;
+  }
   try {
     const job = await storage.claimFlushJob(WORKER_ID);
     if (!job) {
       return; // No pending flush jobs
     }
     
-    console.log(`Worker ${WORKER_ID} claimed flush job ${job.id} (${job.totalRows} subscribers)`);
+    logger.info(`Worker ${WORKER_ID} claimed flush job ${job.id} (${job.totalRows} subscribers)`);
     
     try {
       await processFlushJob(job.id, job.totalRows);
       await storage.completeFlushJob(job.id, "completed");
       storage.invalidateSegmentCountCache();
-      console.log(`Flush job ${job.id} completed successfully`);
+      logger.info(`Flush job ${job.id} completed successfully`);
     } catch (error: any) {
-      console.error(`Error processing flush job ${job.id}:`, error);
+      logger.error(`Error processing flush job ${job.id}:`, error);
       await storage.completeFlushJob(job.id, "failed", error.message || "Unknown error");
     }
   } catch (error) {
-    console.error("Error in flush job polling:", error);
+    logger.error("Error in flush job polling:", error);
   }
 }
 
@@ -2648,7 +2681,7 @@ async function processFlushJob(jobId: string, totalRows: number) {
     // Check if job was cancelled
     const job = await storage.getFlushJob(jobId);
     if (!job || job.status === "cancelled") {
-      console.log(`Flush job ${jobId} was cancelled`);
+      logger.info(`Flush job ${jobId} was cancelled`);
       return;
     }
     
@@ -2663,7 +2696,7 @@ async function processFlushJob(jobId: string, totalRows: number) {
     processedRows += deletedCount;
     await storage.updateFlushJobProgress(jobId, processedRows);
     
-    console.log(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} subscribers (${Math.round(processedRows/totalRows*100)}%)`);
+    logger.info(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} subscribers (${Math.round(processedRows/totalRows*100)}%)`);
     
     // Small delay to prevent overwhelming the database
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -2678,21 +2711,25 @@ async function processCampaign(campaignId: string) {
   // Check if this campaign already has a pending/processing job
   const existingStatus = await storage.getJobStatus(campaignId);
   if (existingStatus) {
-    console.log(`Campaign ${campaignId} already has a ${existingStatus} job`);
+    logger.info(`Campaign ${campaignId} already has a ${existingStatus} job`);
     return;
   }
   
   await storage.enqueueCampaignJob(campaignId);
-  console.log(`Campaign ${campaignId} added to PostgreSQL job queue`);
+  logger.info(`Campaign ${campaignId} added to PostgreSQL job queue`);
 }
 
 // Background job processor - polls for pending jobs
 async function pollForJobs() {
+  if (isMemoryPressure) {
+    logger.warn('Skipping job poll - memory pressure active');
+    return;
+  }
   try {
     // Clean up stale jobs from crashed workers
     const staleCount = await storage.cleanupStaleJobs(30);
     if (staleCount > 0) {
-      console.log(`Cleaned up ${staleCount} stale jobs`);
+      logger.info(`Cleaned up ${staleCount} stale jobs`);
     }
     
     // Try to claim a pending job using FOR UPDATE SKIP LOCKED
@@ -2702,19 +2739,19 @@ async function pollForJobs() {
       return; // No pending jobs
     }
     
-    console.log(`Worker ${WORKER_ID} claimed job ${job.id} for campaign ${job.campaignId}`);
+    logger.info(`Worker ${WORKER_ID} claimed job ${job.id} for campaign ${job.campaignId}`);
     
     try {
       await processCampaignInternal(job.campaignId);
       await storage.completeJob(job.id, "completed");
-      console.log(`Job ${job.id} completed successfully`);
+      logger.info(`Job ${job.id} completed successfully`);
     } catch (error: any) {
-      console.error(`Error processing job ${job.id}:`, error);
+      logger.error(`Error processing job ${job.id}:`, error);
       await storage.completeJob(job.id, "failed", error.message || "Unknown error");
       await storage.updateCampaignStatusAtomic(job.campaignId, "failed");
     }
   } catch (error) {
-    console.error("Error in job polling:", error);
+    logger.error("Error in job polling:", error);
   }
 }
 
@@ -2735,7 +2772,7 @@ async function checkMtaRecovery() {
       const verifyResult = await verifyTransporter(mta);
       
       if (verifyResult.success) {
-        console.log(`MTA ${mta.name} is back online - resuming campaign ${campaign.id} (${campaign.name})`);
+        logger.info(`MTA ${mta.name} is back online - resuming campaign ${campaign.id} (${campaign.name})`);
         // Clear any stuck processing jobs before enqueuing new one
         await storage.clearStuckJobsForCampaign(campaign.id);
         // Clear pause reason and set status back to sending
@@ -2745,7 +2782,7 @@ async function checkMtaRecovery() {
       }
     }
   } catch (error) {
-    console.error("Error checking MTA recovery:", error);
+    logger.error("Error checking MTA recovery:", error);
   }
 }
 
@@ -2765,9 +2802,9 @@ async function resumeInterruptedCampaigns() {
     const stuckCampaigns = result.rows as Array<{ id: string; name: string }>;
     
     if (stuckCampaigns.length > 0) {
-      console.log(`[RECOVERY] Found ${stuckCampaigns.length} interrupted campaign(s) to resume`);
+      logger.info(`[RECOVERY] Found ${stuckCampaigns.length} interrupted campaign(s) to resume`);
       for (const campaign of stuckCampaigns) {
-        console.log(`[RECOVERY] Re-enqueuing campaign ${campaign.id} (${campaign.name})`);
+        logger.info(`[RECOVERY] Re-enqueuing campaign ${campaign.id} (${campaign.name})`);
         await storage.enqueueCampaignJob(campaign.id);
       }
     }
@@ -2779,7 +2816,7 @@ async function resumeInterruptedCampaigns() {
     `);
     
     if (stuckImports.rows.length > 0) {
-      console.log(`[RECOVERY] Reset ${stuckImports.rows.length} stuck import job(s)`);
+      logger.info(`[RECOVERY] Reset ${stuckImports.rows.length} stuck import job(s)`);
     }
 
     const stuckFlushJobs = await db.execute(sql`
@@ -2789,10 +2826,10 @@ async function resumeInterruptedCampaigns() {
     `);
     
     if (stuckFlushJobs.rows.length > 0) {
-      console.log(`[RECOVERY] Reset ${stuckFlushJobs.rows.length} stuck flush job(s)`);
+      logger.info(`[RECOVERY] Reset ${stuckFlushJobs.rows.length} stuck flush job(s)`);
     }
   } catch (error) {
-    console.error('[RECOVERY] Error resuming interrupted campaigns:', error);
+    logger.error('[RECOVERY] Error resuming interrupted campaigns:', error);
   }
 }
 
@@ -2802,7 +2839,7 @@ function startJobProcessor() {
     return; // Already running
   }
   
-  console.log(`Starting job processor with worker ID: ${WORKER_ID}`);
+  logger.info(`Starting job processor with worker ID: ${WORKER_ID}`);
   
   // Poll every 2 seconds for new jobs
   jobPollingInterval = setInterval(pollForJobs, 2000);
@@ -2822,7 +2859,7 @@ function startJobProcessor() {
   // Start MTA recovery checker - check every 30 seconds for MTA-down paused campaigns
   if (!mtaRecoveryInterval) {
     mtaRecoveryInterval = setInterval(checkMtaRecovery, 30000);
-    console.log("MTA recovery checker started (30s interval)");
+    logger.info("MTA recovery checker started (30s interval)");
   }
   
   startMemoryMonitor();
@@ -2834,12 +2871,12 @@ function stopJobProcessor() {
   if (jobPollingInterval) {
     clearInterval(jobPollingInterval);
     jobPollingInterval = null;
-    console.log("Job processor stopped");
+    logger.info("Job processor stopped");
   }
   if (mtaRecoveryInterval) {
     clearInterval(mtaRecoveryInterval);
     mtaRecoveryInterval = null;
-    console.log("MTA recovery checker stopped");
+    logger.info("MTA recovery checker stopped");
   }
   stopImportJobProcessor();
   stopFlushJobProcessor();
@@ -2853,7 +2890,7 @@ function startImportJobProcessor() {
     return; // Already running
   }
   
-  console.log(`Starting import job processor with worker ID: ${WORKER_ID}`);
+  logger.info(`Starting import job processor with worker ID: ${WORKER_ID}`);
   
   // Clean up orphaned import_staging data on startup - only for jobs that are not processing
   // This prevents data loss for active imports while cleaning up stale data from crashed imports
@@ -2865,29 +2902,29 @@ function startImportJobProcessor() {
       AND j.status = 'processing'
     )
   `)
-    .then(() => console.log('[IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)'))
-    .catch((err: any) => console.error('[IMPORT] Failed to clean up import_staging on startup:', err.message));
+    .then(() => logger.info('[IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)'))
+    .catch((err: any) => logger.error('[IMPORT] Failed to clean up import_staging on startup:', err.message));
   
   // GIN Index Integrity Check - recover from crash scenarios where indexes were dropped but never recreated
   storage.areGinIndexesPresent().then(async (present) => {
     if (!present) {
-      console.warn('[IMPORT] GIN indexes missing on startup! Likely from a crash during large import. Recreating...');
+      logger.warn('[IMPORT] GIN indexes missing on startup! Likely from a crash during large import. Recreating...');
       try {
         await storage.recreateSubscriberGinIndexes();
-        console.log('[IMPORT] GIN indexes recovered successfully');
+        logger.info('[IMPORT] GIN indexes recovered successfully');
       } catch (err: any) {
-        console.error('[IMPORT] Failed to recover GIN indexes on startup:', err.message);
+        logger.error('[IMPORT] Failed to recover GIN indexes on startup:', err.message);
       }
     } else {
-      console.log('[IMPORT] GIN indexes integrity check passed');
+      logger.info('[IMPORT] GIN indexes integrity check passed');
     }
   }).catch((err: any) => {
-    console.error('[IMPORT] GIN index integrity check failed:', err.message);
+    logger.error('[IMPORT] GIN index integrity check failed:', err.message);
   });
   
   storage.ensureTrigramIndex()
-    .then(() => console.log('[IMPORT] Email trigram index verified'))
-    .catch((err: any) => console.error('[IMPORT] Failed to create email trigram index:', err.message));
+    .then(() => logger.info('[IMPORT] Email trigram index verified'))
+    .catch((err: any) => logger.error('[IMPORT] Failed to create email trigram index:', err.message));
   
   // Poll every 2 seconds for new import jobs
   importJobPollingInterval = setInterval(pollForImportJobs, 2000);
@@ -2901,13 +2938,17 @@ function stopImportJobProcessor() {
   if (importJobPollingInterval) {
     clearInterval(importJobPollingInterval);
     importJobPollingInterval = null;
-    console.log("Import job processor stopped");
+    logger.info("Import job processor stopped");
   }
 }
 
 // Background import job processor - polls for pending import jobs
 let lastRecoveryCheck = 0;
 async function pollForImportJobs() {
+  if (isMemoryPressure) {
+    logger.warn('Skipping import job poll - memory pressure active');
+    return;
+  }
   try {
     // Only run recovery check every 5 minutes to avoid excessive DB queries
     const now = Date.now();
@@ -2917,13 +2958,13 @@ async function pollForImportJobs() {
       // Recover stuck import jobs from crashed workers or server restarts
       const recoveredCount = await storage.recoverStuckImportJobs();
       if (recoveredCount > 0) {
-        console.log(`Recovered ${recoveredCount} stuck import jobs back to pending`);
+        logger.info(`Recovered ${recoveredCount} stuck import jobs back to pending`);
       }
       
       // Clean up stale import jobs from crashed workers
       const staleCount = await storage.cleanupStaleImportJobs(30);
       if (staleCount > 0) {
-        console.log(`Cleaned up ${staleCount} stale import jobs`);
+        logger.info(`Cleaned up ${staleCount} stale import jobs`);
       }
     }
     
@@ -2934,7 +2975,7 @@ async function pollForImportJobs() {
       return; // No pending import jobs
     }
     
-    console.log(`Worker ${WORKER_ID} claimed import job queue item ${queueItem.id} for import ${queueItem.importJobId}`);
+    logger.info(`Worker ${WORKER_ID} claimed import job queue item ${queueItem.id} for import ${queueItem.importJobId}`);
     
     try {
       await processImportFromQueue(queueItem.id, queueItem.importJobId, queueItem.csvFilePath);
@@ -2942,19 +2983,19 @@ async function pollForImportJobs() {
       // Check if job was cancelled during processing - don't mark as completed if so
       const finalJob = await storage.getImportJob(queueItem.importJobId);
       if (finalJob?.status === 'cancelled') {
-        console.log(`Import job ${queueItem.id} was cancelled during processing, not marking as completed`);
+        logger.info(`Import job ${queueItem.id} was cancelled during processing, not marking as completed`);
       } else {
         await storage.completeImportQueueJob(queueItem.id, "completed");
         storage.invalidateSegmentCountCache();
-        console.log(`Import job ${queueItem.id} completed successfully`);
+        logger.info(`Import job ${queueItem.id} completed successfully`);
       }
     } catch (error: any) {
-      console.error(`Error processing import job ${queueItem.id}:`, error);
+      logger.error(`Error processing import job ${queueItem.id}:`, error);
       
       // Check if job was cancelled - don't mark as failed if it was cancelled
       const jobAfterError = await storage.getImportJob(queueItem.importJobId);
       if (jobAfterError?.status === 'cancelled') {
-        console.log(`Import job ${queueItem.id} was cancelled, not marking as failed`);
+        logger.info(`Import job ${queueItem.id} was cancelled, not marking as failed`);
       } else {
         await storage.completeImportQueueJob(queueItem.id, "failed", error.message || "Unknown error");
         await storage.updateImportJob(queueItem.importJobId, {
@@ -2971,11 +3012,11 @@ async function pollForImportJobs() {
           details: error?.stack || String(error),
         });
       } catch (logError) {
-        console.error("Failed to log error:", logError);
+        logger.error("Failed to log error:", logError);
       }
     }
   } catch (error) {
-    console.error("Error in import job polling:", error);
+    logger.error("Error in import job polling:", error);
   }
 }
 
@@ -2984,7 +3025,7 @@ async function pollForImportJobs() {
 // Supports resume from last checkpoint if interrupted
 // Supports both object storage paths (/objects/...) and local filesystem paths (legacy)
 async function processImportFromQueue(queueId: string, importJobId: string, csvFilePath: string) {
-  console.log(`[IMPORT] Processing job ${importJobId} from file: ${csvFilePath}`);
+  logger.info(`[IMPORT] Processing job ${importJobId} from file: ${csvFilePath}`);
   
   // Determine if this is an object storage path or local filesystem path
   const isObjectStorage = csvFilePath.startsWith('/objects/');
@@ -3002,7 +3043,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     // Get file size from queue item (stored when file was uploaded)
     const queueItemForSize = await storage.getImportQueueItem(queueId);
     fileSizeBytes = queueItemForSize?.fileSizeBytes || 0;
-    console.log(`[IMPORT] ${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
+    logger.info(`[IMPORT] ${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
   } else {
     // Local filesystem path (legacy support for in-progress imports)
     if (!fs.existsSync(csvFilePath)) {
@@ -3014,7 +3055,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       encoding: 'utf-8',
       highWaterMark: 256 * 1024 // 256KB buffer for better IO performance
     });
-    console.log(`[IMPORT] ${importJobId}: Using local filesystem (legacy), size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
+    logger.info(`[IMPORT] ${importJobId}: Using local filesystem (legacy), size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
   }
   const queueItem = await storage.getImportQueueItem(queueId);
   const resumeFromLine = queueItem?.lastCheckpointLine || 0;
@@ -3023,7 +3064,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   const importJob = await storage.getImportJob(importJobId);
   const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
   
-  console.log(`[IMPORT] ${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, resume from line: ${resumeFromLine}`);
+  logger.info(`[IMPORT] ${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, resume from line: ${resumeFromLine}`);
   
   await storage.updateImportJob(importJobId, { status: 'processing', startedAt: new Date() });
   
@@ -3044,11 +3085,11 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   // For large imports on first run (not resume), drop GIN indexes for faster processing
   if (isLargeImport && resumeFromLine === 0) {
     try {
-      console.log(`[IMPORT] ${importJobId}: Large import detected (${totalLines} rows), dropping GIN indexes for faster processing`);
+      logger.info(`[IMPORT] ${importJobId}: Large import detected (${totalLines} rows), dropping GIN indexes for faster processing`);
       await storage.dropSubscriberGinIndexes();
       ginIndexesDropped = true;
     } catch (err: any) {
-      console.error(`[IMPORT] ${importJobId}: Failed to drop GIN indexes:`, err.message);
+      logger.error(`[IMPORT] ${importJobId}: Failed to drop GIN indexes:`, err.message);
       // Continue anyway - import will just be slower
     }
   }
@@ -3075,7 +3116,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   const STUCK_DETECTION_INTERVAL = 30000; // Warn if no commits for 30 seconds
   
   if (resumeFromLine > 0) {
-    console.log(`[IMPORT] ${importJobId}: Resuming from line ${resumeFromLine}, committed rows: ${committedRows} (new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows})`);
+    logger.info(`[IMPORT] ${importJobId}: Resuming from line ${resumeFromLine}, committed rows: ${committedRows} (new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows})`);
   }
   
   // Header parsing state
@@ -3122,15 +3163,15 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       const commitRate = committedRows / elapsedSec;
       const parseRate = parsedRows / elapsedSec;
       const pendingCount = parsedRows - committedRows;
-      console.log(`[IMPORT] ${importJobId}: Progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), pending: ${pendingCount.toLocaleString()}, batches queued: ${pendingBatches.length}`);
+      logger.info(`[IMPORT] ${importJobId}: Progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), pending: ${pendingCount.toLocaleString()}, batches queued: ${pendingBatches.length}`);
       
       // Stuck detection: warn if no commits for 30 seconds AND we have pending batches
       // Only warn if there's actual work pending (pendingBatches > 0) to avoid false positives
       if (parsedRows > committedRows && pendingBatches.length > 0 && now - lastCommitTime > STUCK_DETECTION_INTERVAL) {
-        console.warn(`[IMPORT] ${importJobId}: WARNING - No DB commits in ${Math.round((now - lastCommitTime) / 1000)}s! Parsed: ${parsedRows}, Committed: ${committedRows}, Pending batches: ${pendingBatches.length}`);
+        logger.warn(`[IMPORT] ${importJobId}: WARNING - No DB commits in ${Math.round((now - lastCommitTime) / 1000)}s! Parsed: ${parsedRows}, Committed: ${committedRows}, Pending batches: ${pendingBatches.length}`);
       }
     } catch (err) {
-      console.error(`[IMPORT] ${importJobId}: Progress update failed:`, err);
+      logger.error(`[IMPORT] ${importJobId}: Progress update failed:`, err);
     }
   }, PROGRESS_UPDATE_INTERVAL_MS);
   
@@ -3148,7 +3189,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     try {
       const job = await storage.getImportJob(importJobId);
       if (job?.status === 'cancelled') {
-        console.log(`[IMPORT] ${importJobId}: Job cancelled by user, stopping processing`);
+        logger.info(`[IMPORT] ${importJobId}: Job cancelled by user, stopping processing`);
         isCancelled = true;
         return true;
       }
@@ -3181,7 +3222,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
       updated = result.updated;
       failed = result.failed; // bulkUpsertSubscribers now tracks failures internally
     } catch (err: any) {
-      console.error(`[IMPORT] Bulk upsert completely failed for batch ${batchNum}:`, err.message);
+      logger.error(`[IMPORT] Bulk upsert completely failed for batch ${batchNum}:`, err.message);
       // Fall back to individual inserts if bulk fails completely (rare)
       for (const row of batch) {
         try {
@@ -3198,14 +3239,14 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           }
         } catch (individualErr: any) {
           failed++;
-          console.error(`[IMPORT] Fallback insert failed for email ${row.email}: ${individualErr.message}`);
+          logger.error(`[IMPORT] Fallback insert failed for email ${row.email}: ${individualErr.message}`);
         }
       }
     }
     
     const batchDuration = Date.now() - batchStart;
     const rowsPerSecond = batch.length / (batchDuration / 1000);
-    console.log(`[IMPORT] ${importJobId}: Batch ${batchNum} (${batch.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s)`);
+    logger.info(`[IMPORT] ${importJobId}: Batch ${batchNum} (${batch.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s)`);
     
     return { inserted, updated, failed };
   }
@@ -3274,14 +3315,14 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     if (committedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
       await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
       lastCheckpointLine = committedRows;
-      console.log(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${committedRows.toLocaleString()} rows committed`);
+      logger.info(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${committedRows.toLocaleString()} rows committed`);
     }
     
     // Log overall progress with both parsed and committed counts
     const elapsedSec = (Date.now() - startTime) / 1000;
     const commitRate = committedRows / elapsedSec;
     const pendingCount = parsedRows - committedRows;
-    console.log(`[IMPORT] ${importJobId}: Batch complete - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}, pending parse: ${pendingCount.toLocaleString()}`);
+    logger.info(`[IMPORT] ${importJobId}: Batch complete - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}, pending parse: ${pendingCount.toLocaleString()}`);
     
     // Resume reading if we were paused and now have room for more batches
     if (isReadingPaused && pendingBatches.length < MAX_PENDING_BATCHES) {
@@ -3322,7 +3363,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           tagsIdx = header.indexOf('tags');
           ipIdx = header.indexOf('ip_address');
           
-          console.log(`[IMPORT] ${importJobId}: Header columns: ${header.join(', ')}`);
+          logger.info(`[IMPORT] ${importJobId}: Header columns: ${header.join(', ')}`);
           
           if (emailIdx === -1) {
             rl.close();
@@ -3399,7 +3440,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           lastCommitTime = Date.now(); // Update commit time for immediate failures too
         }
       } catch (err) {
-        console.error(`[IMPORT] Error processing line ${currentLineNumber}:`, err);
+        logger.error(`[IMPORT] Error processing line ${currentLineNumber}:`, err);
         // Line processing error - count as parsed AND committed (immediate failure)
         failedRows++;
         parsedRows++;
@@ -3430,7 +3471,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         
         // If cancelled (either by our flag or externally), don't mark as completed
         if (isCancelled || wasExternallyCancelled) {
-          console.log(`[IMPORT] ${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (committed: ${committedRows}, parsed: ${parsedRows})`);
+          logger.info(`[IMPORT] ${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (committed: ${committedRows}, parsed: ${parsedRows})`);
           
           // Update final progress so user knows where we stopped (but don't override cancelled status)
           await storage.updateImportJob(importJobId, {
@@ -3444,22 +3485,22 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           try {
             if (isObjectStorage) {
               await objectStorageService.deleteStorageObject(csvFilePath);
-              console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage after cancellation`);
+              logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage after cancellation`);
             } else {
               fs.unlinkSync(csvFilePath);
-              console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem after cancellation`);
+              logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem after cancellation`);
             }
           } catch (cleanupErr) {
-            console.error(`[IMPORT] Failed to clean up CSV file after cancellation: ${csvFilePath}`, cleanupErr);
+            logger.error(`[IMPORT] Failed to clean up CSV file after cancellation: ${csvFilePath}`, cleanupErr);
           }
           
           // Recreate GIN indexes if they were dropped
           if (ginIndexesDropped) {
             try {
-              console.log(`[IMPORT] ${importJobId}: Recreating GIN indexes after cancelled import`);
+              logger.info(`[IMPORT] ${importJobId}: Recreating GIN indexes after cancelled import`);
               await storage.recreateSubscriberGinIndexes();
             } catch (indexErr) {
-              console.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes after cancellation`);
+              logger.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes after cancellation`);
             }
           }
           
@@ -3486,14 +3527,14 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
           try {
             const indexesPresent = await storage.areGinIndexesPresent();
             if (!indexesPresent) {
-              console.log(`[IMPORT] ${importJobId}: GIN indexes missing (dropped=${ginIndexesDropped}), recreating after import`);
+              logger.info(`[IMPORT] ${importJobId}: GIN indexes missing (dropped=${ginIndexesDropped}), recreating after import`);
               await storage.recreateSubscriberGinIndexes();
             } else if (ginIndexesDropped) {
               // This shouldn't happen, but log it for debugging
-              console.log(`[IMPORT] ${importJobId}: GIN indexes already present despite being dropped this run`);
+              logger.info(`[IMPORT] ${importJobId}: GIN indexes already present despite being dropped this run`);
             }
           } catch (indexErr: any) {
-            console.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes:`, indexErr.message);
+            logger.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes:`, indexErr.message);
             // Log error but don't fail the import - indexes can be recreated manually
             try {
               await storage.logError({
@@ -3504,7 +3545,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
                 details: indexErr?.stack || String(indexErr),
               });
             } catch (logErr) {
-              console.error(`[IMPORT] ${importJobId}: Failed to log index recreation error:`, logErr);
+              logger.error(`[IMPORT] ${importJobId}: Failed to log index recreation error:`, logErr);
             }
           }
         }
@@ -3515,22 +3556,22 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
             // Delete from object storage
             const deleted = await objectStorageService.deleteStorageObject(csvFilePath);
             if (deleted) {
-              console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage`);
+              logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage`);
             } else {
-              console.error(`[IMPORT] ${importJobId}: Failed to delete CSV file from object storage: ${csvFilePath}`);
+              logger.error(`[IMPORT] ${importJobId}: Failed to delete CSV file from object storage: ${csvFilePath}`);
             }
           } else {
             // Delete from local filesystem (legacy)
             fs.unlinkSync(csvFilePath);
-            console.log(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem`);
+            logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem`);
           }
         } catch (err) {
-          console.error(`[IMPORT] Failed to clean up CSV file: ${csvFilePath}`, err);
+          logger.error(`[IMPORT] Failed to clean up CSV file: ${csvFilePath}`, err);
         }
         
         const totalDuration = (Date.now() - startTime) / 1000;
         const finalRowsPerSecond = committedRows / totalDuration;
-        console.log(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
+        logger.info(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
         
         resolve();
       } catch (err) {
@@ -3540,24 +3581,24 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     
     rl.on('error', (err) => {
       clearInterval(progressUpdateTimer);
-      console.error(`[IMPORT] Stream error:`, err);
+      logger.error(`[IMPORT] Stream error:`, err);
       // Ensure GIN indexes are recovered on stream error
       if (ginIndexesDropped) {
         storage.recreateSubscriberGinIndexes()
-          .then(() => console.log(`[IMPORT] ${importJobId}: GIN indexes recovered after stream error`))
-          .catch((indexErr) => console.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after stream error:`, indexErr));
+          .then(() => logger.info(`[IMPORT] ${importJobId}: GIN indexes recovered after stream error`))
+          .catch((indexErr) => logger.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after stream error:`, indexErr));
       }
       reject(err);
     });
     
     fileStream.on('error', (err) => {
       clearInterval(progressUpdateTimer);
-      console.error(`[IMPORT] File stream error:`, err);
+      logger.error(`[IMPORT] File stream error:`, err);
       // Ensure GIN indexes are recovered on file error
       if (ginIndexesDropped) {
         storage.recreateSubscriberGinIndexes()
-          .then(() => console.log(`[IMPORT] ${importJobId}: GIN indexes recovered after file error`))
-          .catch((indexErr) => console.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after file error:`, indexErr));
+          .then(() => logger.info(`[IMPORT] ${importJobId}: GIN indexes recovered after file error`))
+          .catch((indexErr) => logger.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after file error:`, indexErr));
       }
       reject(err);
     });
@@ -3684,7 +3725,7 @@ async function bulkUpsertSubscribers(
         totalUpdated += parseInt(result.updated || '0');
       }
     } catch (err: any) {
-      console.error(`[IMPORT] Bulk upsert chunk failed:`, err.message);
+      logger.error(`[IMPORT] Bulk upsert chunk failed:`, err.message);
       // Clean up staging on error
       await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${jobId}`);
       
@@ -3720,7 +3761,7 @@ async function bulkUpsertSubscribers(
         } catch (individualErr: any) {
           // Log each failed row for debugging and count it
           totalFailed++;
-          console.error(`[IMPORT] Individual insert failed for email ${row.email}: ${individualErr.message}`);
+          logger.error(`[IMPORT] Individual insert failed for email ${row.email}: ${individualErr.message}`);
         }
       }
     }
@@ -3744,7 +3785,7 @@ async function processCampaignInternal(campaignId: string) {
   if (campaign.mtaId) {
     mta = await storage.getMta(campaign.mtaId);
     if (!mta) {
-      console.error(`Campaign ${campaignId}: MTA ${campaign.mtaId} not found`);
+      logger.error(`Campaign ${campaignId}: MTA ${campaign.mtaId} not found`);
       await storage.updateCampaignStatusAtomic(campaignId, "failed");
       return;
     }
@@ -3752,20 +3793,20 @@ async function processCampaignInternal(campaignId: string) {
     // Verify SMTP connection before starting
     const verifyResult = await verifyTransporter(mta);
     if (!verifyResult.success) {
-      console.error(`Campaign ${campaignId}: SMTP verification failed: ${verifyResult.error}`);
+      logger.error(`Campaign ${campaignId}: SMTP verification failed: ${verifyResult.error}`);
       // Pause instead of fail - will auto-resume when MTA is back online
       await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
-      console.log(`Campaign ${campaignId}: Paused due to MTA unavailable - will auto-resume when MTA is back`);
+      logger.info(`Campaign ${campaignId}: Paused due to MTA unavailable - will auto-resume when MTA is back`);
       return;
     }
-    console.log(`Campaign ${campaignId}: SMTP connection verified for MTA ${mta.name}`);
+    logger.info(`Campaign ${campaignId}: SMTP connection verified for MTA ${mta.name}`);
   }
   
   // Recovery: Clean up any orphaned pending sends from previous crashes
   // This ensures retries can proceed and counters stay accurate
   const recovered = await storage.recoverOrphanedPendingSends(campaignId, 2);
   if (recovered > 0) {
-    console.log(`Campaign ${campaignId}: Recovered ${recovered} orphaned pending sends before processing`);
+    logger.info(`Campaign ${campaignId}: Recovered ${recovered} orphaned pending sends before processing`);
   }
   
   // Get total count first (uses SQL, doesn't load all into memory)
@@ -3785,7 +3826,7 @@ async function processCampaignInternal(campaignId: string) {
   // For parallel sending: we send `concurrency` emails at once, then wait
   const batchDelayMs = Math.floor((concurrency / emailsPerMinute) * 60000);
   
-  console.log(`[CAMPAIGN] ${campaignId}: Starting parallel send - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min`);
+  logger.info(`[CAMPAIGN] ${campaignId}: Starting parallel send - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min`);
   
   // Process in batches of 1000 to avoid memory issues
   const BATCH_SIZE = 1000;
@@ -3843,7 +3884,7 @@ async function processCampaignInternal(campaignId: string) {
         }
         
         if (!result.success) {
-          console.error(`Failed to send to ${subscriber.email}: ${result.error}`);
+          logger.error(`Failed to send to ${subscriber.email}: ${result.error}`);
           await storage.logError({
             type: "send_failed",
             severity: "error",
@@ -3856,7 +3897,7 @@ async function processCampaignInternal(campaignId: string) {
         }
       }
     } catch (error: any) {
-      console.error(`Exception sending to ${subscriber.email}:`, error.message);
+      logger.error(`Exception sending to ${subscriber.email}:`, error.message);
       sendSuccess = false;
       await storage.logError({
         type: "send_failed",
@@ -3873,7 +3914,7 @@ async function processCampaignInternal(campaignId: string) {
     try {
       await storage.finalizeSend(campaignId, subscriber.id, sendSuccess);
     } catch (finalizeError: any) {
-      console.error(`INVARIANT VIOLATION during finalize for ${subscriber.email}: ${finalizeError.message}`);
+      logger.error(`INVARIANT VIOLATION during finalize for ${subscriber.email}: ${finalizeError.message}`);
       await storage.forceFailPendingSend(campaignId, subscriber.id).catch(() => {});
     }
     
@@ -3893,13 +3934,13 @@ async function processCampaignInternal(campaignId: string) {
     // Check if campaign was paused or cancelled (atomic read)
     const currentCampaign = await storage.getCampaign(campaignId);
     if (!currentCampaign || currentCampaign.status !== "sending") {
-      console.log(`[CAMPAIGN] ${campaignId}: Paused/cancelled at ${processedCount} processed`);
+      logger.info(`[CAMPAIGN] ${campaignId}: Paused/cancelled at ${processedCount} processed`);
       break;
     }
     
     // MTA health check: auto-pause if too many consecutive SMTP failures
     if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mtaRef) {
-      console.error(`[CAMPAIGN] ${campaignId}: ${consecutiveSmtpFailures} consecutive SMTP failures - pausing campaign for MTA recovery`);
+      logger.error(`[CAMPAIGN] ${campaignId}: ${consecutiveSmtpFailures} consecutive SMTP failures - pausing campaign for MTA recovery`);
       await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
       
       // Refresh the transporter so it reconnects when campaign resumes
@@ -3932,13 +3973,13 @@ async function processCampaignInternal(campaignId: string) {
       if (i > 0 && i % (concurrency * 10) === 0) {
         const checkCampaign = await storage.getCampaign(campaignId);
         if (!checkCampaign || checkCampaign.status !== "sending") {
-          console.log(`[CAMPAIGN] ${campaignId}: Paused during batch at ${processedCount}`);
+          logger.info(`[CAMPAIGN] ${campaignId}: Paused during batch at ${processedCount}`);
           return;
         }
         
         // Also check MTA health mid-batch
         if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mtaRef) {
-          console.error(`[CAMPAIGN] ${campaignId}: MTA failure threshold reached mid-batch, pausing`);
+          logger.error(`[CAMPAIGN] ${campaignId}: MTA failure threshold reached mid-batch, pausing`);
           await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
           closeTransporter(mtaRef.id);
           return;
@@ -3976,13 +4017,13 @@ async function processCampaignInternal(campaignId: string) {
     // Log progress every batch
     const elapsed = (Date.now() - startTime) / 1000;
     const rate = processedCount / elapsed * 60;
-    console.log(`[CAMPAIGN] ${campaignId}: Progress ${processedCount}/${total} (${rate.toFixed(0)}/min) - Sent: ${totalSent}, Failed: ${totalFailed}`);
+    logger.info(`[CAMPAIGN] ${campaignId}: Progress ${processedCount}/${total} (${rate.toFixed(0)}/min) - Sent: ${totalSent}, Failed: ${totalFailed}`);
   }
   
   // Clean up transporter connection pool when done
   if (mta) {
     closeTransporter(mta.id);
-    console.log(`Campaign ${campaignId}: Closed SMTP connection for MTA ${mta.name}`);
+    logger.info(`Campaign ${campaignId}: Closed SMTP connection for MTA ${mta.name}`);
   }
   
   // Final update - use atomic status change with expected status check
@@ -3996,6 +4037,6 @@ async function processCampaignInternal(campaignId: string) {
     
     // Get final counts from database (source of truth)
     const finalCampaign = await storage.getCampaign(campaignId);
-    console.log(`Campaign ${campaignId} completed: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
+    logger.info(`Campaign ${campaignId} completed: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
   }
 }

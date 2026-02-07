@@ -43,6 +43,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
+import { logger } from "./logger";
 
 export interface IStorage {
   // Subscribers
@@ -804,7 +805,7 @@ export class DatabaseStorage implements IStorage {
     
     const recoveredCount = Number(result.rows[0]?.recovered_count ?? 0);
     if (recoveredCount > 0) {
-      console.log(`Recovered ${recoveredCount} orphaned pending sends for campaign ${campaignId}`);
+      logger.info('Recovered orphaned pending sends', { recoveredCount, campaignId });
     }
     return recoveredCount;
   }
@@ -1245,23 +1246,23 @@ export class DatabaseStorage implements IStorage {
   
   // GIN Index Management for large import optimization
   async dropSubscriberGinIndexes(): Promise<void> {
-    console.log('[INDEX] Dropping GIN indexes for large import optimization...');
+    logger.info('Dropping GIN indexes for large import optimization');
     await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
-    console.log('[INDEX] GIN indexes dropped');
+    logger.info('GIN indexes dropped');
   }
   
   async recreateSubscriberGinIndexes(): Promise<void> {
-    console.log('[INDEX] Recreating GIN indexes after import...');
+    logger.info('Recreating GIN indexes after import');
     // Use CONCURRENTLY to avoid blocking other operations
     // Note: CONCURRENTLY can't run in a transaction, so we use separate statements
     try {
       await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
     } catch (err: any) {
       // Fall back to non-concurrent if CONCURRENTLY fails (e.g., already exists or transaction)
-      console.log('[INDEX] CONCURRENTLY failed for tags_gin_idx, trying regular CREATE INDEX');
+      logger.info('CONCURRENTLY failed for tags_gin_idx, trying regular CREATE INDEX');
       await db.execute(sql`CREATE INDEX IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
     }
-    console.log('[INDEX] GIN indexes recreated');
+    logger.info('GIN indexes recreated');
   }
   
   async areGinIndexesPresent(): Promise<boolean> {
