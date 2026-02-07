@@ -40,10 +40,13 @@ import {
   type PendingTagOperation,
   type FlushJob,
   type FlushJobStatus,
+  users,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
+import { encrypt, decrypt } from "./crypto";
 import { logger } from "./logger";
+import bcrypt from "bcrypt";
 
 export interface IStorage {
   // Subscribers
@@ -202,6 +205,12 @@ export interface IStorage {
   deleteSubscriberBatch(batchSize: number): Promise<number>;
   countAllSubscribers(): Promise<number>;
   
+  // Users
+  createUser(data: { username: string; password: string }): Promise<any>;
+  getUserByUsername(username: string): Promise<any | null>;
+  getUserById(id: string): Promise<any | null>;
+  getUserCount(): Promise<number>;
+
   // Health Check
   healthCheck(): Promise<boolean>;
   
@@ -544,21 +553,36 @@ export class DatabaseStorage implements IStorage {
 
   // MTAs
   async getMtas(): Promise<Mta[]> {
-    return db.select().from(mtas).orderBy(desc(mtas.createdAt));
+    const results = await db.select().from(mtas).orderBy(desc(mtas.createdAt));
+    return results.map(mta => ({
+      ...mta,
+      password: mta.password ? "••••••••" : null,
+    }));
   }
 
   async getMta(id: string): Promise<Mta | undefined> {
     const [mta] = await db.select().from(mtas).where(eq(mtas.id, id));
+    if (mta && mta.password) {
+      mta.password = decrypt(mta.password);
+    }
     return mta;
   }
 
   async createMta(data: InsertMta): Promise<Mta> {
-    const [mta] = await db.insert(mtas).values(data).returning();
+    const dataToInsert = { ...data };
+    if (dataToInsert.password) {
+      dataToInsert.password = encrypt(dataToInsert.password);
+    }
+    const [mta] = await db.insert(mtas).values(dataToInsert).returning();
     return mta;
   }
 
   async updateMta(id: string, data: Partial<InsertMta>): Promise<Mta | undefined> {
-    const [mta] = await db.update(mtas).set(data).where(eq(mtas.id, id)).returning();
+    const dataToUpdate = { ...data };
+    if (dataToUpdate.password && typeof dataToUpdate.password === 'string') {
+      dataToUpdate.password = encrypt(dataToUpdate.password);
+    }
+    const [mta] = await db.update(mtas).set(dataToUpdate).where(eq(mtas.id, id)).returning();
     return mta;
   }
 
@@ -1826,6 +1850,34 @@ export class DatabaseStorage implements IStorage {
     } else {
       this.segmentCountCache.clear();
     }
+  }
+
+  async createUser(data: { username: string; password: string }): Promise<any> {
+    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const [user] = await db.insert(users).values({
+      username: data.username,
+      password: hashedPassword,
+    }).returning();
+    return { id: user.id, username: user.username, createdAt: user.createdAt };
+  }
+
+  async getUserByUsername(username: string): Promise<any | null> {
+    const [user] = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return user || null;
+  }
+
+  async getUserById(id: string): Promise<any | null> {
+    const [user] = await db.select({
+      id: users.id,
+      username: users.username,
+      createdAt: users.createdAt,
+    }).from(users).where(eq(users.id, id)).limit(1);
+    return user || null;
+  }
+
+  async getUserCount(): Promise<number> {
+    const result = await db.execute(sql`SELECT COUNT(*)::int as count FROM users`);
+    return Number(result.rows[0]?.count ?? 0);
   }
 
   async clearNullsinkCaptures(campaignId?: string): Promise<number> {

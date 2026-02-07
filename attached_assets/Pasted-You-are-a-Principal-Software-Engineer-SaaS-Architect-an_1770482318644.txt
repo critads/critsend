@@ -1,0 +1,48 @@
+You are a Principal Software Engineer + SaaS Architect and your job is to perform a strict production-grade audit of THIS Replit project.
+
+Goal: Evaluate the quality of the codebase + the architecture to ensure this SaaS is extremely robust, secure, maintainable, and scalable. Be critical and concrete.
+
+Rules:
+- Do NOT rewrite the whole project.
+- Only propose changes that materially improve reliability/security/performance/maintainability.
+- Every finding must include: severity (Critical/High/Medium/Low), risk scenario in production, exact file(s)/function(s) concerned, and a specific fix (with minimal code diff examples when relevant).
+- End with a prioritized roadmap by impact/effort.
+
+Step 0 — Project understanding (required):
+1) Read the repo structure and summarize the architecture (modules, boundaries, data flow, key components).
+2) Identify the “critical flows”: authentication, payments (if any), API requests, background jobs/queues, emails/webhooks, file uploads, database writes, multi-tenancy (if any), admin actions.
+
+Step 1 — Audit scorecard (give a score /10 for each):
+A) Correctness & Error Handling (timeouts, retries, idempotency, input validation)
+B) Security (OWASP Top 10, auth, RBAC, multi-tenant isolation, secrets, rate limiting)
+C) Data Consistency (transactions, migrations safety, concurrency/race conditions)
+D) Performance & Scalability (N+1, indexing, caching, queue/backpressure, p95/p99)
+E) Observability (structured logs, metrics, tracing, alerting, SLO readiness)
+F) Testing (unit/integration/e2e, coverage gaps, test realism)
+G) Maintainability (clean architecture, duplication, coupling, naming, complexity)
+H) DevOps/Release (CI/CD, env config, rollback, feature flags, safe deployments)
+
+Step 2 — Hard checks (must do):
+- Search for secrets/keys in code, insecure storage, weak crypto, missing CSRF protections (if web), insecure CORS, injection risks, unsafe deserialization.
+- Check authentication/session handling: token expiry, refresh, logout invalidation, password hashing, account enumeration.
+- Check multi-tenant boundaries (if applicable): every query must be tenant-scoped; no cross-tenant data leakage.
+- Check DB safety: transactions, isolation, unique constraints, migrations, seed scripts, backups strategy.
+- Check async jobs/webhooks: idempotency keys, retries with backoff, dead-letter strategy, duplicate processing.
+- Check external API usage: timeouts, retries, circuit breaker patterns, failure modes.
+- Check file uploads: size/type validation, path traversal, antivirus scanning (if relevant), signed URLs (if relevant).
+- Check error reporting: no sensitive data leaked in errors/logs.
+
+Step 3 — Deliverables (required output format):
+1) Architecture diagram in text (components + data flow)
+2) Top 20 issues table (Severity | Risk | Location | Fix summary)
+3) “Quick wins” (can be done in <1 day)
+4) “1–3 days improvements”
+5) “1–2 weeks improvements”
+6) “Longer-term refactors”
+7) A short checklist to confirm readiness for production launch
+
+Important:
+- If you cannot find something (e.g., no tests, no CI), call it out explicitly and propose the minimal setup.
+- Ask at most 3 clarification questions ONLY if absolutely necessary; otherwise make reasonable assumptions and proceed.
+
+Now start the audit by scanning the repo structure and identifying the critical flows.

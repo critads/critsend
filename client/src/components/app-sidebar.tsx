@@ -14,7 +14,10 @@ import {
   FlaskConical,
   Settings,
   HelpCircle,
+  LogOut,
 } from "lucide-react";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Sidebar,
   SidebarContent,
@@ -99,6 +102,17 @@ const toolsNavItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { toast } = useToast();
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Signed out", description: "You have been logged out." });
+    } catch {
+      toast({ title: "Error", description: "Logout failed", variant: "destructive" });
+    }
+  };
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -189,6 +203,14 @@ export function AppSidebar() {
           <HelpCircle className="w-4 h-4" />
           <span>Help & Support</span>
         </div>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer px-2 py-1.5 rounded-md hover:bg-accent transition-colors w-full text-left"
+          data-testid="button-logout"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Sign Out</span>
+        </button>
       </SidebarFooter>
     </Sidebar>
   );

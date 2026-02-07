@@ -30,6 +30,12 @@ import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { logger } from "./logger";
 import sanitizeHtml from "sanitize-html";
+import { registerSubscriberRoutes } from "./routes/subscribers";
+import { registerSegmentRoutes } from "./routes/segments";
+import { registerMtaRoutes } from "./routes/mtas";
+import { registerTrackingRoutes } from "./routes/tracking";
+import { registerWebhookRoutes } from "./routes/webhooks";
+import { registerAnalyticsRoutes } from "./routes/analytics";
 
 const dnsLookup = promisify(dns.lookup);
 
@@ -47,15 +53,25 @@ const importDiskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, UPLOADS_DIR_BASE);
   },
-  filename: (_req, file, cb) => {
+  filename: (_req, _file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-    cb(null, `upload-${uniqueSuffix}-${file.originalname}`);
+    cb(null, `import-${uniqueSuffix}.csv`);
   }
 });
 
 const uploadToDisk = multer({ 
   storage: importDiskStorage,
-  limits: { fileSize: 1024 * 1024 * 1024 } // 1GB limit
+  limits: { fileSize: 1024 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedMimes = ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'];
+    const allowedExts = ['.csv', '.txt'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed for import'));
+    }
+  },
 });
 
 // Memory storage for small file uploads (images, etc.)
@@ -717,386 +733,14 @@ export async function registerRoutes(
     }
   });
   
-  // ============ SUBSCRIBERS ============
-  app.get("/api/subscribers", async (req: Request, res: Response) => {
-    try {
-      const { page, limit } = parsePagination(req.query);
-      const search = req.query.search as string | undefined;
-      
-      const result = await storage.getSubscribers(page, limit, search);
-      res.json({
-        ...result,
-        page,
-        limit,
-        totalPages: Math.ceil(result.total / limit),
-      });
-    } catch (error) {
-      logger.error("Error fetching subscribers:", error);
-      res.status(500).json({ error: "Failed to fetch subscribers" });
-    }
-  });
-
-  app.get("/api/subscribers/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const subscriber = await storage.getSubscriber(req.params.id);
-      if (!subscriber) {
-        return res.status(404).json({ error: "Subscriber not found" });
-      }
-      res.json(subscriber);
-    } catch (error) {
-      logger.error("Error fetching subscriber:", error);
-      res.status(500).json({ error: "Failed to fetch subscriber" });
-    }
-  });
-
-  app.post("/api/subscribers", async (req: Request, res: Response) => {
-    try {
-      const data = insertSubscriberSchema.parse(req.body);
-      
-      // Check if email already exists
-      const existing = await storage.getSubscriberByEmail(data.email);
-      if (existing) {
-        // Update tags instead - merge with existing
-        const updated = await storage.updateSubscriber(existing.id, {
-          tags: [...new Set([...(existing.tags || []), ...(data.tags || [])])],
-        });
-        return res.json(updated);
-      }
-      
-      const subscriber = await storage.createSubscriber(data);
-      storage.invalidateSegmentCountCache();
-      res.status(201).json(subscriber);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      logger.error("Error creating subscriber:", error);
-      res.status(500).json({ error: "Failed to create subscriber" });
-    }
-  });
-
-  app.patch("/api/subscribers/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const updateSchema = z.object({
-        email: z.string().email().max(254).transform(v => v.toLowerCase().trim()).optional(),
-        tags: z.array(z.string().max(100)).max(1000).optional(),
-        ipAddress: z.string().max(45).nullable().optional(),
-      }).strict();
-      const data = updateSchema.parse(req.body);
-      const subscriber = await storage.updateSubscriber(req.params.id, data);
-      if (!subscriber) {
-        return res.status(404).json({ error: "Subscriber not found" });
-      }
-      res.json(subscriber);
-    } catch (error) {
-      logger.error("Error updating subscriber:", error);
-      res.status(500).json({ error: "Failed to update subscriber" });
-    }
-  });
-
-  app.delete("/api/subscribers/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      await storage.deleteSubscriber(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      logger.error("Error deleting subscriber:", error);
-      res.status(500).json({ error: "Failed to delete subscriber" });
-    }
-  });
-
-  app.delete("/api/subscribers", async (req: Request, res: Response) => {
-    try {
-      const totalRows = await storage.countAllSubscribers();
-      if (totalRows === 0) {
-        return res.json({ jobId: null, totalRows: 0, message: "No subscribers to delete" });
-      }
-      const job = await storage.createFlushJob(totalRows);
-      res.status(202).json({ jobId: job.id, totalRows: job.totalRows, message: "Deletion started in background" });
-    } catch (error) {
-      logger.error("Error starting subscriber deletion:", error);
-      res.status(500).json({ error: "Failed to start subscriber deletion" });
-    }
-  });
-
-  // ============ FLUSH JOBS (Subscriber deletion with progress) ============
-  app.post("/api/subscribers/flush", async (req: Request, res: Response) => {
-    try {
-      const totalRows = await storage.countAllSubscribers();
-      if (totalRows === 0) {
-        return res.json({ id: null, message: "No subscribers to delete" });
-      }
-      const job = await storage.createFlushJob(totalRows);
-      res.status(201).json(job);
-    } catch (error) {
-      logger.error("Error creating flush job:", error);
-      res.status(500).json({ error: "Failed to create flush job" });
-    }
-  });
-
-  app.get("/api/subscribers/flush/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const job = await storage.getFlushJob(req.params.id);
-      if (!job) {
-        return res.status(404).json({ error: "Flush job not found" });
-      }
-      const percent = job.totalRows > 0 ? Math.round((job.processedRows / job.totalRows) * 100) : 0;
-      res.json({ ...job, percent });
-    } catch (error) {
-      logger.error("Error fetching flush job:", error);
-      res.status(500).json({ error: "Failed to fetch flush job" });
-    }
-  });
-
-  app.post("/api/subscribers/flush/:id/cancel", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const cancelled = await storage.cancelFlushJob(req.params.id);
-      if (!cancelled) {
-        return res.status(400).json({ error: "Cannot cancel job - it may already be completed or cancelled" });
-      }
-      res.json({ message: "Flush job cancelled" });
-    } catch (error) {
-      logger.error("Error cancelling flush job:", error);
-      res.status(500).json({ error: "Failed to cancel flush job" });
-    }
-  });
-
-  // ============ SEGMENTS ============
-  app.get("/api/segments", async (req: Request, res: Response) => {
-    try {
-      const segmentsList = await storage.getSegments();
-      // Add subscriber count to each segment
-      const segmentsWithCounts = await Promise.all(
-        segmentsList.map(async (segment) => ({
-          ...segment,
-          subscriberCount: await storage.getSegmentSubscriberCountCached(segment.id),
-        }))
-      );
-      res.json(segmentsWithCounts);
-    } catch (error) {
-      logger.error("Error fetching segments:", error);
-      res.status(500).json({ error: "Failed to fetch segments" });
-    }
-  });
-
-  app.get("/api/segments/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const segment = await storage.getSegment(req.params.id);
-      if (!segment) {
-        return res.status(404).json({ error: "Segment not found" });
-      }
-      res.json(segment);
-    } catch (error) {
-      logger.error("Error fetching segment:", error);
-      res.status(500).json({ error: "Failed to fetch segment" });
-    }
-  });
-
-  app.get("/api/segments/:id/count", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const count = await storage.getSegmentSubscriberCountCached(req.params.id);
-      res.json({ count });
-    } catch (error) {
-      logger.error("Error counting segment subscribers:", error);
-      res.status(500).json({ error: "Failed to count subscribers" });
-    }
-  });
-
-  app.post("/api/segments", async (req: Request, res: Response) => {
-    try {
-      const data = insertSegmentSchema.parse(req.body);
-      if (data.rules) {
-        segmentRulesArraySchema.parse(data.rules);
-      }
-      const segment = await storage.createSegment(data);
-      res.status(201).json(segment);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      logger.error("Error creating segment:", error);
-      res.status(500).json({ error: "Failed to create segment" });
-    }
-  });
-
-  app.patch("/api/segments/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      if (req.body.rules) {
-        segmentRulesArraySchema.parse(req.body.rules);
-      }
-      const segment = await storage.updateSegment(req.params.id, req.body);
-      if (!segment) {
-        return res.status(404).json({ error: "Segment not found" });
-      }
-      res.json(segment);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      logger.error("Error updating segment:", error);
-      res.status(500).json({ error: "Failed to update segment" });
-    }
-  });
-
-  app.delete("/api/segments/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      await storage.deleteSegment(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      logger.error("Error deleting segment:", error);
-      res.status(500).json({ error: "Failed to delete segment" });
-    }
-  });
-
-  // ============ MTAs ============
-  app.get("/api/mtas", async (req: Request, res: Response) => {
-    try {
-      const mtasList = await storage.getMtas();
-      res.json(mtasList);
-    } catch (error) {
-      logger.error("Error fetching MTAs:", error);
-      res.status(500).json({ error: "Failed to fetch MTAs" });
-    }
-  });
-
-  app.get("/api/mtas/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const mta = await storage.getMta(req.params.id);
-      if (!mta) {
-        return res.status(404).json({ error: "MTA not found" });
-      }
-      res.json(mta);
-    } catch (error) {
-      logger.error("Error fetching MTA:", error);
-      res.status(500).json({ error: "Failed to fetch MTA" });
-    }
-  });
-
-  app.post("/api/mtas", async (req: Request, res: Response) => {
-    try {
-      const data = insertMtaSchema.parse(req.body);
-      const mta = await storage.createMta(data);
-      res.status(201).json(mta);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      logger.error("Error creating MTA:", error);
-      res.status(500).json({ error: "Failed to create MTA" });
-    }
-  });
-
-  app.patch("/api/mtas/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const mta = await storage.updateMta(req.params.id, req.body);
-      if (!mta) {
-        return res.status(404).json({ error: "MTA not found" });
-      }
-      res.json(mta);
-    } catch (error) {
-      logger.error("Error updating MTA:", error);
-      res.status(500).json({ error: "Failed to update MTA" });
-    }
-  });
-
-  app.delete("/api/mtas/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      await storage.deleteMta(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      logger.error("Error deleting MTA:", error);
-      res.status(500).json({ error: "Failed to delete MTA" });
-    }
-  });
-
-  // ============ EMAIL HEADERS ============
-  app.get("/api/headers", async (req: Request, res: Response) => {
-    try {
-      const headers = await storage.getHeaders();
-      res.json(headers);
-    } catch (error) {
-      logger.error("Error fetching headers:", error);
-      res.status(500).json({ error: "Failed to fetch headers" });
-    }
-  });
-
-  app.post("/api/headers", async (req: Request, res: Response) => {
-    try {
-      const data = insertEmailHeaderSchema.parse(req.body);
-      const header = await storage.createHeader(data);
-      res.status(201).json(header);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      logger.error("Error creating header:", error);
-      res.status(500).json({ error: "Failed to create header" });
-    }
-  });
-
-  app.patch("/api/headers/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const header = await storage.updateHeader(req.params.id, req.body);
-      if (!header) {
-        return res.status(404).json({ error: "Header not found" });
-      }
-      res.json(header);
-    } catch (error) {
-      logger.error("Error updating header:", error);
-      res.status(500).json({ error: "Failed to update header" });
-    }
-  });
-
-  app.delete("/api/headers/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      await storage.deleteHeader(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      logger.error("Error deleting header:", error);
-      res.status(500).json({ error: "Failed to delete header" });
-    }
-  });
+  // ============ MODULAR ROUTES ============
+  const helpers = { parsePagination, validateId, sanitizeCampaignHtml };
+  registerSubscriberRoutes(app, helpers);
+  registerSegmentRoutes(app, helpers);
+  registerMtaRoutes(app, helpers);
+  registerTrackingRoutes(app);
+  registerWebhookRoutes(app);
+  registerAnalyticsRoutes(app, helpers);
 
   // ============ CAMPAIGNS ============
   
@@ -1462,7 +1106,8 @@ export async function registerRoutes(
   // This endpoint atomically saves campaign data, validates, sets status to sending/scheduled, and queues the job
   app.post("/api/campaigns/:id/send", async (req: Request, res: Response) => {
     if (isMemoryPressure) {
-      return res.status(503).json({ error: "Server under memory pressure. Please retry later.", retryAfter: 60 });
+      res.setHeader('Retry-After', '60');
+      return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
     }
     const campaignId = req.params.id;
     const timestamp = new Date().toISOString();
@@ -1612,7 +1257,8 @@ export async function registerRoutes(
   
   app.post("/api/import", uploadToDisk.single("file"), async (req: Request, res: Response) => {
     if (isMemoryPressure) {
-      return res.status(503).json({ error: "Server under memory pressure. Please retry later.", retryAfter: 60 });
+      res.setHeader('Retry-After', '60');
+      return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
     }
     try {
       logger.info(`[IMPORT] Received import request`);
@@ -1801,6 +1447,10 @@ export async function registerRoutes(
       
       if (!filename || !totalChunks || !totalSize) {
         return res.status(400).json({ error: "Missing required fields: filename, totalChunks, totalSize" });
+      }
+      
+      if (totalSize > 1024 * 1024 * 1024) {
+        return res.status(400).json({ error: "File too large. Maximum size is 1GB" });
       }
       
       const uploadId = `chunk_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
@@ -2108,369 +1758,6 @@ export async function registerRoutes(
       } else {
         res.end();
       }
-    }
-  });
-
-  // ============ DASHBOARD ============
-  app.get("/api/dashboard/stats", async (req: Request, res: Response) => {
-    try {
-      const stats = await storage.getDashboardStats();
-      res.json(stats);
-    } catch (error) {
-      logger.error("Error fetching dashboard stats:", error);
-      res.status(500).json({ error: "Failed to fetch dashboard stats" });
-    }
-  });
-
-  // ============ ANALYTICS ============
-  app.get("/api/analytics/overall", async (req: Request, res: Response) => {
-    try {
-      const analytics = await storage.getOverallAnalytics();
-      res.json(analytics);
-    } catch (error) {
-      logger.error("Error fetching overall analytics:", error);
-      res.status(500).json({ error: "Failed to fetch analytics" });
-    }
-  });
-
-  app.get("/api/analytics/campaign/:id", async (req: Request, res: Response) => {
-    try {
-      if (!validateId(req.params.id)) {
-        return res.status(400).json({ error: "Invalid ID format" });
-      }
-      const analytics = await storage.getCampaignAnalytics(req.params.id);
-      if (!analytics) {
-        return res.status(404).json({ error: "Campaign not found" });
-      }
-      res.json(analytics);
-    } catch (error) {
-      logger.error("Error fetching campaign analytics:", error);
-      res.status(500).json({ error: "Failed to fetch campaign analytics" });
-    }
-  });
-
-  // ============ ERROR LOGS ============
-  app.get("/api/error-logs", async (req: Request, res: Response) => {
-    try {
-      const { page, limit } = parsePagination(req.query);
-      const type = req.query.type as string | undefined;
-      const severity = req.query.severity as string | undefined;
-      const campaignId = req.query.campaignId as string | undefined;
-      const importJobId = req.query.importJobId as string | undefined;
-      
-      const result = await storage.getErrorLogs({
-        page,
-        limit,
-        type: type || undefined,
-        severity: severity || undefined,
-        campaignId: campaignId || undefined,
-        importJobId: importJobId || undefined,
-      });
-      res.json(result);
-    } catch (error) {
-      logger.error("Error fetching error logs:", error);
-      res.status(500).json({ error: "Failed to fetch error logs" });
-    }
-  });
-
-  app.get("/api/error-logs/stats", async (req: Request, res: Response) => {
-    try {
-      const stats = await storage.getErrorLogStats();
-      res.json(stats);
-    } catch (error) {
-      logger.error("Error fetching error log stats:", error);
-      res.status(500).json({ error: "Failed to fetch error log stats" });
-    }
-  });
-
-  app.delete("/api/error-logs", async (req: Request, res: Response) => {
-    try {
-      const beforeDate = req.query.before ? new Date(req.query.before as string) : undefined;
-      const count = await storage.clearErrorLogs(beforeDate);
-      res.json({ deleted: count });
-    } catch (error) {
-      logger.error("Error clearing error logs:", error);
-      res.status(500).json({ error: "Failed to clear error logs" });
-    }
-  });
-
-  // ============ TRACKING PIXELS & LINKS ============
-  app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {
-    const { campaignId, subscriberId } = req.params;
-    const sig = req.query.sig as string;
-    
-    // Always return pixel to avoid broken images, but only record if signature is valid
-    const returnPixel = () => {
-      const pixel = Buffer.from(
-        "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-        "base64"
-      );
-      res.setHeader("Content-Type", "image/gif");
-      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-      res.send(pixel);
-    };
-    
-    // Verify signature before recording
-    if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "open", sig)) {
-      logger.warn(`Invalid tracking signature for open: campaign=${campaignId}, subscriber=${subscriberId}`);
-      return returnPixel();
-    }
-    
-    try {
-      // Check if this is the first open for this subscriber/campaign (unique per email per campaign)
-      const isFirstOpen = await storage.recordFirstOpen(campaignId, subscriberId);
-      
-      // Always record the open for activity history/analytics
-      await storage.addCampaignStat(campaignId, subscriberId, "open");
-      
-      // Return pixel immediately - don't block on tag processing
-      returnPixel();
-      
-      // Queue tag addition asynchronously (fire-and-forget)
-      // This ensures 100% delivery with retry logic, without delaying the response
-      if (isFirstOpen) {
-        const campaign = await storage.getCampaign(campaignId);
-        if (campaign?.openTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.openTag, "open", campaignId)
-            .catch(err => logger.error("Failed to enqueue open tag:", err));
-        }
-      }
-    } catch (error) {
-      logger.error("Error tracking open:", error);
-      returnPixel();
-    }
-  });
-
-  app.get("/api/track/click/:campaignId/:subscriberId", async (req: Request, res: Response) => {
-    const { campaignId, subscriberId } = req.params;
-    const url = req.query.url as string;
-    const sig = req.query.sig as string;
-    
-    if (!url) {
-      return res.status(400).json({ error: "URL required" });
-    }
-    
-    // Verify signature before recording (include URL in signature verification)
-    if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "click", sig, url)) {
-      logger.warn(`Invalid tracking signature for click: campaign=${campaignId}, subscriber=${subscriberId}`);
-      // Still redirect to avoid broken user experience
-      return res.redirect(url);
-    }
-    
-    try {
-      // Check if this is the first click for this subscriber/campaign (unique per email per campaign)
-      const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
-      
-      // Always record the click for link-level analytics (topLinks needs all clicks)
-      await storage.addCampaignStat(campaignId, subscriberId, "click", url);
-      
-      // Redirect to actual URL immediately - don't block on tag processing
-      res.redirect(url);
-      
-      // Queue tag addition asynchronously (fire-and-forget)
-      // This ensures 100% delivery with retry logic, without delaying the redirect
-      if (isFirstClick) {
-        const campaign = await storage.getCampaign(campaignId);
-        if (campaign?.clickTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.clickTag, "click", campaignId)
-            .catch(err => logger.error("Failed to enqueue click tag:", err));
-        }
-      }
-    } catch (error) {
-      logger.error("Error tracking click:", error);
-      res.redirect(url);
-    }
-  });
-
-  app.get("/api/unsubscribe/:campaignId/:subscriberId", async (req: Request, res: Response) => {
-    const { campaignId, subscriberId } = req.params;
-    const sig = req.query.sig as string;
-    
-    // Verify signature before processing unsubscribe
-    if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "unsubscribe", sig)) {
-      logger.warn(`Invalid tracking signature for unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
-      return res.status(403).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Invalid Link</title>
-          <style>
-            body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .container { text-align: center; }
-            h1 { color: #c00; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Invalid Link</h1>
-            <p>This unsubscribe link is invalid or has expired.</p>
-          </div>
-        </body>
-        </html>
-      `);
-    }
-    
-    try {
-      const campaign = await storage.getCampaign(campaignId);
-      const subscriber = await storage.getSubscriber(subscriberId);
-      
-      // Send confirmation page immediately - don't block on tag processing
-      res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Unsubscribed</title>
-          <style>
-            body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .container { text-align: center; }
-            h1 { color: #333; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Unsubscribed Successfully</h1>
-            <p>You have been removed from our mailing list.</p>
-          </div>
-        </body>
-        </html>
-      `);
-      
-      // Queue tag additions asynchronously (fire-and-forget)
-      // This ensures 100% delivery with retry logic, without delaying the response
-      if (subscriber) {
-        // BCK tag is always added (blocklist)
-        storage.enqueueTagOperation(subscriberId, "BCK", "unsubscribe", campaignId)
-          .catch(err => logger.error("Failed to enqueue BCK tag:", err));
-        
-        // Add campaign-specific unsubscribe tag if configured
-        if (campaign?.unsubscribeTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
-            .catch(err => logger.error("Failed to enqueue unsubscribe tag:", err));
-        }
-      }
-    } catch (error) {
-      logger.error("Error unsubscribing:", error);
-      res.status(500).send("An error occurred");
-    }
-  });
-
-  // ============ BOUNCE/COMPLAINT WEBHOOKS ============
-  function verifyWebhookSecret(req: Request, res: Response): boolean {
-    const webhookSecret = process.env.WEBHOOK_SECRET;
-    if (!webhookSecret) return true;
-    const providedSecret = req.headers['x-webhook-secret'] as string;
-    if (!providedSecret || Buffer.byteLength(providedSecret) !== Buffer.byteLength(webhookSecret)) {
-      res.status(401).json({ error: "Invalid webhook secret" });
-      return false;
-    }
-    if (!crypto.timingSafeEqual(Buffer.from(providedSecret), Buffer.from(webhookSecret))) {
-      res.status(401).json({ error: "Invalid webhook secret" });
-      return false;
-    }
-    return true;
-  }
-
-  app.post("/api/webhooks/bounce", async (req: Request, res: Response) => {
-    if (!verifyWebhookSecret(req, res)) return;
-    try {
-      const bounceSchema = z.object({
-        email: z.string().email(),
-        type: z.enum(["hard_bounce", "soft_bounce", "complaint", "unsubscribe"]),
-        reason: z.string().max(1000).optional(),
-        campaignId: z.string().max(100).optional(),
-        timestamp: z.string().optional(),
-      });
-      
-      const data = bounceSchema.parse(req.body);
-      
-      const subscriber = await storage.getSubscriberByEmail(data.email);
-      if (!subscriber) {
-        return res.status(200).json({ status: "ok", message: "Subscriber not found, ignored" });
-      }
-      
-      if (data.type === "hard_bounce" || data.type === "complaint") {
-        const currentTags = subscriber.tags || [];
-        if (!currentTags.includes("BCK")) {
-          await storage.updateSubscriber(subscriber.id, {
-            tags: [...currentTags, "BCK", `bounce:${data.type}`],
-          });
-          logger.info(`[BOUNCE] Blocklisted ${data.email} due to ${data.type}`);
-        }
-      } else if (data.type === "soft_bounce") {
-        const currentTags = subscriber.tags || [];
-        const bounceTag = `bounce:soft`;
-        if (!currentTags.includes(bounceTag)) {
-          await storage.updateSubscriber(subscriber.id, {
-            tags: [...currentTags, bounceTag],
-          });
-        }
-      }
-      
-      await storage.logError({
-        type: "send_failed",
-        severity: "warning",
-        message: `${data.type}: ${data.reason || 'No reason provided'}`,
-        email: data.email,
-        subscriberId: subscriber.id,
-        campaignId: data.campaignId || null,
-        details: JSON.stringify(data),
-      });
-      
-      res.json({ status: "ok", action: data.type === "hard_bounce" || data.type === "complaint" ? "blocklisted" : "tagged" });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      logger.error("Error processing bounce webhook:", error);
-      res.status(500).json({ error: "Failed to process bounce" });
-    }
-  });
-
-  app.post("/api/webhooks/bounces/batch", async (req: Request, res: Response) => {
-    if (!verifyWebhookSecret(req, res)) return;
-    try {
-      const batchSchema = z.object({
-        bounces: z.array(z.object({
-          email: z.string().email(),
-          type: z.enum(["hard_bounce", "soft_bounce", "complaint", "unsubscribe"]),
-          reason: z.string().max(1000).optional(),
-        })).max(1000, "Maximum 1000 bounces per batch"),
-      });
-      
-      const { bounces } = batchSchema.parse(req.body);
-      let processed = 0;
-      let blocklisted = 0;
-      let notFound = 0;
-      
-      for (const bounce of bounces) {
-        const subscriber = await storage.getSubscriberByEmail(bounce.email);
-        if (!subscriber) {
-          notFound++;
-          continue;
-        }
-        
-        if (bounce.type === "hard_bounce" || bounce.type === "complaint") {
-          const currentTags = subscriber.tags || [];
-          if (!currentTags.includes("BCK")) {
-            await storage.updateSubscriber(subscriber.id, {
-              tags: [...currentTags, "BCK", `bounce:${bounce.type}`],
-            });
-            blocklisted++;
-          }
-        }
-        processed++;
-      }
-      
-      logger.info(`[BOUNCE] Batch processed: ${processed} bounces, ${blocklisted} blocklisted, ${notFound} not found`);
-      res.json({ status: "ok", processed, blocklisted, notFound, total: bounces.length });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
-      logger.error("Error processing batch bounces:", error);
-      res.status(500).json({ error: "Failed to process bounces" });
     }
   });
 

@@ -2,6 +2,7 @@
 // Uses Replit's Resend integration for secure API key management
 
 import { Resend } from 'resend';
+import { logger } from "./logger";
 
 let connectionSettings: any;
 
@@ -139,20 +140,20 @@ export async function sendTestEmailViaResend(options: {
     });
     
     if (result.error) {
-      console.error('[RESEND API] Error:', result.error);
+      logger.error('Resend API error', { error: result.error });
       return { 
         success: false, 
         error: result.error.message || 'Failed to send via Resend API' 
       };
     }
     
-    console.log('[RESEND API] Test email sent successfully:', result.data?.id);
+    logger.info('Resend API test email sent successfully', { messageId: result.data?.id });
     return { 
       success: true, 
       messageId: result.data?.id 
     };
   } catch (error: any) {
-    console.error('[RESEND API] Error sending test email:', error);
+    logger.error('Resend API error sending test email', { error: error.message || error });
     return { 
       success: false, 
       error: error.message || 'Failed to send test email via Resend API' 

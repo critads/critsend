@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
@@ -69,6 +70,7 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const app = express();
+app.use(helmet({ contentSecurityPolicy: false }));
 const httpServer = createServer(app);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -89,6 +91,7 @@ declare module "http" {
 declare module "express-session" {
   interface SessionData {
     csrfToken?: string;
+    userId?: string;
   }
 }
 
@@ -126,12 +129,20 @@ app.use(
       pool,
       createTableIfMissing: true,
     }),
-    secret: process.env.SESSION_SECRET || "development_secret",
+    secret: (() => {
+      const secret = process.env.SESSION_SECRET;
+      if (!secret && process.env.NODE_ENV === "production") {
+        throw new Error("SESSION_SECRET environment variable is required in production");
+      }
+      return secret || "development_secret";
+    })(),
     resave: false,
     saveUninitialized: false,
     cookie: {
       secure: process.env.NODE_ENV === "production",
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours (reduced from 30 days)
     },
   })
 );
@@ -147,8 +158,103 @@ app.get('/api/csrf-token', (req: Request, res: Response) => {
   res.json({ csrfToken: req.session.csrfToken });
 });
 
+app.post('/api/auth/register', async (req: Request, res: Response) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+    if (typeof username !== 'string' || username.length < 3 || username.length > 50) {
+      return res.status(400).json({ error: 'Username must be 3-50 characters' });
+    }
+    if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+      return res.status(400).json({ error: 'Password must be 8-128 characters' });
+    }
+    
+    const { storage } = await import("./storage");
+    
+    const userCount = await storage.getUserCount();
+    if (userCount > 0) {
+      return res.status(403).json({ error: 'Registration disabled. Contact administrator.' });
+    }
+    
+    const existingUser = await storage.getUserByUsername(username);
+    if (existingUser) {
+      return res.status(409).json({ error: 'Username already taken' });
+    }
+    
+    const user = await storage.createUser({ username, password });
+    req.session.userId = user.id;
+    req.session.csrfToken = crypto.randomUUID();
+    res.status(201).json({ user: { id: user.id, username: user.username }, csrfToken: req.session.csrfToken });
+  } catch (error: any) {
+    logger.error('Registration error', { error: error.message });
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+    
+    const bcrypt = await import("bcrypt");
+    const { storage } = await import("./storage");
+    
+    const user = await storage.getUserByUsername(username);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    req.session.userId = user.id;
+    req.session.csrfToken = crypto.randomUUID();
+    res.json({ user: { id: user.id, username: user.username }, csrfToken: req.session.csrfToken });
+  } catch (error: any) {
+    logger.error('Login error', { error: error.message });
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.post('/api/auth/logout', (req: Request, res: Response) => {
+  req.session.destroy((err) => {
+    if (err) {
+      logger.error('Logout error', { error: String(err) });
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    res.clearCookie('connect.sid');
+    res.json({ success: true });
+  });
+});
+
+app.get('/api/auth/me', async (req: Request, res: Response) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  try {
+    const { storage } = await import("./storage");
+    const user = await storage.getUserById(req.session.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    res.json({ user });
+  } catch (error: any) {
+    logger.error('Auth check error', { error: error.message });
+    res.status(500).json({ error: 'Auth check failed' });
+  }
+});
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next();
+  }
+  if (req.path.startsWith('/api/auth/')) {
     return next();
   }
   if (req.path.startsWith('/api/track/') || req.path.startsWith('/api/unsubscribe/')) {
@@ -192,6 +298,25 @@ app.use((req, res, next) => {
     }
   });
 
+  next();
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (!req.path.startsWith('/api/')) return next();
+  
+  const publicPaths = [
+    '/api/auth/',
+    '/api/csrf-token',
+    '/api/track/',
+    '/api/unsubscribe/',
+    '/api/webhooks/',
+    '/api/health',
+  ];
+  if (publicPaths.some(p => req.path.startsWith(p))) return next();
+  
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   next();
 });
 

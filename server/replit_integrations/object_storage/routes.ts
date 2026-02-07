@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { logger } from "../../logger";
 
 /**
  * Register object storage routes for file uploads.
@@ -57,7 +58,7 @@ export function registerObjectStorageRoutes(app: Express): void {
         metadata: { name, size, contentType },
       });
     } catch (error) {
-      console.error("Error generating upload URL:", error);
+      logger.error("Error generating upload URL", { error: String(error) });
       res.status(500).json({ error: "Failed to generate upload URL" });
     }
   });
@@ -75,7 +76,7 @@ export function registerObjectStorageRoutes(app: Express): void {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
       await objectStorageService.downloadObject(objectFile, res);
     } catch (error) {
-      console.error("Error serving object:", error);
+      logger.error("Error serving object", { error: String(error) });
       if (error instanceof ObjectNotFoundError) {
         return res.status(404).json({ error: "Object not found" });
       }
