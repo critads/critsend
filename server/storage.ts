@@ -53,7 +53,8 @@ export interface IStorage {
   updateSubscriber(id: string, data: Partial<InsertSubscriber>): Promise<Subscriber | undefined>;
   deleteSubscriber(id: string): Promise<void>;
   deleteAllSubscribers(): Promise<number>;
-  getSubscribersForSegment(segmentId: string): Promise<Subscriber[]>;
+  getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
+  getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string): Promise<number>;
   
   // Segments
@@ -337,6 +338,30 @@ export class DatabaseStorage implements IStorage {
     }
 
     return query;
+  }
+
+  async getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string): Promise<Subscriber[]> {
+    const segment = await this.getSegment(segmentId);
+    if (!segment) return [];
+
+    const rules = segment.rules as SegmentRule[];
+    if (!rules || rules.length === 0) return [];
+
+    const whereCondition = this.buildSegmentSqlCondition(rules);
+    
+    const conditions = [
+      not(sql`'BCK' = ANY(${subscribers.tags})`),
+      whereCondition,
+    ];
+    
+    if (afterId) {
+      conditions.push(sql`${subscribers.id} > ${afterId}`);
+    }
+    
+    return db.select().from(subscribers)
+      .where(and(...conditions))
+      .orderBy(sql`${subscribers.id} ASC`)
+      .limit(limit);
   }
 
   async countSubscribersForSegment(segmentId: string): Promise<number> {

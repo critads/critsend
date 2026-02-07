@@ -1,10 +1,36 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
-import { registerRoutes, startTagQueueWorker } from "./routes";
+import { registerRoutes, startTagQueueWorker, stopAllBackgroundWorkers } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { pool } from "./db";
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL] Uncaught Exception:', error);
+  process.exit(1);
+});
+
+async function gracefulShutdown(signal: string) {
+  console.log(`[SHUTDOWN] Received ${signal}, starting graceful shutdown...`);
+  try {
+    stopAllBackgroundWorkers();
+    
+    const { pool } = await import("./db");
+    await pool.end();
+    console.log('[SHUTDOWN] Database pool closed');
+  } catch (err) {
+    console.error('[SHUTDOWN] Error during shutdown:', err);
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const app = express();
 const httpServer = createServer(app);
@@ -26,6 +52,23 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Request timeout middleware - prevents hung connections from consuming resources
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Long timeout for import/campaign/export endpoints that do heavy processing
+  const longPaths = ['/api/import', '/api/campaigns', '/api/export', '/api/subscribers/flush'];
+  const isLongRequest = longPaths.some(p => req.path.startsWith(p));
+  const timeout = isLongRequest ? 300000 : 30000; // 5min for heavy ops, 30s for normal
+  
+  req.setTimeout(timeout);
+  res.setTimeout(timeout, () => {
+    if (!res.headersSent) {
+      console.error(`[TIMEOUT] Request timed out: ${req.method} ${req.path} after ${timeout}ms`);
+      res.status(408).json({ error: "Request timed out" });
+    }
+  });
+  next();
+});
 
 app.use(
   session({

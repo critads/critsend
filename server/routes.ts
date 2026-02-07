@@ -311,13 +311,27 @@ export async function registerRoutes(
       await storage.healthCheck();
       const dbLatency = Date.now() - startTime;
       
+      const poolStats = {
+        totalCount: pool.totalCount,
+        idleCount: pool.idleCount,
+        waitingCount: pool.waitingCount,
+      };
+      
+      const memUsage = process.memoryUsage();
+      
       res.json({
         status: "healthy",
         timestamp: new Date().toISOString(),
         uptime: Math.floor(process.uptime()),
         database: {
           status: "connected",
-          latencyMs: dbLatency
+          latencyMs: dbLatency,
+          pool: poolStats,
+        },
+        memory: {
+          heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+          heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+          rssMB: Math.round(memUsage.rss / 1024 / 1024),
         },
         version: "1.0.0"
       });
@@ -2145,6 +2159,8 @@ async function processTagQueue() {
 }
 
 // Start the tag queue worker
+let tagCleanupInterval: NodeJS.Timeout | null = null;
+
 export function startTagQueueWorker() {
   if (tagQueueInterval) {
     return; // Already running
@@ -2157,7 +2173,7 @@ export function startTagQueueWorker() {
   tagQueueInterval = setInterval(processTagQueue, 500);
   
   // Cleanup completed operations every hour
-  setInterval(async () => {
+  tagCleanupInterval = setInterval(async () => {
     try {
       const cleaned = await storage.cleanupCompletedTagOperations(7);
       if (cleaned > 0) {
@@ -2167,6 +2183,25 @@ export function startTagQueueWorker() {
       console.error("Error cleaning up tag operations:", error);
     }
   }, 60 * 60 * 1000);
+}
+
+function stopTagQueueWorker() {
+  if (tagQueueInterval) {
+    clearInterval(tagQueueInterval);
+    tagQueueInterval = null;
+  }
+  if (tagCleanupInterval) {
+    clearInterval(tagCleanupInterval);
+    tagCleanupInterval = null;
+  }
+  console.log("Tag queue worker stopped");
+}
+
+export function stopAllBackgroundWorkers() {
+  console.log("[SHUTDOWN] Stopping all background workers...");
+  stopJobProcessor();
+  stopTagQueueWorker();
+  console.log("[SHUTDOWN] All background workers stopped");
 }
 
 // Sending speed configurations (emails per minute and concurrent workers)
@@ -2401,6 +2436,23 @@ function startImportJobProcessor() {
   `)
     .then(() => console.log('[IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)'))
     .catch((err: any) => console.error('[IMPORT] Failed to clean up import_staging on startup:', err.message));
+  
+  // GIN Index Integrity Check - recover from crash scenarios where indexes were dropped but never recreated
+  storage.areGinIndexesPresent().then(async (present) => {
+    if (!present) {
+      console.warn('[IMPORT] GIN indexes missing on startup! Likely from a crash during large import. Recreating...');
+      try {
+        await storage.recreateSubscriberGinIndexes();
+        console.log('[IMPORT] GIN indexes recovered successfully');
+      } catch (err: any) {
+        console.error('[IMPORT] Failed to recover GIN indexes on startup:', err.message);
+      }
+    } else {
+      console.log('[IMPORT] GIN indexes integrity check passed');
+    }
+  }).catch((err: any) => {
+    console.error('[IMPORT] GIN index integrity check failed:', err.message);
+  });
   
   // Poll every 2 seconds for new import jobs
   importJobPollingInterval = setInterval(pollForImportJobs, 2000);
@@ -3053,12 +3105,24 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     rl.on('error', (err) => {
       clearInterval(progressUpdateTimer);
       console.error(`[IMPORT] Stream error:`, err);
+      // Ensure GIN indexes are recovered on stream error
+      if (ginIndexesDropped) {
+        storage.recreateSubscriberGinIndexes()
+          .then(() => console.log(`[IMPORT] ${importJobId}: GIN indexes recovered after stream error`))
+          .catch((indexErr) => console.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after stream error:`, indexErr));
+      }
       reject(err);
     });
     
     fileStream.on('error', (err) => {
       clearInterval(progressUpdateTimer);
       console.error(`[IMPORT] File stream error:`, err);
+      // Ensure GIN indexes are recovered on file error
+      if (ginIndexesDropped) {
+        storage.recreateSubscriberGinIndexes()
+          .then(() => console.log(`[IMPORT] ${importJobId}: GIN indexes recovered after file error`))
+          .catch((indexErr) => console.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after file error:`, indexErr));
+      }
       reject(err);
     });
   });
@@ -3289,10 +3353,12 @@ async function processCampaignInternal(campaignId: string) {
   
   // Process in batches of 1000 to avoid memory issues
   const BATCH_SIZE = 1000;
-  let offset = 0;
+  let cursorId: string | undefined = undefined; // Cursor-based pagination (stable, no skip/duplicate)
   let processedCount = 0;
   let totalSent = 0;
   let totalFailed = 0;
+  let consecutiveSmtpFailures = 0; // Track consecutive SMTP failures for health monitoring
+  const MAX_CONSECUTIVE_FAILURES = 10; // Auto-pause after 10 consecutive SMTP failures
   const startTime = Date.now();
   
   // Capture campaign reference for closure (guaranteed defined at this point)
@@ -3375,10 +3441,18 @@ async function processCampaignInternal(campaignId: string) {
       await storage.forceFailPendingSend(campaignId, subscriber.id).catch(() => {});
     }
     
+    // Track consecutive SMTP failures for MTA health monitoring
+    if (sendSuccess) {
+      consecutiveSmtpFailures = 0; // Reset on success
+    } else {
+      consecutiveSmtpFailures++;
+    }
+    
     return { success: sendSuccess, email: subscriber.email };
   }
   
-  // Process batches with parallel workers
+  // Process batches with parallel workers using cursor-based pagination
+  // (cursor-based prevents skipping/duplicating subscribers if data changes during send)
   while (true) {
     // Check if campaign was paused or cancelled (atomic read)
     const currentCampaign = await storage.getCampaign(campaignId);
@@ -3387,13 +3461,34 @@ async function processCampaignInternal(campaignId: string) {
       break;
     }
     
-    // Fetch batch of subscribers (using SQL-level filtering with BCK exclusion)
-    const batch = await storage.getSubscribersForSegment(campaign.segmentId, BATCH_SIZE, offset);
+    // MTA health check: auto-pause if too many consecutive SMTP failures
+    if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mtaRef) {
+      console.error(`[CAMPAIGN] ${campaignId}: ${consecutiveSmtpFailures} consecutive SMTP failures - pausing campaign for MTA recovery`);
+      await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
+      
+      // Refresh the transporter so it reconnects when campaign resumes
+      closeTransporter(mtaRef.id);
+      
+      await storage.logError({
+        type: "campaign_paused",
+        severity: "warning",
+        message: `Campaign auto-paused after ${consecutiveSmtpFailures} consecutive SMTP failures`,
+        campaignId,
+        details: `MTA: ${mtaRef.name}, sent: ${totalSent}, failed: ${totalFailed}`,
+      }).catch(() => {});
+      break;
+    }
+    
+    // Fetch batch of subscribers using cursor-based pagination (stable ordering by ID)
+    const batch = await storage.getSubscribersForSegmentCursor(campaign.segmentId, BATCH_SIZE, cursorId);
     
     if (batch.length === 0) {
       // No more subscribers
       break;
     }
+    
+    // Update cursor to last subscriber ID in this batch
+    cursorId = batch[batch.length - 1].id;
     
     // Process this batch in parallel chunks
     for (let i = 0; i < batch.length; i += concurrency) {
@@ -3402,6 +3497,14 @@ async function processCampaignInternal(campaignId: string) {
         const checkCampaign = await storage.getCampaign(campaignId);
         if (!checkCampaign || checkCampaign.status !== "sending") {
           console.log(`[CAMPAIGN] ${campaignId}: Paused during batch at ${processedCount}`);
+          return;
+        }
+        
+        // Also check MTA health mid-batch
+        if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mtaRef) {
+          console.error(`[CAMPAIGN] ${campaignId}: MTA failure threshold reached mid-batch, pausing`);
+          await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
+          closeTransporter(mtaRef.id);
           return;
         }
       }
@@ -3438,8 +3541,6 @@ async function processCampaignInternal(campaignId: string) {
     const elapsed = (Date.now() - startTime) / 1000;
     const rate = processedCount / elapsed * 60;
     console.log(`[CAMPAIGN] ${campaignId}: Progress ${processedCount}/${total} (${rate.toFixed(0)}/min) - Sent: ${totalSent}, Failed: ${totalFailed}`);
-    
-    offset += BATCH_SIZE;
   }
   
   // Clean up transporter connection pool when done
