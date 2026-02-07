@@ -73,12 +73,16 @@ Subscribers with the "BCK" tag are automatically excluded from all campaigns. Th
 - Godzilla: 3,000 emails/min
 
 ### Segment Rules
-Rules filter subscribers based on tags:
-- `contains`: Tag contains the value
-- `not_contains`: Tag does not contain the value
-- `equals`: Tag exactly matches
-- `not_equals`: Tag does not match
-- Logic operators: AND, OR
+Rules filter subscribers based on multiple fields with nested group support:
+- **Fields**: tags, email, date_added (subscription date), ip_address
+- **Tag operators**: contains, not_contains, equals (GIN-indexed via @>), not_equals
+- **Email operators**: contains, not_contains, equals, not_equals, starts_with, ends_with (trigram-indexed)
+- **Date operators**: before, after, between (with dual date pickers)
+- **IP operators**: equals, not_equals, starts_with, contains
+- **Logic**: AND, OR between rules
+- **Nested Groups**: Rule groups with internal combinator (Match ALL/Match ANY) for complex logic like (A OR B) AND (C OR D)
+- **Performance**: Segment count caching (60s TTL), pg_trgm index on email, GIN index on tags
+- **Validation**: Zod schema validates both flat rules and group structures via segmentRulesArraySchema
 
 ### Tracking
 - Open tracking via 1x1 transparent pixel

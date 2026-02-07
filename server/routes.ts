@@ -12,6 +12,7 @@ import {
   insertMtaSchema,
   insertEmailHeaderSchema,
   insertCampaignSchema,
+  segmentRulesArraySchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { sendEmail, sendEmailWithNullsink, verifyTransporter, closeTransporter } from "./email-service";
@@ -652,6 +653,7 @@ export async function registerRoutes(
       }
       
       const subscriber = await storage.createSubscriber(data);
+      storage.invalidateSegmentCountCache();
       res.status(201).json(subscriber);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -749,7 +751,7 @@ export async function registerRoutes(
       const segmentsWithCounts = await Promise.all(
         segmentsList.map(async (segment) => ({
           ...segment,
-          subscriberCount: await storage.countSubscribersForSegment(segment.id),
+          subscriberCount: await storage.getSegmentSubscriberCountCached(segment.id),
         }))
       );
       res.json(segmentsWithCounts);
@@ -774,7 +776,7 @@ export async function registerRoutes(
 
   app.get("/api/segments/:id/count", async (req: Request, res: Response) => {
     try {
-      const count = await storage.countSubscribersForSegment(req.params.id);
+      const count = await storage.getSegmentSubscriberCountCached(req.params.id);
       res.json({ count });
     } catch (error) {
       console.error("Error counting segment subscribers:", error);
@@ -785,6 +787,9 @@ export async function registerRoutes(
   app.post("/api/segments", async (req: Request, res: Response) => {
     try {
       const data = insertSegmentSchema.parse(req.body);
+      if (data.rules) {
+        segmentRulesArraySchema.parse(data.rules);
+      }
       const segment = await storage.createSegment(data);
       res.status(201).json(segment);
     } catch (error) {
@@ -798,12 +803,18 @@ export async function registerRoutes(
 
   app.patch("/api/segments/:id", async (req: Request, res: Response) => {
     try {
+      if (req.body.rules) {
+        segmentRulesArraySchema.parse(req.body.rules);
+      }
       const segment = await storage.updateSegment(req.params.id, req.body);
       if (!segment) {
         return res.status(404).json({ error: "Segment not found" });
       }
       res.json(segment);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
       console.error("Error updating segment:", error);
       res.status(500).json({ error: "Failed to update segment" });
     }
@@ -2253,6 +2264,7 @@ async function pollForFlushJobs() {
     try {
       await processFlushJob(job.id, job.totalRows);
       await storage.completeFlushJob(job.id, "completed");
+      storage.invalidateSegmentCountCache();
       console.log(`Flush job ${job.id} completed successfully`);
     } catch (error: any) {
       console.error(`Error processing flush job ${job.id}:`, error);
@@ -2454,6 +2466,10 @@ function startImportJobProcessor() {
     console.error('[IMPORT] GIN index integrity check failed:', err.message);
   });
   
+  storage.ensureTrigramIndex()
+    .then(() => console.log('[IMPORT] Email trigram index verified'))
+    .catch((err: any) => console.error('[IMPORT] Failed to create email trigram index:', err.message));
+  
   // Poll every 2 seconds for new import jobs
   importJobPollingInterval = setInterval(pollForImportJobs, 2000);
   
@@ -2510,6 +2526,7 @@ async function pollForImportJobs() {
         console.log(`Import job ${queueItem.id} was cancelled during processing, not marking as completed`);
       } else {
         await storage.completeImportQueueJob(queueItem.id, "completed");
+        storage.invalidateSegmentCountCache();
         console.log(`Import job ${queueItem.id} completed successfully`);
       }
     } catch (error: any) {

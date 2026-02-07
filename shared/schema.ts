@@ -430,20 +430,41 @@ export type ImportJobQueueStatus = "pending" | "processing" | "completed" | "fai
 export type FlushJob = typeof flushJobs.$inferSelect;
 export type FlushJobStatus = "pending" | "processing" | "completed" | "failed" | "cancelled";
 
-// Segment rule types - supports tags and email filtering
+// Base segment rule - individual filter condition
 export const segmentRuleSchema = z.object({
-  field: z.enum(["tags", "email"]),
-  operator: z.enum(["contains", "not_contains", "equals", "not_equals", "starts_with", "ends_with"]),
+  field: z.enum(["tags", "email", "date_added", "ip_address"]),
+  operator: z.enum(["contains", "not_contains", "equals", "not_equals", "starts_with", "ends_with", "before", "after", "between"]),
   value: z.string(),
+  value2: z.string().optional(),
   logic: z.enum(["AND", "OR"]).optional(),
 });
 
 export type SegmentRule = z.infer<typeof segmentRuleSchema>;
 
+export const segmentRuleGroupSchema = z.object({
+  type: z.literal("group"),
+  logic: z.enum(["AND", "OR"]),
+  combinator: z.enum(["AND", "OR"]),
+  rules: z.array(segmentRuleSchema),
+});
+
+export type SegmentRuleGroup = z.infer<typeof segmentRuleGroupSchema>;
+
+export type SegmentRuleItem = SegmentRule | SegmentRuleGroup;
+
+export const segmentRuleItemSchema: z.ZodType<SegmentRuleItem> = z.union([
+  segmentRuleSchema,
+  segmentRuleGroupSchema,
+]);
+
+export const segmentRulesArraySchema = z.array(segmentRuleItemSchema).min(1, "At least one rule is required");
+
 // Operators available for each field type
 export const fieldOperators = {
   tags: ["contains", "not_contains", "equals", "not_equals"] as const,
   email: ["contains", "not_contains", "equals", "not_equals", "starts_with", "ends_with"] as const,
+  date_added: ["before", "after", "between"] as const,
+  ip_address: ["equals", "not_equals", "starts_with", "contains"] as const,
 };
 
 export const operatorLabels: Record<string, string> = {
@@ -453,6 +474,9 @@ export const operatorLabels: Record<string, string> = {
   not_equals: "does not equal",
   starts_with: "starts with",
   ends_with: "ends with",
+  before: "is before",
+  after: "is after",
+  between: "is between",
 };
 
 // Sending speed configuration
