@@ -2,7 +2,7 @@
 
 ## Overview
 
-Critsend is an email marketing platform designed for managing and engaging with large subscriber bases. It offers advanced segmentation, campaign management, and robust email sending capabilities. The platform aims to provide a comprehensive solution for businesses needing to communicate effectively with multi-million email profiles. Its core capabilities include subscriber management with tag-based segmentation, CSV import/export, a campaign creation wizard with WYSIWYG editing, multiple Mail Transfer Agent (MTA) configurations, email tracking (opens/clicks), configurable sending speeds, unsubscribe handling, and a complete REST API.
+Critsend is a robust email marketing platform designed to manage and engage large subscriber bases efficiently. It offers comprehensive subscriber management with advanced tag-based segmentation, a user-friendly campaign creation wizard with WYSIWYG editing, and flexible Mail Transfer Agent (MTA) configurations. The platform supports high-volume email sending with configurable speeds, detailed email tracking (opens/clicks), and automatic unsubscribe handling. Key capabilities include production-grade CSV import/export with batch processing, a complete REST API for integration, and features to ensure email deliverability and data integrity. The business vision is to provide a scalable, reliable, and feature-rich solution for businesses to effectively communicate with their audience, driving engagement and marketing success.
 
 ## User Preferences
 
@@ -16,38 +16,34 @@ Do not make changes to the `design_guidelines.md` file.
 
 ## System Architecture
 
-The Critsend platform is built with a modern web stack. The frontend utilizes React with TypeScript, Vite, TailwindCSS, and Shadcn/UI for a responsive and modern user experience. Wouter handles client-side routing, and TanStack Query manages state. The backend is an Express.js application written in TypeScript, providing a comprehensive REST API. Data persistence is managed by PostgreSQL with Drizzle ORM.
+The Critsend platform is built with a modern web stack, featuring a React, TypeScript, Vite, TailwindCSS, and Shadcn/UI frontend for a responsive and intuitive user experience. The backend is an Express.js and TypeScript application, ensuring robust API services. PostgreSQL, coupled with Drizzle ORM, serves as the primary data store, optimized for handling millions of records with advanced indexing for efficient querying.
 
-**Key Architectural Decisions & Features:**
+**UI/UX Decisions:**
+The UI/UX adheres to Material Design 3 principles, offering a clean, modern aesthetic with dark/light mode support and full mobile responsiveness. It utilizes Inter for primary text and JetBrains Mono for technical displays, with blue as the primary accent color. A card-based layout organizes information effectively.
 
-*   **UI/UX:** Inspired by Material Design 3, featuring a clean aesthetic, dark/light mode, mobile responsiveness, and a card-based layout. It uses Inter for primary text and JetBrains Mono for code.
-*   **Data Management:**
-    *   **Subscriber Segmentation:** Rule-based filtering on tags, email, date_added, and IP address with nested group support. Utilizes PostgreSQL's GIN index for tags and `pg_trgm` for email fields to ensure high performance.
-    *   **Database Schema:** Optimized for large datasets, including tables for `subscribers`, `segments`, `mtas`, `campaigns`, `campaignStats`, `importJobs`, and `emailHeaders`.
-    *   **BCK Tag:** A special "BCK" tag automatically blocklists unsubscribed users from all campaigns.
-*   **Email Sending:**
-    *   **Configurable Sending Speeds:** Supports various speeds from 500 to 3,000 emails/minute.
-    *   **MTA Management:** Allows configuration of multiple SMTP servers using Nodemailer for sending.
-    *   **Tracking:** Implements open tracking (1x1 pixel) and click tracking (redirects) with optional tagging.
-    *   **Nullsink SMTP Server:** An internal SMTP server (port 2525) for testing campaigns without live sending, featuring configurable latency and failure injection.
-*   **Job Processing & Scalability:**
-    *   **PostgreSQL-Backed Job Queues:** Uses `campaign_jobs` and `import_job_queue` tables with `FOR UPDATE SKIP LOCKED` for concurrent and race-condition-free processing, enabling horizontal scaling and crash recovery.
-    *   **Chunked File Uploads:** Supports large CSV files (up to 1GB) via chunked uploads, streamed directly to object storage.
-    *   **Parallel Batch Processing:** CSV imports process 5,000-row batches with 4 concurrent workers for high throughput, utilizing bulk upserts with `ON CONFLICT` for efficiency.
-    *   **Reliable Tag Queue:** Asynchronously processes tag additions from tracking events using a `pending_tag_operations` table with retry logic and exponential backoff to ensure guaranteed delivery.
-    *   **Background Deletion:** Subscriber deletion is handled by a background flush job processing 10,000 subscribers per batch with progress tracking and cancellation support.
-*   **Security & Integrity:**
-    *   **Concurrency Control:** Employs `FOR UPDATE SKIP LOCKED`, atomic counter updates, `ON CONFLICT DO NOTHING`, and optimistic locking for campaign status to ensure data integrity during concurrent operations.
-    *   **Tracking URL Security:** HMAC-SHA256 signed URLs with timing-safe comparison to prevent tampering.
-    *   **Rate Limiting:** Implements API rate limiting for different endpoints to prevent abuse.
-    *   **HTML Sanitization:** Sanitizes campaign HTML content using `sanitize-html` to prevent script injection.
-    *   **Session Management:** Uses `connect-pg-simple` for persistent, secure PostgreSQL-backed sessions.
+**Technical Implementations & Design Choices:**
+- **Subscriber Management:** Tag-based segmentation with GIN-indexed tags for fast filtering.
+- **Campaign Management:** A 6-step wizard guides campaign creation with WYSIWYG HTML editing.
+- **Email Sending:** Configurable sending speeds (500-3000 emails/min) via Nodemailer with connection pooling and retry logic.
+- **Tracking:** Open tracking (1x1 pixel), click tracking (redirects), and optional tagging on interactions. All tracking URLs are HMAC-SHA256 signed for security.
+- **Segmentation:** Rule-based filtering with support for nested groups, various field operators, and performance optimizations like segment count caching and specialized database indexes (pg_trgm for email, GIN for tags).
+- **CSV Import/Export:** Production-grade batch processing for imports (5,000 rows per batch, 4 parallel workers) with chunked file uploads supporting up to 1GB files. Exports utilize streaming for large datasets.
+- **Job Queues:** PostgreSQL-backed job queues (`campaign_jobs`, `import_job_queue`) with `FOR UPDATE SKIP LOCKED` ensure race-condition-free multi-worker processing and crash recovery for campaign sending and CSV imports.
+- **Reliable Tag Queue:** Asynchronous, guaranteed delivery of tag operations through a `pending_tag_operations` table with retry logic and a background worker.
+- **Subscriber Flush System:** Background job for large subscriber deletions with progress tracking and cancellation.
+- **Security:** CSRF protection (double-submit token), extensive input validation, HTML sanitization, rate limiting on API endpoints, and secure session management using PostgreSQL.
+- **Robustness:** Graceful shutdown, memory monitoring, and automated campaign auto-resume on server restart.
+
+**System Design Choices:**
+- **Microservices-adjacent approach:** While a monolithic application, concerns are separated into logical modules (client, server, shared).
+- **Data Integrity & Concurrency:** Utilizes PostgreSQL's transactional capabilities, atomic counter updates, unique indexes, and optimistic locking to prevent race conditions and ensure data consistency during high-volume operations like email sending.
+- **Production Architecture:** Employs PostgreSQL-backed job queues for horizontal scaling and crash recovery of background processes. Chunked file upload and persistent object storage handle large file operations efficiently.
+- **Nullsink SMTP Testing:** An internal SMTP server allows for testing campaigns without sending real emails, offering configurable latency and failure injection for robust testing.
 
 ## External Dependencies
 
-*   **Database:** PostgreSQL
-*   **Frontend Frameworks/Libraries:** React, TypeScript, Vite, TailwindCSS, Shadcn/UI, Wouter, TanStack Query
-*   **Backend Frameworks/Libraries:** Express.js, TypeScript, Drizzle ORM
-*   **Email Sending:** Nodemailer
-*   **Security/Utilities:** `sanitize-html`, `connect-pg-simple`
-*   **Object Storage:** Replit App Storage (backed by Google Cloud Storage for CSV files)
+- **PostgreSQL:** Primary database for all application data.
+- **Nodemailer:** Used for real SMTP email sending with connection pooling and retry mechanisms.
+- **`sanitize-html`:** For sanitizing HTML content in campaigns to prevent injection attacks.
+- **`connect-pg-simple`:** For persistent session management using PostgreSQL.
+- **Replit App Storage:** Utilized for persistent object storage of CSV files, ensuring data survives deployments.

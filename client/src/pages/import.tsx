@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, fetchCsrfToken } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -59,9 +59,10 @@ export default function Import() {
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
         
         // Step 1: Start chunked upload session
+        const csrfToken = await fetchCsrfToken();
         const startResponse = await fetch("/api/import/chunked/start", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken },
           body: JSON.stringify({
             filename: file.name,
             tagMode,
@@ -88,6 +89,7 @@ export default function Import() {
           
           const chunkResponse = await fetch(`/api/import/chunked/${uploadId}/chunk/${i}`, {
             method: "POST",
+            headers: { "x-csrf-token": csrfToken },
             body: chunkFormData,
           });
           
@@ -103,6 +105,7 @@ export default function Import() {
         // Step 3: Complete the upload
         const completeResponse = await fetch(`/api/import/chunked/${uploadId}/complete`, {
           method: "POST",
+          headers: { "x-csrf-token": csrfToken },
         });
         
         if (!completeResponse.ok) {
@@ -118,8 +121,10 @@ export default function Import() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("tagMode", tagMode);
+      const importCsrfToken = await fetchCsrfToken();
       const response = await fetch("/api/import", {
         method: "POST",
+        headers: { "x-csrf-token": importCsrfToken },
         body: formData,
       });
       if (!response.ok) {

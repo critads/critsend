@@ -1,5 +1,15 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+let csrfToken: string | null = null;
+
+export async function fetchCsrfToken(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  const res = await fetch('/api/csrf-token', { credentials: 'include' });
+  const data = await res.json();
+  csrfToken = data.csrfToken;
+  return csrfToken!;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -12,12 +22,37 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (data) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
+    headers["x-csrf-token"] = await fetchCsrfToken();
+  }
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
+
+  if (res.status === 403) {
+    const text = await res.text();
+    if (text.includes('CSRF') || text.includes('csrf')) {
+      csrfToken = null;
+      headers["x-csrf-token"] = await fetchCsrfToken();
+      const retryRes = await fetch(url, {
+        method,
+        headers,
+        body: data ? JSON.stringify(data) : undefined,
+        credentials: "include",
+      });
+      await throwIfResNotOk(retryRes);
+      return retryRes;
+    }
+    throw new Error(`${res.status}: ${text}`);
+  }
 
   await throwIfResNotOk(res);
   return res;

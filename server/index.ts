@@ -1,31 +1,64 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
+import crypto from "crypto";
 import { registerRoutes, startTagQueueWorker, stopAllBackgroundWorkers } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { pool } from "./db";
+import { logger } from "./logger";
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[FATAL] Unhandled Promise Rejection:', reason);
+  logger.fatal('Unhandled Promise Rejection', { reason: String(reason) });
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('[FATAL] Uncaught Exception:', error);
+  logger.fatal('Uncaught Exception', { error: error.message, stack: error.stack });
   process.exit(1);
 });
 
+let isShuttingDown = false;
+
 async function gracefulShutdown(signal: string) {
-  console.log(`[SHUTDOWN] Received ${signal}, starting graceful shutdown...`);
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  
+  logger.info(`Received ${signal}, starting graceful shutdown...`, { signal });
+  
+  const SHUTDOWN_TIMEOUT = 15000;
+  
+  const forceExitTimer = setTimeout(() => {
+    logger.error('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT);
+  forceExitTimer.unref();
+  
   try {
+    await new Promise<void>((resolve) => {
+      httpServer.close((err) => {
+        if (err) {
+          logger.error('Error closing HTTP server', { error: String(err) });
+        } else {
+          logger.info('HTTP server closed - no new connections');
+        }
+        resolve();
+      });
+    });
+    
     stopAllBackgroundWorkers();
+    logger.info('Background workers stopped');
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
     const { pool } = await import("./db");
     await pool.end();
-    console.log('[SHUTDOWN] Database pool closed');
+    logger.info('Database pool closed');
+    
+    logger.info('Graceful shutdown complete');
   } catch (err) {
-    console.error('[SHUTDOWN] Error during shutdown:', err);
+    logger.error('Error during shutdown', { error: String(err) });
   }
+  
   process.exit(0);
 }
 
@@ -34,11 +67,25 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const app = express();
 const httpServer = createServer(app);
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (isShuttingDown) {
+    res.status(503).json({ error: 'Server is shutting down' });
+    return;
+  }
+  next();
+});
 const PostgresSessionStore = connectPg(session);
 
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+declare module "express-session" {
+  interface SessionData {
+    csrfToken?: string;
   }
 }
 
@@ -85,6 +132,34 @@ app.use(
     },
   })
 );
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomUUID();
+  }
+  next();
+});
+
+app.get('/api/csrf-token', (req: Request, res: Response) => {
+  res.json({ csrfToken: req.session.csrfToken });
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next();
+  }
+  if (req.path.startsWith('/api/track/') || req.path.startsWith('/api/unsubscribe/')) {
+    return next();
+  }
+  if (req.path.startsWith('/api/webhooks/')) {
+    return next();
+  }
+  const csrfToken = req.headers['x-csrf-token'] as string;
+  if (!csrfToken || csrfToken !== req.session.csrfToken) {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  next();
+});
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

@@ -357,10 +357,25 @@ export const flushJobs = pgTable("flush_jobs", {
 }));
 
 // Insert schemas
-export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true });
-export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true, createdAt: true });
-export const insertMtaSchema = createInsertSchema(mtas).omit({ id: true, createdAt: true });
-export const insertEmailHeaderSchema = createInsertSchema(emailHeaders).omit({ id: true });
+export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true }).extend({
+  email: z.string().email("Invalid email address").max(254, "Email too long").transform(v => v.toLowerCase().trim()),
+  tags: z.array(z.string().max(100, "Tag too long")).max(1000, "Too many tags").optional(),
+});
+export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true, createdAt: true }).extend({
+  name: z.string().min(1, "Name required").max(200, "Name too long"),
+  description: z.string().max(1000, "Description too long").nullable().optional(),
+});
+export const insertMtaSchema = createInsertSchema(mtas).omit({ id: true, createdAt: true }).extend({
+  name: z.string().min(1, "Name required").max(200, "Name too long"),
+  hostname: z.string().max(253, "Hostname too long").nullable().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  username: z.string().max(200).nullable().optional(),
+  password: z.string().max(500).nullable().optional(),
+});
+export const insertEmailHeaderSchema = createInsertSchema(emailHeaders).omit({ id: true }).extend({
+  name: z.string().min(1, "Name required").max(200, "Header name too long"),
+  value: z.string().min(1, "Value required").max(2000, "Header value too long"),
+});
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({ 
   id: true, 
   sentCount: true, 
@@ -369,6 +384,15 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   createdAt: true,
   startedAt: true,
   completedAt: true,
+}).extend({
+  name: z.string().min(1, "Name required").max(200, "Name too long"),
+  fromName: z.string().min(1, "From name required").max(200, "From name too long"),
+  fromEmail: z.string().email("Invalid from email").max(254, "Email too long"),
+  replyEmail: z.string().email("Invalid reply email").max(254).nullable().optional(),
+  subject: z.string().min(1, "Subject required").max(998, "Subject too long"),
+  preheader: z.string().max(500, "Preheader too long").nullable().optional(),
+  htmlContent: z.string().min(1, "HTML content required").max(5000000, "Content too large"),
+  sendingSpeed: z.enum(["slow", "medium", "fast", "godzilla"]).optional(),
 });
 export const insertImportJobSchema = createInsertSchema(importJobs).omit({ 
   id: true, 

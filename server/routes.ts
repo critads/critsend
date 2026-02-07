@@ -357,6 +357,25 @@ export async function registerRoutes(
   app.use("/api/track/", trackingLimiter);
   app.use("/api/unsubscribe/", trackingLimiter);
 
+  const webhookLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many webhook requests, please try again later" },
+  });
+  app.use("/api/webhooks/", webhookLimiter);
+
+  function parsePagination(query: any): { page: number; limit: number } {
+    const page = Math.max(1, Math.min(10000, parseInt(query.page as string) || 1));
+    const limit = Math.max(1, Math.min(100, parseInt(query.limit as string) || 20));
+    return { page, limit };
+  }
+
+  function validateId(id: string): boolean {
+    return typeof id === 'string' && id.length > 0 && id.length <= 100 && /^[a-zA-Z0-9_-]+$/.test(id);
+  }
+
   // Serve static images from /images folder
   app.use("/images", express.static(IMAGES_DIR));
   
@@ -565,8 +584,8 @@ export async function registerRoutes(
   app.get("/api/nullsink/captures", async (req: Request, res: Response) => {
     try {
       const campaignId = req.query.campaignId as string | undefined;
-      const limit = parseInt(req.query.limit as string) || 100;
-      const offset = parseInt(req.query.offset as string) || 0;
+      const { limit } = parsePagination(req.query);
+      const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       
       const result = await storage.getNullsinkCaptures({ campaignId, limit, offset });
       res.json(result);
@@ -675,6 +694,9 @@ export async function registerRoutes(
 
   app.get("/api/debug/import-queue-details/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const result = await db.execute(sql`
         SELECT id, import_job_id, status, csv_file_path, total_lines, processed_lines, heartbeat,
                created_at, started_at, worker_id
@@ -696,8 +718,7 @@ export async function registerRoutes(
   // ============ SUBSCRIBERS ============
   app.get("/api/subscribers", async (req: Request, res: Response) => {
     try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
+      const { page, limit } = parsePagination(req.query);
       const search = req.query.search as string | undefined;
       
       const result = await storage.getSubscribers(page, limit, search);
@@ -715,6 +736,9 @@ export async function registerRoutes(
 
   app.get("/api/subscribers/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const subscriber = await storage.getSubscriber(req.params.id);
       if (!subscriber) {
         return res.status(404).json({ error: "Subscriber not found" });
@@ -754,7 +778,16 @@ export async function registerRoutes(
 
   app.patch("/api/subscribers/:id", async (req: Request, res: Response) => {
     try {
-      const subscriber = await storage.updateSubscriber(req.params.id, req.body);
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const updateSchema = z.object({
+        email: z.string().email().max(254).transform(v => v.toLowerCase().trim()).optional(),
+        tags: z.array(z.string().max(100)).max(1000).optional(),
+        ipAddress: z.string().max(45).nullable().optional(),
+      }).strict();
+      const data = updateSchema.parse(req.body);
+      const subscriber = await storage.updateSubscriber(req.params.id, data);
       if (!subscriber) {
         return res.status(404).json({ error: "Subscriber not found" });
       }
@@ -767,6 +800,9 @@ export async function registerRoutes(
 
   app.delete("/api/subscribers/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       await storage.deleteSubscriber(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -806,6 +842,9 @@ export async function registerRoutes(
 
   app.get("/api/subscribers/flush/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const job = await storage.getFlushJob(req.params.id);
       if (!job) {
         return res.status(404).json({ error: "Flush job not found" });
@@ -820,6 +859,9 @@ export async function registerRoutes(
 
   app.post("/api/subscribers/flush/:id/cancel", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const cancelled = await storage.cancelFlushJob(req.params.id);
       if (!cancelled) {
         return res.status(400).json({ error: "Cannot cancel job - it may already be completed or cancelled" });
@@ -851,6 +893,9 @@ export async function registerRoutes(
 
   app.get("/api/segments/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const segment = await storage.getSegment(req.params.id);
       if (!segment) {
         return res.status(404).json({ error: "Segment not found" });
@@ -864,6 +909,9 @@ export async function registerRoutes(
 
   app.get("/api/segments/:id/count", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const count = await storage.getSegmentSubscriberCountCached(req.params.id);
       res.json({ count });
     } catch (error) {
@@ -891,6 +939,9 @@ export async function registerRoutes(
 
   app.patch("/api/segments/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       if (req.body.rules) {
         segmentRulesArraySchema.parse(req.body.rules);
       }
@@ -910,6 +961,9 @@ export async function registerRoutes(
 
   app.delete("/api/segments/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       await storage.deleteSegment(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -931,6 +985,9 @@ export async function registerRoutes(
 
   app.get("/api/mtas/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const mta = await storage.getMta(req.params.id);
       if (!mta) {
         return res.status(404).json({ error: "MTA not found" });
@@ -958,6 +1015,9 @@ export async function registerRoutes(
 
   app.patch("/api/mtas/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const mta = await storage.updateMta(req.params.id, req.body);
       if (!mta) {
         return res.status(404).json({ error: "MTA not found" });
@@ -971,6 +1031,9 @@ export async function registerRoutes(
 
   app.delete("/api/mtas/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       await storage.deleteMta(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -1006,6 +1069,9 @@ export async function registerRoutes(
 
   app.patch("/api/headers/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const header = await storage.updateHeader(req.params.id, req.body);
       if (!header) {
         return res.status(404).json({ error: "Header not found" });
@@ -1019,6 +1085,9 @@ export async function registerRoutes(
 
   app.delete("/api/headers/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       await storage.deleteHeader(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -1141,6 +1210,9 @@ export async function registerRoutes(
 
   app.get("/api/campaigns/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const campaign = await storage.getCampaign(req.params.id);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
@@ -1161,6 +1233,9 @@ export async function registerRoutes(
 
   app.post("/api/campaigns/:id/process-html", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const campaignId = req.params.id;
       const { html } = req.body;
       
@@ -1270,6 +1345,9 @@ export async function registerRoutes(
 
   app.patch("/api/campaigns/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       console.log(`PATCH /api/campaigns/${req.params.id} - Body:`, JSON.stringify(req.body));
       
       // Get the current campaign to check if status is changing
@@ -1314,6 +1392,9 @@ export async function registerRoutes(
 
   app.delete("/api/campaigns/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       await storage.deleteCampaign(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -1324,6 +1405,9 @@ export async function registerRoutes(
 
   app.post("/api/campaigns/:id/copy", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const campaign = await storage.copyCampaign(req.params.id);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
@@ -1337,6 +1421,9 @@ export async function registerRoutes(
 
   app.post("/api/campaigns/:id/pause", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const campaign = await storage.updateCampaign(req.params.id, { status: "paused" });
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
@@ -1350,6 +1437,9 @@ export async function registerRoutes(
 
   app.post("/api/campaigns/:id/resume", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       // Clear any stuck processing jobs for this campaign before resuming
       await storage.clearStuckJobsForCampaign(req.params.id);
       
@@ -1372,6 +1462,10 @@ export async function registerRoutes(
     const campaignId = req.params.id;
     const timestamp = new Date().toISOString();
     const isScheduled = !!req.body.scheduledAt;
+    
+    if (!validateId(campaignId)) {
+      return res.status(400).json({ error: "Invalid ID format" });
+    }
     
     console.log(`[CAMPAIGN_SEND] ${timestamp} - Starting ${isScheduled ? 'schedule' : 'send'} process for campaign ${campaignId}`);
     console.log(`[CAMPAIGN_SEND] ${timestamp} - Request body:`, JSON.stringify(req.body, null, 2));
@@ -1610,6 +1704,9 @@ export async function registerRoutes(
 
   app.post("/api/import/:id/cancel", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const cancelled = await storage.cancelImportJob(req.params.id);
       if (cancelled) {
         console.log(`[IMPORT] Import job ${req.params.id} cancelled by user`);
@@ -1625,6 +1722,9 @@ export async function registerRoutes(
 
   app.get("/api/import/:id/progress", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const job = await storage.getImportJob(req.params.id);
       if (!job) {
         return res.status(404).json({ error: "Import job not found" });
@@ -2027,6 +2127,9 @@ export async function registerRoutes(
 
   app.get("/api/analytics/campaign/:id", async (req: Request, res: Response) => {
     try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
       const analytics = await storage.getCampaignAnalytics(req.params.id);
       if (!analytics) {
         return res.status(404).json({ error: "Campaign not found" });
@@ -2041,8 +2144,7 @@ export async function registerRoutes(
   // ============ ERROR LOGS ============
   app.get("/api/error-logs", async (req: Request, res: Response) => {
     try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 50;
+      const { page, limit } = parsePagination(req.query);
       const type = req.query.type as string | undefined;
       const severity = req.query.severity as string | undefined;
       const campaignId = req.query.campaignId as string | undefined;
@@ -2246,6 +2348,107 @@ export async function registerRoutes(
     }
   });
 
+  // ============ BOUNCE/COMPLAINT WEBHOOKS ============
+  app.post("/api/webhooks/bounce", async (req: Request, res: Response) => {
+    try {
+      const bounceSchema = z.object({
+        email: z.string().email(),
+        type: z.enum(["hard_bounce", "soft_bounce", "complaint", "unsubscribe"]),
+        reason: z.string().max(1000).optional(),
+        campaignId: z.string().max(100).optional(),
+        timestamp: z.string().optional(),
+      });
+      
+      const data = bounceSchema.parse(req.body);
+      
+      const subscriber = await storage.getSubscriberByEmail(data.email);
+      if (!subscriber) {
+        return res.status(200).json({ status: "ok", message: "Subscriber not found, ignored" });
+      }
+      
+      if (data.type === "hard_bounce" || data.type === "complaint") {
+        const currentTags = subscriber.tags || [];
+        if (!currentTags.includes("BCK")) {
+          await storage.updateSubscriber(subscriber.id, {
+            tags: [...currentTags, "BCK", `bounce:${data.type}`],
+          });
+          console.log(`[BOUNCE] Blocklisted ${data.email} due to ${data.type}`);
+        }
+      } else if (data.type === "soft_bounce") {
+        const currentTags = subscriber.tags || [];
+        const bounceTag = `bounce:soft`;
+        if (!currentTags.includes(bounceTag)) {
+          await storage.updateSubscriber(subscriber.id, {
+            tags: [...currentTags, bounceTag],
+          });
+        }
+      }
+      
+      await storage.createErrorLog({
+        type: "send_failed",
+        severity: "warning",
+        message: `${data.type}: ${data.reason || 'No reason provided'}`,
+        email: data.email,
+        subscriberId: subscriber.id,
+        campaignId: data.campaignId || null,
+        details: JSON.stringify(data),
+      });
+      
+      res.json({ status: "ok", action: data.type === "hard_bounce" || data.type === "complaint" ? "blocklisted" : "tagged" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error processing bounce webhook:", error);
+      res.status(500).json({ error: "Failed to process bounce" });
+    }
+  });
+
+  app.post("/api/webhooks/bounces/batch", async (req: Request, res: Response) => {
+    try {
+      const batchSchema = z.object({
+        bounces: z.array(z.object({
+          email: z.string().email(),
+          type: z.enum(["hard_bounce", "soft_bounce", "complaint", "unsubscribe"]),
+          reason: z.string().max(1000).optional(),
+        })).max(1000, "Maximum 1000 bounces per batch"),
+      });
+      
+      const { bounces } = batchSchema.parse(req.body);
+      let processed = 0;
+      let blocklisted = 0;
+      let notFound = 0;
+      
+      for (const bounce of bounces) {
+        const subscriber = await storage.getSubscriberByEmail(bounce.email);
+        if (!subscriber) {
+          notFound++;
+          continue;
+        }
+        
+        if (bounce.type === "hard_bounce" || bounce.type === "complaint") {
+          const currentTags = subscriber.tags || [];
+          if (!currentTags.includes("BCK")) {
+            await storage.updateSubscriber(subscriber.id, {
+              tags: [...currentTags, "BCK", `bounce:${bounce.type}`],
+            });
+            blocklisted++;
+          }
+        }
+        processed++;
+      }
+      
+      console.log(`[BOUNCE] Batch processed: ${processed} bounces, ${blocklisted} blocklisted, ${notFound} not found`);
+      res.json({ status: "ok", processed, blocklisted, notFound, total: bounces.length });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error processing batch bounces:", error);
+      res.status(500).json({ error: "Failed to process bounces" });
+    }
+  });
+
   return httpServer;
 }
 
@@ -2328,6 +2531,7 @@ function stopTagQueueWorker() {
 
 export function stopAllBackgroundWorkers() {
   console.log("[SHUTDOWN] Stopping all background workers...");
+  stopMemoryMonitor();
   stopJobProcessor();
   stopTagQueueWorker();
   console.log("[SHUTDOWN] All background workers stopped");
@@ -2340,6 +2544,50 @@ const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: numbe
   fast: { emailsPerMinute: 2000, concurrency: 20 },
   godzilla: { emailsPerMinute: 3000, concurrency: 50 },
 };
+
+// Memory monitoring for long-running workers
+const MEMORY_CHECK_INTERVAL = 60000;
+const MEMORY_WARN_THRESHOLD_MB = 512;
+const MEMORY_CRITICAL_THRESHOLD_MB = 1024;
+let memoryCheckInterval: NodeJS.Timeout | null = null;
+let consecutiveHighMemoryCount = 0;
+
+function startMemoryMonitor() {
+  if (memoryCheckInterval) return;
+  
+  memoryCheckInterval = setInterval(() => {
+    const memUsage = process.memoryUsage();
+    const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
+    const rssMB = Math.round(memUsage.rss / 1024 / 1024);
+    
+    if (heapUsedMB > MEMORY_CRITICAL_THRESHOLD_MB) {
+      consecutiveHighMemoryCount++;
+      console.error(`[MEMORY] CRITICAL: Heap ${heapUsedMB}MB / ${heapTotalMB}MB, RSS ${rssMB}MB (consecutive high: ${consecutiveHighMemoryCount})`);
+      
+      if (global.gc) {
+        console.warn('[MEMORY] Forcing garbage collection');
+        global.gc();
+      }
+      
+      if (consecutiveHighMemoryCount >= 5) {
+        console.error(`[MEMORY] FATAL: Memory has been critically high for ${consecutiveHighMemoryCount} consecutive checks. Consider restarting.`);
+      }
+    } else if (heapUsedMB > MEMORY_WARN_THRESHOLD_MB) {
+      consecutiveHighMemoryCount = 0;
+      console.warn(`[MEMORY] WARNING: Heap ${heapUsedMB}MB / ${heapTotalMB}MB, RSS ${rssMB}MB`);
+    } else {
+      consecutiveHighMemoryCount = 0;
+    }
+  }, MEMORY_CHECK_INTERVAL);
+}
+
+function stopMemoryMonitor() {
+  if (memoryCheckInterval) {
+    clearInterval(memoryCheckInterval);
+    memoryCheckInterval = null;
+  }
+}
 
 // ============ POSTGRESQL-BACKED JOB QUEUE FOR CAMPAIGN SERIALIZATION ============
 // Persists job state across server restarts and supports multiple workers via row-level locking
@@ -2501,6 +2749,53 @@ async function checkMtaRecovery() {
   }
 }
 
+// Resume campaigns that were interrupted by server restart
+async function resumeInterruptedCampaigns() {
+  try {
+    const result = await db.execute(sql`
+      SELECT c.id, c.name FROM campaigns c
+      WHERE c.status = 'sending'
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_jobs cj 
+        WHERE cj.campaign_id = c.id 
+        AND cj.status IN ('pending', 'processing')
+      )
+    `);
+    
+    const stuckCampaigns = result.rows as Array<{ id: string; name: string }>;
+    
+    if (stuckCampaigns.length > 0) {
+      console.log(`[RECOVERY] Found ${stuckCampaigns.length} interrupted campaign(s) to resume`);
+      for (const campaign of stuckCampaigns) {
+        console.log(`[RECOVERY] Re-enqueuing campaign ${campaign.id} (${campaign.name})`);
+        await storage.enqueueCampaignJob(campaign.id);
+      }
+    }
+
+    const stuckImports = await db.execute(sql`
+      UPDATE import_jobs SET status = 'pending', error_message = 'Interrupted by server restart - will retry'
+      WHERE status = 'processing'
+      RETURNING id, filename
+    `);
+    
+    if (stuckImports.rows.length > 0) {
+      console.log(`[RECOVERY] Reset ${stuckImports.rows.length} stuck import job(s)`);
+    }
+
+    const stuckFlushJobs = await db.execute(sql`
+      UPDATE flush_jobs SET status = 'pending', error_message = 'Interrupted by server restart - will retry'
+      WHERE status = 'processing'
+      RETURNING id
+    `);
+    
+    if (stuckFlushJobs.rows.length > 0) {
+      console.log(`[RECOVERY] Reset ${stuckFlushJobs.rows.length} stuck flush job(s)`);
+    }
+  } catch (error) {
+    console.error('[RECOVERY] Error resuming interrupted campaigns:', error);
+  }
+}
+
 // Start the background job processor
 function startJobProcessor() {
   if (jobPollingInterval) {
@@ -2515,6 +2810,9 @@ function startJobProcessor() {
   // Also run immediately on startup
   pollForJobs();
   
+  // Resume any campaigns interrupted by server restart
+  resumeInterruptedCampaigns();
+  
   // Also start the import job processor
   startImportJobProcessor();
   
@@ -2526,10 +2824,13 @@ function startJobProcessor() {
     mtaRecoveryInterval = setInterval(checkMtaRecovery, 30000);
     console.log("MTA recovery checker started (30s interval)");
   }
+  
+  startMemoryMonitor();
 }
 
 // Stop the background job processor
 function stopJobProcessor() {
+  stopMemoryMonitor();
   if (jobPollingInterval) {
     clearInterval(jobPollingInterval);
     jobPollingInterval = null;
