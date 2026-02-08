@@ -199,11 +199,6 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     
     const { storage } = await import("./storage");
     
-    const userCount = await storage.getUserCount();
-    if (userCount > 0) {
-      return res.status(403).json({ error: 'Registration disabled. Contact administrator.' });
-    }
-    
     const existingUser = await storage.getUserByUsername(username);
     if (existingUser) {
       return res.status(409).json({ error: 'Username already taken' });
