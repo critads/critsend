@@ -536,3 +536,181 @@ export const insertUserSchema = createInsertSchema(users).pick({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+// ====== A/B Testing ======
+
+export const abTestVariants = pgTable("ab_test_variants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  subject: text("subject"),
+  htmlContent: text("html_content"),
+  fromName: text("from_name"),
+  preheader: text("preheader"),
+  allocationPercent: integer("allocation_percent").notNull().default(50),
+  sentCount: integer("sent_count").notNull().default(0),
+  openCount: integer("open_count").notNull().default(0),
+  clickCount: integer("click_count").notNull().default(0),
+  unsubscribeCount: integer("unsubscribe_count").notNull().default(0),
+  bounceCount: integer("bounce_count").notNull().default(0),
+  isWinner: boolean("is_winner").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  campaignIdx: index("ab_test_variants_campaign_idx").on(table.campaignId),
+}));
+
+export const abTestVariantsRelations = relations(abTestVariants, ({ one }) => ({
+  campaign: one(campaigns, {
+    fields: [abTestVariants.campaignId],
+    references: [campaigns.id],
+  }),
+}));
+
+// ====== IP Warmup Schedules ======
+
+export const warmupSchedules = pgTable("warmup_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mtaId: varchar("mta_id").notNull().references(() => mtas.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  status: text("status").notNull().default("active"),
+  startDate: timestamp("start_date").notNull().defaultNow(),
+  currentDay: integer("current_day").notNull().default(1),
+  totalDays: integer("total_days").notNull().default(30),
+  dailyVolumeCap: integer("daily_volume_cap").notNull().default(50),
+  maxDailyVolume: integer("max_daily_volume").notNull().default(100000),
+  rampMultiplier: text("ramp_multiplier").notNull().default("1.5"),
+  sentToday: integer("sent_today").notNull().default(0),
+  lastResetDate: timestamp("last_reset_date").defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  mtaIdx: index("warmup_schedules_mta_idx").on(table.mtaId),
+  statusIdx: index("warmup_schedules_status_idx").on(table.status),
+}));
+
+export const warmupSchedulesRelations = relations(warmupSchedules, ({ one }) => ({
+  mta: one(mtas, {
+    fields: [warmupSchedules.mtaId],
+    references: [mtas.id],
+  }),
+}));
+
+// ====== Automation Workflows ======
+
+export const automationWorkflows = pgTable("automation_workflows", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("draft"),
+  triggerType: text("trigger_type").notNull(),
+  triggerConfig: jsonb("trigger_config").notNull().default(sql`'{}'::jsonb`),
+  steps: jsonb("steps").notNull().default(sql`'[]'::jsonb`),
+  totalEnrolled: integer("total_enrolled").notNull().default(0),
+  totalCompleted: integer("total_completed").notNull().default(0),
+  totalFailed: integer("total_failed").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  statusIdx: index("automation_workflows_status_idx").on(table.status),
+  triggerTypeIdx: index("automation_workflows_trigger_type_idx").on(table.triggerType),
+}));
+
+export const automationEnrollments = pgTable("automation_enrollments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workflowId: varchar("workflow_id").notNull().references(() => automationWorkflows.id, { onDelete: 'cascade' }),
+  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id, { onDelete: 'cascade' }),
+  currentStepIndex: integer("current_step_index").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  enrolledAt: timestamp("enrolled_at").notNull().defaultNow(),
+  nextActionAt: timestamp("next_action_at"),
+  completedAt: timestamp("completed_at"),
+  lastError: text("last_error"),
+}, (table) => ({
+  workflowIdx: index("automation_enrollments_workflow_idx").on(table.workflowId),
+  subscriberIdx: index("automation_enrollments_subscriber_idx").on(table.subscriberId),
+  statusIdx: index("automation_enrollments_status_idx").on(table.status),
+  nextActionIdx: index("automation_enrollments_next_action_idx").on(table.nextActionAt),
+  uniqueEnrollment: uniqueIndex("automation_enrollments_unique_idx").on(table.workflowId, table.subscriberId),
+}));
+
+export const automationEnrollmentsRelations = relations(automationEnrollments, ({ one }) => ({
+  workflow: one(automationWorkflows, {
+    fields: [automationEnrollments.workflowId],
+    references: [automationWorkflows.id],
+  }),
+  subscriber: one(subscribers, {
+    fields: [automationEnrollments.subscriberId],
+    references: [subscribers.id],
+  }),
+}));
+
+// ====== Advanced Analytics ======
+
+export const analyticsDaily = pgTable("analytics_daily", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: timestamp("date").notNull(),
+  campaignId: varchar("campaign_id").references(() => campaigns.id),
+  totalSent: integer("total_sent").notNull().default(0),
+  totalDelivered: integer("total_delivered").notNull().default(0),
+  totalOpens: integer("total_opens").notNull().default(0),
+  uniqueOpens: integer("unique_opens").notNull().default(0),
+  totalClicks: integer("total_clicks").notNull().default(0),
+  uniqueClicks: integer("unique_clicks").notNull().default(0),
+  totalBounces: integer("total_bounces").notNull().default(0),
+  totalUnsubscribes: integer("total_unsubscribes").notNull().default(0),
+  totalComplaints: integer("total_complaints").notNull().default(0),
+  subscriberGrowth: integer("subscriber_growth").notNull().default(0),
+  subscriberChurn: integer("subscriber_churn").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  dateIdx: index("analytics_daily_date_idx").on(table.date),
+  campaignIdx: index("analytics_daily_campaign_idx").on(table.campaignId),
+  dateCampaignIdx: uniqueIndex("analytics_daily_date_campaign_idx").on(table.date, table.campaignId),
+}));
+
+export const analyticsDailyRelations = relations(analyticsDaily, ({ one }) => ({
+  campaign: one(campaigns, {
+    fields: [analyticsDaily.campaignId],
+    references: [campaigns.id],
+  }),
+}));
+
+// Insert schemas for enterprise features
+export const insertAbTestVariantSchema = createInsertSchema(abTestVariants).omit({ id: true, sentCount: true, openCount: true, clickCount: true, unsubscribeCount: true, bounceCount: true, isWinner: true, createdAt: true }).extend({
+  name: z.string().min(1).max(100),
+  allocationPercent: z.number().int().min(1).max(100),
+});
+
+export const insertWarmupScheduleSchema = createInsertSchema(warmupSchedules).omit({ id: true, sentToday: true, lastResetDate: true, createdAt: true, currentDay: true }).extend({
+  name: z.string().min(1).max(200),
+  totalDays: z.number().int().min(1).max(90),
+  dailyVolumeCap: z.number().int().min(1),
+  maxDailyVolume: z.number().int().min(100),
+  rampMultiplier: z.string().regex(/^\d+(\.\d+)?$/, "Must be a number"),
+});
+
+export const insertAutomationWorkflowSchema = createInsertSchema(automationWorkflows).omit({ id: true, totalEnrolled: true, totalCompleted: true, totalFailed: true, createdAt: true, updatedAt: true }).extend({
+  name: z.string().min(1).max(200),
+  triggerType: z.enum(["subscriber_added", "tag_added", "tag_removed", "subscriber_opened", "subscriber_clicked"]),
+});
+
+export const insertAnalyticsDailySchema = createInsertSchema(analyticsDaily).omit({ id: true, updatedAt: true });
+
+// Types for enterprise features
+export type AbTestVariant = typeof abTestVariants.$inferSelect;
+export type InsertAbTestVariant = z.infer<typeof insertAbTestVariantSchema>;
+
+export type WarmupSchedule = typeof warmupSchedules.$inferSelect;
+export type InsertWarmupSchedule = z.infer<typeof insertWarmupScheduleSchema>;
+
+export type AutomationWorkflow = typeof automationWorkflows.$inferSelect;
+export type InsertAutomationWorkflow = z.infer<typeof insertAutomationWorkflowSchema>;
+
+export type AutomationEnrollment = typeof automationEnrollments.$inferSelect;
+
+export type AnalyticsDaily = typeof analyticsDaily.$inferSelect;
+export type InsertAnalyticsDaily = z.infer<typeof insertAnalyticsDailySchema>;
+
+export type TriggerType = "subscriber_added" | "tag_added" | "tag_removed" | "subscriber_opened" | "subscriber_clicked";
+export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
+export type WarmupStatus = "active" | "paused" | "completed";
+export type EnrollmentStatus = "active" | "completed" | "failed" | "cancelled";
