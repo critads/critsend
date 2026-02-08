@@ -8,7 +8,14 @@ function getTrackingSecret(): string {
   return secret;
 }
 
-const TRACKING_SECRET = getTrackingSecret();
+let _trackingSecret: string | null = null;
+
+function getTrackingSecretCached(): string {
+  if (!_trackingSecret) {
+    _trackingSecret = getTrackingSecret();
+  }
+  return _trackingSecret;
+}
 
 export type TrackingType = "open" | "click" | "unsubscribe";
 
@@ -23,7 +30,7 @@ export function signTrackingUrl(
     : `${campaignId}:${subscriberId}:${type}`;
   
   const signature = crypto
-    .createHmac("sha256", TRACKING_SECRET)
+    .createHmac("sha256", getTrackingSecretCached())
     .update(payload)
     .digest("hex");
   

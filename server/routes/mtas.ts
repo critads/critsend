@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { logger } from "../logger";
 import { insertMtaSchema, insertEmailHeaderSchema } from "@shared/schema";
 import { z } from "zod";
+import { closeTransporter } from "../email-service";
 
 export function registerMtaRoutes(app: Express, helpers: {
   parsePagination: (query: any) => { page: number; limit: number };
@@ -59,6 +60,7 @@ export function registerMtaRoutes(app: Express, helpers: {
       if (!mta) {
         return res.status(404).json({ error: "MTA not found" });
       }
+      closeTransporter(req.params.id);
       res.json(mta);
     } catch (error) {
       logger.error("Error updating MTA:", error);
@@ -72,6 +74,7 @@ export function registerMtaRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Invalid ID format" });
       }
       await storage.deleteMta(req.params.id);
+      closeTransporter(req.params.id);
       res.status(204).send();
     } catch (error) {
       logger.error("Error deleting MTA:", error);

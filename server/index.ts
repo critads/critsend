@@ -1,5 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
@@ -70,7 +72,23 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const app = express();
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: ["'self'", "wss:", "ws:"],
+    },
+  },
+}));
+const corsOrigins = process.env.CORS_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+  origin: corsOrigins && corsOrigins.length > 0 ? corsOrigins : false,
+  credentials: true,
+}));
 const httpServer = createServer(app);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -80,6 +98,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
+  res.setHeader('x-request-id', requestId);
+  (req as any).requestId = requestId;
+  next();
+});
+
 const PostgresSessionStore = connectPg(session);
 
 declare module "http" {
@@ -193,7 +219,13 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/auth/login', async (req: Request, res: Response) => {
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many login attempts, please try again later" },
+});
+
+app.post('/api/auth/login', authRateLimiter, async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -290,8 +322,11 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      const sensitivePatterns = ['subscribers', 'mtas', 'auth'];
+      const isSensitive = sensitivePatterns.some(p => path.includes(p));
+      if (capturedJsonResponse && !isSensitive) {
+        const bodyStr = JSON.stringify(capturedJsonResponse);
+        logLine += ` :: ${bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr}`;
       }
 
       log(logLine);

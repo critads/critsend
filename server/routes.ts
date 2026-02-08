@@ -13,6 +13,10 @@ import {
   insertEmailHeaderSchema,
   insertCampaignSchema,
   segmentRulesArraySchema,
+  campaigns,
+  campaignJobs,
+  importJobs,
+  importJobQueue,
 } from "@shared/schema";
 import { z } from "zod";
 import { sendEmail, sendEmailWithNullsink, verifyTransporter, closeTransporter } from "./email-service";
@@ -365,6 +369,7 @@ export async function registerRoutes(
     legacyHeaders: false,
     message: { error: "Too many campaign requests, please try again later" },
   });
+  app.use("/api/campaigns", campaignLimiter);
 
   const trackingLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -410,6 +415,13 @@ export async function registerRoutes(
   // ============ HEALTH CHECK ============
   app.get("/api/health", async (_req: Request, res: Response) => {
     try {
+      let dbHealthy = true;
+      try {
+        await db.execute(sql`SELECT 1`);
+      } catch {
+        dbHealthy = false;
+      }
+
       const startTime = Date.now();
       await storage.healthCheck();
       const dbLatency = Date.now() - startTime;
@@ -438,12 +450,15 @@ export async function registerRoutes(
         queueDepths = { error: "Failed to query queue depths" };
       }
 
+      const allWorkersRunning = !!jobPollingInterval && !!importJobPollingInterval && !!tagQueueInterval && !!flushJobPollingInterval;
+
       res.json({
-        status: "healthy",
+        status: (dbHealthy && allWorkersRunning) ? 'healthy' : 'degraded',
         timestamp: new Date().toISOString(),
         uptime: Math.floor(process.uptime()),
         database: {
-          status: "connected",
+          healthy: dbHealthy,
+          status: dbHealthy ? "connected" : "disconnected",
           latencyMs: dbLatency,
           pool: poolStats,
         },
@@ -969,13 +984,16 @@ export async function registerRoutes(
       if (data.htmlContent) {
         data.htmlContent = sanitizeCampaignHtml(data.htmlContent);
       }
-      const campaign = await storage.createCampaign(data);
-      
-      // If status is sending, start the sending process
-      if (campaign.status === "sending") {
-        // Start sending in background (simplified - real implementation would use job queue)
-        processCampaign(campaign.id).catch(err => logger.error('Failed to process campaign', { error: String(err) }));
-      }
+      const campaign = await db.transaction(async (tx) => {
+        const [created] = await tx.insert(campaigns).values(data).returning();
+        if (created.status === "sending") {
+          await tx.insert(campaignJobs).values({
+            campaignId: created.id,
+            status: "pending",
+          });
+        }
+        return created;
+      });
       
       logger.info("Campaign created successfully:", campaign.id);
       res.status(201).json(campaign);
@@ -1016,17 +1034,20 @@ export async function registerRoutes(
         normalizedBody.htmlContent = sanitizeCampaignHtml(normalizedBody.htmlContent);
       }
       
-      const campaign = await storage.updateCampaign(req.params.id, normalizedBody);
+      const campaign = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(campaigns).set(normalizedBody).where(sql`${campaigns.id} = ${req.params.id}`).returning();
+        if (!updated) return null;
+        if (existingCampaign.status !== "sending" && updated.status === "sending") {
+          logger.info(`Starting campaign ${updated.id} via PATCH - queueing for processing`);
+          await tx.insert(campaignJobs).values({
+            campaignId: updated.id,
+            status: "pending",
+          });
+        }
+        return updated;
+      });
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
-      }
-      
-      // If status changed to sending, start the campaign processing
-      if (existingCampaign.status !== "sending" && campaign.status === "sending") {
-        logger.info(`Starting campaign ${campaign.id} via PATCH - queueing for processing`);
-        processCampaign(campaign.id).catch((err) => {
-          logger.error(`Failed to queue campaign ${campaign.id}:`, err);
-        });
       }
       
       res.json(campaign);
@@ -1086,15 +1107,20 @@ export async function registerRoutes(
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
-      // Clear any stuck processing jobs for this campaign before resuming
       await storage.clearStuckJobsForCampaign(req.params.id);
       
-      const campaign = await storage.updateCampaign(req.params.id, { status: "sending", pauseReason: null });
+      const campaign = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(campaigns).set({ status: "sending", pauseReason: null }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
+        if (!updated) return null;
+        await tx.insert(campaignJobs).values({
+          campaignId: updated.id,
+          status: "pending",
+        });
+        return updated;
+      });
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      // Resume sending process
-      processCampaign(campaign.id).catch(err => logger.error('Failed to resume campaign', { error: String(err) }));
       res.json(campaign);
     } catch (error) {
       logger.error("Error resuming campaign:", error);
@@ -1222,20 +1248,22 @@ export async function registerRoutes(
         });
       }
       
-      // Step 9: Atomically update status to "sending" (immediate send)
-      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'sending'`);
-      const updatedCampaign = await storage.updateCampaign(campaignId, { status: "sending" });
+      // Step 9: Atomically update status to "sending" and enqueue job in a single transaction
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'sending' and enqueuing job`);
+      const updatedCampaign = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(campaigns).set({ status: "sending" }).where(sql`${campaigns.id} = ${campaignId}`).returning();
+        if (!updated || updated.status !== "sending") return null;
+        await tx.insert(campaignJobs).values({
+          campaignId: updated.id,
+          status: "pending",
+        });
+        return updated;
+      });
       
-      if (!updatedCampaign || updatedCampaign.status !== "sending") {
+      if (!updatedCampaign) {
         logger.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to update campaign status`);
         return res.status(500).json({ error: "Failed to start campaign - status update failed" });
       }
-      
-      // Step 10: Queue the campaign for processing (don't await - let it run in background)
-      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Queuing campaign for processing`);
-      processCampaign(campaignId).catch((queueError: any) => {
-        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Background queue error for ${campaignId}:`, queueError);
-      });
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
       
       // Step 11: Success - return the campaign immediately
@@ -1330,8 +1358,21 @@ export async function registerRoutes(
       // Delete local temp file after successful upload
       try { fs.unlinkSync(csvFilePath); } catch {}
 
-      // Enqueue for background processing with object storage path and size for progress tracking
-      const queueItem = await storage.enqueueImportJob(job.id, objectStoragePath, lineCount, fileSizeBytes);
+      // Atomically update import job status and enqueue for processing
+      const queueItem = await db.transaction(async (tx) => {
+        await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
+        const [queued] = await tx.insert(importJobQueue).values({
+          importJobId: job.id,
+          csvFilePath: objectStoragePath,
+          totalLines: lineCount,
+          processedLines: 0,
+          fileSizeBytes,
+          processedBytes: 0,
+          lastCheckpointLine: 0,
+          status: "pending",
+        }).returning();
+        return queued;
+      });
       logger.info(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, object storage path: ${objectStoragePath}`);
 
       // Return immediately with job ID for progress tracking
@@ -1638,8 +1679,21 @@ export async function registerRoutes(
       const verifiedSize = fs.statSync(tempCsvPath).size;
       logger.info(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
       
-      // Enqueue for processing with object storage path
-      const queueItem = await storage.enqueueImportJob(job.id, objectStoragePath, lineCount, verifiedSize);
+      // Atomically update import job status and enqueue for processing
+      const queueItem = await db.transaction(async (tx) => {
+        await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
+        const [queued] = await tx.insert(importJobQueue).values({
+          importJobId: job.id,
+          csvFilePath: objectStoragePath,
+          totalLines: lineCount,
+          processedLines: 0,
+          fileSizeBytes: verifiedSize,
+          processedBytes: 0,
+          lastCheckpointLine: 0,
+          status: "pending",
+        }).returning();
+        return queued;
+      });
       logger.info(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued with object storage path`);
       
       // Delete local temp file after successful upload to object storage
@@ -1702,6 +1756,13 @@ export async function registerRoutes(
   });
 
   // ============ EXPORT ============
+  function sanitizeCsvValue(val: string): string {
+    if (val && /^[=+\-@\t\r]/.test(val)) {
+      return "'" + val;
+    }
+    return val;
+  }
+
   app.get("/api/export", async (req: Request, res: Response) => {
     try {
       const fields = (req.query.fields as string)?.split(",") || ["email", "tags", "ipAddress", "importDate"];
@@ -1728,6 +1789,7 @@ export async function registerRoutes(
             else if (field === "tags") val = (sub.tags || []).join(";");
             else if (field === "ipAddress") val = sub.ipAddress || "";
             else if (field === "importDate") val = sub.importDate.toISOString();
+            val = sanitizeCsvValue(val);
             if (val.includes(",") || val.includes('"') || val.includes("\n")) {
               return '"' + val.replace(/"/g, '""') + '"';
             }

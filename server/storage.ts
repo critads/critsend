@@ -328,8 +328,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteAllSubscribers(): Promise<number> {
-    const result = await db.delete(subscribers).returning({ id: subscribers.id });
-    return result.length;
+    const result = await db.execute(sql`DELETE FROM subscribers`);
+    return result.rowCount || 0;
   }
 
   async getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]> {
@@ -402,30 +402,34 @@ export class DatabaseStorage implements IStorage {
     return Number(count);
   }
 
+  private escapeLikeValue(value: string): string {
+    return value.replace(/[%_\\]/g, '\\$&');
+  }
+
   private buildSingleRuleCondition(rule: any): ReturnType<typeof sql> | null {
     if (rule.field === "email") {
       switch (rule.operator) {
         case "contains":
-          return sql`${subscribers.email} ILIKE ${'%' + rule.value + '%'}`;
+          return sql`${subscribers.email} ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'}`;
         case "not_contains":
-          return sql`${subscribers.email} NOT ILIKE ${'%' + rule.value + '%'}`;
+          return sql`${subscribers.email} NOT ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'}`;
         case "equals":
           return sql`LOWER(${subscribers.email}) = LOWER(${rule.value})`;
         case "not_equals":
           return sql`LOWER(${subscribers.email}) != LOWER(${rule.value})`;
         case "starts_with":
-          return sql`${subscribers.email} ILIKE ${rule.value + '%'}`;
+          return sql`${subscribers.email} ILIKE ${this.escapeLikeValue(rule.value) + '%'}`;
         case "ends_with":
-          return sql`${subscribers.email} ILIKE ${'%' + rule.value}`;
+          return sql`${subscribers.email} ILIKE ${'%' + this.escapeLikeValue(rule.value)}`;
         default:
           return null;
       }
     } else if (rule.field === "tags") {
       switch (rule.operator) {
         case "contains":
-          return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+          return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'})`;
         case "not_contains":
-          return sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + rule.value + '%'})`;
+          return sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'})`;
         case "equals":
           return sql`${subscribers.tags} @> ARRAY[${rule.value}]::text[]`;
         case "not_equals":
@@ -451,9 +455,9 @@ export class DatabaseStorage implements IStorage {
         case "not_equals":
           return sql`${subscribers.ipAddress} != ${rule.value}`;
         case "starts_with":
-          return sql`${subscribers.ipAddress} LIKE ${rule.value + '%'}`;
+          return sql`${subscribers.ipAddress} LIKE ${this.escapeLikeValue(rule.value) + '%'}`;
         case "contains":
-          return sql`${subscribers.ipAddress} LIKE ${'%' + rule.value + '%'}`;
+          return sql`${subscribers.ipAddress} LIKE ${'%' + this.escapeLikeValue(rule.value) + '%'}`;
         default:
           return null;
       }
@@ -658,6 +662,7 @@ export class DatabaseStorage implements IStorage {
       ...copyData,
       name: `${original.name} (Copy)`,
       status: "draft",
+      sendingSpeed: original.sendingSpeed as "slow" | "medium" | "fast" | "godzilla",
     });
   }
 

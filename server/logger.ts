@@ -23,14 +23,21 @@ function formatLog(entry: LogEntry): string {
   return `${timestamp} [${level.toUpperCase()}] ${msg}${extraStr}`;
 }
 
-function createLog(level: LogLevel, msg: string, extra?: Record<string, any>) {
+function normalizeExtra(extra?: Record<string, any> | unknown): Record<string, any> | undefined {
+  if (extra === undefined || extra === null) return undefined;
+  if (typeof extra === 'object' && !Array.isArray(extra)) return extra as Record<string, any>;
+  return { value: String(extra) };
+}
+
+function createLog(level: LogLevel, msg: string, extra?: Record<string, any> | unknown) {
   if (LOG_LEVELS[level] < MIN_LEVEL) return;
   
+  const safeExtra = normalizeExtra(extra);
   const entry: LogEntry = {
     level,
     timestamp: new Date().toISOString(),
     msg,
-    ...extra,
+    ...safeExtra,
   };
   
   const formatted = formatLog(entry);
@@ -45,16 +52,16 @@ function createLog(level: LogLevel, msg: string, extra?: Record<string, any>) {
 }
 
 export const logger = {
-  debug: (msg: string, extra?: Record<string, any>) => createLog('debug', msg, extra),
-  info: (msg: string, extra?: Record<string, any>) => createLog('info', msg, extra),
-  warn: (msg: string, extra?: Record<string, any>) => createLog('warn', msg, extra),
-  error: (msg: string, extra?: Record<string, any>) => createLog('error', msg, extra),
-  fatal: (msg: string, extra?: Record<string, any>) => createLog('fatal', msg, extra),
+  debug: (msg: string, extra?: Record<string, any> | unknown) => createLog('debug', msg, extra),
+  info: (msg: string, extra?: Record<string, any> | unknown) => createLog('info', msg, extra),
+  warn: (msg: string, extra?: Record<string, any> | unknown) => createLog('warn', msg, extra),
+  error: (msg: string, extra?: Record<string, any> | unknown) => createLog('error', msg, extra),
+  fatal: (msg: string, extra?: Record<string, any> | unknown) => createLog('fatal', msg, extra),
   child: (context: Record<string, any>) => ({
-    debug: (msg: string, extra?: Record<string, any>) => createLog('debug', msg, { ...context, ...extra }),
-    info: (msg: string, extra?: Record<string, any>) => createLog('info', msg, { ...context, ...extra }),
-    warn: (msg: string, extra?: Record<string, any>) => createLog('warn', msg, { ...context, ...extra }),
-    error: (msg: string, extra?: Record<string, any>) => createLog('error', msg, { ...context, ...extra }),
-    fatal: (msg: string, extra?: Record<string, any>) => createLog('fatal', msg, { ...context, ...extra }),
+    debug: (msg: string, extra?: Record<string, any> | unknown) => createLog('debug', msg, { ...context, ...normalizeExtra(extra) }),
+    info: (msg: string, extra?: Record<string, any> | unknown) => createLog('info', msg, { ...context, ...normalizeExtra(extra) }),
+    warn: (msg: string, extra?: Record<string, any> | unknown) => createLog('warn', msg, { ...context, ...normalizeExtra(extra) }),
+    error: (msg: string, extra?: Record<string, any> | unknown) => createLog('error', msg, { ...context, ...normalizeExtra(extra) }),
+    fatal: (msg: string, extra?: Record<string, any> | unknown) => createLog('fatal', msg, { ...context, ...normalizeExtra(extra) }),
   }),
 };
