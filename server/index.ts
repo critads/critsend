@@ -6,6 +6,8 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
 import { registerRoutes, startTagQueueWorker, stopAllBackgroundWorkers } from "./routes";
+import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMetricsCollector } from "./metrics";
+import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { pool } from "./db";
@@ -52,7 +54,10 @@ async function gracefulShutdown(signal: string) {
     }, CONNECTION_DRAIN_TIMEOUT);
     
     stopAllBackgroundWorkers();
+    stopMetricsCollector();
     logger.info('Background workers stopped');
+    
+    await messageQueue.shutdown();
     
     await new Promise(resolve => setTimeout(resolve, 2000));
     
@@ -90,6 +95,8 @@ app.use(cors({
   credentials: true,
 }));
 const httpServer = createServer(app);
+
+registerMetricsRoute(app);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (isShuttingDown) {
@@ -290,6 +297,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path.startsWith('/api/webhooks/')) {
     return next();
   }
+  if (req.path === '/metrics') {
+    return next();
+  }
   const csrfToken = req.headers['x-csrf-token'] as string;
   const sessionToken = req.session.csrfToken;
   if (!csrfToken || !sessionToken || csrfToken.length !== sessionToken.length || !crypto.timingSafeEqual(Buffer.from(csrfToken), Buffer.from(sessionToken))) {
@@ -331,6 +341,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(metricsMiddleware);
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (!req.path.startsWith('/api/')) return next();
   
@@ -341,6 +353,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     '/api/unsubscribe/',
     '/api/webhooks/',
     '/api/health',
+    '/metrics',
   ];
   if (publicPaths.some(p => req.path.startsWith(p))) return next();
   
@@ -352,6 +365,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+  
+  startMetricsCollector();
+  messageQueue.initialize().catch(err => logger.error('Message queue init failed', { error: String(err) }));
   
   // Start the tag queue worker for reliable tracking tag additions
   startTagQueueWorker();

@@ -12,6 +12,8 @@ import {
   Send,
   AlertCircle,
   FlaskConical,
+  Flame,
+  Workflow,
   Settings,
   HelpCircle,
   LogOut,
@@ -71,9 +73,24 @@ const settingsNavItems = [
     icon: BarChart3,
   },
   {
+    title: "Advanced Analytics",
+    url: "/advanced-analytics",
+    icon: BarChart3,
+  },
+  {
     title: "Test Metrics",
     url: "/test-metrics",
     icon: FlaskConical,
+  },
+  {
+    title: "IP Warmup",
+    url: "/warmup",
+    icon: Flame,
+  },
+  {
+    title: "Automation",
+    url: "/automation",
+    icon: Workflow,
   },
 ];
 
@@ -138,7 +155,7 @@ export function AppSidebar() {
                     isActive={location === item.url}
                     className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
-                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
+                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>
@@ -162,7 +179,7 @@ export function AppSidebar() {
                     isActive={location === item.url}
                     className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
-                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
+                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="w-4 h-4" />
                       <span>{item.title}</span>
                     </Link>

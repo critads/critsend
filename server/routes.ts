@@ -40,6 +40,10 @@ import { registerMtaRoutes } from "./routes/mtas";
 import { registerTrackingRoutes } from "./routes/tracking";
 import { registerWebhookRoutes } from "./routes/webhooks";
 import { registerAnalyticsRoutes } from "./routes/analytics";
+import { registerAbTestingRoutes } from "./routes/ab-testing";
+import { registerWarmupRoutes } from "./routes/warmup";
+import { registerAutomationRoutes } from "./routes/automation";
+import { registerAdvancedAnalyticsRoutes } from "./routes/advanced-analytics";
 
 const dnsLookup = promisify(dns.lookup);
 
@@ -756,6 +760,10 @@ export async function registerRoutes(
   registerTrackingRoutes(app);
   registerWebhookRoutes(app);
   registerAnalyticsRoutes(app, helpers);
+  registerAbTestingRoutes(app, helpers);
+  registerWarmupRoutes(app);
+  registerAutomationRoutes(app);
+  registerAdvancedAnalyticsRoutes(app);
 
   // ============ CAMPAIGNS ============
   

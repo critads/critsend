@@ -26,6 +26,9 @@ import Headers from "@/pages/headers";
 import ApiDocs from "@/pages/api-docs";
 import ErrorLogs from "@/pages/error-logs";
 import TestMetrics from "@/pages/test-metrics";
+import Warmup from "@/pages/warmup";
+import Automation from "@/pages/automation";
+import AdvancedAnalytics from "@/pages/advanced-analytics";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -47,6 +50,9 @@ function Router() {
       <Route path="/api-docs" component={ApiDocs} />
       <Route path="/error-logs" component={ErrorLogs} />
       <Route path="/test-metrics" component={TestMetrics} />
+      <Route path="/warmup" component={Warmup} />
+      <Route path="/automation" component={Automation} />
+      <Route path="/advanced-analytics" component={AdvancedAnalytics} />
       <Route component={NotFound} />
     </Switch>
   );
