@@ -328,6 +328,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteAllSubscribers(): Promise<number> {
+    await db.execute(sql`DELETE FROM campaign_sends`);
+    await db.execute(sql`DELETE FROM campaign_stats`);
+    await db.execute(sql`DELETE FROM click_events`);
+    await db.execute(sql`DELETE FROM pending_tag_operations`);
+    await db.execute(sql`DELETE FROM automation_enrollments`);
     const result = await db.execute(sql`DELETE FROM subscribers`);
     return result.rowCount || 0;
   }
@@ -1618,11 +1623,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSubscriberBatch(batchSize: number): Promise<number> {
-    // Delete a batch of subscribers using a CTE for efficiency
     const result = await db.execute(sql`
       WITH to_delete AS (
         SELECT id FROM subscribers
         LIMIT ${batchSize}
+      ),
+      del_sends AS (
+        DELETE FROM campaign_sends WHERE subscriber_id IN (SELECT id FROM to_delete)
+      ),
+      del_stats AS (
+        DELETE FROM campaign_stats WHERE subscriber_id IN (SELECT id FROM to_delete)
+      ),
+      del_clicks AS (
+        DELETE FROM click_events WHERE subscriber_id IN (SELECT id FROM to_delete)
+      ),
+      del_tags AS (
+        DELETE FROM pending_tag_operations WHERE subscriber_id IN (SELECT id FROM to_delete)
+      ),
+      del_enrollments AS (
+        DELETE FROM automation_enrollments WHERE subscriber_id IN (SELECT id FROM to_delete)
       )
       DELETE FROM subscribers
       WHERE id IN (SELECT id FROM to_delete)
