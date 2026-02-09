@@ -36,7 +36,7 @@ export default function AuthPage() {
         return;
       }
 
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({ title: isLogin ? "Welcome back" : "Account created", description: `Signed in as ${data.user.username}` });
       setLocation("/");
     } catch (error: any) {
