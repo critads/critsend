@@ -244,6 +244,7 @@ export const importJobQueue = pgTable("import_job_queue", {
   completedAt: timestamp("completed_at"),
   heartbeat: timestamp("heartbeat"), // Updated during processing to show worker is alive
   workerId: text("worker_id"),
+  retryCount: integer("retry_count").notNull().default(0),
   errorMessage: text("error_message"),
 }, (table) => ({
   importJobIdx: index("import_job_queue_import_job_idx").on(table.importJobId),

@@ -1110,6 +1110,7 @@ export class DatabaseStorage implements IStorage {
       heartbeat: row.heartbeat ? new Date(row.heartbeat) : null,
       workerId: row.worker_id,
       errorMessage: row.error_message,
+      retryCount: row.retry_count || 0,
     };
   }
 
@@ -1166,6 +1167,7 @@ export class DatabaseStorage implements IStorage {
       heartbeat: row.heartbeat ? new Date(row.heartbeat) : null,
       workerId: row.worker_id,
       errorMessage: row.error_message,
+      retryCount: row.retry_count || 0,
     };
   }
 
@@ -1251,14 +1253,43 @@ export class DatabaseStorage implements IStorage {
     // Reset jobs where heartbeat stopped (worker crashed/redeployed)
     // If no heartbeat for 2 minutes, worker is likely dead
     // IMPORTANT: Don't recover jobs where the corresponding import_job is already cancelled
+    // IMPORTANT: Limit retries to prevent OOM crash loops - max 2 retries
+    
+    // First, fail jobs that have exceeded retry limit (retry_count >= 2)
+    const failedResult = await db.execute(sql`
+      UPDATE import_job_queue q
+      SET status = 'failed',
+          completed_at = NOW(),
+          error_message = 'Import failed after multiple retries - possible memory issue. Try importing a smaller file or splitting the CSV.'
+      WHERE q.status = 'processing'
+        AND (q.heartbeat IS NULL OR q.heartbeat < NOW() - INTERVAL '2 minutes')
+        AND q.retry_count >= 2
+      RETURNING q.import_job_id
+    `);
+    
+    // Update corresponding import_jobs to failed
+    for (const row of failedResult.rows as any[]) {
+      await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'failed',
+            error_message = 'Import failed after multiple retries - possible memory issue. Try importing a smaller file or splitting the CSV.',
+            completed_at = NOW()
+        WHERE id = ${row.import_job_id}
+      `);
+      logger.warn(`[IMPORT] Job ${row.import_job_id} permanently failed after exceeding retry limit`);
+    }
+    
+    // Then, retry jobs that still have retries remaining (retry_count < 2)
     const queueResult = await db.execute(sql`
       UPDATE import_job_queue q
       SET status = 'pending',
           started_at = NULL,
           heartbeat = NULL,
-          worker_id = NULL
+          worker_id = NULL,
+          retry_count = retry_count + 1
       WHERE q.status = 'processing'
         AND (q.heartbeat IS NULL OR q.heartbeat < NOW() - INTERVAL '2 minutes')
+        AND q.retry_count < 2
         AND NOT EXISTS (
           SELECT 1 FROM import_jobs j 
           WHERE j.id = q.import_job_id 
@@ -1277,7 +1308,7 @@ export class DatabaseStorage implements IStorage {
       `);
     }
     
-    return queueResult.rows.length;
+    return queueResult.rows.length + failedResult.rows.length;
   }
   
   // GIN Index Management for large import optimization

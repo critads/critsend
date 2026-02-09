@@ -2392,6 +2392,20 @@ async function pollForImportJobs() {
   }
 }
 
+function getImportConfig() {
+  const mem = process.memoryUsage();
+  const heapUsedMB = mem.heapUsed / 1024 / 1024;
+  const heapUsageRatio = mem.heapUsed / mem.heapTotal;
+
+  if (heapUsedMB > 400 || heapUsageRatio > 0.85) {
+    return { batchSize: 1000, parallelWorkers: 1, maxPendingBatches: 2 };
+  }
+  if (heapUsedMB > 250 || heapUsageRatio > 0.7) {
+    return { batchSize: 2000, parallelWorkers: 2, maxPendingBatches: 4 };
+  }
+  return { batchSize: 5000, parallelWorkers: 4, maxPendingBatches: 8 };
+}
+
 // Production-ready streaming import processor optimized for 7M+ rows
 // Uses readline for memory-efficient line-by-line processing
 // Supports resume from last checkpoint if interrupted
@@ -2440,14 +2454,17 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   
   await storage.updateImportJob(importJobId, { status: 'processing', startedAt: new Date() });
   
-  // Streaming batch configuration - optimized for speed and progress visibility
-  const BATCH_SIZE = 5000; // 5k rows per batch for faster commits and progress updates
+  // Streaming batch configuration - dynamic based on memory pressure
+  const importConfig = getImportConfig();
+  const BATCH_SIZE = importConfig.batchSize;
+  const PARALLEL_WORKERS = importConfig.parallelWorkers;
+  const MAX_PENDING_BATCHES = importConfig.maxPendingBatches;
   const PROGRESS_UPDATE_INTERVAL_MS = 2000; // Update progress every 2 seconds (time-based)
   const HEARTBEAT_INTERVAL = 30000; // 30 seconds
   const CHECKPOINT_INTERVAL = 100000; // Checkpoint every 100k rows for resume
   const LARGE_IMPORT_THRESHOLD = 100000; // Drop GIN indexes for imports > 100k rows
-  const PARALLEL_WORKERS = 4; // Number of parallel batch insert workers
-  const MAX_PENDING_BATCHES = 8; // Maximum pending batches before backpressure kicks in
+  
+  logger.info(`[IMPORT] ${importJobId}: Import config - batch: ${BATCH_SIZE}, workers: ${PARALLEL_WORKERS}, pending: ${MAX_PENDING_BATCHES}`);
   
   // Determine if this is a large import that would benefit from GIN index deferral
   const totalLines = queueItem?.totalLines || 0;
@@ -2700,6 +2717,14 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     if (isReadingPaused && pendingBatches.length < MAX_PENDING_BATCHES) {
       isReadingPaused = false;
       rl.resume();
+    }
+    
+    // Memory-aware throttling: check memory after each batch cycle
+    const currentMem = process.memoryUsage();
+    if (currentMem.heapUsed / currentMem.heapTotal > 0.85 || currentMem.heapUsed > 450 * 1024 * 1024) {
+      logger.warn(`[IMPORT] ${importJobId}: High memory usage (${Math.round(currentMem.heapUsed / 1024 / 1024)}MB), throttling...`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (global.gc) global.gc();
     }
     
     // Yield to event loop to prevent blocking other requests during large imports
