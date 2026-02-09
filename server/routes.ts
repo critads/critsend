@@ -1590,6 +1590,10 @@ export async function registerRoutes(
 
   // Complete chunked upload - assemble chunks and start import
   app.post("/api/import/chunked/:uploadId/complete", async (req: Request, res: Response) => {
+    if (isMemoryPressure) {
+      res.setHeader('Retry-After', '60');
+      return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
+    }
     const tempCsvPath = path.join(UPLOADS_DIR_BASE, `upload-${Date.now()}-temp.csv`);
     let writeStream: fs.WriteStream | null = null;
     
@@ -1945,8 +1949,8 @@ const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: numbe
 
 // Memory monitoring for long-running workers
 const MEMORY_CHECK_INTERVAL = 60000;
-const MEMORY_WARN_THRESHOLD_MB = 512;
-const MEMORY_CRITICAL_THRESHOLD_MB = 1024;
+const MEMORY_WARN_THRESHOLD_MB = 2048;
+const MEMORY_CRITICAL_THRESHOLD_MB = 4096;
 let memoryCheckInterval: NodeJS.Timeout | null = null;
 let consecutiveHighMemoryCount = 0;
 export let isMemoryPressure = false;
@@ -2397,10 +2401,10 @@ function getImportConfig() {
   const heapUsedMB = mem.heapUsed / 1024 / 1024;
   const heapUsageRatio = mem.heapUsed / mem.heapTotal;
 
-  if (heapUsedMB > 400 || heapUsageRatio > 0.85) {
+  if (heapUsedMB > 3000 || heapUsageRatio > 0.85) {
     return { batchSize: 1000, parallelWorkers: 1, maxPendingBatches: 2 };
   }
-  if (heapUsedMB > 250 || heapUsageRatio > 0.7) {
+  if (heapUsedMB > 2000 || heapUsageRatio > 0.7) {
     return { batchSize: 2000, parallelWorkers: 2, maxPendingBatches: 4 };
   }
   return { batchSize: 5000, parallelWorkers: 4, maxPendingBatches: 8 };
@@ -2721,7 +2725,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
     
     // Memory-aware throttling: check memory after each batch cycle
     const currentMem = process.memoryUsage();
-    if (currentMem.heapUsed / currentMem.heapTotal > 0.85 || currentMem.heapUsed > 450 * 1024 * 1024) {
+    if (currentMem.heapUsed / currentMem.heapTotal > 0.85 || currentMem.heapUsed > 3000 * 1024 * 1024) {
       logger.warn(`[IMPORT] ${importJobId}: High memory usage (${Math.round(currentMem.heapUsed / 1024 / 1024)}MB), throttling...`);
       await new Promise(resolve => setTimeout(resolve, 100));
       if (global.gc) global.gc();

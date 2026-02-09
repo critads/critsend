@@ -386,10 +386,17 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // Start the tag queue worker for reliable tracking tag additions
   startTagQueueWorker();
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = status >= 500 ? "Internal Server Error" : (err.message || "Internal Server Error");
-    logger.error('Unhandled route error', { status, error: err.message, stack: err.stack });
+    let message = "Internal Server Error";
+    if (status < 500) {
+      message = err.message || "Internal Server Error";
+    } else if (req.path.includes('/import')) {
+      message = "Import operation failed. The server may be under heavy load — please try again in a few moments.";
+    } else if (err.code === 'ENOMEM' || (err.message && err.message.includes('memory'))) {
+      message = "Server is temporarily overloaded. Please try again shortly.";
+    }
+    logger.error('Unhandled route error', { status, error: err.message, stack: err.stack, path: req.path, method: req.method });
     if (!res.headersSent) {
       res.status(status).json({ error: message });
     }
