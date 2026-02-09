@@ -1556,6 +1556,7 @@ export class DatabaseStorage implements IStorage {
       totalRows,
       status: "pending",
     }).returning();
+    await db.execute(sql`NOTIFY flush_jobs`);
     return result[0];
   }
 

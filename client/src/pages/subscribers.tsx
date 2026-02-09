@@ -51,6 +51,8 @@ import {
   X,
   Plus,
   AlertTriangle,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import type { Subscriber } from "@shared/schema";
 
@@ -196,32 +198,38 @@ export default function Subscribers() {
     },
   });
 
+  const [flushFinishedState, setFlushFinishedState] = useState<"completed" | "failed" | "cancelled" | null>(null);
+
   useEffect(() => {
     if (flushJob?.status === "completed") {
-      setFlushJobId(null);
-      setShowFlushConfirm(false);
-      setPage(1);
+      setFlushFinishedState("completed");
       queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
-      toast({
-        title: "All subscribers deleted",
-        description: `Successfully deleted ${flushJob.processedRows.toLocaleString()} subscribers.`,
-      });
+      const timer = setTimeout(() => {
+        setFlushJobId(null);
+        setShowFlushConfirm(false);
+        setFlushFinishedState(null);
+        setPage(1);
+        toast({
+          title: "All subscribers deleted",
+          description: `Successfully deleted ${flushJob.processedRows.toLocaleString()} subscribers.`,
+        });
+      }, 2000);
+      return () => clearTimeout(timer);
     } else if (flushJob?.status === "failed") {
-      setFlushJobId(null);
-      setShowFlushConfirm(false);
-      toast({
-        title: "Error",
-        description: flushJob.errorMessage || "Failed to delete subscribers.",
-        variant: "destructive",
-      });
+      setFlushFinishedState("failed");
     } else if (flushJob?.status === "cancelled") {
-      setFlushJobId(null);
-      setShowFlushConfirm(false);
+      setFlushFinishedState("cancelled");
       queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
-      toast({
-        title: "Deletion cancelled",
-        description: `Stopped after deleting ${flushJob.processedRows.toLocaleString()} subscribers.`,
-      });
+      const timer = setTimeout(() => {
+        setFlushJobId(null);
+        setShowFlushConfirm(false);
+        setFlushFinishedState(null);
+        toast({
+          title: "Deletion cancelled",
+          description: `Stopped after deleting ${flushJob.processedRows.toLocaleString()} subscribers.`,
+        });
+      }, 1500);
+      return () => clearTimeout(timer);
     }
   }, [flushJob?.status]);
 
@@ -232,6 +240,7 @@ export default function Subscribers() {
     },
     onSuccess: (response) => {
       if (response.jobId) {
+        setFlushFinishedState(null);
         setFlushJobId(response.jobId);
       } else {
         setShowFlushConfirm(false);
@@ -639,34 +648,87 @@ export default function Subscribers() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              {flushJobId ? "Deleting Subscribers..." : "Delete All Subscribers?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {flushJobId ? (
-                <div className="space-y-3 py-2">
-                  <div className="text-sm text-muted-foreground">
-                    Deleting subscribers in batches...
-                  </div>
-                  <Progress 
-                    value={flushJob?.totalRows ? (flushJob.processedRows / flushJob.totalRows) * 100 : 0} 
-                    className="h-2"
-                    data-testid="progress-flush"
-                  />
-                  <div className="text-sm font-medium text-center">
-                    {flushJob?.processedRows?.toLocaleString() || 0} / {flushJob?.totalRows?.toLocaleString() || data?.total?.toLocaleString() || 0} subscribers deleted
-                  </div>
-                </div>
+              {flushFinishedState === "completed" ? (
+                <>
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  All Done!
+                </>
+              ) : flushFinishedState === "failed" ? (
+                <>
+                  <XCircle className="h-5 w-5 text-destructive" />
+                  Deletion Failed
+                </>
               ) : (
                 <>
-                  This action cannot be undone. This will permanently delete all{" "}
-                  <strong>{data?.total?.toLocaleString() || 0}</strong> subscribers from your email list.
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  {flushJobId ? "Deleting Subscribers..." : "Delete All Subscribers?"}
                 </>
               )}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                {flushFinishedState === "completed" ? (
+                  <div className="space-y-3 py-2">
+                    <Progress value={100} className="h-2" data-testid="progress-flush" />
+                    <div className="text-sm font-medium text-center" data-testid="text-flush-complete">
+                      Successfully deleted {flushJob?.processedRows?.toLocaleString() || 0} subscribers.
+                    </div>
+                  </div>
+                ) : flushFinishedState === "failed" ? (
+                  <div className="space-y-3 py-2">
+                    <div className="text-sm text-destructive" data-testid="text-flush-error">
+                      {flushJob?.errorMessage || "An unexpected error occurred while deleting subscribers."}
+                    </div>
+                    {(flushJob?.processedRows ?? 0) > 0 && (
+                      <div className="text-sm text-muted-foreground">
+                        {flushJob?.processedRows?.toLocaleString()} subscribers were deleted before the error.
+                      </div>
+                    )}
+                  </div>
+                ) : flushFinishedState === "cancelled" ? (
+                  <div className="space-y-3 py-2">
+                    <div className="text-sm text-muted-foreground text-center">
+                      Deletion cancelled. {flushJob?.processedRows?.toLocaleString() || 0} subscribers were deleted.
+                    </div>
+                  </div>
+                ) : flushJobId ? (
+                  <div className="space-y-3 py-2">
+                    <div className="text-sm text-muted-foreground">
+                      Deleting subscribers in batches...
+                    </div>
+                    <Progress 
+                      value={flushJob?.totalRows ? (flushJob.processedRows / flushJob.totalRows) * 100 : 0} 
+                      className="h-2"
+                      data-testid="progress-flush"
+                    />
+                    <div className="text-sm font-medium text-center">
+                      {flushJob?.processedRows?.toLocaleString() || 0} / {flushJob?.totalRows?.toLocaleString() || data?.total?.toLocaleString() || 0} subscribers deleted
+                    </div>
+                  </div>
+                ) : (
+                  <span>
+                    This action cannot be undone. This will permanently delete all{" "}
+                    <strong>{data?.total?.toLocaleString() || 0}</strong> subscribers from your email list.
+                  </span>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            {flushJobId ? (
+            {flushFinishedState === "failed" ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setFlushJobId(null);
+                  setShowFlushConfirm(false);
+                  setFlushFinishedState(null);
+                  queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
+                }}
+                data-testid="button-close-flush-error"
+              >
+                Close
+              </Button>
+            ) : flushFinishedState === "completed" || flushFinishedState === "cancelled" ? null : flushJobId ? (
               <Button
                 variant="outline"
                 onClick={() => cancelFlushMutation.mutate(flushJobId)}
