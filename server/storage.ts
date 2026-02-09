@@ -202,6 +202,7 @@ export interface IStorage {
   updateFlushJobProgress(jobId: string, processedRows: number): Promise<void>;
   completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void>;
   cancelFlushJob(jobId: string): Promise<boolean>;
+  clearSubscriberDependencies(): Promise<void>;
   deleteSubscriberBatch(batchSize: number): Promise<number>;
   countAllSubscribers(): Promise<number>;
   
@@ -1623,32 +1624,20 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  async clearSubscriberDependencies(): Promise<void> {
+    await db.execute(sql`DELETE FROM campaign_sends`);
+    await db.execute(sql`DELETE FROM campaign_stats`);
+    await db.execute(sql`DELETE FROM error_logs WHERE subscriber_id IS NOT NULL`);
+    await db.execute(sql`DELETE FROM nullsink_captures`);
+    await db.execute(sql`DELETE FROM pending_tag_operations`);
+    await db.execute(sql`DELETE FROM automation_enrollments`);
+  }
+
   async deleteSubscriberBatch(batchSize: number): Promise<number> {
     const result = await db.execute(sql`
-      WITH to_delete AS (
-        SELECT id FROM subscribers
-        LIMIT ${batchSize}
-      ),
-      del_sends AS (
-        DELETE FROM campaign_sends WHERE subscriber_id IN (SELECT id FROM to_delete)
-      ),
-      del_stats AS (
-        DELETE FROM campaign_stats WHERE subscriber_id IN (SELECT id FROM to_delete)
-      ),
-      del_errors AS (
-        DELETE FROM error_logs WHERE subscriber_id IN (SELECT id FROM to_delete)
-      ),
-      del_nullsink AS (
-        DELETE FROM nullsink_captures WHERE subscriber_id IN (SELECT id FROM to_delete)
-      ),
-      del_tags AS (
-        DELETE FROM pending_tag_operations WHERE subscriber_id IN (SELECT id FROM to_delete)
-      ),
-      del_enrollments AS (
-        DELETE FROM automation_enrollments WHERE subscriber_id IN (SELECT id FROM to_delete)
+      DELETE FROM subscribers WHERE id IN (
+        SELECT id FROM subscribers LIMIT ${batchSize}
       )
-      DELETE FROM subscribers
-      WHERE id IN (SELECT id FROM to_delete)
     `);
     return (result.rowCount as number) || 0;
   }

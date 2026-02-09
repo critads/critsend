@@ -1985,7 +1985,7 @@ let importJobPollingInterval: NodeJS.Timeout | null = null;
 let flushJobPollingInterval: NodeJS.Timeout | null = null;
 
 // ============ FLUSH JOB PROCESSOR (Subscriber deletion with progress) ============
-const FLUSH_BATCH_SIZE = 10000; // Delete 10k subscribers per batch
+const FLUSH_BATCH_SIZE = 5000; // Delete 5k subscribers per batch
 
 function startFlushJobProcessor() {
   if (flushJobPollingInterval) {
@@ -2032,21 +2032,22 @@ async function pollForFlushJobs() {
 }
 
 async function processFlushJob(jobId: string, totalRows: number) {
+  logger.info(`[FLUSH] Job ${jobId}: Clearing dependent tables first...`);
+  await storage.clearSubscriberDependencies();
+  logger.info(`[FLUSH] Job ${jobId}: Dependent tables cleared. Starting subscriber batch deletion...`);
+  
   let processedRows = 0;
   
   while (processedRows < totalRows) {
-    // Check if job was cancelled
     const job = await storage.getFlushJob(jobId);
     if (!job || job.status === "cancelled") {
       logger.info(`Flush job ${jobId} was cancelled`);
       return;
     }
     
-    // Delete a batch
     const deletedCount = await storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE);
     
     if (deletedCount === 0) {
-      // No more subscribers to delete
       break;
     }
     
@@ -2055,11 +2056,9 @@ async function processFlushJob(jobId: string, totalRows: number) {
     
     logger.info(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} subscribers (${Math.round(processedRows/totalRows*100)}%)`);
     
-    // Small delay to prevent overwhelming the database
     await new Promise(resolve => setTimeout(resolve, 50));
   }
   
-  // Final update with actual count
   await storage.updateFlushJobProgress(jobId, processedRows);
 }
 
