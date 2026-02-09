@@ -94,6 +94,8 @@ app.use(cors({
   origin: corsOrigins && corsOrigins.length > 0 ? corsOrigins : false,
   credentials: true,
 }));
+app.set('trust proxy', 1);
+
 const httpServer = createServer(app);
 
 registerMetricsRoute(app);
@@ -214,7 +216,13 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     const user = await storage.createUser({ username, password });
     req.session.userId = user.id;
     req.session.csrfToken = crypto.randomUUID();
-    res.status(201).json({ user: { id: user.id, username: user.username }, csrfToken: req.session.csrfToken });
+    req.session.save((err) => {
+      if (err) {
+        logger.error('Session save error on register', { error: String(err) });
+        return res.status(500).json({ error: 'Registration failed' });
+      }
+      res.status(201).json({ user: { id: user.id, username: user.username }, csrfToken: req.session.csrfToken });
+    });
   } catch (error: any) {
     logger.error('Registration error', { error: error.message });
     res.status(500).json({ error: 'Registration failed' });
@@ -249,7 +257,13 @@ app.post('/api/auth/login', authRateLimiter, async (req: Request, res: Response)
     
     req.session.userId = user.id;
     req.session.csrfToken = crypto.randomUUID();
-    res.json({ user: { id: user.id, username: user.username }, csrfToken: req.session.csrfToken });
+    req.session.save((err) => {
+      if (err) {
+        logger.error('Session save error on login', { error: String(err) });
+        return res.status(500).json({ error: 'Login failed' });
+      }
+      res.json({ user: { id: user.id, username: user.username }, csrfToken: req.session.csrfToken });
+    });
   } catch (error: any) {
     logger.error('Login error', { error: error.message });
     res.status(500).json({ error: 'Login failed' });
