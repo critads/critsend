@@ -2752,6 +2752,24 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
   
   // Process file line by line
   return new Promise<void>((resolve, reject) => {
+    let hasSettled = false;
+    const safeReject = (err: any) => {
+      if (hasSettled) return;
+      hasSettled = true;
+      clearInterval(progressUpdateTimer);
+      if (ginIndexesDropped) {
+        storage.recreateSubscriberGinIndexes()
+          .then(() => logger.info(`[IMPORT] ${importJobId}: GIN indexes recovered after error`))
+          .catch((indexErr) => logger.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes:`, indexErr));
+      }
+      reject(err);
+    };
+    const safeResolve = () => {
+      if (hasSettled) return;
+      hasSettled = true;
+      resolve();
+    };
+
     rl.on('line', async (line: string) => {
       try {
         currentLineNumber++;
@@ -2772,7 +2790,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
               status: 'failed',
               errorMessage: "CSV must have an 'email' column",
             });
-            reject(new Error("CSV must have an 'email' column"));
+            safeReject(new Error("CSV must have an 'email' column"));
             return;
           }
           
@@ -2905,7 +2923,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
             }
           }
           
-          resolve();
+          safeResolve();
           return;
         }
         
@@ -2913,7 +2931,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         await storage.updateImportJob(importJobId, {
           status: 'completed',
           completedAt: new Date(),
-          processedRows: committedRows, // Report committed rows as final count
+          processedRows: committedRows,
           newSubscribers,
           updatedSubscribers,
           failedRows,
@@ -2922,8 +2940,7 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         // Final checkpoint
         await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
         
-        // Recreate GIN indexes if they were dropped for this import or are missing (e.g., from previous crashed run)
-        // Only check for large imports to avoid unnecessary index existence checks on small imports
+        // Recreate GIN indexes if they were dropped or are missing
         if (isLargeImport) {
           try {
             const indexesPresent = await storage.areGinIndexesPresent();
@@ -2931,12 +2948,10 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
               logger.info(`[IMPORT] ${importJobId}: GIN indexes missing (dropped=${ginIndexesDropped}), recreating after import`);
               await storage.recreateSubscriberGinIndexes();
             } else if (ginIndexesDropped) {
-              // This shouldn't happen, but log it for debugging
               logger.info(`[IMPORT] ${importJobId}: GIN indexes already present despite being dropped this run`);
             }
           } catch (indexErr: any) {
             logger.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes:`, indexErr.message);
-            // Log error but don't fail the import - indexes can be recreated manually
             try {
               await storage.logError({
                 type: "index_recreation_failed",
@@ -2954,7 +2969,6 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         // Clean up the CSV file after successful processing
         try {
           if (isObjectStorage) {
-            // Delete from object storage
             const deleted = await objectStorageService.deleteStorageObject(csvFilePath);
             if (deleted) {
               logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage`);
@@ -2962,7 +2976,6 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
               logger.error(`[IMPORT] ${importJobId}: Failed to delete CSV file from object storage: ${csvFilePath}`);
             }
           } else {
-            // Delete from local filesystem (legacy)
             fs.unlinkSync(csvFilePath);
             logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem`);
           }
@@ -2974,34 +2987,20 @@ async function processImportFromQueue(queueId: string, importJobId: string, csvF
         const finalRowsPerSecond = committedRows / totalDuration;
         logger.info(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
         
-        resolve();
+        safeResolve();
       } catch (err) {
-        reject(err);
+        safeReject(err);
       }
     });
     
     rl.on('error', (err) => {
-      clearInterval(progressUpdateTimer);
       logger.error(`[IMPORT] Stream error:`, err);
-      // Ensure GIN indexes are recovered on stream error
-      if (ginIndexesDropped) {
-        storage.recreateSubscriberGinIndexes()
-          .then(() => logger.info(`[IMPORT] ${importJobId}: GIN indexes recovered after stream error`))
-          .catch((indexErr) => logger.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after stream error:`, indexErr));
-      }
-      reject(err);
+      safeReject(err);
     });
     
     fileStream.on('error', (err) => {
-      clearInterval(progressUpdateTimer);
       logger.error(`[IMPORT] File stream error:`, err);
-      // Ensure GIN indexes are recovered on file error
-      if (ginIndexesDropped) {
-        storage.recreateSubscriberGinIndexes()
-          .then(() => logger.info(`[IMPORT] ${importJobId}: GIN indexes recovered after file error`))
-          .catch((indexErr) => logger.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes after file error:`, indexErr));
-      }
-      reject(err);
+      safeReject(err);
     });
   });
 }

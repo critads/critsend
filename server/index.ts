@@ -14,13 +14,25 @@ import { pool } from "./db";
 import { logger } from "./logger";
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.fatal('Unhandled Promise Rejection', { reason: String(reason) });
+  logger.error('Unhandled Promise Rejection', { reason: String(reason) });
 });
 
 process.on('uncaughtException', (error) => {
-  logger.fatal('Uncaught Exception', { error: error.message, stack: error.stack });
-  process.exit(1);
+  logger.error('Uncaught Exception (non-fatal)', { error: error.message, stack: error.stack });
 });
+
+import('v8').then((v8) => {
+  const heapStats = v8.getHeapStatistics();
+  const heapLimitMB = Math.round(heapStats.heap_size_limit / 1024 / 1024);
+  const nodeOptions = process.env.NODE_OPTIONS || '(not set)';
+  logger.info('Process startup diagnostics', {
+    nodeOptions,
+    heapLimitMB,
+    pid: process.pid,
+    nodeVersion: process.version,
+    gcExposed: typeof global.gc === 'function',
+  });
+}).catch(() => {});
 
 let isShuttingDown = false;
 
