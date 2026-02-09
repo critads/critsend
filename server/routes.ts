@@ -82,6 +82,22 @@ const uploadToDisk = multer({
   },
 });
 
+// Disk storage for chunk uploads (no file type filter - chunks are raw binary)
+const chunkDiskStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, UPLOADS_DIR_BASE);
+  },
+  filename: (_req, _file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `chunk-${uniqueSuffix}.bin`);
+  }
+});
+
+const uploadChunkToDisk = multer({
+  storage: chunkDiskStorage,
+  limits: { fileSize: 30 * 1024 * 1024 },
+});
+
 // Memory storage for small file uploads (images, etc.)
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -1523,7 +1539,7 @@ export async function registerRoutes(
   });
 
   // Upload a single chunk (use raw body to handle binary data efficiently)
-  app.post("/api/import/chunked/:uploadId/chunk/:chunkIndex", uploadToDisk.single("chunk"), async (req: Request, res: Response) => {
+  app.post("/api/import/chunked/:uploadId/chunk/:chunkIndex", uploadChunkToDisk.single("chunk"), async (req: Request, res: Response) => {
     try {
       const { uploadId, chunkIndex } = req.params;
       const index = parseInt(chunkIndex);
