@@ -45,8 +45,8 @@ class NotifyQueue {
       return;
     }
 
-    if (!process.env.DATABASE_URL) {
-      logger.error("DATABASE_URL not set, cannot initialize NotifyQueue");
+    if (!process.env.NEON_DATABASE_URL && !process.env.DATABASE_URL) {
+      logger.error("NEON_DATABASE_URL or DATABASE_URL not set, cannot initialize NotifyQueue");
       return;
     }
 
@@ -57,7 +57,7 @@ class NotifyQueue {
     if (this.isShuttingDown) return;
 
     try {
-      const connString = process.env.DATABASE_URL!;
+      const connString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL!;
       const useSSL = connString.includes("neon.tech") || process.env.DB_SSL === "true";
       this.client = new pg.Client({
         connectionString: connString,
@@ -96,6 +96,10 @@ class NotifyQueue {
       });
 
       await this.client.connect();
+      
+      if (connString.includes("neon.tech") || useSSL) {
+        await this.client.query("SET search_path TO public").catch(() => {});
+      }
 
       for (const channel of ALL_CHANNELS) {
         await this.client.query(`LISTEN ${channel}`);

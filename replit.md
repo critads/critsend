@@ -52,7 +52,7 @@ The UI/UX adheres to Material Design 3 principles, offering a clean, modern aest
 
 ## External Dependencies
 
-- **PostgreSQL:** Primary database for all application data.
+- **PostgreSQL (Neon):** Primary database hosted on Neon (external managed PostgreSQL). Connection via `NEON_DATABASE_URL` secret with SSL and `search_path=public` set per-connection. Falls back to `DATABASE_URL` if Neon URL is not set. Pool and LISTEN/NOTIFY client both auto-detect Neon and configure SSL. The Neon pooler endpoint is used for connection pooling.
 - **Nodemailer:** Used for real SMTP email sending with connection pooling and retry mechanisms.
 - **`sanitize-html`:** For sanitizing HTML content in campaigns to prevent injection attacks.
 - **`connect-pg-simple`:** For persistent session management using PostgreSQL.
