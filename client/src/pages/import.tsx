@@ -34,7 +34,7 @@ export default function Import() {
     queryKey: ["/api/import-jobs"],
     refetchInterval: (query) => {
       const data = query.state.data as ImportJob[] | undefined;
-      if (data?.some((j) => j.status === "processing")) {
+      if (data?.some((j) => j.status === "processing" || j.status === "queued")) {
         return 2000;
       }
       return false;
@@ -433,10 +433,10 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                     </div>
                   </div>
 
-                  {job.status === "processing" && (
+                  {(job.status === "processing" || job.status === "queued") && (
                     <div className="space-y-2">
                       <Progress
-                        value={(job.processedRows / job.totalRows) * 100}
+                        value={job.totalRows > 0 ? (job.processedRows / job.totalRows) * 100 : 0}
                         className="h-2"
                       />
                       <div className="flex justify-between text-xs text-muted-foreground">
@@ -444,17 +444,17 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                           {job.processedRows.toLocaleString()} / {job.totalRows.toLocaleString()} rows
                         </span>
                         <span>
-                          {((job.processedRows / job.totalRows) * 100).toFixed(1)}%
+                          {job.status === "queued" && job.processedRows === 0
+                            ? "Waiting to start..."
+                            : `${(job.totalRows > 0 ? (job.processedRows / job.totalRows) * 100 : 0).toFixed(1)}%`}
                         </span>
                       </div>
-                      {/* Speed and ETA calculation - use startedAt for accurate timing */}
                       {job.processedRows > 0 && (() => {
-                        // Use startedAt (actual processing start) if available, fall back to createdAt
                         const startTime = job.startedAt 
                           ? new Date(job.startedAt).getTime() 
                           : new Date(job.createdAt).getTime();
                         const elapsedMs = Date.now() - startTime;
-                        const elapsedSec = Math.max(elapsedMs / 1000, 1); // Avoid division by zero
+                        const elapsedSec = Math.max(elapsedMs / 1000, 1);
                         const rowsPerSec = job.processedRows / elapsedSec;
                         const remainingRows = job.totalRows - job.processedRows;
                         const etaSec = rowsPerSec > 0 ? remainingRows / rowsPerSec : 0;
