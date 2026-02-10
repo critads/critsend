@@ -57,9 +57,12 @@ class NotifyQueue {
     if (this.isShuttingDown) return;
 
     try {
+      const connString = process.env.DATABASE_URL!;
+      const useSSL = connString.includes("neon.tech") || process.env.DB_SSL === "true";
       this.client = new pg.Client({
-        connectionString: process.env.DATABASE_URL,
+        connectionString: connString,
         application_name: "notify_queue_listener",
+        ...(useSSL ? { ssl: { rejectUnauthorized: false } } : {}),
       });
 
       this.client.on("error", (err) => {
