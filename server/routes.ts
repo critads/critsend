@@ -2359,9 +2359,25 @@ async function pollForImportJobs() {
     logger.info(`Worker ${WORKER_ID} claimed import job queue item ${queueItem.id} for import ${queueItem.importJobId} - forking child process`);
     
     const isDev = process.env.NODE_ENV !== "production";
-    const workerExt = isDev ? "import-worker.ts" : "import-worker.cjs";
-    const currentDir = path.dirname(new URL(import.meta.url).pathname);
-    const workerPath = path.resolve(currentDir, workerExt);
+    let workerPath: string;
+    if (isDev) {
+      const currentDir = path.dirname(new URL(import.meta.url).pathname);
+      workerPath = path.resolve(currentDir, "import-worker.ts");
+    } else {
+      workerPath = path.resolve(process.cwd(), "dist", "import-worker.cjs");
+    }
+    
+    if (!fs.existsSync(workerPath)) {
+      logger.error(`Import worker file not found at: ${workerPath}`);
+      await storage.completeImportQueueJob(queueItem.id, "failed", "Import worker file not found - server build may be incomplete");
+      await storage.updateImportJob(queueItem.importJobId, {
+        status: "failed",
+        errorMessage: "Import worker file not found - server build may be incomplete",
+      });
+      activeImportWorker = null;
+      activeImportJobInfo = null;
+      return;
+    }
     
     const forkOptions: any = {
       env: {
