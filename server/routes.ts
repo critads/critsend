@@ -1943,9 +1943,9 @@ export function stopAllBackgroundWorkers() {
 // Sending speed configurations (emails per minute and concurrent workers)
 const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: number }> = {
   slow: { emailsPerMinute: 500, concurrency: 5 },
-  medium: { emailsPerMinute: 1000, concurrency: 10 },
-  fast: { emailsPerMinute: 2000, concurrency: 20 },
-  godzilla: { emailsPerMinute: 3000, concurrency: 50 },
+  medium: { emailsPerMinute: 1500, concurrency: 20 },
+  fast: { emailsPerMinute: 3000, concurrency: 40 },
+  godzilla: { emailsPerMinute: 5000, concurrency: 100 },
 };
 
 // Memory monitoring for long-running workers
@@ -2566,7 +2566,7 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
   
   logger.info(`[CAMPAIGN] ${campaignId}: Starting parallel send - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min`);
   
-  const BATCH_SIZE = 1000;
+  const BATCH_SIZE = 2000;
   let cursorId: string | undefined = undefined;
   let processedCount = 0;
   let totalSent = 0;
@@ -2613,8 +2613,9 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
   }
   
   // Send a single email (no DB calls - just SMTP)
-  async function sendSingleEmail(subscriber: any): Promise<{ success: boolean; subscriberId: string; email: string }> {
+  async function sendSingleEmail(subscriber: any): Promise<{ success: boolean; subscriberId: string; email: string; capture?: import("@shared/schema").InsertNullsinkCapture }> {
     let sendSuccess = true;
+    let captureData: import("@shared/schema").InsertNullsinkCapture | undefined;
     try {
       if (mtaRef) {
         const result = await sendEmailWithNullsink(mtaRef, subscriber, campaignRef, {
@@ -2629,10 +2630,7 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
         sendSuccess = result.success;
         
         if ((mtaRef as any).mode === "nullsink" && result.capture) {
-          try {
-            await storage.createNullsinkCapture(result.capture);
-          } catch (captureErr) {
-          }
+          captureData = result.capture;
         }
         
         if (!result.success) {
@@ -2662,14 +2660,13 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
       }).catch(() => {});
     }
     
-    // Track consecutive SMTP failures for MTA health monitoring
     if (sendSuccess) {
       consecutiveSmtpFailures = 0;
     } else {
       consecutiveSmtpFailures++;
     }
     
-    return { success: sendSuccess, subscriberId: subscriber.id, email: subscriber.email };
+    return { success: sendSuccess, subscriberId: subscriber.id, email: subscriber.email, capture: captureData };
   }
   
   // Flush accumulated results to DB in bulk
@@ -2758,6 +2755,8 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
     // Accumulate results for this batch
     const batchSuccessIds: string[] = [];
     const batchFailedIds: string[] = [];
+    const pendingCaptures: import("@shared/schema").InsertNullsinkCapture[] = [];
+    const INTERMEDIATE_FLUSH_SIZE = 200;
     
     // Process this batch in parallel chunks
     for (let i = 0; i < subscribersToSend.length; i += concurrency) {
@@ -2767,6 +2766,10 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
         if (midStatus !== "sending") {
           logger.info(`[CAMPAIGN] ${campaignId}: Status changed mid-batch to '${midStatus}'`);
           await flushResults(batchSuccessIds, batchFailedIds);
+          if (pendingCaptures.length > 0) {
+            try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
+            pendingCaptures.length = 0;
+          }
           if (mta) { closeTransporter(mta.id); }
           return;
         }
@@ -2776,6 +2779,10 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
           await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
           closeTransporter(mtaRef.id);
           await flushResults(batchSuccessIds, batchFailedIds);
+          if (pendingCaptures.length > 0) {
+            try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
+            pendingCaptures.length = 0;
+          }
           return;
         }
         
@@ -2802,9 +2809,23 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
             totalFailed++;
             batchFailedIds.push(result.value.subscriberId);
           }
+          if (result.value.capture) {
+            pendingCaptures.push(result.value.capture);
+          }
         } else {
           totalFailed++;
           batchFailedIds.push(chunk[j].id);
+        }
+      }
+      
+      // Intermediate flush every 200 emails to keep sentCount accurate
+      if (batchSuccessIds.length + batchFailedIds.length >= INTERMEDIATE_FLUSH_SIZE) {
+        await flushResults(batchSuccessIds, batchFailedIds);
+        batchSuccessIds.length = 0;
+        batchFailedIds.length = 0;
+        if (pendingCaptures.length > 0) {
+          try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
+          pendingCaptures.length = 0;
         }
       }
       
@@ -2814,8 +2835,11 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
       }
     }
     
-    // BULK FINALIZE: Flush all accumulated results for this batch in one DB call
+    // BULK FINALIZE: Flush all remaining accumulated results for this batch
     await flushResults(batchSuccessIds, batchFailedIds);
+    if (pendingCaptures.length > 0) {
+      try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
+    }
     
     // Log progress every batch
     const elapsed = (Date.now() - startTime) / 1000;

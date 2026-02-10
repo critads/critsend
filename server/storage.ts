@@ -223,6 +223,7 @@ export interface IStorage {
   
   // Nullsink Captures
   createNullsinkCapture(data: InsertNullsinkCapture): Promise<NullsinkCapture>;
+  bulkCreateNullsinkCaptures(data: InsertNullsinkCapture[]): Promise<void>;
   getNullsinkCaptures(options?: {
     campaignId?: string;
     limit?: number;
@@ -1894,6 +1895,11 @@ export class DatabaseStorage implements IStorage {
   async createNullsinkCapture(data: InsertNullsinkCapture): Promise<NullsinkCapture> {
     const [capture] = await db.insert(nullsinkCaptures).values(data).returning();
     return capture;
+  }
+
+  async bulkCreateNullsinkCaptures(data: InsertNullsinkCapture[]): Promise<void> {
+    if (data.length === 0) return;
+    await db.insert(nullsinkCaptures).values(data);
   }
 
   async getNullsinkCaptures(options?: {
