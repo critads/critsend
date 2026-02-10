@@ -286,6 +286,15 @@ async function checkMtaRecovery() {
       const mta = await storage.getMta(campaign.mtaId);
       if (!mta) continue;
 
+      const isNullsinkMta = (mta as any).mode === "nullsink";
+      if (isNullsinkMta) {
+        logger.info(`Nullsink MTA ${mta.name} - auto-resuming campaign ${campaign.id} (no SMTP to verify)`);
+        await storage.clearStuckJobsForCampaign(campaign.id);
+        await storage.updateCampaign(campaign.id, { status: "sending", pauseReason: null });
+        await storage.enqueueCampaignJob(campaign.id);
+        continue;
+      }
+
       const verifyResult = await verifyTransporter(mta);
 
       if (verifyResult.success) {

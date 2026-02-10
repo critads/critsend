@@ -35,12 +35,17 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       return;
     }
     
-    const verifyResult = await verifyTransporter(mta);
-    if (!verifyResult.success) {
-      logger.error(`Campaign ${campaignId}: SMTP verification failed: ${verifyResult.error}`);
-      await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
-      logger.info(`Campaign ${campaignId}: Paused due to MTA unavailable - will auto-resume when MTA is back`);
-      return;
+    const isNullsinkMta = (mta as any).mode === "nullsink";
+    if (!isNullsinkMta) {
+      const verifyResult = await verifyTransporter(mta);
+      if (!verifyResult.success) {
+        logger.error(`Campaign ${campaignId}: SMTP verification failed: ${verifyResult.error}`);
+        await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
+        logger.info(`Campaign ${campaignId}: Paused due to MTA unavailable - will auto-resume when MTA is back`);
+        return;
+      }
+    } else {
+      logger.info(`Campaign ${campaignId}: Nullsink MTA detected - skipping SMTP verification (V3 processes in-memory)`);
     }
   }
   

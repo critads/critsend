@@ -57,12 +57,37 @@ class NullsinkSMTPServer extends EventEmitter {
     };
   }
 
+  private startInProgress = false;
+
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (this.server) {
+      if (this.server && this.metrics.isRunning) {
         resolve();
         return;
       }
+
+      if (this.startInProgress) {
+        reject(new Error("Nullsink SMTP server start already in progress"));
+        return;
+      }
+
+      this.startInProgress = true;
+
+      const cleanup = () => {
+        this.startInProgress = false;
+        clearTimeout(startTimeout);
+      };
+
+      const startTimeout = setTimeout(() => {
+        logger.error(`Nullsink SMTP server start timed out on port ${this.config.port}`);
+        if (this.server) {
+          try { this.server.close(); } catch (_) {}
+          this.server = null;
+        }
+        this.metrics.isRunning = false;
+        cleanup();
+        reject(new Error(`Nullsink SMTP server failed to start within 10 seconds on port ${this.config.port}`));
+      }, 10000);
 
       this.server = new SMTPServer({
         secure: false,
@@ -167,10 +192,18 @@ class NullsinkSMTPServer extends EventEmitter {
 
       this.server.on("error", (err) => {
         logger.error('NULLSINK server error', { error: String(err) });
+        if (this.server) {
+          try { this.server.close(); } catch (_) {}
+          this.server = null;
+        }
+        this.metrics.isRunning = false;
         this.emit("error", err);
+        cleanup();
+        reject(err);
       });
 
       this.server.listen(this.config.port, "0.0.0.0", () => {
+        cleanup();
         logger.info('NULLSINK SMTP server listening', { port: this.config.port });
         this.metrics.startTime = new Date();
         this.metrics.isRunning = true;
