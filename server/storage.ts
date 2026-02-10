@@ -122,6 +122,11 @@ export interface IStorage {
   // Force-fail a specific pending send (for reconciliation during invariant violations)
   forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
   
+  // Bulk send operations (batched for performance)
+  bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]>;
+  bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void>;
+  heartbeatJob(jobId: string): Promise<void>;
+  
   // Tracking deduplication - returns true if this is the first open/click for this subscriber
   recordFirstOpen(campaignId: string, subscriberId: string): Promise<boolean>;
   recordFirstClick(campaignId: string, subscriberId: string): Promise<boolean>;
@@ -870,6 +875,69 @@ export class DatabaseStorage implements IStorage {
     `);
     
     return Number(result.rows[0]?.updated_count ?? 0) > 0;
+  }
+
+  // Bulk send operations (batched for performance)
+  async bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]> {
+    if (subscriberIds.length === 0) return [];
+    
+    const values = subscriberIds.map(sid => 
+      sql`(gen_random_uuid(), ${campaignId}, ${sid}, 'pending', NOW())`
+    );
+    
+    const result = await db.execute(sql`
+      INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
+      VALUES ${sql.join(values, sql`, `)}
+      ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
+      RETURNING subscriber_id
+    `);
+    
+    return result.rows.map((r: any) => r.subscriber_id);
+  }
+
+  async bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void> {
+    const sentCount = successIds.length;
+    const failCount = failedIds.length;
+    const totalProcessed = sentCount + failCount;
+    
+    if (totalProcessed === 0) return;
+    
+    if (successIds.length > 0) {
+      await db.execute(sql`
+        UPDATE campaign_sends 
+        SET status = 'sent'
+        WHERE campaign_id = ${campaignId} 
+          AND subscriber_id = ANY(${successIds})
+          AND status = 'pending'
+      `);
+    }
+    
+    if (failedIds.length > 0) {
+      await db.execute(sql`
+        UPDATE campaign_sends 
+        SET status = 'failed'
+        WHERE campaign_id = ${campaignId} 
+          AND subscriber_id = ANY(${failedIds})
+          AND status = 'pending'
+      `);
+    }
+    
+    await db.execute(sql`
+      UPDATE campaigns 
+      SET 
+        sent_count = sent_count + ${sentCount},
+        failed_count = failed_count + ${failCount},
+        pending_count = GREATEST(pending_count - ${totalProcessed}, 0)
+      WHERE id = ${campaignId}
+    `);
+  }
+
+  async heartbeatJob(jobId: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE campaign_jobs 
+      SET started_at = NOW()
+      WHERE id = ${jobId} AND status = 'processing'
+    `);
   }
 
   // Tracking deduplication methods
