@@ -60,6 +60,7 @@ export interface IStorage {
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string): Promise<number>;
+  countSubscribersForRules(rules: any[]): Promise<number>;
   
   // Segments
   getSegments(): Promise<Segment[]>;
@@ -411,6 +412,18 @@ export class DatabaseStorage implements IStorage {
         whereCondition
       ));
     
+    return Number(count);
+  }
+
+  async countSubscribersForRules(rules: any[]): Promise<number> {
+    if (!rules || rules.length === 0) return 0;
+    const whereCondition = this.buildSegmentSqlCondition(rules);
+    const [{ count }] = await db.select({ count: sql<number>`count(*)` })
+      .from(subscribers)
+      .where(and(
+        not(sql`'BCK' = ANY(${subscribers.tags})`),
+        whereCondition
+      ));
     return Number(count);
   }
 

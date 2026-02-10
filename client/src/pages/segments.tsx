@@ -55,6 +55,8 @@ export default function Segments() {
   const [rules, setRules] = useState<SegmentRuleItem[]>([
     { field: "tags", operator: "contains", value: "" },
   ]);
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [isCountLoading, setIsCountLoading] = useState(false);
   const { toast } = useToast();
 
   const { data: segments, isLoading } = useQuery<SegmentWithCount[]>({
@@ -130,6 +132,8 @@ export default function Segments() {
     setName("");
     setDescription("");
     setRules([{ field: "tags", operator: "contains", value: "" }]);
+    setPreviewCount(null);
+    setIsCountLoading(false);
   };
 
   const handleEditClick = (segment: SegmentWithCount) => {
@@ -261,6 +265,45 @@ export default function Segments() {
         description: description.trim(),
         rules: validRules,
       });
+    }
+  };
+
+  const handlePreviewCount = async () => {
+    const validRules = rules.filter((item) => {
+      if (isGroup(item)) {
+        return item.rules.some(r => r.value.trim());
+      }
+      return (item as SegmentRule).value.trim();
+    }).map((item) => {
+      if (isGroup(item)) {
+        return { ...item, rules: item.rules.filter(r => r.value.trim()) };
+      }
+      return item;
+    });
+
+    if (validRules.length === 0) {
+      toast({
+        title: "No rules defined",
+        description: "Please add at least one rule with a value to count subscribers.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCountLoading(true);
+    setPreviewCount(null);
+    try {
+      const res = await apiRequest("POST", "/api/segments/preview-count", { rules: validRules });
+      const data = await res.json();
+      setPreviewCount(data.count);
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to count subscribers. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCountLoading(false);
     }
   };
 
@@ -521,6 +564,24 @@ const segmentFormContent = (
             )}
           </div>
         ))}
+      </div>
+      <div className="flex items-center gap-3 pt-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handlePreviewCount}
+          disabled={isCountLoading}
+          data-testid="button-preview-count"
+        >
+          <Users className="h-4 w-4 mr-1" />
+          {isCountLoading ? "Counting..." : "Count Subscribers"}
+        </Button>
+        {previewCount !== null && (
+          <span className="text-sm text-muted-foreground" data-testid="text-preview-count">
+            {previewCount.toLocaleString()} subscriber{previewCount !== 1 ? "s" : ""} match
+          </span>
+        )}
       </div>
     </div>
   );

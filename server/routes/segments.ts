@@ -26,6 +26,24 @@ export function registerSegmentRoutes(app: Express, helpers: {
     }
   });
 
+  app.post("/api/segments/preview-count", async (req: Request, res: Response) => {
+    try {
+      const { rules } = req.body;
+      if (!rules || !Array.isArray(rules) || rules.length === 0) {
+        return res.json({ count: 0 });
+      }
+      segmentRulesArraySchema.parse(rules);
+      const count = await storage.countSubscribersForRules(rules);
+      res.json({ count });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      logger.error("Error counting segment preview:", error);
+      res.status(500).json({ error: "Failed to count subscribers" });
+    }
+  });
+
   app.get("/api/segments/:id", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {
