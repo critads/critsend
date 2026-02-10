@@ -2036,6 +2036,7 @@ async function pollForFlushJobs() {
     }
     
     logger.info(`Worker ${WORKER_ID} claimed flush job ${job.id} (${job.totalRows} subscribers)`);
+    activeFlushJob = true;
     
     try {
       await processFlushJob(job.id, job.totalRows);
@@ -2045,6 +2046,8 @@ async function pollForFlushJobs() {
     } catch (error: any) {
       logger.error(`Error processing flush job ${job.id}:`, error);
       await storage.completeFlushJob(job.id, "failed", error.message || "Unknown error");
+    } finally {
+      activeFlushJob = false;
     }
   } catch (error) {
     logger.error("Error in flush job polling:", error);
@@ -2312,6 +2315,7 @@ function startImportJobProcessor() {
 // Track active import worker child processes
 let activeImportWorker: ChildProcess | null = null;
 let activeImportJobInfo: { queueId: string; importJobId: string } | null = null;
+let activeFlushJob = false;
 
 // Stop the import job processor
 function stopImportJobProcessor() {
@@ -2332,6 +2336,9 @@ function stopImportJobProcessor() {
 let lastRecoveryCheck = 0;
 async function pollForImportJobs() {
   if (activeImportWorker) {
+    return;
+  }
+  if (activeFlushJob) {
     return;
   }
   try {

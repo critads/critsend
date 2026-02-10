@@ -247,31 +247,6 @@ async function areGinIndexesPresent(): Promise<boolean> {
   return count >= 1;
 }
 
-async function getSubscriberByEmail(email: string): Promise<any | null> {
-  const result = await db.execute(sql`SELECT * FROM subscribers WHERE email = ${email}`);
-  if (result.rows.length === 0) return null;
-  const row = result.rows[0] as any;
-  return {
-    id: row.id,
-    email: row.email,
-    tags: row.tags || [],
-    ipAddress: row.ip_address,
-  };
-}
-
-async function createSubscriber(data: { email: string; tags: string[]; ipAddress: string | null }): Promise<void> {
-  await db.execute(sql`
-    INSERT INTO subscribers (email, tags, ip_address, import_date)
-    VALUES (${data.email.toLowerCase()}, ${data.tags}::text[], ${data.ipAddress}, NOW())
-  `);
-}
-
-async function updateSubscriber(id: string, data: { tags?: string[] }): Promise<void> {
-  if (data.tags) {
-    await db.execute(sql`UPDATE subscribers SET tags = ${data.tags}::text[] WHERE id = ${id}`);
-  }
-}
-
 async function logError(data: {
   type: string;
   severity: string;
@@ -288,31 +263,80 @@ async function logError(data: {
 }
 
 function getImportConfig() {
-  const mem = process.memoryUsage();
-  const heapUsedMB = mem.heapUsed / 1024 / 1024;
-  const heapUsageRatio = mem.heapUsed / mem.heapTotal;
-
-  if (heapUsedMB > 3000 || heapUsageRatio > 0.85) {
-    return { batchSize: 1000, parallelWorkers: 1, maxPendingBatches: 2 };
-  }
-  if (heapUsedMB > 2000 || heapUsageRatio > 0.7) {
-    return { batchSize: 2000, parallelWorkers: 2, maxPendingBatches: 4 };
-  }
-  return { batchSize: 5000, parallelWorkers: 4, maxPendingBatches: 8 };
+  return { batchSize: 2000 };
 }
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+async function directBatchUpsert(
+  rows: Array<{ email: string; tags: string[]; ipAddress: string | null }>,
+  tagMode: "merge" | "override"
+): Promise<{ inserted: number; updated: number }> {
+  const valuesClauses: string[] = [];
+  const params: any[] = [];
+  let paramIdx = 1;
+
+  for (const row of rows) {
+    valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}::text[], $${paramIdx + 2}, NOW())`);
+    params.push(row.email.toLowerCase(), row.tags, row.ipAddress);
+    paramIdx += 3;
+  }
+
+  const onConflictSet = tagMode === "override"
+    ? `tags = EXCLUDED.tags, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`
+    : `tags = COALESCE(
+        (SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL),
+        ARRAY[]::text[]
+      ), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`;
+
+  const query = `
+    WITH upserted AS (
+      INSERT INTO subscribers (email, tags, ip_address, import_date)
+      VALUES ${valuesClauses.join(", ")}
+      ON CONFLICT (email) DO UPDATE SET ${onConflictSet}
+      RETURNING (xmax = 0) AS is_insert
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
+      COUNT(*) FILTER (WHERE is_insert = false) AS updated
+    FROM upserted
+  `;
+
+  const result = await pool.query(query, params);
+  return {
+    inserted: parseInt(result.rows[0]?.inserted || "0"),
+    updated: parseInt(result.rows[0]?.updated || "0"),
+  };
+}
+
+async function singleUpsert(
+  row: { email: string; tags: string[]; ipAddress: string | null },
+  tagMode: "merge" | "override"
+): Promise<"inserted" | "updated"> {
+  const onConflictSet = tagMode === "override"
+    ? `tags = EXCLUDED.tags, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`
+    : `tags = COALESCE(
+        (SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL),
+        ARRAY[]::text[]
+      ), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`;
+
+  const result = await pool.query(
+    `INSERT INTO subscribers (email, tags, ip_address, import_date)
+     VALUES ($1, $2::text[], $3, NOW())
+     ON CONFLICT (email) DO UPDATE SET ${onConflictSet}
+     RETURNING (xmax = 0) AS is_insert`,
+    [row.email.toLowerCase(), row.tags, row.ipAddress]
+  );
+  return result.rows[0]?.is_insert ? "inserted" : "updated";
+}
+
 async function bulkUpsertSubscribers(
-  jobId: string,
   rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
   tagMode: "merge" | "override" = "merge"
 ): Promise<{ inserted: number; updated: number; failed: number }> {
-  if (rows.length === 0) {
-    return { inserted: 0, updated: 0, failed: 0 };
-  }
+  if (rows.length === 0) return { inserted: 0, updated: 0, failed: 0 };
 
   const CHUNK_SIZE = 500;
   let totalInserted = 0;
@@ -321,140 +345,24 @@ async function bulkUpsertSubscribers(
 
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
-
-    const valuesClauses: string[] = [];
-    const params: any[] = [];
-    let paramIdx = 1;
-
-    for (const row of chunk) {
-      const email = row.email.toLowerCase();
-      const tagsArray = `{${row.tags.map((t) => `"${t.replace(/"/g, '\\"')}"`).join(",")}}`;
-      valuesClauses.push(
-        `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}::text[], $${paramIdx + 3}, $${paramIdx + 4})`
-      );
-      params.push(jobId, email, tagsArray, row.ipAddress, row.lineNumber);
-      paramIdx += 5;
-    }
-
     try {
-      const insertSql = `
-        INSERT INTO import_staging (job_id, email, tags, ip_address, line_number)
-        VALUES ${valuesClauses.join(", ")}
-      `;
-      await pool.query(insertSql, params);
-
-      const mergeResult =
-        tagMode === "override"
-          ? await db.execute(sql`
-              WITH aggregated_staging AS (
-                SELECT
-                  s.email,
-                  COALESCE(
-                    array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
-                    ARRAY[]::text[]
-                  ) AS tags,
-                  (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
-                FROM import_staging s
-                LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
-                WHERE s.job_id = ${jobId}
-                GROUP BY s.email
-              ),
-              merge_data AS (
-                INSERT INTO subscribers (email, tags, ip_address, import_date)
-                SELECT email, tags, ip_address, NOW()
-                FROM aggregated_staging
-                ON CONFLICT (email) DO UPDATE
-                SET tags = EXCLUDED.tags,
-                ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-                RETURNING (xmax = 0) AS is_insert
-              )
-              SELECT
-                COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-                COUNT(*) FILTER (WHERE is_insert = false) AS updated
-              FROM merge_data
-            `)
-          : await db.execute(sql`
-              WITH aggregated_staging AS (
-                SELECT
-                  s.email,
-                  COALESCE(
-                    array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
-                    ARRAY[]::text[]
-                  ) AS tags,
-                  (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
-                FROM import_staging s
-                LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
-                WHERE s.job_id = ${jobId}
-                GROUP BY s.email
-              ),
-              merge_data AS (
-                INSERT INTO subscribers (email, tags, ip_address, import_date)
-                SELECT email, tags, ip_address, NOW()
-                FROM aggregated_staging
-                ON CONFLICT (email) DO UPDATE
-                SET tags = COALESCE(
-                  (SELECT array_agg(DISTINCT t)
-                   FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
-                   WHERE t IS NOT NULL),
-                  ARRAY[]::text[]
-                ),
-                ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-                RETURNING (xmax = 0) AS is_insert
-              )
-              SELECT
-                COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-                COUNT(*) FILTER (WHERE is_insert = false) AS updated
-              FROM merge_data
-            `);
-
-      await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${jobId}`);
-
-      if (mergeResult.rows.length > 0) {
-        const result = mergeResult.rows[0] as any;
-        totalInserted += parseInt(result.inserted || "0");
-        totalUpdated += parseInt(result.updated || "0");
-      }
+      const result = await directBatchUpsert(chunk, tagMode);
+      totalInserted += result.inserted;
+      totalUpdated += result.updated;
     } catch (err: any) {
-      log("error", `Bulk upsert chunk failed: ${err.message}`);
-      await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${jobId}`);
-
+      log("error", `Batch upsert chunk failed: ${err.message}`);
       for (const row of chunk) {
         try {
-          const result =
-            tagMode === "override"
-              ? await db.execute(sql`
-                  INSERT INTO subscribers (email, tags, ip_address, import_date)
-                  VALUES (${row.email.toLowerCase()}, ${row.tags}::text[], ${row.ipAddress}, NOW())
-                  ON CONFLICT (email) DO UPDATE
-                  SET tags = EXCLUDED.tags
-                  RETURNING (xmax = 0) AS is_insert
-                `)
-              : await db.execute(sql`
-                  INSERT INTO subscribers (email, tags, ip_address, import_date)
-                  VALUES (${row.email.toLowerCase()}, ${row.tags}::text[], ${row.ipAddress}, NOW())
-                  ON CONFLICT (email) DO UPDATE
-                  SET tags = COALESCE(
-                    (SELECT array_agg(DISTINCT t)
-                     FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
-                     WHERE t IS NOT NULL),
-                    ARRAY[]::text[]
-                  )
-                  RETURNING (xmax = 0) AS is_insert
-                `);
-
-          if (result.rows.length > 0) {
-            const isInsert = (result.rows[0] as any).is_insert;
-            if (isInsert) totalInserted++;
-            else totalUpdated++;
-          }
+          const result = await singleUpsert(row, tagMode);
+          if (result === "inserted") totalInserted++;
+          else totalUpdated++;
         } catch (individualErr: any) {
           totalFailed++;
-          log("error", `Individual insert failed for email ${row.email}: ${individualErr.message}`);
+          log("error", `Individual insert failed for ${row.email}: ${individualErr.message}`);
         }
       }
     }
   }
-
   return { inserted: totalInserted, updated: totalUpdated, failed: totalFailed };
 }
 
@@ -505,14 +413,12 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
   const importConfig = getImportConfig();
   const BATCH_SIZE = importConfig.batchSize;
-  const PARALLEL_WORKERS = importConfig.parallelWorkers;
-  const MAX_PENDING_BATCHES = importConfig.maxPendingBatches;
   const PROGRESS_UPDATE_INTERVAL_MS = 2000;
   const HEARTBEAT_INTERVAL = 30000;
   const CHECKPOINT_INTERVAL = 100000;
   const LARGE_IMPORT_THRESHOLD = 100000;
 
-  log("info", `${importJobId}: Import config - batch: ${BATCH_SIZE}, workers: ${PARALLEL_WORKERS}, pending: ${MAX_PENDING_BATCHES}`);
+  log("info", `${importJobId}: Import config - batch: ${BATCH_SIZE}, sequential processing`);
 
   const totalLines = queueItem?.totalLines || 0;
   const isLargeImport = totalLines > LARGE_IMPORT_THRESHOLD;
@@ -536,8 +442,6 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let lastHeartbeat = Date.now();
   let lastCheckpointLine = resumeFromLine;
   let processedBytes = queueItem?.processedBytes || 0;
-  let lastCommitTime = Date.now();
-  const STUCK_DETECTION_INTERVAL = 30000;
 
   if (resumeFromLine > 0) {
     log("info", `${importJobId}: Resuming from line ${resumeFromLine}, committed rows: ${committedRows} (new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows})`);
@@ -553,9 +457,6 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let currentLineNumber = 0;
   let batchNumber = 0;
   const startTime = Date.now();
-  let pendingBatches: Array<Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>> = [];
-  let isReadingPaused = false;
-  let progressUpdatePending = false;
 
   let isCancelled = false;
 
@@ -571,85 +472,28 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     return false;
   }
 
-  function scheduleProgressUpdate(): void {
-    progressUpdatePending = true;
-  }
+  async function processBatch(): Promise<void> {
+    if (batchRows.length === 0) return;
 
-  async function processSingleBatch(
-    batch: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
-    batchNum: number
-  ): Promise<{ inserted: number; updated: number; failed: number }> {
-    const batchStart = Date.now();
-    let inserted = 0;
-    let updated = 0;
-    let failed = 0;
-
-    try {
-      const result = await bulkUpsertSubscribers(importJobId, batch, tagMode);
-      inserted = result.inserted;
-      updated = result.updated;
-      failed = result.failed;
-    } catch (err: any) {
-      log("error", `Bulk upsert completely failed for batch ${batchNum}: ${err.message}`);
-      for (const row of batch) {
-        try {
-          const existing = await getSubscriberByEmail(row.email);
-          if (existing) {
-            const mergedTags =
-              tagMode === "override" ? row.tags : [...new Set([...(existing.tags || []), ...row.tags])];
-            await updateSubscriber(existing.id, { tags: mergedTags });
-            updated++;
-          } else {
-            await createSubscriber(row);
-            inserted++;
-          }
-        } catch (individualErr: any) {
-          failed++;
-          log("error", `Fallback insert failed for email ${row.email}: ${individualErr.message}`);
-        }
-      }
-    }
-
-    const batchDuration = Date.now() - batchStart;
-    const rowsPerSecond = batch.length / (batchDuration / 1000);
-    log("info", `${importJobId}: Batch ${batchNum} (${batch.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s)`);
-
-    return { inserted, updated, failed };
-  }
-
-  async function processParallelBatches(): Promise<void> {
-    if (pendingBatches.length === 0) return;
+    batchNumber++;
+    const batch = batchRows;
+    batchRows = [];
 
     if (await checkCancellation()) return;
 
-    const batchesToProcess = pendingBatches.splice(0, PARALLEL_WORKERS);
+    const batchStart = Date.now();
+    const result = await bulkUpsertSubscribers(batch, tagMode);
 
-    const batchesWithNumbers: Array<{ batch: typeof batchesToProcess[0]; batchNum: number }> = [];
-    for (const batch of batchesToProcess) {
-      batchNumber++;
-      batchesWithNumbers.push({ batch, batchNum: batchNumber });
-    }
+    newSubscribers += result.inserted;
+    updatedSubscribers += result.updated;
+    failedRows += result.failed;
 
-    const results = await Promise.all(
-      batchesWithNumbers.map(({ batch, batchNum }) => processSingleBatch(batch, batchNum))
-    );
-
-    let totalInserted = 0;
-    let totalUpdated = 0;
-    let totalFailed = 0;
-    for (const result of results) {
-      totalInserted += result.inserted;
-      totalUpdated += result.updated;
-      totalFailed += result.failed;
-    }
-
-    newSubscribers += totalInserted;
-    updatedSubscribers += totalUpdated;
-    failedRows += totalFailed;
-
-    const batchRowsCommitted = totalInserted + totalUpdated + totalFailed;
+    const batchRowsCommitted = result.inserted + result.updated + result.failed;
     committedRows += batchRowsCommitted;
-    lastCommitTime = Date.now();
+
+    const batchDuration = Date.now() - batchStart;
+    const rowsPerSecond = batch.length / (batchDuration / 1000);
+    log("info", `${importJobId}: Batch ${batchNumber} (${batch.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s)`);
 
     const now = Date.now();
     if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
@@ -673,35 +517,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
     const elapsedSec = (Date.now() - startTime) / 1000;
     const commitRate = committedRows / elapsedSec;
-    const pendingCount = parsedRows - committedRows;
-    log("info", `${importJobId}: Batch complete - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}, pending parse: ${pendingCount.toLocaleString()}`);
-
-    if (isReadingPaused && pendingBatches.length < MAX_PENDING_BATCHES) {
-      isReadingPaused = false;
-      rl.resume();
-    }
-
-    const currentMem = process.memoryUsage();
-    if (currentMem.heapUsed / currentMem.heapTotal > 0.85 || currentMem.heapUsed > 3000 * 1024 * 1024) {
-      log("warn", `${importJobId}: High memory usage (${Math.round(currentMem.heapUsed / 1024 / 1024)}MB), throttling...`);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      if (global.gc) global.gc();
-    }
-
-    await yieldToEventLoop();
+    log("info", `${importJobId}: Progress - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}`);
 
     sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows });
-  }
 
-  async function processBatch(): Promise<void> {
-    if (batchRows.length === 0) return;
-
-    pendingBatches.push([...batchRows]);
-    batchRows = [];
-
-    if (pendingBatches.length >= 2) {
-      await processParallelBatches();
-    }
+    await yieldToEventLoop();
   }
 
   const rl = readline.createInterface({
@@ -710,9 +530,6 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   });
 
   const progressUpdateTimer = setInterval(async () => {
-    if (!progressUpdatePending) return;
-    progressUpdatePending = false;
-
     try {
       const now = Date.now();
       if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
@@ -731,12 +548,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       const elapsedSec = (now - startTime) / 1000;
       const commitRate = committedRows / elapsedSec;
       const parseRate = parsedRows / elapsedSec;
-      const pendingCount = parsedRows - committedRows;
-      log("info", `${importJobId}: Progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), pending: ${pendingCount.toLocaleString()}, batches queued: ${pendingBatches.length}`);
-
-      if (parsedRows > committedRows && pendingBatches.length > 0 && now - lastCommitTime > STUCK_DETECTION_INTERVAL) {
-        log("warn", `${importJobId}: WARNING - No DB commits in ${Math.round((now - lastCommitTime) / 1000)}s! Parsed: ${parsedRows}, Committed: ${committedRows}, Pending batches: ${pendingBatches.length}`);
-      }
+      log("info", `${importJobId}: Timer progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s)`);
     } catch (err: any) {
       log("error", `${importJobId}: Progress update failed: ${err.message}`);
     }
@@ -804,7 +616,6 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             failedRows++;
             parsedRows++;
             committedRows++;
-            lastCommitTime = Date.now();
             return;
           }
 
@@ -820,9 +631,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           batchRows.push({ email, tags, ipAddress, lineNumber: currentLineNumber });
           parsedRows++;
 
-          scheduleProgressUpdate();
-
           if (batchRows.length >= BATCH_SIZE) {
+            rl.pause();
             await processBatch();
 
             if (isCancelled) {
@@ -830,23 +640,18 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
               return;
             }
 
-            if (pendingBatches.length >= MAX_PENDING_BATCHES && !isReadingPaused) {
-              rl.pause();
-              isReadingPaused = true;
-            }
+            rl.resume();
           }
         } catch (parseErr) {
           failedRows++;
           parsedRows++;
           committedRows++;
-          lastCommitTime = Date.now();
         }
       } catch (err) {
         log("error", `Error processing line ${currentLineNumber}: ${err}`);
         failedRows++;
         parsedRows++;
         committedRows++;
-        lastCommitTime = Date.now();
       }
     });
 
@@ -856,10 +661,6 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       try {
         if (batchRows.length > 0 && !isCancelled) {
           await processBatch();
-        }
-
-        while (pendingBatches.length > 0 && !isCancelled) {
-          await processParallelBatches();
         }
 
         const currentJob = await getImportJob(importJobId);
