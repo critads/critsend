@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
 import * as readline from "readline";
 import * as fs from "fs";
+import { from as copyFrom } from "pg-copy-streams";
 import { ObjectStorageService } from "./replit_integrations/object_storage/objectStorage";
 
 const { Pool } = pg;
@@ -17,13 +18,15 @@ const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SS
 const maskedUrl = connectionString.replace(/\/\/([^:]+):([^@]+)@/, "//$1:***@");
 log("info", `Worker DB connection: ${maskedUrl.substring(0, 80)}...`, { isExternalDb });
 
+const CONCURRENCY = 4;
+
 const pool = new Pool({
   connectionString,
-  max: 8,
+  max: CONCURRENCY + 2,
   min: 1,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 30000,
-  statement_timeout: 180000,
+  statement_timeout: 300000,
   ...(isExternalDb ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 
@@ -263,11 +266,95 @@ async function logError(data: {
 }
 
 function getImportConfig() {
-  return { batchSize: 2000 };
+  return { batchSize: 25000 };
 }
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
+}
+
+function escapeCopyValue(val: string): string {
+  return val.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+}
+
+function formatPgArray(arr: string[]): string {
+  if (arr.length === 0) return "{}";
+  const escaped = arr.map(t => {
+    let s = t.replace(/[\t\n\r]/g, " ").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    if (s.includes(",") || s.includes("{") || s.includes("}") || s.includes(" ") || s.includes('"')) {
+      return '"' + s + '"';
+    }
+    return s;
+  });
+  return "{" + escaped.join(",") + "}";
+}
+
+async function copyBatchUpsert(
+  rows: Array<{ email: string; tags: string[]; ipAddress: string | null }>,
+  tagMode: "merge" | "override"
+): Promise<{ inserted: number; updated: number }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(`
+      CREATE TEMP TABLE import_staging_batch (
+        email TEXT NOT NULL,
+        tags TEXT[] NOT NULL,
+        ip_address TEXT
+      ) ON COMMIT DROP
+    `);
+
+    const copyStream = client.query(copyFrom(
+      "COPY import_staging_batch (email, tags, ip_address) FROM STDIN WITH (FORMAT text)"
+    ));
+
+    for (const row of rows) {
+      const email = escapeCopyValue(row.email);
+      const tagsLiteral = formatPgArray(row.tags);
+      const ip = row.ipAddress ? escapeCopyValue(row.ipAddress) : "\\N";
+      copyStream.write(`${email}\t${tagsLiteral}\t${ip}\n`);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      copyStream.on("finish", resolve);
+      copyStream.on("error", reject);
+      copyStream.end();
+    });
+
+    const onConflictSet = tagMode === "override"
+      ? `tags = EXCLUDED.tags, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`
+      : `tags = COALESCE(
+          (SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL),
+          ARRAY[]::text[]
+        ), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`;
+
+    const mergeResult = await client.query(`
+      WITH upserted AS (
+        INSERT INTO subscribers (email, tags, ip_address, import_date)
+        SELECT email, tags, ip_address, NOW()
+        FROM import_staging_batch
+        ON CONFLICT (email) DO UPDATE SET ${onConflictSet}
+        RETURNING (xmax = 0) AS is_insert
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
+        COUNT(*) FILTER (WHERE is_insert = false) AS updated
+      FROM upserted
+    `);
+
+    await client.query("COMMIT");
+
+    return {
+      inserted: parseInt(mergeResult.rows[0]?.inserted || "0"),
+      updated: parseInt(mergeResult.rows[0]?.updated || "0"),
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function directBatchUpsert(
@@ -332,7 +419,7 @@ async function singleUpsert(
   return result.rows[0]?.is_insert ? "inserted" : "updated";
 }
 
-async function bulkUpsertSubscribers(
+async function insertFallbackUpsert(
   rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
   tagMode: "merge" | "override" = "merge"
 ): Promise<{ inserted: number; updated: number; failed: number }> {
@@ -364,6 +451,21 @@ async function bulkUpsertSubscribers(
     }
   }
   return { inserted: totalInserted, updated: totalUpdated, failed: totalFailed };
+}
+
+async function bulkUpsertSubscribers(
+  rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
+  tagMode: "merge" | "override" = "merge"
+): Promise<{ inserted: number; updated: number; failed: number }> {
+  if (rows.length === 0) return { inserted: 0, updated: 0, failed: 0 };
+
+  try {
+    const result = await copyBatchUpsert(rows, tagMode);
+    return { ...result, failed: 0 };
+  } catch (err: any) {
+    log("warn", `COPY batch failed, falling back to INSERT: ${err.message}`);
+    return await insertFallbackUpsert(rows, tagMode);
+  }
 }
 
 async function processImport(queueId: string, importJobId: string, csvFilePath: string) {
@@ -418,7 +520,37 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   const CHECKPOINT_INTERVAL = 100000;
   const LARGE_IMPORT_THRESHOLD = 100000;
 
-  log("info", `${importJobId}: Import config - batch: ${BATCH_SIZE}, sequential processing`);
+  const MAX_INFLIGHT = CONCURRENCY;
+  let inflightCount = 0;
+  let inflightResolvers: Array<() => void> = [];
+
+  function waitForSlot(): Promise<void> {
+    if (inflightCount < MAX_INFLIGHT) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      inflightResolvers.push(resolve);
+    });
+  }
+
+  function releaseSlot() {
+    inflightCount--;
+    if (inflightResolvers.length > 0) {
+      const resolve = inflightResolvers.shift()!;
+      resolve();
+    }
+  }
+
+  function waitForAllInflight(): Promise<void> {
+    if (inflightCount === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const check = () => {
+        if (inflightCount === 0) resolve();
+        else setTimeout(check, 50);
+      };
+      check();
+    });
+  }
+
+  log("info", `${importJobId}: Import config - batch: ${BATCH_SIZE}, concurrency: ${MAX_INFLIGHT}`);
 
   const totalLines = queueItem?.totalLines || 0;
   const isLargeImport = totalLines > LARGE_IMPORT_THRESHOLD;
@@ -472,28 +604,72 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     return false;
   }
 
-  async function processBatch(): Promise<void> {
+  let batchError: Error | null = null;
+
+  interface BatchResult {
+    inserted: number;
+    updated: number;
+    failed: number;
+    batchSize: number;
+    durationMs: number;
+    batchNumber: number;
+  }
+
+  const pendingResults: BatchResult[] = [];
+
+  function submitBatch(): void {
     if (batchRows.length === 0) return;
 
     batchNumber++;
     const batch = batchRows;
+    const thisBatchNumber = batchNumber;
     batchRows = [];
-
-    if (await checkCancellation()) return;
+    inflightCount++;
 
     const batchStart = Date.now();
-    const result = await bulkUpsertSubscribers(batch, tagMode);
+    bulkUpsertSubscribers(batch, tagMode)
+      .then((result) => {
+        pendingResults.push({
+          inserted: result.inserted,
+          updated: result.updated,
+          failed: result.failed,
+          batchSize: batch.length,
+          durationMs: Date.now() - batchStart,
+          batchNumber: thisBatchNumber,
+        });
+      })
+      .catch((err) => {
+        log("error", `${importJobId}: Batch ${thisBatchNumber} failed critically: ${err.message}`);
+        batchError = err;
+        pendingResults.push({
+          inserted: 0,
+          updated: 0,
+          failed: batch.length,
+          batchSize: batch.length,
+          durationMs: Date.now() - batchStart,
+          batchNumber: thisBatchNumber,
+        });
+      })
+      .finally(() => {
+        releaseSlot();
+      });
+  }
 
-    newSubscribers += result.inserted;
-    updatedSubscribers += result.updated;
-    failedRows += result.failed;
+  function drainResults(): void {
+    while (pendingResults.length > 0) {
+      const r = pendingResults.shift()!;
+      newSubscribers += r.inserted;
+      updatedSubscribers += r.updated;
+      failedRows += r.failed;
+      committedRows += r.inserted + r.updated + r.failed;
 
-    const batchRowsCommitted = result.inserted + result.updated + result.failed;
-    committedRows += batchRowsCommitted;
+      const rowsPerSecond = r.batchSize / (r.durationMs / 1000);
+      log("info", `${importJobId}: Batch ${r.batchNumber} (${r.batchSize} rows) in ${r.durationMs}ms (${Math.round(rowsPerSecond)}/s)`);
+    }
+  }
 
-    const batchDuration = Date.now() - batchStart;
-    const rowsPerSecond = batch.length / (batchDuration / 1000);
-    log("info", `${importJobId}: Batch ${batchNumber} (${batch.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s)`);
+  async function flushProgress(): Promise<void> {
+    drainResults();
 
     const now = Date.now();
     if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
@@ -515,13 +691,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       log("info", `${importJobId}: Checkpoint at line ${currentLineNumber}, ${committedRows.toLocaleString()} rows committed`);
     }
 
-    const elapsedSec = (Date.now() - startTime) / 1000;
+    const elapsedSec = (now - startTime) / 1000;
     const commitRate = committedRows / elapsedSec;
     log("info", `${importJobId}: Progress - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}`);
 
     sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows });
-
-    await yieldToEventLoop();
   }
 
   const rl = readline.createInterface({
@@ -531,6 +705,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
   const progressUpdateTimer = setInterval(async () => {
     try {
+      drainResults();
+
       const now = Date.now();
       if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
         await updateImportQueueHeartbeat(queueId);
@@ -549,6 +725,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       const commitRate = committedRows / elapsedSec;
       const parseRate = parsedRows / elapsedSec;
       log("info", `${importJobId}: Timer progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s)`);
+
+      sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows });
     } catch (err: any) {
       log("error", `${importJobId}: Progress update failed: ${err.message}`);
     }
@@ -633,12 +811,21 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
           if (batchRows.length >= BATCH_SIZE) {
             rl.pause();
-            await processBatch();
 
-            if (isCancelled) {
+            if (await checkCancellation()) {
               rl.close();
               return;
             }
+
+            if (batchError) {
+              rl.close();
+              safeReject(batchError);
+              return;
+            }
+
+            await waitForSlot();
+            submitBatch();
+            await flushProgress();
 
             rl.resume();
           }
@@ -660,7 +847,15 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
       try {
         if (batchRows.length > 0 && !isCancelled) {
-          await processBatch();
+          await waitForSlot();
+          submitBatch();
+        }
+
+        await waitForAllInflight();
+        await flushProgress();
+
+        if (batchError && !isCancelled) {
+          throw batchError;
         }
 
         const currentJob = await getImportJob(importJobId);

@@ -46,6 +46,7 @@
     "@types/cors": "^2.8.19",
     "@types/multer": "^2.0.0",
     "@types/nodemailer": "^7.0.4",
+    "@types/pg-copy-streams": "^1.2.5",
     "@types/sanitize-html": "^2.16.0",
     "@types/smtp-server": "^3.5.12",
     "@uppy/aws-s3": "^5.1.0",
