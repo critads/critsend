@@ -399,7 +399,7 @@ export default function Dashboard() {
                     <div className="flex flex-col gap-1">
                       <span className="font-medium truncate max-w-[200px]">{job.filename}</span>
                       <span className="text-sm text-muted-foreground">
-                        {job.processedRows.toLocaleString()} / {job.totalRows.toLocaleString()} rows
+                        {Math.min(job.processedRows, job.totalRows).toLocaleString()} / {job.totalRows.toLocaleString()} rows
                       </span>
                     </div>
                     <Badge

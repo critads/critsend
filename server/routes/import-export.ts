@@ -10,6 +10,35 @@ import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE
 import { sanitizeCsvValue } from "../utils";
 import { isMemoryPressure } from "../workers";
 
+function countLines(filePath: string): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    let lineCount = 0;
+    let prevChar = '';
+    const stream = fs.createReadStream(filePath, { encoding: 'utf-8', highWaterMark: 64 * 1024 });
+    stream.on('data', (chunk: string | Buffer) => {
+      const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+      for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (ch === '\n') {
+          lineCount++;
+        } else if (prevChar === '\r') {
+          lineCount++;
+        }
+        prevChar = ch;
+      }
+    });
+    stream.on('end', () => {
+      if (prevChar && prevChar !== '\n' && prevChar !== '\r') {
+        lineCount++;
+      } else if (prevChar === '\r') {
+        lineCount++;
+      }
+      resolve(lineCount);
+    });
+    stream.on('error', reject);
+  });
+}
+
 export function registerImportExportRoutes(app: Express, helpers: {
   validateId: (id: string) => boolean;
 }) {
@@ -62,25 +91,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       const csvFilePath = req.file.path;
       logger.info(`[IMPORT] File saved to disk: ${csvFilePath}`);
       
-      let lineCount = 0;
-      const lineCountStream = fs.createReadStream(csvFilePath, { encoding: 'utf-8', highWaterMark: 64 * 1024 });
-      
-      await new Promise<void>((resolve, reject) => {
-        let lastChar = '';
-        lineCountStream.on('data', (chunk: string | Buffer) => {
-          const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
-          for (let i = 0; i < str.length; i++) {
-            if (str[i] === '\n') lineCount++;
-          }
-          lastChar = str[str.length - 1];
-        });
-        lineCountStream.on('end', () => {
-          if (lastChar && lastChar !== '\n') lineCount++;
-          resolve();
-        });
-        lineCountStream.on('error', reject);
-      });
-      
+      const lineCount = await countLines(csvFilePath);
       logger.info(`[IMPORT] Streaming line count complete: ${lineCount} lines`);
       
       if (lineCount < 2) {
@@ -185,7 +196,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         newSubscribers: job.newSubscribers,
         updatedSubscribers: job.updatedSubscribers,
         failedRows: job.failedRows,
-        progress: job.totalRows > 0 ? Math.round((job.processedRows / job.totalRows) * 100) : 0,
+        progress: job.totalRows > 0 ? Math.min(Math.round((job.processedRows / job.totalRows) * 100), 100) : 0,
         errorMessage: job.errorMessage,
         createdAt: job.createdAt,
         completedAt: job.completedAt,
@@ -334,25 +345,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       const fileSizeBytes = fs.statSync(tempCsvPath).size;
       logger.info(`[CHUNKED] ${uploadId}: File assembled: ${tempCsvPath}, size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
       
-      let lineCount = 0;
-      const lineCountStream = fs.createReadStream(tempCsvPath, { encoding: 'utf-8', highWaterMark: 64 * 1024 });
-      
-      await new Promise<void>((resolve, reject) => {
-        let lastChar = '';
-        lineCountStream.on('data', (chunk: string | Buffer) => {
-          const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
-          for (let i = 0; i < str.length; i++) {
-            if (str[i] === '\n') lineCount++;
-          }
-          lastChar = str[str.length - 1];
-        });
-        lineCountStream.on('end', () => {
-          if (lastChar && lastChar !== '\n') lineCount++;
-          resolve();
-        });
-        lineCountStream.on('error', reject);
-      });
-      
+      const lineCount = await countLines(tempCsvPath);
       logger.info(`[CHUNKED] ${uploadId}: Line count: ${lineCount}`);
       
       if (lineCount < 2) {

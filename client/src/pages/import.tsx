@@ -436,17 +436,17 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                   {(job.status === "processing" || job.status === "queued") && (
                     <div className="space-y-2">
                       <Progress
-                        value={job.totalRows > 0 ? (job.processedRows / job.totalRows) * 100 : 0}
+                        value={job.totalRows > 0 ? Math.min((job.processedRows / job.totalRows) * 100, 100) : 0}
                         className="h-2"
                       />
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>
-                          {job.processedRows.toLocaleString()} / {job.totalRows.toLocaleString()} rows
+                          {Math.min(job.processedRows, job.totalRows).toLocaleString()} / {job.totalRows.toLocaleString()} rows
                         </span>
                         <span>
                           {job.status === "queued" && job.processedRows === 0
                             ? "Waiting to start..."
-                            : `${(job.totalRows > 0 ? (job.processedRows / job.totalRows) * 100 : 0).toFixed(1)}%`}
+                            : `${(job.totalRows > 0 ? Math.min((job.processedRows / job.totalRows) * 100, 100) : 0).toFixed(1)}%`}
                         </span>
                       </div>
                       {job.processedRows > 0 && (() => {
@@ -456,9 +456,9 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                         const elapsedMs = Date.now() - startTime;
                         const elapsedSec = Math.max(elapsedMs / 1000, 1);
                         const rowsPerSec = job.processedRows / elapsedSec;
-                        const remainingRows = job.totalRows - job.processedRows;
+                        const remainingRows = Math.max(job.totalRows - job.processedRows, 0);
                         const etaSec = rowsPerSec > 0 ? remainingRows / rowsPerSec : 0;
-                        const etaMin = Math.round(etaSec / 60);
+                        const etaMin = Math.max(Math.round(etaSec / 60), 0);
                         const etaHours = Math.floor(etaMin / 60);
                         const etaMinRemainder = etaMin % 60;
                         
@@ -468,7 +468,7 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                               {Math.round(rowsPerSec * 60).toLocaleString()} rows/min
                             </span>
                             <span>
-                              ETA: {etaHours > 0 ? `${etaHours}h ${etaMinRemainder}m` : `${etaMin}m`}
+                              ETA: {remainingRows === 0 ? "finishing..." : etaHours > 0 ? `${etaHours}h ${etaMinRemainder}m` : `${etaMin}m`}
                             </span>
                           </div>
                         );
