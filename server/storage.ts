@@ -283,7 +283,7 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   private segmentCountCache = new Map<string, { count: number; timestamp: number }>();
-  private SEGMENT_COUNT_CACHE_TTL = 60000; // 60 seconds
+  private SEGMENT_COUNT_CACHE_TTL = 300000; // 5 minutes
   // Subscribers
   async getSubscribers(page: number, limit: number, search?: string): Promise<{ subscribers: Subscriber[]; total: number }> {
     const offset = (page - 1) * limit;

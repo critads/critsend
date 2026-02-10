@@ -13,16 +13,26 @@ export function registerSegmentRoutes(app: Express, helpers: {
   app.get("/api/segments", async (req: Request, res: Response) => {
     try {
       const segmentsList = await storage.getSegments();
-      const segmentsWithCounts = await Promise.all(
-        segmentsList.map(async (segment) => ({
-          ...segment,
-          subscriberCount: await storage.getSegmentSubscriberCountCached(segment.id),
-        }))
-      );
-      res.json(segmentsWithCounts);
+      res.json(segmentsList);
     } catch (error) {
       logger.error("Error fetching segments:", error);
       res.status(500).json({ error: "Failed to fetch segments" });
+    }
+  });
+
+  app.get("/api/segments/counts", async (req: Request, res: Response) => {
+    try {
+      const segmentsList = await storage.getSegments();
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        segmentsList.map(async (segment) => {
+          counts[segment.id] = await storage.getSegmentSubscriberCountCached(segment.id);
+        })
+      );
+      res.json(counts);
+    } catch (error) {
+      logger.error("Error fetching segment counts:", error);
+      res.status(500).json({ error: "Failed to fetch segment counts" });
     }
   });
 

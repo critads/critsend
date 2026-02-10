@@ -35,10 +35,6 @@ import { Filter, Plus, MoreVertical, Trash2, Edit2, Users, X, Mail, Tag, Calenda
 import type { Segment, SegmentRule, SegmentRuleGroup, SegmentRuleItem } from "@shared/schema";
 import { fieldOperators, operatorLabels } from "@shared/schema";
 
-interface SegmentWithCount extends Segment {
-  subscriberCount?: number;
-}
-
 const fieldLabels: Record<string, string> = {
   tags: "Tags",
   email: "Email",
@@ -48,8 +44,8 @@ const fieldLabels: Record<string, string> = {
 
 export default function Segments() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [editingSegment, setEditingSegment] = useState<SegmentWithCount | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<SegmentWithCount | null>(null);
+  const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Segment | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rules, setRules] = useState<SegmentRuleItem[]>([
@@ -59,8 +55,13 @@ export default function Segments() {
   const [isCountLoading, setIsCountLoading] = useState(false);
   const { toast } = useToast();
 
-  const { data: segments, isLoading } = useQuery<SegmentWithCount[]>({
+  const { data: segments, isLoading } = useQuery<Segment[]>({
     queryKey: ["/api/segments"],
+  });
+
+  const { data: segmentCounts } = useQuery<Record<string, number>>({
+    queryKey: ["/api/segments/counts"],
+    enabled: !!segments && segments.length > 0,
   });
 
   const isGroup = (item: SegmentRuleItem): item is SegmentRuleGroup => {
@@ -72,6 +73,7 @@ export default function Segments() {
       apiRequest("POST", "/api/segments", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
       resetForm();
       setIsCreateOpen(false);
       toast({
@@ -93,6 +95,7 @@ export default function Segments() {
       apiRequest("PATCH", `/api/segments/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
       setEditingSegment(null);
       resetForm();
       toast({
@@ -113,6 +116,7 @@ export default function Segments() {
     mutationFn: (id: string) => apiRequest("DELETE", `/api/segments/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
       setDeleteConfirm(null);
       toast({
         title: "Segment deleted",
@@ -136,7 +140,7 @@ export default function Segments() {
     setIsCountLoading(false);
   };
 
-  const handleEditClick = (segment: SegmentWithCount) => {
+  const handleEditClick = (segment: Segment) => {
     setEditingSegment(segment);
     setName(segment.name);
     setDescription(segment.description || "");
@@ -669,7 +673,11 @@ const segmentFormContent = (
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Users className="h-4 w-4" />
-                  <span>{segment.subscriberCount?.toLocaleString() || 0} subscribers</span>
+                  <span>
+                    {segmentCounts
+                      ? `${(segmentCounts[segment.id] ?? 0).toLocaleString()} subscribers`
+                      : "Loading..."}
+                  </span>
                 </div>
                 <div className="space-y-2">
                   {(segment.rules as SegmentRuleItem[])?.slice(0, 3).map((item, i) => (
