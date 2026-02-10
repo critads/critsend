@@ -611,3 +611,115 @@ export async function sendTestEmailViaSMTP(
     error: "Max retries exceeded",
   };
 }
+
+export function precomputeBaseHtml(campaign: Campaign, mta: Mta): string {
+  let baseHtml = campaign.htmlContent;
+  baseHtml = rewriteImageUrls(baseHtml, (mta as any).imageHostingDomain);
+  if (campaign.preheader) {
+    baseHtml = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${campaign.preheader}</span>` + baseHtml;
+  }
+  return baseHtml;
+}
+
+export interface BatchNullsinkResult {
+  subscriberId: string;
+  email: string;
+  success: boolean;
+  error?: string;
+  capture: InsertNullsinkCapture;
+}
+
+export function sendEmailBatchNullsink(
+  mta: Mta,
+  subscribers: Array<{ id: string; email: string; tags?: string[] }>,
+  campaign: Campaign,
+  trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">,
+  customHeaders?: Record<string, string>,
+  precomputedBaseHtml?: string
+): BatchNullsinkResult[] {
+  const failureRate = (mta as any).failureRate || 0;
+  const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
+
+  const baseHtml = precomputedBaseHtml ?? precomputeBaseHtml(campaign, mta);
+
+  const results: BatchNullsinkResult[] = [];
+
+  for (const sub of subscribers) {
+    try {
+      const subscriber: Subscriber = {
+        id: sub.id,
+        email: sub.email,
+        tags: sub.tags || [],
+        ipAddress: null,
+        importDate: new Date(),
+      };
+
+      let htmlContent = personalizeContent(baseHtml, subscriber);
+
+      if (baseUrl && htmlContent.includes("{{unsubscribe_url}}")) {
+        const unsubscribeUrl = generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id);
+        htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
+      }
+
+      htmlContent = addTrackingToHtml(htmlContent, {
+        campaignId: campaign.id,
+        subscriberId: subscriber.id,
+        trackOpens: trackingOptions.trackOpens,
+        trackClicks: trackingOptions.trackClicks,
+        trackingDomain: trackingOptions.trackingDomain,
+        openTrackingDomain: trackingOptions.openTrackingDomain,
+        openTag: trackingOptions.openTag,
+        clickTag: trackingOptions.clickTag,
+      });
+
+      const subject = personalizeContent(campaign.subject, subscriber);
+      const messageSize = Buffer.byteLength(htmlContent, 'utf8');
+
+      const shouldFail = failureRate > 0 && Math.random() * 100 < failureRate;
+
+      const capture: InsertNullsinkCapture = {
+        campaignId: campaign.id,
+        subscriberId: subscriber.id,
+        mtaId: mta.id,
+        fromEmail: campaign.fromEmail,
+        toEmail: subscriber.email,
+        subject: subject,
+        messageSize: messageSize,
+        status: shouldFail ? "simulated_failure" : "captured",
+        handshakeTimeMs: 0,
+        totalTimeMs: 0,
+      };
+
+      results.push({
+        subscriberId: subscriber.id,
+        email: subscriber.email,
+        success: !shouldFail,
+        error: shouldFail ? "Simulated batch failure" : undefined,
+        capture,
+      });
+    } catch (error: any) {
+      const capture: InsertNullsinkCapture = {
+        campaignId: campaign.id,
+        subscriberId: sub.id,
+        mtaId: mta.id,
+        fromEmail: campaign.fromEmail,
+        toEmail: sub.email,
+        subject: campaign.subject,
+        messageSize: 0,
+        status: "simulated_failure",
+        handshakeTimeMs: 0,
+        totalTimeMs: 0,
+      };
+
+      results.push({
+        subscriberId: sub.id,
+        email: sub.email,
+        success: false,
+        error: error.message || "Batch processing error",
+        capture,
+      });
+    }
+  }
+
+  return results;
+}

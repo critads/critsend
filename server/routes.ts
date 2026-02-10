@@ -18,7 +18,7 @@ import {
   importJobQueue,
 } from "@shared/schema";
 import { z } from "zod";
-import { sendEmail, sendEmailWithNullsink, verifyTransporter, closeTransporter, closeNullsinkTransporter } from "./email-service";
+import { sendEmail, sendEmailWithNullsink, sendEmailBatchNullsink, precomputeBaseHtml, verifyTransporter, closeTransporter, closeNullsinkTransporter } from "./email-service";
 import { getNullsinkServer, startNullsinkServer, stopNullsinkServer } from "./nullsink-smtp";
 import { verifyTrackingSignature } from "./tracking";
 import * as cheerio from "cheerio";
@@ -2557,310 +2557,261 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
     startedAt: new Date(),
   });
   
-  // Get speed configuration for parallel processing
+  // Get speed configuration
   const speedKey = campaign.sendingSpeed || "medium";
   const speedConfig = SPEED_CONFIG[speedKey] || SPEED_CONFIG.medium;
   const { emailsPerMinute, concurrency } = speedConfig;
-  
-  // Calculate delay between parallel chunks to respect rate limits
-  const batchDelayMs = Math.floor((concurrency / emailsPerMinute) * 60000);
-  
-  logger.info(`[CAMPAIGN] ${campaignId}: Starting parallel send - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min`);
-  
-  const BATCH_SIZE = 2000;
+  const isNullsink = mta && (mta as any).mode === "nullsink";
+
+  logger.info(`[CAMPAIGN] ${campaignId}: Starting send engine - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min, Mode: ${isNullsink ? 'nullsink-batch' : 'smtp'}`);
+
+  const BATCH_SIZE = 5000;
+  const FLUSH_THRESHOLD = 1000;
+  const FLUSH_INTERVAL_MS = 3000;
+  const HEARTBEAT_INTERVAL = 30000;
+  const STATUS_CHECK_INTERVAL = 5000;
+  const MAX_CONSECUTIVE_FAILURES = 10;
+
   let cursorId: string | undefined = undefined;
   let processedCount = 0;
   let totalSent = 0;
   let totalFailed = 0;
   let consecutiveSmtpFailures = 0;
-  const MAX_CONSECUTIVE_FAILURES = 10;
   const startTime = Date.now();
-  
-  // Heartbeat and status check intervals
-  const HEARTBEAT_INTERVAL = 30000;
-  const STATUS_CHECK_INTERVAL = 5000;
-  let lastHeartbeat = Date.now();
-  let lastStatusCheck = Date.now();
-  let cachedStatus: string = "sending";
-  
-  const campaignRef = campaign;
-  const mtaRef = mta;
-  
-  // Fetch default headers once
+  let shouldStop = false;
+
   const defaultHeaders = await storage.getDefaultHeaders();
   const customHeadersMap: Record<string, string> = {};
   for (const header of defaultHeaders) {
     customHeadersMap[header.name] = header.value;
   }
-  
-  // Heartbeat helper - keeps job alive in the queue
-  async function doHeartbeat(): Promise<void> {
+
+  const trackingOpts = {
+    trackOpens: campaign.trackOpens,
+    trackClicks: campaign.trackClicks,
+    trackingDomain: mta?.trackingDomain,
+    openTrackingDomain: mta?.openTrackingDomain,
+    openTag: campaign.openTag,
+    clickTag: campaign.clickTag,
+  };
+
+  let precomputedHtml: string | undefined;
+  if (isNullsink && mta) {
+    precomputedHtml = precomputeBaseHtml(campaign, mta);
+  }
+
+  // === WRITE-BEHIND BUFFER ===
+  const pendingSuccessIds: string[] = [];
+  const pendingFailedIds: string[] = [];
+  const pendingCaptures: import("@shared/schema").InsertNullsinkCapture[] = [];
+  let lastFlushTime = Date.now();
+
+  async function flushBuffer(): Promise<void> {
+    if (pendingSuccessIds.length === 0 && pendingFailedIds.length === 0) return;
+
+    const successBatch = pendingSuccessIds.splice(0);
+    const failedBatch = pendingFailedIds.splice(0);
+    const captureBatch = pendingCaptures.splice(0);
+
+    try {
+      await storage.bulkFinalizeSends(campaignId, successBatch, failedBatch);
+    } catch (err: any) {
+      logger.error(`[CAMPAIGN] ${campaignId}: Bulk finalize failed, falling back: ${err.message}`);
+      for (const sid of successBatch) {
+        try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
+          await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+        }
+      }
+      for (const sid of failedBatch) {
+        try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
+          await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+        }
+      }
+    }
+
+    if (captureBatch.length > 0) {
+      try { await storage.bulkCreateNullsinkCaptures(captureBatch); } catch (e) {}
+    }
+
+    lastFlushTime = Date.now();
+  }
+
+  function shouldFlush(): boolean {
+    const bufferSize = pendingSuccessIds.length + pendingFailedIds.length;
+    return bufferSize >= FLUSH_THRESHOLD || (bufferSize > 0 && Date.now() - lastFlushTime >= FLUSH_INTERVAL_MS);
+  }
+
+  // === TIMER-BASED STATUS & HEARTBEAT ===
+  let cachedStatus: string = "sending";
+  let lastStatusCheck = Date.now();
+  let lastHeartbeat = Date.now();
+
+  async function checkStatusAndHeartbeat(): Promise<void> {
     const now = Date.now();
     if (jobId && now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
       await storage.heartbeatJob(jobId);
       lastHeartbeat = now;
     }
-  }
-  
-  // Status check helper - caches result to reduce DB queries
-  async function checkStatus(): Promise<string> {
-    const now = Date.now();
     if (now - lastStatusCheck >= STATUS_CHECK_INTERVAL) {
       const currentCampaign = await storage.getCampaign(campaignId);
       cachedStatus = currentCampaign?.status || "cancelled";
       lastStatusCheck = now;
-    }
-    return cachedStatus;
-  }
-  
-  // Send a single email (no DB calls - just SMTP)
-  async function sendSingleEmail(subscriber: any): Promise<{ success: boolean; subscriberId: string; email: string; capture?: import("@shared/schema").InsertNullsinkCapture }> {
-    let sendSuccess = true;
-    let captureData: import("@shared/schema").InsertNullsinkCapture | undefined;
-    try {
-      if (mtaRef) {
-        const result = await sendEmailWithNullsink(mtaRef, subscriber, campaignRef, {
-          trackOpens: campaignRef.trackOpens,
-          trackClicks: campaignRef.trackClicks,
-          trackingDomain: mtaRef.trackingDomain,
-          openTrackingDomain: mtaRef.openTrackingDomain,
-          openTag: campaignRef.openTag,
-          clickTag: campaignRef.clickTag,
-        }, customHeadersMap);
-        
-        sendSuccess = result.success;
-        
-        if ((mtaRef as any).mode === "nullsink" && result.capture) {
-          captureData = result.capture;
-        }
-        
-        if (!result.success) {
-          storage.logError({
-            type: "send_failed",
-            severity: "error",
-            message: `Failed to send email: ${result.error}`,
-            email: subscriber.email,
-            campaignId: campaignRef.id,
-            subscriberId: subscriber.id,
-            details: `MTA: ${mtaRef.name}, Mode: ${(mtaRef as any).mode || 'real'}`,
-          }).catch(() => {});
-        }
-      }
-    } catch (error: any) {
-      sendSuccess = false;
-      storage.logError({
-        type: "send_failed",
-        severity: "error",
-        message: `Exception during email send: ${error?.message || "Unknown error"}`,
-        email: subscriber.email,
-        campaignId: campaignRef.id,
-        subscriberId: subscriber.id,
-        details: error?.stack || String(error),
-      }).catch(() => {});
-    }
-    
-    if (sendSuccess) {
-      consecutiveSmtpFailures = 0;
-    } else {
-      consecutiveSmtpFailures++;
-    }
-    
-    return { success: sendSuccess, subscriberId: subscriber.id, email: subscriber.email, capture: captureData };
-  }
-  
-  // Flush accumulated results to DB in bulk
-  async function flushResults(successIds: string[], failedIds: string[]): Promise<void> {
-    if (successIds.length === 0 && failedIds.length === 0) return;
-    
-    try {
-      await storage.bulkFinalizeSends(campaignId, successIds, failedIds);
-    } catch (err: any) {
-      logger.error(`[CAMPAIGN] ${campaignId}: Bulk finalize failed, falling back to individual: ${err.message}`);
-      for (const sid of successIds) {
-        try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
-          logger.error(`[CAMPAIGN] ${campaignId}: Individual finalize failed for ${sid}`);
-          await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
-        }
-      }
-      for (const sid of failedIds) {
-        try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
-          logger.error(`[CAMPAIGN] ${campaignId}: Individual finalize failed for ${sid}`);
-          await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
-        }
+      if (cachedStatus !== "sending") {
+        shouldStop = true;
       }
     }
   }
-  
-  // Main sending loop
-  while (true) {
-    // Check campaign status (cached, reduces DB queries)
-    const status = await checkStatus();
-    if (status !== "sending") {
-      logger.info(`[CAMPAIGN] ${campaignId}: Status changed to '${status}' at ${processedCount} processed`);
-      break;
-    }
-    
-    // MTA health check: auto-pause if too many consecutive SMTP failures
-    if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mtaRef) {
-      logger.error(`[CAMPAIGN] ${campaignId}: ${consecutiveSmtpFailures} consecutive SMTP failures - pausing campaign for MTA recovery`);
+
+  // === MAIN SENDING LOOP ===
+  while (!shouldStop) {
+    await checkStatusAndHeartbeat();
+    if (shouldStop) break;
+
+    if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mta) {
+      logger.error(`[CAMPAIGN] ${campaignId}: ${consecutiveSmtpFailures} consecutive SMTP failures - pausing`);
       await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
-      closeTransporter(mtaRef.id);
-      await storage.logError({
-        type: "campaign_paused",
-        severity: "warning",
-        message: `Campaign auto-paused after ${consecutiveSmtpFailures} consecutive SMTP failures`,
-        campaignId,
-        details: `MTA: ${mtaRef.name}, sent: ${totalSent}, failed: ${totalFailed}`,
-      }).catch(() => {});
+      closeTransporter(mta.id);
+      await storage.logError({ type: "campaign_paused", severity: "warning", message: `Campaign auto-paused after ${consecutiveSmtpFailures} consecutive SMTP failures`, campaignId, details: `MTA: ${mta.name}, sent: ${totalSent}, failed: ${totalFailed}` }).catch(() => {});
+      shouldStop = true;
       break;
     }
-    
-    // Heartbeat to keep job alive
-    await doHeartbeat();
-    
-    // Fetch batch of subscribers using cursor-based pagination
+
+    // === FETCH BATCH ===
     const batch = await storage.getSubscribersForSegmentCursor(campaign.segmentId, BATCH_SIZE, cursorId);
-    
-    if (batch.length === 0) {
-      break;
-    }
-    
+    if (batch.length === 0) break;
     cursorId = batch[batch.length - 1].id;
-    
-    // BULK RESERVE: Reserve all send slots for this batch in one DB call
+
+    // === RESERVE SEND SLOTS ===
     const subscriberIds = batch.map(s => s.id);
     let reservedIds: string[];
     try {
       reservedIds = await storage.bulkReserveSendSlots(campaignId, subscriberIds);
     } catch (err: any) {
-      logger.error(`[CAMPAIGN] ${campaignId}: Bulk reserve failed, falling back to individual: ${err.message}`);
+      logger.error(`[CAMPAIGN] ${campaignId}: Bulk reserve failed, falling back: ${err.message}`);
       reservedIds = [];
       for (const sub of batch) {
         const ok = await storage.reserveSendSlot(campaignId, sub.id);
         if (ok) reservedIds.push(sub.id);
       }
     }
-    
-    // Build map for quick lookup
+
     const reservedSet = new Set(reservedIds);
     const subscribersToSend = batch.filter(s => reservedSet.has(s.id));
-    
-    // Skip count (already sent)
-    const skipped = batch.length - subscribersToSend.length;
-    if (skipped > 0) {
-      processedCount += skipped;
-    }
-    
-    // Accumulate results for this batch
-    const batchSuccessIds: string[] = [];
-    const batchFailedIds: string[] = [];
-    const pendingCaptures: import("@shared/schema").InsertNullsinkCapture[] = [];
-    const INTERMEDIATE_FLUSH_SIZE = 500;
-    
-    // Process this batch in parallel chunks
-    for (let i = 0; i < subscribersToSend.length; i += concurrency) {
-      // Mid-batch status + MTA health check
-      if (i > 0 && i % (concurrency * 10) === 0) {
-        const midStatus = await checkStatus();
-        if (midStatus !== "sending") {
-          logger.info(`[CAMPAIGN] ${campaignId}: Status changed mid-batch to '${midStatus}'`);
-          await flushResults(batchSuccessIds, batchFailedIds);
-          if (pendingCaptures.length > 0) {
-            try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
-            pendingCaptures.length = 0;
-          }
-          if (mta) { closeTransporter(mta.id); }
-          return;
-        }
-        
-        if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mtaRef) {
-          logger.error(`[CAMPAIGN] ${campaignId}: MTA failure threshold reached mid-batch, pausing`);
-          await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
-          closeTransporter(mtaRef.id);
-          await flushResults(batchSuccessIds, batchFailedIds);
-          if (pendingCaptures.length > 0) {
-            try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
-            pendingCaptures.length = 0;
-          }
-          return;
-        }
-        
-        // Heartbeat during long batches
-        await doHeartbeat();
-      }
-      
-      const chunk = subscribersToSend.slice(i, i + concurrency);
-      
-      // Send all emails in this chunk in parallel (no DB calls, just SMTP)
-      const results = await Promise.allSettled(
-        chunk.map(subscriber => sendSingleEmail(subscriber))
-      );
-      
-      // Accumulate results (no DB calls yet)
-      for (let j = 0; j < results.length; j++) {
-        const result = results[j];
-        processedCount++;
-        if (result.status === "fulfilled") {
-          if (result.value.success) {
+    processedCount += batch.length - subscribersToSend.length;
+
+    if (subscribersToSend.length === 0) continue;
+
+    // === PATH A: NULLSINK BATCH (no SMTP) ===
+    if (isNullsink && mta) {
+      const SUB_BATCH = 1000;
+      for (let i = 0; i < subscribersToSend.length; i += SUB_BATCH) {
+        if (shouldStop) break;
+
+        const subBatch = subscribersToSend.slice(i, i + SUB_BATCH);
+        const results = sendEmailBatchNullsink(mta, subBatch, campaign, trackingOpts, customHeadersMap, precomputedHtml);
+
+        for (const r of results) {
+          processedCount++;
+          if (r.success) {
             totalSent++;
-            batchSuccessIds.push(result.value.subscriberId);
+            pendingSuccessIds.push(r.subscriberId);
+            consecutiveSmtpFailures = 0;
           } else {
             totalFailed++;
-            batchFailedIds.push(result.value.subscriberId);
+            pendingFailedIds.push(r.subscriberId);
+            consecutiveSmtpFailures++;
           }
-          if (result.value.capture) {
-            pendingCaptures.push(result.value.capture);
+          if (r.capture) {
+            pendingCaptures.push(r.capture);
           }
-        } else {
-          totalFailed++;
-          batchFailedIds.push(chunk[j].id);
         }
-      }
-      
-      // Intermediate flush every 200 emails to keep sentCount accurate
-      if (batchSuccessIds.length + batchFailedIds.length >= INTERMEDIATE_FLUSH_SIZE) {
-        await flushResults(batchSuccessIds, batchFailedIds);
-        batchSuccessIds.length = 0;
-        batchFailedIds.length = 0;
-        if (pendingCaptures.length > 0) {
-          try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
-          pendingCaptures.length = 0;
+
+        if (shouldFlush()) {
+          await flushBuffer();
         }
-      }
-      
-      // Rate limiting between parallel chunks
-      if (batchDelayMs > 0 && i + concurrency < subscribersToSend.length) {
-        await new Promise(resolve => setTimeout(resolve, batchDelayMs));
+
+        await checkStatusAndHeartbeat();
       }
     }
-    
-    // BULK FINALIZE: Flush all remaining accumulated results for this batch
-    await flushResults(batchSuccessIds, batchFailedIds);
-    if (pendingCaptures.length > 0) {
-      try { await storage.bulkCreateNullsinkCaptures(pendingCaptures); } catch (e) {}
+    // === PATH B: REAL SMTP (worker pool) ===
+    else if (mta) {
+      const batchDelayMs = Math.max(0, Math.floor((concurrency / emailsPerMinute) * 60000));
+
+      for (let i = 0; i < subscribersToSend.length; i += concurrency) {
+        if (shouldStop) break;
+
+        const chunk = subscribersToSend.slice(i, i + concurrency);
+
+        const results = await Promise.allSettled(
+          chunk.map(subscriber => {
+            return (async () => {
+              try {
+                const result = await sendEmailWithNullsink(mta, subscriber, campaign, trackingOpts, customHeadersMap);
+                return { success: result.success, subscriberId: subscriber.id, email: subscriber.email, error: result.error };
+              } catch (error: any) {
+                return { success: false, subscriberId: subscriber.id, email: subscriber.email, error: error.message };
+              }
+            })();
+          })
+        );
+
+        for (let j = 0; j < results.length; j++) {
+          processedCount++;
+          const result = results[j];
+          if (result.status === "fulfilled") {
+            if (result.value.success) {
+              totalSent++;
+              pendingSuccessIds.push(result.value.subscriberId);
+              consecutiveSmtpFailures = 0;
+            } else {
+              totalFailed++;
+              pendingFailedIds.push(result.value.subscriberId);
+              consecutiveSmtpFailures++;
+              storage.logError({ type: "send_failed", severity: "error", message: `Failed: ${result.value.error}`, email: result.value.email, campaignId, subscriberId: result.value.subscriberId }).catch(() => {});
+            }
+          } else {
+            totalFailed++;
+            pendingFailedIds.push(chunk[j].id);
+            consecutiveSmtpFailures++;
+          }
+        }
+
+        if (shouldFlush()) {
+          await flushBuffer();
+        }
+
+        if (batchDelayMs > 0 && i + concurrency < subscribersToSend.length) {
+          await new Promise(resolve => setTimeout(resolve, batchDelayMs));
+        }
+
+        if (i > 0 && i % (concurrency * 10) === 0) {
+          await checkStatusAndHeartbeat();
+        }
+      }
     }
-    
-    // Log progress every batch
+
+    await flushBuffer();
+
     const elapsed = (Date.now() - startTime) / 1000;
     const rate = processedCount / elapsed * 60;
-    logger.info(`[CAMPAIGN] ${campaignId}: Progress ${processedCount}/${total} (${rate.toFixed(0)}/min) - Sent: ${totalSent}, Failed: ${totalFailed}`);
+    logger.info(`[CAMPAIGN] ${campaignId}: Progress ${processedCount}/${total} (${rate.toFixed(0)}/min, ${(rate/60).toFixed(1)}/s) - Sent: ${totalSent}, Failed: ${totalFailed}`);
   }
-  
-  // Clean up transporter connection pool when done
+
+  await flushBuffer();
+
   if (mta) {
     closeTransporter(mta.id);
-    logger.info(`Campaign ${campaignId}: Closed SMTP connection for MTA ${mta.name}`);
   }
-  
-  // Final update - use atomic status change with expected status check
-  const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
-  if (wasCompleted) {
-    await storage.updateCampaign(campaignId, {
-      completedAt: new Date(),
-      pendingCount: 0,
-    });
-    
-    const finalCampaign = await storage.getCampaign(campaignId);
-    logger.info(`Campaign ${campaignId} completed: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
+  closeNullsinkTransporter();
+
+  if (!shouldStop) {
+    const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
+    if (wasCompleted) {
+      await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
+      const finalCampaign = await storage.getCampaign(campaignId);
+      logger.info(`Campaign ${campaignId} completed: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
+    }
+  } else {
+    logger.info(`[CAMPAIGN] ${campaignId}: Stopped at ${processedCount} processed, sent: ${totalSent}, failed: ${totalFailed}`);
   }
 }
