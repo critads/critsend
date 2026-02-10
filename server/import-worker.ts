@@ -14,14 +14,16 @@ if (!connectionString) {
 }
 
 const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SSL === "true";
+const maskedUrl = connectionString.replace(/\/\/([^:]+):([^@]+)@/, "//$1:***@");
+log("info", `Worker DB connection: ${maskedUrl.substring(0, 80)}...`, { isExternalDb });
 
 const pool = new Pool({
   connectionString,
   max: 8,
   min: 1,
-  idleTimeoutMillis: 20000,
-  connectionTimeoutMillis: 15000,
-  statement_timeout: 120000,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 30000,
+  statement_timeout: 180000,
   ...(isExternalDb ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 
@@ -36,6 +38,26 @@ pool.on("connect", (client) => {
 });
 
 const db = drizzle(pool);
+
+async function ensureDbConnection(maxRetries = 3): Promise<void> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const client = await pool.connect();
+      await client.query("SELECT 1");
+      client.release();
+      log("info", `DB connection established on attempt ${attempt}`);
+      return;
+    } catch (err: any) {
+      log("warn", `DB connection attempt ${attempt}/${maxRetries} failed: ${err.message}`);
+      if (attempt < maxRetries) {
+        const delay = attempt * 3000;
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        throw new Error(`Failed to connect to database after ${maxRetries} attempts: ${err.message}`);
+      }
+    }
+  }
+}
 
 const objectStorageService = new ObjectStorageService();
 
@@ -438,6 +460,8 @@ async function bulkUpsertSubscribers(
 
 async function processImport(queueId: string, importJobId: string, csvFilePath: string) {
   log("info", `Processing job ${importJobId} from file: ${csvFilePath}`);
+
+  await ensureDbConnection();
 
   const isObjectStorage = csvFilePath.startsWith("/objects/");
   let fileSizeBytes: number;
