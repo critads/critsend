@@ -8,13 +8,13 @@ import {
   verifyTransporter,
 } from "../email-service";
 import { logger } from "../logger";
-import type { InsertNullsinkCapture } from "@shared/schema";
+import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 
 export const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: number }> = {
   slow: { emailsPerMinute: 500, concurrency: 5 },
-  medium: { emailsPerMinute: 1500, concurrency: 20 },
-  fast: { emailsPerMinute: 3000, concurrency: 50 },
-  godzilla: { emailsPerMinute: 60000, concurrency: 200 },
+  medium: { emailsPerMinute: 2000, concurrency: 30 },
+  fast: { emailsPerMinute: 5000, concurrency: 80 },
+  godzilla: { emailsPerMinute: 60000, concurrency: 250 },
 };
 
 export async function processCampaignInternal(campaignId: string, jobId?: string) {
@@ -61,14 +61,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   const { emailsPerMinute, concurrency } = speedConfig;
   const isNullsink = mta && (mta as any).mode === "nullsink";
 
-  logger.info(`[CAMPAIGN] ${campaignId}: Starting send engine - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min, Mode: ${isNullsink ? 'nullsink-batch' : 'smtp'}`);
-
-  const BATCH_SIZE = 5000;
-  const FLUSH_THRESHOLD = 1000;
-  const FLUSH_INTERVAL_MS = 3000;
+  const BATCH_SIZE = isNullsink ? 15000 : 10000;
+  const FLUSH_THRESHOLD = isNullsink ? 5000 : 2500;
+  const FLUSH_INTERVAL_MS = isNullsink ? 5000 : 3000;
   const HEARTBEAT_INTERVAL = 30000;
-  const STATUS_CHECK_INTERVAL = 5000;
+  const STATUS_CHECK_INTERVAL = 10000;
   const MAX_CONSECUTIVE_FAILURES = 10;
+
+  logger.info(`[CAMPAIGN] ${campaignId}: Starting send engine V3 - Speed: ${speedKey}, Concurrency: ${concurrency}, Rate: ${emailsPerMinute}/min, Mode: ${isNullsink ? 'nullsink-batch' : 'smtp'}, BatchSize: ${BATCH_SIZE}, FlushAt: ${FLUSH_THRESHOLD}`);
 
   let cursorId: string | undefined = undefined;
   let processedCount = 0;
@@ -102,35 +102,81 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   const pendingFailedIds: string[] = [];
   const pendingCaptures: InsertNullsinkCapture[] = [];
   let lastFlushTime = Date.now();
+  let flushPromise: Promise<void> | null = null;
 
   async function flushBuffer(): Promise<void> {
+    if (flushPromise) {
+      await flushPromise;
+    }
     if (pendingSuccessIds.length === 0 && pendingFailedIds.length === 0) return;
 
     const successBatch = pendingSuccessIds.splice(0);
     const failedBatch = pendingFailedIds.splice(0);
     const captureBatch = pendingCaptures.splice(0);
 
-    try {
-      await storage.bulkFinalizeSends(campaignId, successBatch, failedBatch);
-    } catch (err: any) {
-      logger.error(`[CAMPAIGN] ${campaignId}: Bulk finalize failed, falling back: ${err.message}`);
-      for (const sid of successBatch) {
-        try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
-          await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+    const doFlush = async () => {
+      try {
+        const flushOps: Promise<void>[] = [
+          storage.bulkFinalizeSends(campaignId, successBatch, failedBatch),
+        ];
+        if (captureBatch.length > 0) {
+          flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch(() => {}));
+        }
+        await Promise.all(flushOps);
+      } catch (err: any) {
+        logger.error(`[CAMPAIGN] ${campaignId}: Bulk finalize failed, falling back: ${err.message}`);
+        for (const sid of successBatch) {
+          try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
+            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+          }
+        }
+        for (const sid of failedBatch) {
+          try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
+            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+          }
         }
       }
-      for (const sid of failedBatch) {
-        try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
-          await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+      lastFlushTime = Date.now();
+    };
+
+    flushPromise = doFlush();
+    await flushPromise;
+    flushPromise = null;
+  }
+
+  async function flushBufferAsync(): Promise<void> {
+    if (flushPromise) return;
+    if (pendingSuccessIds.length === 0 && pendingFailedIds.length === 0) return;
+
+    const successBatch = pendingSuccessIds.splice(0);
+    const failedBatch = pendingFailedIds.splice(0);
+    const captureBatch = pendingCaptures.splice(0);
+
+    flushPromise = (async () => {
+      try {
+        const flushOps: Promise<void>[] = [
+          storage.bulkFinalizeSends(campaignId, successBatch, failedBatch),
+        ];
+        if (captureBatch.length > 0) {
+          flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch(() => {}));
+        }
+        await Promise.all(flushOps);
+      } catch (err: any) {
+        logger.error(`[CAMPAIGN] ${campaignId}: Async flush failed: ${err.message}`);
+        for (const sid of successBatch) {
+          try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
+            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+          }
+        }
+        for (const sid of failedBatch) {
+          try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
+            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+          }
         }
       }
-    }
-
-    if (captureBatch.length > 0) {
-      try { await storage.bulkCreateNullsinkCaptures(captureBatch); } catch (e) {}
-    }
-
-    lastFlushTime = Date.now();
+      lastFlushTime = Date.now();
+      flushPromise = null;
+    })();
   }
 
   function shouldFlush(): boolean {
@@ -149,13 +195,28 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       lastHeartbeat = now;
     }
     if (now - lastStatusCheck >= STATUS_CHECK_INTERVAL) {
-      const currentCampaign = await storage.getCampaign(campaignId);
-      cachedStatus = currentCampaign?.status || "cancelled";
+      cachedStatus = (await storage.getCampaignStatus(campaignId)) || "cancelled";
       lastStatusCheck = now;
       if (cachedStatus !== "sending") {
         shouldStop = true;
       }
     }
+  }
+
+  let prefetchedBatch: Subscriber[] | null = null;
+  let prefetchPromise: Promise<Subscriber[]> | null = null;
+
+  function startPrefetch(segmentId: string, cursor: string | undefined): void {
+    prefetchPromise = storage.getSubscribersForSegmentCursor(segmentId, BATCH_SIZE, cursor);
+  }
+
+  async function getNextBatch(segmentId: string, cursor: string | undefined): Promise<Subscriber[]> {
+    if (prefetchPromise) {
+      const batch = await prefetchPromise;
+      prefetchPromise = null;
+      return batch;
+    }
+    return storage.getSubscribersForSegmentCursor(segmentId, BATCH_SIZE, cursor);
   }
 
   while (!shouldStop) {
@@ -171,9 +232,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       break;
     }
 
-    const batch = await storage.getSubscribersForSegmentCursor(campaign.segmentId, BATCH_SIZE, cursorId);
+    const batch = await getNextBatch(campaign.segmentId, cursorId);
     if (batch.length === 0) break;
     cursorId = batch[batch.length - 1].id;
+
+    startPrefetch(campaign.segmentId, cursorId);
 
     const subscriberIds = batch.map(s => s.id);
     let reservedIds: string[];
@@ -195,7 +258,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     if (subscribersToSend.length === 0) continue;
 
     if (isNullsink && mta) {
-      const SUB_BATCH = 1000;
+      const SUB_BATCH = 2500;
       for (let i = 0; i < subscribersToSend.length; i += SUB_BATCH) {
         if (shouldStop) break;
 
@@ -219,10 +282,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         }
 
         if (shouldFlush()) {
-          await flushBuffer();
+          await flushBufferAsync();
         }
 
-        await checkStatusAndHeartbeat();
+        if (i > 0 && i % (SUB_BATCH * 4) === 0) {
+          await checkStatusAndHeartbeat();
+        }
       }
     }
     else if (mta) {
@@ -268,7 +333,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         }
 
         if (shouldFlush()) {
-          await flushBuffer();
+          await flushBufferAsync();
         }
 
         if (batchDelayMs > 0 && i + concurrency < subscribersToSend.length) {
@@ -281,6 +346,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       }
     }
 
+    if (flushPromise) {
+      await flushPromise;
+    }
     await flushBuffer();
 
     const elapsed = (Date.now() - startTime) / 1000;
@@ -288,6 +356,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     logger.info(`[CAMPAIGN] ${campaignId}: Progress ${processedCount}/${total} (${rate.toFixed(0)}/min, ${(rate/60).toFixed(1)}/s) - Sent: ${totalSent}, Failed: ${totalFailed}`);
   }
 
+  if (flushPromise) {
+    await flushPromise;
+  }
   await flushBuffer();
 
   if (mta) {

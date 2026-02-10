@@ -99,6 +99,7 @@ export interface IStorage {
   // ═══════════════════════════════════════════════════════════════
   getCampaigns(): Promise<Campaign[]>;
   getCampaign(id: string): Promise<Campaign | undefined>;
+  getCampaignStatus(id: string): Promise<string | null>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string): Promise<void>;
@@ -676,6 +677,11 @@ export class DatabaseStorage implements IStorage {
     return campaign;
   }
 
+  async getCampaignStatus(id: string): Promise<string | null> {
+    const result = await db.execute(sql`SELECT status FROM campaigns WHERE id = ${id} LIMIT 1`);
+    return result.rows.length > 0 ? (result.rows[0] as any).status : null;
+  }
+
   async getCampaignsByPauseReason(reason: string): Promise<Campaign[]> {
     return db.select().from(campaigns)
       .where(and(eq(campaigns.status, "paused"), eq(campaigns.pauseReason, reason)));
@@ -902,13 +908,10 @@ export class DatabaseStorage implements IStorage {
   async bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]> {
     if (subscriberIds.length === 0) return [];
     
-    const values = subscriberIds.map(sid => 
-      sql`(gen_random_uuid(), ${campaignId}, ${sid}, 'pending', NOW())`
-    );
-    
     const result = await db.execute(sql`
       INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
-      VALUES ${sql.join(values, sql`, `)}
+      SELECT gen_random_uuid(), ${campaignId}, unnest_id, 'pending', NOW()
+      FROM unnest(${subscriberIds}::text[]) AS unnest_id
       ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
       RETURNING subscriber_id
     `);
@@ -923,34 +926,48 @@ export class DatabaseStorage implements IStorage {
     
     if (totalProcessed === 0) return;
     
-    if (successIds.length > 0) {
+    const hasSuccess = successIds.length > 0;
+    const hasFailed = failedIds.length > 0;
+    
+    if (hasSuccess && hasFailed) {
       await db.execute(sql`
-        UPDATE campaign_sends 
-        SET status = 'sent'
-        WHERE campaign_id = ${campaignId} 
-          AND subscriber_id = ANY(${successIds})
-          AND status = 'pending'
+        WITH mark_sent AS (
+          UPDATE campaign_sends SET status = 'sent'
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${successIds}) AND status = 'pending'
+        ),
+        mark_failed AS (
+          UPDATE campaign_sends SET status = 'failed'
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${failedIds}) AND status = 'pending'
+        )
+        UPDATE campaigns SET
+          sent_count = sent_count + ${sentCount},
+          failed_count = failed_count + ${failCount},
+          pending_count = GREATEST(pending_count - ${totalProcessed}, 0)
+        WHERE id = ${campaignId}
+      `);
+    } else if (hasSuccess) {
+      await db.execute(sql`
+        WITH mark_sent AS (
+          UPDATE campaign_sends SET status = 'sent'
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${successIds}) AND status = 'pending'
+        )
+        UPDATE campaigns SET
+          sent_count = sent_count + ${sentCount},
+          pending_count = GREATEST(pending_count - ${sentCount}, 0)
+        WHERE id = ${campaignId}
+      `);
+    } else {
+      await db.execute(sql`
+        WITH mark_failed AS (
+          UPDATE campaign_sends SET status = 'failed'
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${failedIds}) AND status = 'pending'
+        )
+        UPDATE campaigns SET
+          failed_count = failed_count + ${failCount},
+          pending_count = GREATEST(pending_count - ${failCount}, 0)
+        WHERE id = ${campaignId}
       `);
     }
-    
-    if (failedIds.length > 0) {
-      await db.execute(sql`
-        UPDATE campaign_sends 
-        SET status = 'failed'
-        WHERE campaign_id = ${campaignId} 
-          AND subscriber_id = ANY(${failedIds})
-          AND status = 'pending'
-      `);
-    }
-    
-    await db.execute(sql`
-      UPDATE campaigns 
-      SET 
-        sent_count = sent_count + ${sentCount},
-        failed_count = failed_count + ${failCount},
-        pending_count = GREATEST(pending_count - ${totalProcessed}, 0)
-      WHERE id = ${campaignId}
-    `);
   }
 
   async heartbeatJob(jobId: string): Promise<void> {
