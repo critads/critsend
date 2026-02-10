@@ -11,6 +11,37 @@ import { logger } from "./logger";
 
 const transporterPool: Map<string, Transporter> = new Map();
 
+let nullsinkPooledTransporter: Transporter | null = null;
+const NULLSINK_MAX_CONNECTIONS = 200;
+
+export function getNullsinkTransporter(): Transporter {
+  if (nullsinkPooledTransporter) {
+    return nullsinkPooledTransporter;
+  }
+  nullsinkPooledTransporter = nodemailer.createTransport({
+    host: "localhost",
+    port: 2525,
+    secure: false,
+    pool: true,
+    maxConnections: NULLSINK_MAX_CONNECTIONS,
+    maxMessages: Infinity,
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 10000,
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+  return nullsinkPooledTransporter;
+}
+
+export function closeNullsinkTransporter(): void {
+  if (nullsinkPooledTransporter) {
+    nullsinkPooledTransporter.close();
+    nullsinkPooledTransporter = null;
+  }
+}
+
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
@@ -349,15 +380,9 @@ export async function sendEmailWithNullsink(
   trackingOptions: Omit<TrackingOptions, "campaignId" | "subscriberId">,
   customHeaders?: Record<string, string>
 ): Promise<NullsinkSendResult> {
-  logger.info('sendEmailWithNullsink called', { mode: (mta as any).mode });
-  
-  // If MTA is in real mode, use normal sending
   if ((mta as any).mode !== "nullsink") {
-    logger.info('Using real sendEmail because mode is not nullsink');
     return sendEmail(mta, subscriber, campaign, trackingOptions, customHeaders);
   }
-  
-  logger.info('Using nullsink path');
 
   // Nullsink mode - simulate sending
   const startTime = Date.now();
@@ -396,15 +421,7 @@ export async function sendEmailWithNullsink(
 
   const subject = personalizeContent(campaign.subject, subscriber);
 
-  // Create a transporter to the nullsink server
-  const nullsinkTransporter = nodemailer.createTransport({
-    host: "localhost",
-    port: 2525,
-    secure: false,
-    tls: {
-      rejectUnauthorized: false,
-    },
-  });
+  const nullsinkTransporter = getNullsinkTransporter();
 
   const headers: Record<string, string> = {
     "X-Campaign-ID": campaign.id,

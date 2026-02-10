@@ -18,7 +18,7 @@ import {
   importJobQueue,
 } from "@shared/schema";
 import { z } from "zod";
-import { sendEmail, sendEmailWithNullsink, verifyTransporter, closeTransporter } from "./email-service";
+import { sendEmail, sendEmailWithNullsink, verifyTransporter, closeTransporter, closeNullsinkTransporter } from "./email-service";
 import { getNullsinkServer, startNullsinkServer, stopNullsinkServer } from "./nullsink-smtp";
 import { verifyTrackingSignature } from "./tracking";
 import * as cheerio from "cheerio";
@@ -1937,6 +1937,7 @@ export function stopAllBackgroundWorkers() {
   stopMemoryMonitor();
   stopJobProcessor();
   stopTagQueueWorker();
+  closeNullsinkTransporter();
   logger.info("[SHUTDOWN] All background workers stopped");
 }
 
@@ -1944,8 +1945,8 @@ export function stopAllBackgroundWorkers() {
 const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: number }> = {
   slow: { emailsPerMinute: 500, concurrency: 5 },
   medium: { emailsPerMinute: 1500, concurrency: 20 },
-  fast: { emailsPerMinute: 3000, concurrency: 40 },
-  godzilla: { emailsPerMinute: 5000, concurrency: 100 },
+  fast: { emailsPerMinute: 3000, concurrency: 50 },
+  godzilla: { emailsPerMinute: 60000, concurrency: 200 },
 };
 
 // Memory monitoring for long-running workers
@@ -2634,8 +2635,7 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
         }
         
         if (!result.success) {
-          logger.error(`Failed to send to ${subscriber.email}: ${result.error}`);
-          await storage.logError({
+          storage.logError({
             type: "send_failed",
             severity: "error",
             message: `Failed to send email: ${result.error}`,
@@ -2647,9 +2647,8 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
         }
       }
     } catch (error: any) {
-      logger.error(`Exception sending to ${subscriber.email}:`, error.message);
       sendSuccess = false;
-      await storage.logError({
+      storage.logError({
         type: "send_failed",
         severity: "error",
         message: `Exception during email send: ${error?.message || "Unknown error"}`,
@@ -2756,7 +2755,7 @@ async function processCampaignInternal(campaignId: string, jobId?: string) {
     const batchSuccessIds: string[] = [];
     const batchFailedIds: string[] = [];
     const pendingCaptures: import("@shared/schema").InsertNullsinkCapture[] = [];
-    const INTERMEDIATE_FLUSH_SIZE = 200;
+    const INTERMEDIATE_FLUSH_SIZE = 500;
     
     // Process this batch in parallel chunks
     for (let i = 0; i < subscribersToSend.length; i += concurrency) {

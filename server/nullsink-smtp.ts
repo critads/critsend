@@ -69,8 +69,9 @@ class NullsinkSMTPServer extends EventEmitter {
         authOptional: true,
         disabledCommands: ["STARTTLS"],
         
+        maxClients: 250,
+        
         onConnect: (session: SMTPServerSession, callback: (err?: Error) => void) => {
-          logger.info('NULLSINK connection received', { remoteAddress: session.remoteAddress });
           callback();
         },
 
