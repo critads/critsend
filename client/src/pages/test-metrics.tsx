@@ -134,16 +134,20 @@ export default function TestMetrics() {
   const { data: status, isLoading: statusLoading } = useQuery<NullsinkStatus>({
     queryKey: ["/api/nullsink/status"],
     refetchInterval: 2000,
+    staleTime: 0,
   });
 
   const { data: metrics, isLoading: metricsLoading } = useQuery<NullsinkMetrics>({
     queryKey: ["/api/nullsink/metrics"],
-    refetchInterval: 3000,
+    refetchInterval: 2000,
+    staleTime: 0,
   });
 
+  const offset = (page - 1) * limit;
   const { data: captures, isLoading: capturesLoading } = useQuery<CapturesResponse>({
-    queryKey: ["/api/nullsink/captures", page, limit],
+    queryKey: [`/api/nullsink/captures?offset=${offset}&limit=${limit}`],
     refetchInterval: 3000,
+    staleTime: 0,
   });
 
   const startMutation = useMutation({
@@ -171,9 +175,10 @@ export default function TestMetrics() {
   const clearMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", "/api/nullsink/captures"),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/nullsink/captures"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/nullsink/metrics"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/nullsink/status"] });
+      queryClient.invalidateQueries({ predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith("/api/nullsink/");
+      }});
       toast({ title: "Test data cleared" });
     },
     onError: () => {
@@ -184,13 +189,19 @@ export default function TestMetrics() {
   const isRunning = status?.running ?? false;
   const dbMetrics = metrics?.database;
   const liveMetrics = metrics?.live || status?.metrics;
-  const totalEmails = dbMetrics?.totalEmails ?? liveMetrics?.totalEmails ?? 0;
-  const successfulEmails = dbMetrics?.successfulEmails ?? liveMetrics?.successfulEmails ?? 0;
-  const failedEmails = dbMetrics?.failedEmails ?? liveMetrics?.failedEmails ?? 0;
+  const dbTotal = dbMetrics?.totalEmails || 0;
+  const liveTotal = liveMetrics?.totalEmails || 0;
+  const totalEmails = Math.max(dbTotal, liveTotal);
+  const dbSuccess = dbMetrics?.successfulEmails || 0;
+  const liveSuccess = liveMetrics?.successfulEmails || 0;
+  const successfulEmails = Math.max(dbSuccess, liveSuccess);
+  const dbFailed = dbMetrics?.failedEmails || 0;
+  const liveFailed = liveMetrics?.failedEmails || 0;
+  const failedEmails = Math.max(dbFailed, liveFailed);
   const successRate = totalEmails > 0 ? (successfulEmails / totalEmails * 100).toFixed(1) : "0.0";
   const failureRate = totalEmails > 0 ? (failedEmails / totalEmails * 100).toFixed(1) : "0.0";
-  const avgTime = dbMetrics?.averageTotalTimeMs ?? liveMetrics?.averageTimeMs ?? 0;
-  const emailsPerSecond = liveMetrics?.emailsPerSecond ?? dbMetrics?.emailsPerSecond ?? 0;
+  const avgTime = dbMetrics?.averageTotalTimeMs || liveMetrics?.averageTimeMs || 0;
+  const emailsPerSecond = liveMetrics?.emailsPerSecond || dbMetrics?.emailsPerSecond || 0;
 
   const totalPages = captures ? Math.ceil(captures.total / limit) : 1;
 
@@ -296,7 +307,10 @@ export default function TestMetrics() {
             variant="ghost"
             size="icon"
             onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/nullsink/captures"] });
+              queryClient.invalidateQueries({ predicate: (query) => {
+                const key = query.queryKey[0];
+                return typeof key === "string" && key.startsWith("/api/nullsink/captures");
+              }});
             }}
             data-testid="button-refresh-captures"
           >
