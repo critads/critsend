@@ -34,6 +34,7 @@ interface NullsinkMetrics {
     failedEmails: number;
     averageHandshakeTimeMs: number;
     averageTotalTimeMs: number;
+    emailsPerSecond: number;
   };
   live: {
     totalEmails: number;
@@ -137,12 +138,12 @@ export default function TestMetrics() {
 
   const { data: metrics, isLoading: metricsLoading } = useQuery<NullsinkMetrics>({
     queryKey: ["/api/nullsink/metrics"],
-    refetchInterval: status?.running ? 2000 : false,
+    refetchInterval: 3000,
   });
 
   const { data: captures, isLoading: capturesLoading } = useQuery<CapturesResponse>({
     queryKey: ["/api/nullsink/captures", page, limit],
-    refetchInterval: status?.running ? 2000 : false,
+    refetchInterval: 3000,
   });
 
   const startMutation = useMutation({
@@ -181,14 +182,15 @@ export default function TestMetrics() {
   });
 
   const isRunning = status?.running ?? false;
+  const dbMetrics = metrics?.database;
   const liveMetrics = metrics?.live || status?.metrics;
-  const totalEmails = liveMetrics?.totalEmails ?? 0;
-  const successfulEmails = liveMetrics?.successfulEmails ?? 0;
-  const failedEmails = liveMetrics?.failedEmails ?? 0;
+  const totalEmails = dbMetrics?.totalEmails ?? liveMetrics?.totalEmails ?? 0;
+  const successfulEmails = dbMetrics?.successfulEmails ?? liveMetrics?.successfulEmails ?? 0;
+  const failedEmails = dbMetrics?.failedEmails ?? liveMetrics?.failedEmails ?? 0;
   const successRate = totalEmails > 0 ? (successfulEmails / totalEmails * 100).toFixed(1) : "0.0";
   const failureRate = totalEmails > 0 ? (failedEmails / totalEmails * 100).toFixed(1) : "0.0";
-  const avgTime = liveMetrics?.averageTimeMs ?? 0;
-  const emailsPerSecond = liveMetrics?.emailsPerSecond ?? 0;
+  const avgTime = dbMetrics?.averageTotalTimeMs ?? liveMetrics?.averageTimeMs ?? 0;
+  const emailsPerSecond = liveMetrics?.emailsPerSecond ?? dbMetrics?.emailsPerSecond ?? 0;
 
   const totalPages = captures ? Math.ceil(captures.total / limit) : 1;
 
