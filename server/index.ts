@@ -156,7 +156,7 @@ app.use(express.urlencoded({ extended: false }));
 // Request timeout middleware - prevents hung connections from consuming resources
 app.use((req: Request, res: Response, next: NextFunction) => {
   // Long timeout for import/campaign/export endpoints that do heavy processing
-  const longPaths = ['/api/import', '/api/campaigns', '/api/export', '/api/subscribers/flush'];
+  const longPaths = ['/api/import', '/api/campaigns', '/api/export', '/api/subscribers/flush', '/api/segments'];
   const isLongRequest = longPaths.some(p => req.path.startsWith(p));
   const timeout = isLongRequest ? 300000 : 30000; // 5min for heavy ops, 30s for normal
   

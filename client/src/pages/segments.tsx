@@ -9,6 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -31,8 +39,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Filter, Plus, MoreVertical, Trash2, Edit2, Users, X, Mail, Tag, Calendar, Globe, Layers } from "lucide-react";
-import type { Segment, SegmentRule, SegmentRuleGroup, SegmentRuleItem } from "@shared/schema";
+import { Filter, Plus, MoreVertical, Trash2, Edit2, Users, X, Mail, Tag, Calendar, Globe, Layers, Eye, Download, ChevronLeft, ChevronRight } from "lucide-react";
+import type { Segment, SegmentRule, SegmentRuleGroup, SegmentRuleItem, Subscriber } from "@shared/schema";
 import { fieldOperators, operatorLabels } from "@shared/schema";
 
 const fieldLabels: Record<string, string> = {
@@ -42,10 +50,21 @@ const fieldLabels: Record<string, string> = {
   ip_address: "IP Address",
 };
 
+interface SegmentSubscribersResponse {
+  subscribers: Subscriber[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export default function Segments() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Segment | null>(null);
+  const [viewingSegment, setViewingSegment] = useState<Segment | null>(null);
+  const [viewPage, setViewPage] = useState(1);
+  const [isExporting, setIsExporting] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rules, setRules] = useState<SegmentRuleItem[]>([
@@ -63,6 +82,49 @@ export default function Segments() {
     queryKey: ["/api/segments/counts"],
     enabled: !!segments && segments.length > 0,
   });
+
+  const { data: segmentSubscribers, isLoading: isLoadingSubscribers } = useQuery<SegmentSubscribersResponse>({
+    queryKey: ["/api/segments", viewingSegment?.id, "subscribers", viewPage],
+    queryFn: async () => {
+      const res = await fetch(`/api/segments/${viewingSegment!.id}/subscribers?page=${viewPage}&limit=50`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch subscribers");
+      return res.json();
+    },
+    enabled: !!viewingSegment,
+  });
+
+  const handleExportSegment = async (segment: Segment) => {
+    setIsExporting(segment.id);
+    try {
+      const response = await fetch(`/api/segments/${segment.id}/export`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `segment-${segment.name.replace(/[^a-zA-Z0-9]/g, "_")}-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      toast({
+        title: "Export started",
+        description: `Segment "${segment.name}" exported successfully.`,
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to export segment. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(null);
+    }
+  };
 
   const isGroup = (item: SegmentRuleItem): item is SegmentRuleGroup => {
     return 'type' in item && item.type === "group";
@@ -163,7 +225,7 @@ export default function Segments() {
       const rule = item as SegmentRule;
       if (updates.field && updates.field !== rule.field) {
         const newOperators = fieldOperators[updates.field as keyof typeof fieldOperators];
-        const operatorValid = newOperators.includes(rule.operator as any);
+        const operatorValid = (newOperators as readonly string[]).includes(rule.operator);
         return { 
           ...rule, 
           ...updates, 
@@ -227,7 +289,7 @@ export default function Segments() {
           if (ri !== ruleIndex) return rule;
           if (updates.field && updates.field !== rule.field) {
             const newOperators = fieldOperators[updates.field as keyof typeof fieldOperators];
-            const operatorValid = newOperators?.includes(rule.operator as any);
+            const operatorValid = (newOperators as readonly string[])?.includes(rule.operator);
             return { ...rule, ...updates, operator: operatorValid ? rule.operator : (newOperators?.[0] || "contains"), value: "", value2: undefined } as SegmentRule;
           }
           return { ...rule, ...updates };
@@ -656,6 +718,24 @@ const segmentFormContent = (
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setViewPage(1);
+                        setViewingSegment(segment);
+                      }}
+                      data-testid={`menu-view-subscribers-${segment.id}`}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Subscribers
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleExportSegment(segment)}
+                      disabled={isExporting === segment.id}
+                      data-testid={`menu-export-segment-${segment.id}`}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      {isExporting === segment.id ? "Exporting..." : "Export CSV"}
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => handleEditClick(segment)}>
                       <Edit2 className="h-4 w-4 mr-2" />
                       Edit
@@ -779,6 +859,121 @@ const segmentFormContent = (
               data-testid="button-confirm-delete-segment"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingSegment} onOpenChange={(open) => { if (!open) { setViewingSegment(null); setViewPage(1); } }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              {viewingSegment?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {segmentSubscribers
+                ? `${segmentSubscribers.total.toLocaleString()} matching subscribers`
+                : "Loading subscribers..."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            {isLoadingSubscribers ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : segmentSubscribers && segmentSubscribers.subscribers.length > 0 ? (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Tags</TableHead>
+                      <TableHead>Import Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {segmentSubscribers.subscribers.map((sub) => (
+                      <TableRow key={sub.id} data-testid={`segment-subscriber-row-${sub.id}`}>
+                        <TableCell className="font-mono text-sm">{sub.email}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {sub.tags && sub.tags.length > 0 ? (
+                              sub.tags.slice(0, 3).map((tag) => (
+                                <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                              ))
+                            ) : (
+                              <span className="text-muted-foreground text-sm">None</span>
+                            )}
+                            {sub.tags && sub.tags.length > 3 && (
+                              <Badge variant="outline" className="text-xs">+{sub.tags.length - 3}</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {new Date(sub.importDate).toLocaleDateString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Users className="h-12 w-12 text-muted-foreground/50 mb-3" />
+                <p className="text-muted-foreground">No subscribers match this segment's rules.</p>
+              </div>
+            )}
+          </div>
+          {segmentSubscribers && segmentSubscribers.totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4 border-t flex-wrap gap-4">
+              <p className="text-sm text-muted-foreground">
+                Showing {((viewPage - 1) * 50) + 1} to{" "}
+                {Math.min(viewPage * 50, segmentSubscribers.total)} of {segmentSubscribers.total.toLocaleString()}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setViewPage(viewPage - 1)}
+                  disabled={viewPage === 1}
+                  data-testid="button-view-prev-page"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {viewPage} of {segmentSubscribers.totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setViewPage(viewPage + 1)}
+                  disabled={viewPage >= segmentSubscribers.totalPages}
+                  data-testid="button-view-next-page"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            {viewingSegment && (
+              <Button
+                variant="outline"
+                onClick={() => handleExportSegment(viewingSegment)}
+                disabled={isExporting === viewingSegment.id}
+                data-testid="button-export-from-view"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {isExporting === viewingSegment.id ? "Exporting..." : "Export CSV"}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setViewingSegment(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

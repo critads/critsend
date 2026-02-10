@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { Label } from "@/components/ui/label";
 import { 
   Search, 
   MoreVertical, 
@@ -53,6 +54,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
+  Filter,
 } from "lucide-react";
 import type { Subscriber } from "@shared/schema";
 
@@ -76,6 +78,8 @@ export default function Subscribers() {
   const [newSubscriberTag, setNewSubscriberTag] = useState("");
   const [showFlushConfirm, setShowFlushConfirm] = useState(false);
   const [flushJobId, setFlushJobId] = useState<string | null>(null);
+  const [showSaveSegmentDialog, setShowSaveSegmentDialog] = useState(false);
+  const [segmentName, setSegmentName] = useState("");
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<SubscribersResponse>({
@@ -259,6 +263,37 @@ export default function Subscribers() {
     },
   });
 
+  const saveAsSegmentMutation = useMutation({
+    mutationFn: (data: { name: string; rules: any[] }) =>
+      apiRequest("POST", "/api/segments", { name: data.name, description: `Created from search: "${search}"`, rules: data.rules }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      setShowSaveSegmentDialog(false);
+      setSegmentName("");
+      toast({
+        title: "Segment created",
+        description: "Your search has been saved as a segment.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to create segment. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveAsSegment = () => {
+    if (!segmentName.trim() || !search.trim()) return;
+    const searchTerm = search.trim();
+    const rules = [
+      { field: "email", operator: "contains", value: searchTerm },
+      { field: "tags", operator: "contains", value: searchTerm.toUpperCase(), logic: "OR" },
+    ];
+    saveAsSegmentMutation.mutate({ name: segmentName.trim(), rules });
+  };
+
   const handleAddNewSubscriberTag = () => {
     if (newSubscriberTag.trim()) {
       setNewSubscriberTags([...newSubscriberTags, newSubscriberTag.trim().toUpperCase()]);
@@ -334,18 +369,34 @@ export default function Subscribers() {
             <Users className="h-5 w-5" />
             All Subscribers
           </CardTitle>
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by email or tag..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="pl-9"
-              data-testid="input-search-subscribers"
-            />
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by email or tag..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                className="pl-9"
+                data-testid="input-search-subscribers"
+              />
+            </div>
+            {search.trim() && data && data.total > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSegmentName("");
+                  setShowSaveSegmentDialog(true);
+                }}
+                data-testid="button-save-search-as-segment"
+              >
+                <Filter className="h-4 w-4 mr-1" />
+                Save as Segment
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -756,6 +807,53 @@ export default function Subscribers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showSaveSegmentDialog} onOpenChange={setShowSaveSegmentDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="h-5 w-5" />
+              Save Search as Segment
+            </DialogTitle>
+            <DialogDescription>
+              Create a segment from your current search "{search}". This will match subscribers by email or tag containing this term.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="segment-name">Segment Name</Label>
+              <Input
+                id="segment-name"
+                placeholder="e.g., Gmail Users"
+                value={segmentName}
+                onChange={(e) => setSegmentName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveAsSegment()}
+                data-testid="input-save-segment-name"
+              />
+            </div>
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>Rules that will be created:</p>
+              <div className="flex flex-wrap gap-1 items-center">
+                <Badge variant="secondary" className="text-xs">Email contains "{search}"</Badge>
+                <Badge variant="outline" className="text-xs">OR</Badge>
+                <Badge variant="secondary" className="text-xs">Tag contains "{search.toUpperCase()}"</Badge>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveSegmentDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveAsSegment}
+              disabled={saveAsSegmentMutation.isPending || !segmentName.trim()}
+              data-testid="button-confirm-save-segment"
+            >
+              {saveAsSegmentMutation.isPending ? "Creating..." : "Create Segment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
