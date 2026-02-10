@@ -49,99 +49,90 @@ import { logger } from "./logger";
 import bcrypt from "bcrypt";
 
 export interface IStorage {
-  // Subscribers
+  // ═══════════════════════════════════════════════════════════════
+  // SUBSCRIBER MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
   getSubscribers(page: number, limit: number, search?: string): Promise<{ subscribers: Subscriber[]; total: number }>;
   getSubscriber(id: string): Promise<Subscriber | undefined>;
   getSubscriberByEmail(email: string): Promise<Subscriber | undefined>;
   createSubscriber(data: InsertSubscriber): Promise<Subscriber>;
   updateSubscriber(id: string, data: Partial<InsertSubscriber>): Promise<Subscriber | undefined>;
   deleteSubscriber(id: string): Promise<void>;
-  deleteAllSubscribers(): Promise<number>;
+  deleteAllSubscribers(): Promise<number>; // NOTE: Potentially dead code - no callers found outside storage.ts (replaced by flush jobs)
+
+  // ═══════════════════════════════════════════════════════════════
+  // SEGMENT OPERATIONS
+  // ═══════════════════════════════════════════════════════════════
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string): Promise<number>;
   countSubscribersForRules(rules: any[]): Promise<number>;
-  
-  // Segments
   getSegments(): Promise<Segment[]>;
   getSegment(id: string): Promise<Segment | undefined>;
   createSegment(data: InsertSegment): Promise<Segment>;
   updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined>;
   deleteSegment(id: string): Promise<void>;
-  
-  // MTAs
+  getSegmentSubscriberCountCached(segmentId: string): Promise<number>;
+  invalidateSegmentCountCache(segmentId?: string): void;
+
+  // ═══════════════════════════════════════════════════════════════
+  // MTA MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
   getMtas(): Promise<Mta[]>;
   getMta(id: string): Promise<Mta | undefined>;
   createMta(data: InsertMta): Promise<Mta>;
   updateMta(id: string, data: Partial<InsertMta>): Promise<Mta | undefined>;
   deleteMta(id: string): Promise<void>;
-  
-  // Email Headers
+
+  // ═══════════════════════════════════════════════════════════════
+  // EMAIL HEADERS
+  // ═══════════════════════════════════════════════════════════════
   getHeaders(): Promise<EmailHeader[]>;
   getDefaultHeaders(): Promise<EmailHeader[]>;
   getHeader(id: string): Promise<EmailHeader | undefined>;
   createHeader(data: InsertEmailHeader): Promise<EmailHeader>;
   updateHeader(id: string, data: Partial<InsertEmailHeader>): Promise<EmailHeader | undefined>;
   deleteHeader(id: string): Promise<void>;
-  
-  // Campaigns
+
+  // ═══════════════════════════════════════════════════════════════
+  // CAMPAIGN MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
   getCampaigns(): Promise<Campaign[]>;
   getCampaign(id: string): Promise<Campaign | undefined>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string): Promise<void>;
   copyCampaign(id: string): Promise<Campaign | undefined>;
-  
-  // Campaign Stats
+
+  // ═══════════════════════════════════════════════════════════════
+  // CAMPAIGN SENDING & TRACKING
+  // ═══════════════════════════════════════════════════════════════
   addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string): Promise<void>;
   getCampaignStats(campaignId: string): Promise<CampaignStat[]>;
-  
-  // Campaign Sends - for preventing duplicate emails
-  recordCampaignSend(campaignId: string, subscriberId: string, status?: string): Promise<boolean>;
-  wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean>;
-  getCampaignSendCount(campaignId: string): Promise<number>;
-  
-  // Atomic campaign counter updates (thread-safe)
+  recordCampaignSend(campaignId: string, subscriberId: string, status?: string): Promise<boolean>; // NOTE: DEPRECATED - throws error, use reserveSendSlot() + finalizeSend()
+  wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean>; // NOTE: Potentially dead code - no callers found outside storage.ts
+  getCampaignSendCount(campaignId: string): Promise<number>; // NOTE: Potentially dead code - no callers found outside storage.ts
   incrementCampaignSentCount(campaignId: string, increment?: number): Promise<void>;
   incrementCampaignFailedCount(campaignId: string, increment?: number): Promise<void>;
   decrementCampaignPendingCount(campaignId: string, decrement?: number): Promise<void>;
-  
-  // Atomic campaign status update with row locking
   updateCampaignStatusAtomic(campaignId: string, newStatus: string, expectedStatus?: string): Promise<boolean>;
-  
-  // Two-phase send recording for proper race condition prevention
-  // Step 1: Reserve slot BEFORE sending (prevents duplicate sends)
   reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean>;
-  // Step 2: Finalize after SMTP attempt (update status + counters atomically)
-  // Throws error if no pending row found (invariant violation)
   finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void>;
-  // Combined method (for simple use cases)
-  recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>;
-  // Recovery: Clean up orphaned pending sends (from crashes/anomalies)
-  // Marks stale pending rows as failed and adjusts counters
+  recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>; // NOTE: Potentially dead code - no callers found outside storage.ts
   recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes?: number): Promise<number>;
-  // Force-fail a specific pending send (for reconciliation during invariant violations)
   forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
-  
-  // Bulk send operations (batched for performance)
   bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]>;
   bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void>;
   heartbeatJob(jobId: string): Promise<void>;
-  
-  // Tracking deduplication - returns true if this is the first open/click for this subscriber
   recordFirstOpen(campaignId: string, subscriberId: string): Promise<boolean>;
   recordFirstClick(campaignId: string, subscriberId: string): Promise<boolean>;
-  getCampaignSend(campaignId: string, subscriberId: string): Promise<CampaignSend | undefined>;
+  getCampaignSend(campaignId: string, subscriberId: string): Promise<CampaignSend | undefined>; // NOTE: Potentially dead code - no callers found outside storage.ts
   getUniqueOpenCount(campaignId: string): Promise<number>;
   getUniqueClickCount(campaignId: string): Promise<number>;
-  
-  // Import Jobs
-  getImportJobs(): Promise<ImportJob[]>;
-  getImportJob(id: string): Promise<ImportJob | undefined>;
-  createImportJob(data: InsertImportJob): Promise<ImportJob>;
-  updateImportJob(id: string, data: Partial<ImportJob>): Promise<ImportJob | undefined>;
-  
-  // Campaign Job Queue (PostgreSQL-backed)
+
+  // ═══════════════════════════════════════════════════════════════
+  // CAMPAIGN JOB QUEUE
+  // ═══════════════════════════════════════════════════════════════
   enqueueCampaignJob(campaignId: string): Promise<CampaignJob>;
   claimNextJob(workerId: string): Promise<CampaignJob | null>;
   completeJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
@@ -149,8 +140,14 @@ export interface IStorage {
   getJobStatus(campaignId: string): Promise<CampaignJobStatus | null>;
   getActiveJobs(): Promise<CampaignJob[]>;
   cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
-  
-  // Import Job Queue (PostgreSQL-backed with file storage)
+
+  // ═══════════════════════════════════════════════════════════════
+  // IMPORT JOB MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+  getImportJobs(): Promise<ImportJob[]>;
+  getImportJob(id: string): Promise<ImportJob | undefined>;
+  createImportJob(data: InsertImportJob): Promise<ImportJob>;
+  updateImportJob(id: string, data: Partial<ImportJob>): Promise<ImportJob | undefined>;
   enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number, fileSizeBytes?: number): Promise<ImportJobQueueItem>;
   claimNextImportJob(workerId: string): Promise<ImportJobQueueItem | null>;
   updateImportQueueProgress(queueId: string, processedLines: number): Promise<void>;
@@ -161,38 +158,18 @@ export interface IStorage {
   getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
   recoverStuckImportJobs(): Promise<number>;
-  
-  // GIN Index Management (for large import optimization)
+
+  // ═══════════════════════════════════════════════════════════════
+  // DATABASE INDEX MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
   dropSubscriberGinIndexes(): Promise<void>;
   recreateSubscriberGinIndexes(): Promise<void>;
   areGinIndexesPresent(): Promise<boolean>;
-  
-  // Trigram Index for fast ILIKE searches
   ensureTrigramIndex(): Promise<void>;
-  
-  // Segment Count Caching
-  getSegmentSubscriberCountCached(segmentId: string): Promise<number>;
-  invalidateSegmentCountCache(segmentId?: string): void;
-  
-  // Error Logs
-  logError(data: InsertErrorLog): Promise<ErrorLog>;
-  getErrorLogs(options?: {
-    page?: number;
-    limit?: number;
-    type?: string;
-    severity?: string;
-    campaignId?: string;
-    importJobId?: string;
-  }): Promise<{ logs: ErrorLog[]; total: number }>;
-  getErrorLogStats(): Promise<{
-    total: number;
-    byType: Record<string, number>;
-    bySeverity: Record<string, number>;
-    last24Hours: number;
-  }>;
-  clearErrorLogs(beforeDate?: Date): Promise<number>;
-  
-  // Tag Queue Operations (for reliable tag additions with retry logic)
+
+  // ═══════════════════════════════════════════════════════════════
+  // TAG OPERATIONS
+  // ═══════════════════════════════════════════════════════════════
   enqueueTagOperation(subscriberId: string, tagValue: string, eventType: "open" | "click" | "unsubscribe", campaignId?: string): Promise<void>;
   claimPendingTagOperations(limit?: number): Promise<Array<{ id: string; subscriberId: string; tagValue: string; eventType: string; retryCount: number }>>;
   completeTagOperation(operationId: string): Promise<void>;
@@ -200,28 +177,10 @@ export interface IStorage {
   getTagQueueStats(): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
   cleanupCompletedTagOperations(olderThanDays?: number): Promise<number>;
   addTagToSubscriber(subscriberId: string, tagValue: string): Promise<boolean>;
-  
-  // Flush Jobs (for subscriber deletion with progress)
-  createFlushJob(totalRows: number): Promise<FlushJob>;
-  getFlushJob(id: string): Promise<FlushJob | undefined>;
-  claimFlushJob(workerId: string): Promise<FlushJob | null>;
-  updateFlushJobProgress(jobId: string, processedRows: number): Promise<void>;
-  completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void>;
-  cancelFlushJob(jobId: string): Promise<boolean>;
-  clearSubscriberDependencies(): Promise<void>;
-  deleteSubscriberBatch(batchSize: number): Promise<number>;
-  countAllSubscribers(): Promise<number>;
-  
-  // Users
-  createUser(data: { username: string; password: string }): Promise<any>;
-  getUserByUsername(username: string): Promise<any | null>;
-  getUserById(id: string): Promise<any | null>;
-  getUserCount(): Promise<number>;
 
-  // Health Check
-  healthCheck(): Promise<boolean>;
-  
-  // Nullsink Captures
+  // ═══════════════════════════════════════════════════════════════
+  // NULLSINK
+  // ═══════════════════════════════════════════════════════════════
   createNullsinkCapture(data: InsertNullsinkCapture): Promise<NullsinkCapture>;
   bulkCreateNullsinkCaptures(data: InsertNullsinkCapture[]): Promise<void>;
   getNullsinkCaptures(options?: {
@@ -238,8 +197,52 @@ export interface IStorage {
     emailsPerSecond: number;
   }>;
   clearNullsinkCaptures(campaignId?: string): Promise<number>;
-  
-  // Dashboard
+
+  // ═══════════════════════════════════════════════════════════════
+  // FLUSH JOBS
+  // ═══════════════════════════════════════════════════════════════
+  createFlushJob(totalRows: number): Promise<FlushJob>;
+  getFlushJob(id: string): Promise<FlushJob | undefined>;
+  claimFlushJob(workerId: string): Promise<FlushJob | null>;
+  updateFlushJobProgress(jobId: string, processedRows: number): Promise<void>;
+  completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void>;
+  cancelFlushJob(jobId: string): Promise<boolean>;
+  clearSubscriberDependencies(): Promise<void>;
+  deleteSubscriberBatch(batchSize: number): Promise<number>;
+  countAllSubscribers(): Promise<number>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // ERROR LOGGING
+  // ═══════════════════════════════════════════════════════════════
+  logError(data: InsertErrorLog): Promise<ErrorLog>;
+  getErrorLogs(options?: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    severity?: string;
+    campaignId?: string;
+    importJobId?: string;
+  }): Promise<{ logs: ErrorLog[]; total: number }>;
+  getErrorLogStats(): Promise<{
+    total: number;
+    byType: Record<string, number>;
+    bySeverity: Record<string, number>;
+    last24Hours: number;
+  }>;
+  clearErrorLogs(beforeDate?: Date): Promise<number>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // USERS
+  // ═══════════════════════════════════════════════════════════════
+  createUser(data: { username: string; password: string }): Promise<any>;
+  getUserByUsername(username: string): Promise<any | null>;
+  getUserById(id: string): Promise<any | null>;
+  getUserCount(): Promise<number>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // DASHBOARD & ANALYTICS
+  // ═══════════════════════════════════════════════════════════════
+  healthCheck(): Promise<boolean>;
   getDashboardStats(): Promise<{
     totalSubscribers: number;
     totalCampaigns: number;
@@ -248,8 +251,6 @@ export interface IStorage {
     recentCampaigns: Campaign[];
     recentImports: ImportJob[];
   }>;
-  
-  // Analytics
   getOverallAnalytics(): Promise<{
     totalOpens: number;
     totalClicks: number;
@@ -285,7 +286,11 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   private segmentCountCache = new Map<string, { count: number; timestamp: number }>();
   private SEGMENT_COUNT_CACHE_TTL = 300000; // 5 minutes
-  // Subscribers
+
+  // ═══════════════════════════════════════════════════════════════
+  // SUBSCRIBER MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
   async getSubscribers(page: number, limit: number, search?: string): Promise<{ subscribers: Subscriber[]; total: number }> {
     const offset = (page - 1) * limit;
     let query = db.select().from(subscribers);
@@ -335,6 +340,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(subscribers).where(eq(subscribers.id, id));
   }
 
+  // NOTE: Potentially dead code - no callers found outside storage.ts (replaced by flush jobs)
   async deleteAllSubscribers(): Promise<number> {
     await db.execute(sql`DELETE FROM campaign_sends`);
     await db.execute(sql`DELETE FROM campaign_stats`);
@@ -345,6 +351,10 @@ export class DatabaseStorage implements IStorage {
     const result = await db.execute(sql`DELETE FROM subscribers`);
     return result.rowCount || 0;
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SEGMENT OPERATIONS
+  // ═══════════════════════════════════════════════════════════════
 
   async getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]> {
     const segment = await this.getSegment(segmentId);
@@ -557,7 +567,6 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  // Segments
   async getSegments(): Promise<Segment[]> {
     return db.select().from(segments).orderBy(desc(segments.createdAt));
   }
@@ -581,7 +590,10 @@ export class DatabaseStorage implements IStorage {
     await db.delete(segments).where(eq(segments.id, id));
   }
 
-  // MTAs
+  // ═══════════════════════════════════════════════════════════════
+  // MTA MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
   async getMtas(): Promise<Mta[]> {
     const results = await db.select().from(mtas).orderBy(desc(mtas.createdAt));
     return results.map(mta => ({
@@ -620,7 +632,10 @@ export class DatabaseStorage implements IStorage {
     await db.delete(mtas).where(eq(mtas.id, id));
   }
 
-  // Email Headers
+  // ═══════════════════════════════════════════════════════════════
+  // EMAIL HEADERS
+  // ═══════════════════════════════════════════════════════════════
+
   async getHeaders(): Promise<EmailHeader[]> {
     return db.select().from(emailHeaders);
   }
@@ -648,7 +663,10 @@ export class DatabaseStorage implements IStorage {
     await db.delete(emailHeaders).where(eq(emailHeaders.id, id));
   }
 
-  // Campaigns
+  // ═══════════════════════════════════════════════════════════════
+  // CAMPAIGN MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
   async getCampaigns(): Promise<Campaign[]> {
     return db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
   }
@@ -692,7 +710,10 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  // Campaign Stats
+  // ═══════════════════════════════════════════════════════════════
+  // CAMPAIGN SENDING & TRACKING
+  // ═══════════════════════════════════════════════════════════════
+
   async addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string): Promise<void> {
     await db.insert(campaignStats).values({
       campaignId,
@@ -706,13 +727,12 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(campaignStats).where(eq(campaignStats.campaignId, campaignId)).orderBy(desc(campaignStats.timestamp));
   }
 
-  // Campaign Sends - prevents duplicate emails per campaign
-  // DEPRECATED: This method is no longer supported. Use reserveSendSlot() + finalizeSend() instead.
-  // Throws an error to prevent accidental use of the deprecated pattern
+  // NOTE: DEPRECATED - throws error, use reserveSendSlot() + finalizeSend()
   async recordCampaignSend(campaignId: string, subscriberId: string, status: string = "sent"): Promise<boolean> {
     throw new Error("DEPRECATED: recordCampaignSend() is no longer supported. Use reserveSendSlot() + finalizeSend() for proper two-phase send.");
   }
 
+  // NOTE: Potentially dead code - no callers found outside storage.ts
   async wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean> {
     const [result] = await db.select({ count: sql<number>`count(*)` })
       .from(campaignSends)
@@ -723,6 +743,7 @@ export class DatabaseStorage implements IStorage {
     return Number(result.count) > 0;
   }
 
+  // NOTE: Potentially dead code - no callers found outside storage.ts
   async getCampaignSendCount(campaignId: string): Promise<number> {
     const [result] = await db.select({ count: sql<number>`count(*)` })
       .from(campaignSends)
@@ -730,7 +751,6 @@ export class DatabaseStorage implements IStorage {
     return Number(result.count);
   }
 
-  // Atomic counter updates - these use SQL increments to avoid race conditions
   async incrementCampaignSentCount(campaignId: string, increment: number = 1): Promise<void> {
     await db.execute(sql`
       UPDATE campaigns 
@@ -755,7 +775,6 @@ export class DatabaseStorage implements IStorage {
     `);
   }
 
-  // Atomic status update with optional expected status check (for row-level locking)
   async updateCampaignStatusAtomic(campaignId: string, newStatus: string, expectedStatus?: string): Promise<boolean> {
     let result;
     if (expectedStatus) {
@@ -777,9 +796,6 @@ export class DatabaseStorage implements IStorage {
     return result.rows.length > 0;
   }
 
-  // Step 1: Reserve a send slot BEFORE attempting to send
-  // This prevents duplicates by inserting a 'pending' record first
-  // Returns false if this subscriber was already reserved/sent
   async reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean> {
     const result = await db.execute(sql`
       INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
@@ -790,8 +806,6 @@ export class DatabaseStorage implements IStorage {
     return result.rows.length > 0;
   }
 
-  // Step 2: Finalize the send after SMTP attempt (update status and counters atomically)
-  // Throws if no pending row found (indicates invariant violation)
   async finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void> {
     const newStatus = success ? 'sent' : 'failed';
     const result = await db.execute(sql`
@@ -821,8 +835,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  // Combined method for backwards compatibility (reserves + finalizes in one call)
-  // Use reserveSendSlot + finalizeSend for proper two-phase commit
+  // NOTE: Potentially dead code - no callers found outside storage.ts
   async recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean> {
     // First reserve the slot
     const reserved = await this.reserveSendSlot(campaignId, subscriberId);
@@ -834,9 +847,6 @@ export class DatabaseStorage implements IStorage {
     return true;
   }
 
-  // Recovery: Clean up orphaned pending sends from crashes/anomalies
-  // Marks stale pending rows as failed and adjusts campaign counters atomically
-  // Returns the number of orphaned sends recovered
   async recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes: number = 5): Promise<number> {
     const result = await db.execute(sql`
       WITH orphaned AS (
@@ -865,8 +875,6 @@ export class DatabaseStorage implements IStorage {
     return recoveredCount;
   }
 
-  // Force-fail a specific pending send (for reconciliation during invariant violations)
-  // Returns true if a pending row was found and marked failed
   async forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean> {
     const result = await db.execute(sql`
       WITH updated AS (
@@ -891,7 +899,6 @@ export class DatabaseStorage implements IStorage {
     return Number(result.rows[0]?.updated_count ?? 0) > 0;
   }
 
-  // Bulk send operations (batched for performance)
   async bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]> {
     if (subscriberIds.length === 0) return [];
     
@@ -954,7 +961,7 @@ export class DatabaseStorage implements IStorage {
     `);
   }
 
-  // Tracking deduplication methods
+  // NOTE: Potentially dead code - no callers found outside storage.ts
   async getCampaignSend(campaignId: string, subscriberId: string): Promise<CampaignSend | undefined> {
     const [send] = await db.select().from(campaignSends)
       .where(and(
@@ -1004,7 +1011,10 @@ export class DatabaseStorage implements IStorage {
     return Number((result.rows[0] as any)?.count || 0);
   }
 
-  // Import Jobs
+  // ═══════════════════════════════════════════════════════════════
+  // IMPORT JOB MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
   async getImportJobs(): Promise<ImportJob[]> {
     return db.select().from(importJobs).orderBy(desc(importJobs.createdAt));
   }
@@ -1024,7 +1034,10 @@ export class DatabaseStorage implements IStorage {
     return job;
   }
 
-  // Campaign Job Queue (PostgreSQL-backed)
+  // ═══════════════════════════════════════════════════════════════
+  // CAMPAIGN JOB QUEUE
+  // ═══════════════════════════════════════════════════════════════
+
   async enqueueCampaignJob(campaignId: string): Promise<CampaignJob> {
     const [job] = await db.insert(campaignJobs).values({
       campaignId,
@@ -1139,7 +1152,6 @@ export class DatabaseStorage implements IStorage {
     return result.rows.length;
   }
 
-  // Import Job Queue (PostgreSQL-backed with file storage)
   async enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number, fileSizeBytes: number = 0): Promise<ImportJobQueueItem> {
     const [job] = await db.insert(importJobQueue).values({
       importJobId,
@@ -1205,7 +1217,6 @@ export class DatabaseStorage implements IStorage {
     `);
   }
   
-  // Extended progress update with byte tracking for resume capability
   async updateImportQueueProgressWithCheckpoint(
     queueId: string, 
     processedLines: number, 
@@ -1222,7 +1233,6 @@ export class DatabaseStorage implements IStorage {
     `);
   }
   
-  // Get import queue item by ID
   async getImportQueueItem(queueId: string): Promise<ImportJobQueueItem | null> {
     const result = await db.execute(sql`
       SELECT * FROM import_job_queue WHERE id = ${queueId}
@@ -1393,7 +1403,10 @@ export class DatabaseStorage implements IStorage {
     return queueResult.rows.length + failedResult.rows.length;
   }
   
-  // GIN Index Management for large import optimization
+  // ═══════════════════════════════════════════════════════════════
+  // DATABASE INDEX MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
   async dropSubscriberGinIndexes(): Promise<void> {
     logger.info('Dropping GIN indexes for large import optimization');
     await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
@@ -1426,7 +1439,38 @@ export class DatabaseStorage implements IStorage {
     return count >= 1;
   }
 
-  // Dashboard
+  async ensureTrigramIndex(): Promise<void> {
+    await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+    await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS email_trgm_idx ON subscribers USING gin (email gin_trgm_ops)`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SEGMENT COUNT CACHING
+  // ═══════════════════════════════════════════════════════════════
+
+  async getSegmentSubscriberCountCached(segmentId: string): Promise<number> {
+    const cached = this.segmentCountCache.get(segmentId);
+    if (cached && Date.now() - cached.timestamp < this.SEGMENT_COUNT_CACHE_TTL) {
+      return cached.count;
+    }
+    
+    const count = await this.countSubscribersForSegment(segmentId);
+    this.segmentCountCache.set(segmentId, { count, timestamp: Date.now() });
+    return count;
+  }
+
+  invalidateSegmentCountCache(segmentId?: string): void {
+    if (segmentId) {
+      this.segmentCountCache.delete(segmentId);
+    } else {
+      this.segmentCountCache.clear();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DASHBOARD & ANALYTICS
+  // ═══════════════════════════════════════════════════════════════
+
   async getDashboardStats() {
     const [
       [{ subscriberCount }],
@@ -1454,7 +1498,6 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // Analytics
   async getOverallAnalytics() {
     const [
       [{ openCount }],
@@ -1556,7 +1599,10 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // Error Logs
+  // ═══════════════════════════════════════════════════════════════
+  // ERROR LOGGING
+  // ═══════════════════════════════════════════════════════════════
+
   async logError(data: InsertErrorLog): Promise<ErrorLog> {
     const [log] = await db.insert(errorLogs).values(data).returning();
     return log;
@@ -1663,7 +1709,42 @@ export class DatabaseStorage implements IStorage {
     return result.rows.length > 0;
   }
 
-  // Flush Jobs - for subscriber deletion with progress tracking
+  // ═══════════════════════════════════════════════════════════════
+  // USERS
+  // ═══════════════════════════════════════════════════════════════
+
+  async createUser(data: { username: string; password: string }): Promise<any> {
+    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const [user] = await db.insert(users).values({
+      username: data.username,
+      password: hashedPassword,
+    }).returning();
+    return { id: user.id, username: user.username, createdAt: user.createdAt };
+  }
+
+  async getUserByUsername(username: string): Promise<any | null> {
+    const [user] = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return user || null;
+  }
+
+  async getUserById(id: string): Promise<any | null> {
+    const [user] = await db.select({
+      id: users.id,
+      username: users.username,
+      createdAt: users.createdAt,
+    }).from(users).where(eq(users.id, id)).limit(1);
+    return user || null;
+  }
+
+  async getUserCount(): Promise<number> {
+    const result = await db.execute(sql`SELECT COUNT(*)::int as count FROM users`);
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // FLUSH JOBS
+  // ═══════════════════════════════════════════════════════════════
+
   async createFlushJob(totalRows: number): Promise<FlushJob> {
     const result = await db.insert(flushJobs).values({
       totalRows,
@@ -1761,7 +1842,10 @@ export class DatabaseStorage implements IStorage {
     return parseInt(result.rows[0]?.count as string || "0", 10);
   }
 
-  // Tag Queue Operations - for reliable tag additions with retry logic
+  // ═══════════════════════════════════════════════════════════════
+  // TAG OPERATIONS
+  // ═══════════════════════════════════════════════════════════════
+
   async enqueueTagOperation(
     subscriberId: string,
     tagValue: string,
@@ -1871,7 +1955,6 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount || 0;
   }
 
-  // Atomic tag addition - adds tag to subscriber's tags array with deduplication
   async addTagToSubscriber(
     subscriberId: string,
     tagValue: string
@@ -1891,7 +1974,10 @@ export class DatabaseStorage implements IStorage {
     return true;
   }
 
-  // Nullsink Captures
+  // ═══════════════════════════════════════════════════════════════
+  // NULLSINK
+  // ═══════════════════════════════════════════════════════════════
+
   async createNullsinkCapture(data: InsertNullsinkCapture): Promise<NullsinkCapture> {
     const [capture] = await db.insert(nullsinkCaptures).values(data).returning();
     return capture;
@@ -1962,58 +2048,6 @@ export class DatabaseStorage implements IStorage {
       avgTotalTimeMs: Number(row?.avg_total || 0),
       emailsPerSecond: Number(row?.emails_per_second || 0),
     };
-  }
-
-  async ensureTrigramIndex(): Promise<void> {
-    await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
-    await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS email_trgm_idx ON subscribers USING gin (email gin_trgm_ops)`);
-  }
-
-  async getSegmentSubscriberCountCached(segmentId: string): Promise<number> {
-    const cached = this.segmentCountCache.get(segmentId);
-    if (cached && Date.now() - cached.timestamp < this.SEGMENT_COUNT_CACHE_TTL) {
-      return cached.count;
-    }
-    
-    const count = await this.countSubscribersForSegment(segmentId);
-    this.segmentCountCache.set(segmentId, { count, timestamp: Date.now() });
-    return count;
-  }
-
-  invalidateSegmentCountCache(segmentId?: string): void {
-    if (segmentId) {
-      this.segmentCountCache.delete(segmentId);
-    } else {
-      this.segmentCountCache.clear();
-    }
-  }
-
-  async createUser(data: { username: string; password: string }): Promise<any> {
-    const hashedPassword = await bcrypt.hash(data.password, 12);
-    const [user] = await db.insert(users).values({
-      username: data.username,
-      password: hashedPassword,
-    }).returning();
-    return { id: user.id, username: user.username, createdAt: user.createdAt };
-  }
-
-  async getUserByUsername(username: string): Promise<any | null> {
-    const [user] = await db.select().from(users).where(eq(users.username, username)).limit(1);
-    return user || null;
-  }
-
-  async getUserById(id: string): Promise<any | null> {
-    const [user] = await db.select({
-      id: users.id,
-      username: users.username,
-      createdAt: users.createdAt,
-    }).from(users).where(eq(users.id, id)).limit(1);
-    return user || null;
-  }
-
-  async getUserCount(): Promise<number> {
-    const result = await db.execute(sql`SELECT COUNT(*)::int as count FROM users`);
-    return Number(result.rows[0]?.count ?? 0);
   }
 
   async clearNullsinkCaptures(campaignId?: string): Promise<number> {

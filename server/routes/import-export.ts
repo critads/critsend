@@ -1,0 +1,507 @@
+import { type Express, type Request, type Response } from "express";
+import { storage } from "../storage";
+import { logger } from "../logger";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
+import { importJobs, importJobQueue } from "@shared/schema";
+import * as fs from "fs";
+import * as path from "path";
+import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE } from "../upload";
+import { sanitizeCsvValue } from "../utils";
+import { isMemoryPressure } from "../workers";
+
+export function registerImportExportRoutes(app: Express, helpers: {
+  validateId: (id: string) => boolean;
+}) {
+  const { validateId } = helpers;
+
+  const CHUNKS_DIR = path.join(process.cwd(), "uploads", "chunks");
+  if (!fs.existsSync(CHUNKS_DIR)) {
+    fs.mkdirSync(CHUNKS_DIR, { recursive: true });
+  }
+
+  const chunkedUploads = new Map<string, {
+    filename: string;
+    tagMode: "merge" | "override";
+    totalChunks: number;
+    totalSize: number;
+    receivedChunks: Set<number>;
+    createdAt: Date;
+  }>();
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [uploadId, upload] of chunkedUploads.entries()) {
+      if (now - upload.createdAt.getTime() > 60 * 60 * 1000) {
+        for (let i = 0; i < upload.totalChunks; i++) {
+          const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${i}`);
+          try { fs.unlinkSync(chunkPath); } catch {}
+        }
+        chunkedUploads.delete(uploadId);
+        logger.info(`[CHUNKED] Cleaned up stale upload: ${uploadId}`);
+      }
+    }
+  }, 5 * 60 * 1000);
+
+  app.post("/api/import", uploadToDisk.single("file"), async (req: Request, res: Response) => {
+    if (isMemoryPressure) {
+      res.setHeader('Retry-After', '60');
+      return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
+    }
+    try {
+      logger.info(`[IMPORT] Received import request`);
+      if (!req.file) {
+        logger.info(`[IMPORT] No file in request`);
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const tagMode = (req.body.tagMode === "override") ? "override" : "merge";
+      const fileSizeBytes = req.file.size;
+      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}`);
+      
+      const csvFilePath = req.file.path;
+      logger.info(`[IMPORT] File saved to disk: ${csvFilePath}`);
+      
+      let lineCount = 0;
+      const lineCountStream = fs.createReadStream(csvFilePath, { encoding: 'utf-8', highWaterMark: 64 * 1024 });
+      
+      await new Promise<void>((resolve, reject) => {
+        let lastChar = '';
+        lineCountStream.on('data', (chunk: string | Buffer) => {
+          const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+          for (let i = 0; i < str.length; i++) {
+            if (str[i] === '\n') lineCount++;
+          }
+          lastChar = str[str.length - 1];
+        });
+        lineCountStream.on('end', () => {
+          if (lastChar && lastChar !== '\n') lineCount++;
+          resolve();
+        });
+        lineCountStream.on('error', reject);
+      });
+      
+      logger.info(`[IMPORT] Streaming line count complete: ${lineCount} lines`);
+      
+      if (lineCount < 2) {
+        logger.info(`[IMPORT] CSV empty or invalid, lines: ${lineCount}`);
+        try { fs.unlinkSync(csvFilePath); } catch {}
+        return res.status(400).json({ error: "CSV file is empty or invalid" });
+      }
+
+      const totalDataRows = lineCount - 1;
+      logger.info(`[IMPORT] CSV has ${totalDataRows} data rows`);
+
+      const job = await storage.createImportJob({
+        filename: req.file.originalname,
+        totalRows: totalDataRows,
+        tagMode: tagMode,
+      });
+      logger.info(`[IMPORT] Created import job: ${job.id}`);
+
+      const objectStoragePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
+      logger.info(`[IMPORT] Uploaded to object storage: ${objectStoragePath}`);
+      
+      const objectExists = await objectStorageService.objectExists(objectStoragePath);
+      if (!objectExists) {
+        throw new Error(`Object storage verification failed: ${objectStoragePath} does not exist after upload`);
+      }
+      
+      try { fs.unlinkSync(csvFilePath); } catch {}
+
+      const queueItem = await db.transaction(async (tx) => {
+        await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
+        const [queued] = await tx.insert(importJobQueue).values({
+          importJobId: job.id,
+          csvFilePath: objectStoragePath,
+          totalLines: lineCount,
+          processedLines: 0,
+          fileSizeBytes,
+          processedBytes: 0,
+          lastCheckpointLine: 0,
+          status: "pending",
+        }).returning();
+        return queued;
+      });
+      logger.info(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, object storage path: ${objectStoragePath}`);
+
+      res.status(202).json(job);
+    } catch (error) {
+      logger.error("[IMPORT] Error starting import:", error);
+      if (req.file?.path) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+      res.status(500).json({ error: "Failed to start import" });
+    }
+  });
+
+  app.get("/api/import-jobs", async (req: Request, res: Response) => {
+    try {
+      const jobs = await storage.getImportJobs();
+      res.json(jobs);
+    } catch (error) {
+      logger.error("Error fetching import jobs:", error);
+      res.status(500).json({ error: "Failed to fetch import jobs" });
+    }
+  });
+
+  app.post("/api/import/:id/cancel", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const cancelled = await storage.cancelImportJob(req.params.id);
+      if (cancelled) {
+        logger.info(`[IMPORT] Import job ${req.params.id} cancelled by user`);
+        res.json({ success: true, message: "Import cancelled" });
+      } else {
+        res.status(400).json({ error: "Import cannot be cancelled (already completed or not found)" });
+      }
+    } catch (error) {
+      logger.error("Error cancelling import:", error);
+      res.status(500).json({ error: "Failed to cancel import" });
+    }
+  });
+
+  app.get("/api/import/:id/progress", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const job = await storage.getImportJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: "Import job not found" });
+      }
+      
+      const queueStatus = await storage.getImportJobQueueStatus(job.id);
+      
+      res.json({
+        id: job.id,
+        filename: job.filename,
+        status: job.status,
+        queueStatus: queueStatus,
+        totalRows: job.totalRows,
+        processedRows: job.processedRows,
+        newSubscribers: job.newSubscribers,
+        updatedSubscribers: job.updatedSubscribers,
+        failedRows: job.failedRows,
+        progress: job.totalRows > 0 ? Math.round((job.processedRows / job.totalRows) * 100) : 0,
+        errorMessage: job.errorMessage,
+        createdAt: job.createdAt,
+        completedAt: job.completedAt,
+      });
+    } catch (error) {
+      logger.error("Error fetching import progress:", error);
+      res.status(500).json({ error: "Failed to fetch import progress" });
+    }
+  });
+
+  app.post("/api/import/chunked/start", async (req: Request, res: Response) => {
+    try {
+      const { filename, tagMode, totalChunks, totalSize } = req.body;
+      
+      if (!filename || !totalChunks || !totalSize) {
+        return res.status(400).json({ error: "Missing required fields: filename, totalChunks, totalSize" });
+      }
+      
+      if (totalSize > 1024 * 1024 * 1024) {
+        return res.status(400).json({ error: "File too large. Maximum size is 1GB" });
+      }
+      
+      const uploadId = `chunk_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      
+      chunkedUploads.set(uploadId, {
+        filename,
+        tagMode: tagMode === "override" ? "override" : "merge",
+        totalChunks: parseInt(totalChunks),
+        totalSize: parseInt(totalSize),
+        receivedChunks: new Set(),
+        createdAt: new Date(),
+      });
+      
+      logger.info(`[CHUNKED] Started upload: ${uploadId}, file: ${filename}, ${totalChunks} chunks, ${Math.round(totalSize / 1024 / 1024)}MB`);
+      
+      res.json({ uploadId, message: "Chunked upload started" });
+    } catch (error) {
+      logger.error("[CHUNKED] Error starting upload:", error);
+      res.status(500).json({ error: "Failed to start chunked upload" });
+    }
+  });
+
+  app.post("/api/import/chunked/:uploadId/chunk/:chunkIndex", uploadChunkToDisk.single("chunk"), async (req: Request, res: Response) => {
+    try {
+      const { uploadId, chunkIndex } = req.params;
+      const index = parseInt(chunkIndex);
+      
+      if (isNaN(index) || index < 0) {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: "Invalid chunk index" });
+      }
+      
+      const upload = chunkedUploads.get(uploadId);
+      if (!upload) {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ error: "Upload session not found or expired" });
+      }
+      
+      if (index >= upload.totalChunks) {
+        if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: `Chunk index ${index} exceeds total chunks ${upload.totalChunks}` });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ error: "No chunk data received" });
+      }
+      
+      const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${index}`);
+      fs.renameSync(req.file.path, chunkPath);
+      
+      upload.receivedChunks.add(index);
+      
+      logger.info(`[CHUNKED] ${uploadId}: Received chunk ${index + 1}/${upload.totalChunks}`);
+      
+      res.json({ 
+        success: true, 
+        chunkIndex: index,
+        receivedChunks: upload.receivedChunks.size,
+        totalChunks: upload.totalChunks,
+        progress: Math.round((upload.receivedChunks.size / upload.totalChunks) * 100)
+      });
+    } catch (error) {
+      logger.error("[CHUNKED] Error receiving chunk:", error);
+      if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+      res.status(500).json({ error: "Failed to receive chunk" });
+    }
+  });
+
+  app.post("/api/import/chunked/:uploadId/complete", async (req: Request, res: Response) => {
+    if (isMemoryPressure) {
+      res.setHeader('Retry-After', '60');
+      return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
+    }
+    const tempCsvPath = path.join(UPLOADS_DIR_BASE, `upload-${Date.now()}-temp.csv`);
+    let writeStream: fs.WriteStream | null = null;
+    
+    try {
+      const { uploadId } = req.params;
+      
+      const upload = chunkedUploads.get(uploadId);
+      if (!upload) {
+        return res.status(404).json({ error: "Upload session not found or expired" });
+      }
+      
+      if (upload.receivedChunks.size !== upload.totalChunks) {
+        const missing = [];
+        for (let i = 0; i < upload.totalChunks; i++) {
+          if (!upload.receivedChunks.has(i)) missing.push(i);
+        }
+        return res.status(400).json({ 
+          error: `Missing chunks: ${missing.join(", ")}`,
+          receivedChunks: upload.receivedChunks.size,
+          totalChunks: upload.totalChunks
+        });
+      }
+      
+      logger.info(`[CHUNKED] ${uploadId}: All ${upload.totalChunks} chunks received, assembling file...`);
+      
+      writeStream = fs.createWriteStream(tempCsvPath);
+      
+      for (let i = 0; i < upload.totalChunks; i++) {
+        const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${i}`);
+        
+        if (!fs.existsSync(chunkPath)) {
+          throw new Error(`Missing chunk file: ${i}`);
+        }
+        
+        await new Promise<void>((resolve, reject) => {
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.on('error', reject);
+          readStream.on('end', () => {
+            try { fs.unlinkSync(chunkPath); } catch {}
+            resolve();
+          });
+          readStream.pipe(writeStream!, { end: false });
+        });
+      }
+      
+      await new Promise<void>((resolve, reject) => {
+        writeStream!.end((err: Error | null) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
+      const fileSizeBytes = fs.statSync(tempCsvPath).size;
+      logger.info(`[CHUNKED] ${uploadId}: File assembled: ${tempCsvPath}, size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
+      
+      let lineCount = 0;
+      const lineCountStream = fs.createReadStream(tempCsvPath, { encoding: 'utf-8', highWaterMark: 64 * 1024 });
+      
+      await new Promise<void>((resolve, reject) => {
+        let lastChar = '';
+        lineCountStream.on('data', (chunk: string | Buffer) => {
+          const str = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+          for (let i = 0; i < str.length; i++) {
+            if (str[i] === '\n') lineCount++;
+          }
+          lastChar = str[str.length - 1];
+        });
+        lineCountStream.on('end', () => {
+          if (lastChar && lastChar !== '\n') lineCount++;
+          resolve();
+        });
+        lineCountStream.on('error', reject);
+      });
+      
+      logger.info(`[CHUNKED] ${uploadId}: Line count: ${lineCount}`);
+      
+      if (lineCount < 2) {
+        fs.unlinkSync(tempCsvPath);
+        chunkedUploads.delete(uploadId);
+        return res.status(400).json({ error: "CSV file is empty or invalid" });
+      }
+      
+      const totalDataRows = lineCount - 1;
+      
+      const job = await storage.createImportJob({
+        filename: upload.filename,
+        totalRows: totalDataRows,
+        tagMode: upload.tagMode,
+      });
+      logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
+      
+      const objectStoragePath = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
+      logger.info(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${objectStoragePath}`);
+      
+      const objectExists = await objectStorageService.objectExists(objectStoragePath);
+      if (!objectExists) {
+        throw new Error(`Object storage verification failed: ${objectStoragePath} does not exist after upload`);
+      }
+      
+      const verifiedSize = fs.statSync(tempCsvPath).size;
+      logger.info(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
+      
+      const queueItem = await db.transaction(async (tx) => {
+        await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
+        const [queued] = await tx.insert(importJobQueue).values({
+          importJobId: job.id,
+          csvFilePath: objectStoragePath,
+          totalLines: lineCount,
+          processedLines: 0,
+          fileSizeBytes: verifiedSize,
+          processedBytes: 0,
+          lastCheckpointLine: 0,
+          status: "pending",
+        }).returning();
+        return queued;
+      });
+      logger.info(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued with object storage path`);
+      
+      try { fs.unlinkSync(tempCsvPath); } catch {}
+      
+      chunkedUploads.delete(uploadId);
+      
+      res.status(202).json(job);
+    } catch (error: any) {
+      logger.error("[CHUNKED] Error completing upload:", error);
+      
+      try { 
+        if (fs.existsSync(tempCsvPath)) {
+          fs.unlinkSync(tempCsvPath); 
+        }
+      } catch {}
+      
+      if (writeStream) {
+        try { writeStream.destroy(); } catch {}
+      }
+      
+      const { uploadId } = req.params;
+      const upload = chunkedUploads.get(uploadId);
+      if (upload) {
+        for (let i = 0; i < upload.totalChunks; i++) {
+          const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${i}`);
+          try { fs.unlinkSync(chunkPath); } catch {}
+        }
+        chunkedUploads.delete(uploadId);
+      }
+      
+      res.status(500).json({ error: error.message || "Failed to complete chunked upload" });
+    }
+  });
+
+  app.get("/api/import/chunked/:uploadId/status", async (req: Request, res: Response) => {
+    try {
+      const upload = chunkedUploads.get(req.params.uploadId);
+      if (!upload) {
+        return res.status(404).json({ error: "Upload session not found or expired" });
+      }
+      
+      res.json({
+        uploadId: req.params.uploadId,
+        filename: upload.filename,
+        totalChunks: upload.totalChunks,
+        receivedChunks: upload.receivedChunks.size,
+        progress: Math.round((upload.receivedChunks.size / upload.totalChunks) * 100),
+        createdAt: upload.createdAt,
+      });
+    } catch (error) {
+      logger.error("[CHUNKED] Error fetching status:", error);
+      res.status(500).json({ error: "Failed to fetch upload status" });
+    }
+  });
+
+  app.get("/api/export", async (req: Request, res: Response) => {
+    try {
+      const fields = (req.query.fields as string)?.split(",") || ["email", "tags", "ipAddress", "importDate"];
+      
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename=critsend-export-${new Date().toISOString().split("T")[0]}.csv`);
+      res.setHeader("Transfer-Encoding", "chunked");
+      
+      res.write(fields.join(",") + "\n");
+      
+      let page = 1;
+      const limit = 10000;
+      
+      while (true) {
+        const { subscribers: subs, total } = await storage.getSubscribers(page, limit);
+        
+        let chunk = "";
+        for (const sub of subs) {
+          const row = fields.map(field => {
+            let val = "";
+            if (field === "email") val = sub.email;
+            else if (field === "tags") val = (sub.tags || []).join(";");
+            else if (field === "ipAddress") val = sub.ipAddress || "";
+            else if (field === "importDate") val = sub.importDate.toISOString();
+            val = sanitizeCsvValue(val);
+            if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+              return '"' + val.replace(/"/g, '""') + '"';
+            }
+            return val;
+          });
+          chunk += row.join(",") + "\n";
+        }
+        
+        if (chunk) {
+          const canContinue = res.write(chunk);
+          if (!canContinue) {
+            await new Promise<void>(resolve => res.once("drain", resolve));
+          }
+        }
+        
+        if (page * limit >= total || subs.length === 0) break;
+        page++;
+      }
+      
+      res.end();
+    } catch (error) {
+      logger.error("Error exporting:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to export" });
+      } else {
+        res.end();
+      }
+    }
+  });
+}

@@ -295,7 +295,6 @@ export default function CampaignNew() {
       
       if (!currentCampaignId) {
         // Create the campaign first
-        console.log("[SendMutation] No campaign ID, creating new campaign...");
         const createRes = await apiRequest("POST", "/api/campaigns", data);
         if (!createRes.ok) {
           const errorData = await createRes.json();
@@ -304,10 +303,8 @@ export default function CampaignNew() {
         const createdCampaign = await createRes.json();
         currentCampaignId = createdCampaign.id;
         setCampaignId(currentCampaignId);
-        console.log("[SendMutation] Created campaign:", currentCampaignId);
       } else {
         // Save any pending changes first
-        console.log("[SendMutation] Saving campaign data to:", currentCampaignId);
         const saveRes = await apiRequest("PATCH", `/api/campaigns/${currentCampaignId}`, data);
         if (!saveRes.ok) {
           const errorData = await saveRes.json();
@@ -316,7 +313,6 @@ export default function CampaignNew() {
       }
       
       // Step 2: Call the dedicated send endpoint with scheduledAt if set
-      console.log("[SendMutation] Calling /send endpoint for campaign:", currentCampaignId);
       const sendPayload = formData.scheduledAt ? { scheduledAt: formData.scheduledAt } : {};
       const sendRes = await apiRequest("POST", `/api/campaigns/${currentCampaignId}/send`, sendPayload);
       
@@ -327,7 +323,6 @@ export default function CampaignNew() {
       }
       
       const result = await sendRes.json();
-      console.log("[SendMutation] Campaign started successfully:", result);
       return result;
     },
     onSuccess: (result) => {
