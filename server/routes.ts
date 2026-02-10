@@ -5,7 +5,6 @@ import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 import multer from "multer";
 import { Readable } from "stream";
-import * as readline from "readline";
 import {
   insertSubscriberSchema,
   insertSegmentSchema,
@@ -29,6 +28,7 @@ import * as https from "https";
 import * as http from "http";
 import * as dns from "dns";
 import { promisify } from "util";
+import { fork, ChildProcess } from "child_process";
 import { ObjectStorageService } from "./replit_integrations/object_storage";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
@@ -2309,6 +2309,10 @@ function startImportJobProcessor() {
   pollForImportJobs();
 }
 
+// Track active import worker child processes
+let activeImportWorker: ChildProcess | null = null;
+let activeImportJobInfo: { queueId: string; importJobId: string } | null = null;
+
 // Stop the import job processor
 function stopImportJobProcessor() {
   if (importJobPollingInterval) {
@@ -2316,858 +2320,165 @@ function stopImportJobProcessor() {
     importJobPollingInterval = null;
     logger.info("Import job processor stopped");
   }
+  if (activeImportWorker) {
+    logger.info("Killing active import worker process");
+    activeImportWorker.kill("SIGTERM");
+    activeImportWorker = null;
+    activeImportJobInfo = null;
+  }
 }
 
 // Background import job processor - polls for pending import jobs
 let lastRecoveryCheck = 0;
 async function pollForImportJobs() {
-  if (isMemoryPressure) {
-    logger.warn('Skipping import job poll - memory pressure active');
+  if (activeImportWorker) {
     return;
   }
   try {
-    // Only run recovery check every 5 minutes to avoid excessive DB queries
     const now = Date.now();
     if (now - lastRecoveryCheck > 5 * 60 * 1000) {
       lastRecoveryCheck = now;
       
-      // Recover stuck import jobs from crashed workers or server restarts
       const recoveredCount = await storage.recoverStuckImportJobs();
       if (recoveredCount > 0) {
         logger.info(`Recovered ${recoveredCount} stuck import jobs back to pending`);
       }
       
-      // Clean up stale import jobs from crashed workers
       const staleCount = await storage.cleanupStaleImportJobs(30);
       if (staleCount > 0) {
         logger.info(`Cleaned up ${staleCount} stale import jobs`);
       }
     }
     
-    // Try to claim a pending import job using FOR UPDATE SKIP LOCKED
     const queueItem = await storage.claimNextImportJob(WORKER_ID);
     
     if (!queueItem) {
-      return; // No pending import jobs
-    }
-    
-    logger.info(`Worker ${WORKER_ID} claimed import job queue item ${queueItem.id} for import ${queueItem.importJobId}`);
-    
-    try {
-      await processImportFromQueue(queueItem.id, queueItem.importJobId, queueItem.csvFilePath);
-      
-      // Check if job was cancelled during processing - don't mark as completed if so
-      const finalJob = await storage.getImportJob(queueItem.importJobId);
-      if (finalJob?.status === 'cancelled') {
-        logger.info(`Import job ${queueItem.id} was cancelled during processing, not marking as completed`);
-      } else {
-        await storage.completeImportQueueJob(queueItem.id, "completed");
-        storage.invalidateSegmentCountCache();
-        logger.info(`Import job ${queueItem.id} completed successfully`);
-      }
-    } catch (error: any) {
-      logger.error(`Error processing import job ${queueItem.id}:`, error);
-      
-      // Check if job was cancelled - don't mark as failed if it was cancelled
-      const jobAfterError = await storage.getImportJob(queueItem.importJobId);
-      if (jobAfterError?.status === 'cancelled') {
-        logger.info(`Import job ${queueItem.id} was cancelled, not marking as failed`);
-      } else {
-        await storage.completeImportQueueJob(queueItem.id, "failed", error.message || "Unknown error");
-        await storage.updateImportJob(queueItem.importJobId, {
-          status: "failed",
-          errorMessage: error.message || "Unknown error",
-        });
-      }
-      try {
-        await storage.logError({
-          type: "import_failed",
-          severity: "error",
-          message: `Import job failed: ${error.message || "Unknown error"}`,
-          importJobId: queueItem.importJobId,
-          details: error?.stack || String(error),
-        });
-      } catch (logError) {
-        logger.error("Failed to log error:", logError);
-      }
-    }
-  } catch (error) {
-    logger.error("Error in import job polling:", error);
-  }
-}
-
-function getImportConfig() {
-  const mem = process.memoryUsage();
-  const heapUsedMB = mem.heapUsed / 1024 / 1024;
-  const heapUsageRatio = mem.heapUsed / mem.heapTotal;
-
-  if (heapUsedMB > 3000 || heapUsageRatio > 0.85) {
-    return { batchSize: 1000, parallelWorkers: 1, maxPendingBatches: 2 };
-  }
-  if (heapUsedMB > 2000 || heapUsageRatio > 0.7) {
-    return { batchSize: 2000, parallelWorkers: 2, maxPendingBatches: 4 };
-  }
-  return { batchSize: 5000, parallelWorkers: 4, maxPendingBatches: 8 };
-}
-
-// Production-ready streaming import processor optimized for 7M+ rows
-// Uses readline for memory-efficient line-by-line processing
-// Supports resume from last checkpoint if interrupted
-// Supports both object storage paths (/objects/...) and local filesystem paths (legacy)
-async function processImportFromQueue(queueId: string, importJobId: string, csvFilePath: string) {
-  logger.info(`[IMPORT] Processing job ${importJobId} from file: ${csvFilePath}`);
-  
-  // Determine if this is an object storage path or local filesystem path
-  const isObjectStorage = csvFilePath.startsWith('/objects/');
-  let fileSizeBytes: number;
-  let fileStream: NodeJS.ReadableStream;
-  
-  if (isObjectStorage) {
-    // Object storage path - use ObjectStorageService
-    const objectExists = await objectStorageService.objectExists(csvFilePath);
-    if (!objectExists) {
-      throw new Error(`CSV file not found in object storage: ${csvFilePath}. This can happen if the file was deleted or never uploaded. Please re-upload the file.`);
-    }
-    // Get file stream from object storage
-    fileStream = await objectStorageService.getObjectStream(csvFilePath);
-    // Get file size from queue item (stored when file was uploaded)
-    const queueItemForSize = await storage.getImportQueueItem(queueId);
-    fileSizeBytes = queueItemForSize?.fileSizeBytes || 0;
-    logger.info(`[IMPORT] ${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
-  } else {
-    // Local filesystem path (legacy support for in-progress imports)
-    if (!fs.existsSync(csvFilePath)) {
-      throw new Error(`CSV file not found: ${csvFilePath}. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.`);
-    }
-    const fileStat = fs.statSync(csvFilePath);
-    fileSizeBytes = fileStat.size;
-    fileStream = fs.createReadStream(csvFilePath, { 
-      encoding: 'utf-8',
-      highWaterMark: 256 * 1024 // 256KB buffer for better IO performance
-    });
-    logger.info(`[IMPORT] ${importJobId}: Using local filesystem (legacy), size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
-  }
-  const queueItem = await storage.getImportQueueItem(queueId);
-  const resumeFromLine = queueItem?.lastCheckpointLine || 0;
-  
-  // Get import job to retrieve tagMode and existing progress
-  const importJob = await storage.getImportJob(importJobId);
-  const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
-  
-  logger.info(`[IMPORT] ${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, resume from line: ${resumeFromLine}`);
-  
-  await storage.updateImportJob(importJobId, { status: 'processing', startedAt: new Date() });
-  
-  // Streaming batch configuration - dynamic based on memory pressure
-  const importConfig = getImportConfig();
-  const BATCH_SIZE = importConfig.batchSize;
-  const PARALLEL_WORKERS = importConfig.parallelWorkers;
-  const MAX_PENDING_BATCHES = importConfig.maxPendingBatches;
-  const PROGRESS_UPDATE_INTERVAL_MS = 2000; // Update progress every 2 seconds (time-based)
-  const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-  const CHECKPOINT_INTERVAL = 100000; // Checkpoint every 100k rows for resume
-  const LARGE_IMPORT_THRESHOLD = 100000; // Drop GIN indexes for imports > 100k rows
-  
-  logger.info(`[IMPORT] ${importJobId}: Import config - batch: ${BATCH_SIZE}, workers: ${PARALLEL_WORKERS}, pending: ${MAX_PENDING_BATCHES}`);
-  
-  // Determine if this is a large import that would benefit from GIN index deferral
-  const totalLines = queueItem?.totalLines || 0;
-  const isLargeImport = totalLines > LARGE_IMPORT_THRESHOLD;
-  let ginIndexesDropped = false;
-  
-  // For large imports on first run (not resume), drop GIN indexes for faster processing
-  if (isLargeImport && resumeFromLine === 0) {
-    try {
-      logger.info(`[IMPORT] ${importJobId}: Large import detected (${totalLines} rows), dropping GIN indexes for faster processing`);
-      await storage.dropSubscriberGinIndexes();
-      ginIndexesDropped = true;
-    } catch (err: any) {
-      logger.error(`[IMPORT] ${importJobId}: Failed to drop GIN indexes:`, err.message);
-      // Continue anyway - import will just be slower
-    }
-  }
-  
-  // Initialize counters - resume from existing progress if applicable
-  // parsedRows = lines read from CSV (fast, updated as we read)
-  // committedRows = rows actually committed to DB (updated after batch insert success)
-  // 
-  // IMPORTANT: On resume, we use committedRows as the source of truth for both counters
-  // to avoid mismatch issues when previous run parsed ahead of commits.
-  // Since we're resuming from a checkpoint line, any rows parsed but not committed are lost
-  // and will be re-parsed and re-processed.
-  let newSubscribers = resumeFromLine > 0 ? (importJob?.newSubscribers || 0) : 0;
-  let updatedSubscribers = resumeFromLine > 0 ? (importJob?.updatedSubscribers || 0) : 0;
-  let failedRows = resumeFromLine > 0 ? (importJob?.failedRows || 0) : 0;
-  // committedRows = actual committed count (source of truth on resume)
-  let committedRows = resumeFromLine > 0 ? (newSubscribers + updatedSubscribers + failedRows) : 0;
-  // parsedRows = aligned with committedRows on resume (re-parsing from checkpoint will catch up)
-  let parsedRows = committedRows;
-  let lastHeartbeat = Date.now();
-  let lastCheckpointLine = resumeFromLine;
-  let processedBytes = queueItem?.processedBytes || 0;
-  let lastCommitTime = Date.now(); // Track when we last had a successful DB commit
-  const STUCK_DETECTION_INTERVAL = 30000; // Warn if no commits for 30 seconds
-  
-  if (resumeFromLine > 0) {
-    logger.info(`[IMPORT] ${importJobId}: Resuming from line ${resumeFromLine}, committed rows: ${committedRows} (new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows})`);
-  }
-  
-  // Header parsing state
-  let header: string[] = [];
-  let emailIdx = -1;
-  let tagsIdx = -1;
-  let ipIdx = -1;
-  let headerParsed = false;
-  
-  // Batch accumulator
-  let batchRows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }> = [];
-  let currentLineNumber = 0;
-  let batchNumber = 0;
-  const startTime = Date.now();
-  let pendingBatches: Array<Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>> = [];
-  let isReadingPaused = false; // Track backpressure state
-  let progressUpdatePending = false; // Flag to schedule progress update
-  
-  // Progress update timer - runs independently from parsing loop
-  const progressUpdateTimer = setInterval(async () => {
-    if (!progressUpdatePending) return;
-    progressUpdatePending = false;
-    
-    try {
-      // Update heartbeat if needed
-      const now = Date.now();
-      if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-        await storage.updateImportQueueHeartbeat(queueId);
-        lastHeartbeat = now;
-      }
-      
-      // Update progress in both tables for UI visibility
-      // Use committedRows as the primary progress indicator (actual DB commits)
-      await storage.updateImportQueueProgress(queueId, committedRows);
-      await storage.updateImportJob(importJobId, {
-        processedRows: committedRows, // Report committed rows as processed (actual progress)
-        newSubscribers,
-        updatedSubscribers,
-        failedRows,
-      });
-      
-      // Log progress periodically with both parsed and committed counts
-      const elapsedSec = (now - startTime) / 1000;
-      const commitRate = committedRows / elapsedSec;
-      const parseRate = parsedRows / elapsedSec;
-      const pendingCount = parsedRows - committedRows;
-      logger.info(`[IMPORT] ${importJobId}: Progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), pending: ${pendingCount.toLocaleString()}, batches queued: ${pendingBatches.length}`);
-      
-      // Stuck detection: warn if no commits for 30 seconds AND we have pending batches
-      // Only warn if there's actual work pending (pendingBatches > 0) to avoid false positives
-      if (parsedRows > committedRows && pendingBatches.length > 0 && now - lastCommitTime > STUCK_DETECTION_INTERVAL) {
-        logger.warn(`[IMPORT] ${importJobId}: WARNING - No DB commits in ${Math.round((now - lastCommitTime) / 1000)}s! Parsed: ${parsedRows}, Committed: ${committedRows}, Pending batches: ${pendingBatches.length}`);
-      }
-    } catch (err) {
-      logger.error(`[IMPORT] ${importJobId}: Progress update failed:`, err);
-    }
-  }, PROGRESS_UPDATE_INTERVAL_MS);
-  
-  // Create readline interface for streaming using the fileStream created earlier
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
-  
-  // Cancellation flag - checked after each batch
-  let isCancelled = false;
-  
-  // Helper to check if job was cancelled
-  async function checkCancellation(): Promise<boolean> {
-    try {
-      const job = await storage.getImportJob(importJobId);
-      if (job?.status === 'cancelled') {
-        logger.info(`[IMPORT] ${importJobId}: Job cancelled by user, stopping processing`);
-        isCancelled = true;
-        return true;
-      }
-    } catch (err) {
-      // Ignore errors checking cancellation
-    }
-    return false;
-  }
-  
-  // Helper to yield to event loop - prevents blocking other requests
-  function yieldToEventLoop(): Promise<void> {
-    return new Promise((resolve) => setImmediate(resolve));
-  }
-  
-  // Mark progress update as pending (timer will handle the actual update)
-  function scheduleProgressUpdate(): void {
-    progressUpdatePending = true;
-  }
-  
-  // Process a single batch (can run in parallel)
-  async function processSingleBatch(batch: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>, batchNum: number): Promise<{ inserted: number; updated: number; failed: number }> {
-    const batchStart = Date.now();
-    let inserted = 0;
-    let updated = 0;
-    let failed = 0;
-    
-    try {
-      const result = await bulkUpsertSubscribers(importJobId, batch, tagMode);
-      inserted = result.inserted;
-      updated = result.updated;
-      failed = result.failed; // bulkUpsertSubscribers now tracks failures internally
-    } catch (err: any) {
-      logger.error(`[IMPORT] Bulk upsert completely failed for batch ${batchNum}:`, err.message);
-      // Fall back to individual inserts if bulk fails completely (rare)
-      for (const row of batch) {
-        try {
-          const existing = await storage.getSubscriberByEmail(row.email);
-          if (existing) {
-            const mergedTags = tagMode === "override" 
-              ? row.tags 
-              : [...new Set([...(existing.tags || []), ...row.tags])];
-            await storage.updateSubscriber(existing.id, { tags: mergedTags });
-            updated++;
-          } else {
-            await storage.createSubscriber(row);
-            inserted++;
-          }
-        } catch (individualErr: any) {
-          failed++;
-          logger.error(`[IMPORT] Fallback insert failed for email ${row.email}: ${individualErr.message}`);
-        }
-      }
-    }
-    
-    const batchDuration = Date.now() - batchStart;
-    const rowsPerSecond = batch.length / (batchDuration / 1000);
-    logger.info(`[IMPORT] ${importJobId}: Batch ${batchNum} (${batch.length} rows) in ${batchDuration}ms (${Math.round(rowsPerSecond)}/s)`);
-    
-    return { inserted, updated, failed };
-  }
-  
-  // Process batches in parallel for maximum throughput
-  async function processParallelBatches(): Promise<void> {
-    if (pendingBatches.length === 0) return;
-    
-    // Check for cancellation before processing
-    if (await checkCancellation()) {
       return;
     }
     
-    // Take up to PARALLEL_WORKERS batches to process in parallel
-    const batchesToProcess = pendingBatches.splice(0, PARALLEL_WORKERS);
+    logger.info(`Worker ${WORKER_ID} claimed import job queue item ${queueItem.id} for import ${queueItem.importJobId} - forking child process`);
     
-    // Assign batch numbers before parallel processing (sequential assignment)
-    const batchesWithNumbers: Array<{ batch: typeof batchesToProcess[0]; batchNum: number }> = [];
-    for (const batch of batchesToProcess) {
-      batchNumber++;
-      batchesWithNumbers.push({ batch, batchNum: batchNumber });
-    }
+    const isDev = process.env.NODE_ENV !== "production";
+    const workerExt = isDev ? "import-worker.ts" : "import-worker.cjs";
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+    const workerPath = path.resolve(currentDir, workerExt);
     
-    // Process all batches in parallel
-    const results = await Promise.all(
-      batchesWithNumbers.map(({ batch, batchNum }) => processSingleBatch(batch, batchNum))
-    );
-    
-    // Aggregate results atomically (all results collected before updating counters)
-    let totalInserted = 0;
-    let totalUpdated = 0;
-    let totalFailed = 0;
-    for (const result of results) {
-      totalInserted += result.inserted;
-      totalUpdated += result.updated;
-      totalFailed += result.failed;
-    }
-    
-    // Update counters in a single operation (no interleaving)
-    newSubscribers += totalInserted;
-    updatedSubscribers += totalUpdated;
-    failedRows += totalFailed;
-    
-    // Calculate how many rows were actually committed in this batch cycle
-    const batchRowsCommitted = totalInserted + totalUpdated + totalFailed;
-    committedRows += batchRowsCommitted;
-    lastCommitTime = Date.now(); // Track successful commit time
-    
-    // Update progress after parallel batch processing
-    const now = Date.now();
-    if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-      await storage.updateImportQueueHeartbeat(queueId);
-      lastHeartbeat = now;
-    }
-    
-    // Use committedRows for all DB progress updates (actual committed data)
-    await storage.updateImportQueueProgress(queueId, committedRows);
-    await storage.updateImportJob(importJobId, {
-      processedRows: committedRows, // Report committed rows as processed
-      newSubscribers,
-      updatedSubscribers,
-      failedRows,
-    });
-    
-    // Checkpoint for resume capability (every 100k rows)
-    if (committedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
-      await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
-      lastCheckpointLine = committedRows;
-      logger.info(`[IMPORT] ${importJobId}: Checkpoint at line ${currentLineNumber}, ${committedRows.toLocaleString()} rows committed`);
-    }
-    
-    // Log overall progress with both parsed and committed counts
-    const elapsedSec = (Date.now() - startTime) / 1000;
-    const commitRate = committedRows / elapsedSec;
-    const pendingCount = parsedRows - committedRows;
-    logger.info(`[IMPORT] ${importJobId}: Batch complete - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}, pending parse: ${pendingCount.toLocaleString()}`);
-    
-    // Resume reading if we were paused and now have room for more batches
-    if (isReadingPaused && pendingBatches.length < MAX_PENDING_BATCHES) {
-      isReadingPaused = false;
-      rl.resume();
-    }
-    
-    // Memory-aware throttling: check memory after each batch cycle
-    const currentMem = process.memoryUsage();
-    if (currentMem.heapUsed / currentMem.heapTotal > 0.85 || currentMem.heapUsed > 3000 * 1024 * 1024) {
-      logger.warn(`[IMPORT] ${importJobId}: High memory usage (${Math.round(currentMem.heapUsed / 1024 / 1024)}MB), throttling...`);
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (global.gc) global.gc();
-    }
-    
-    // Yield to event loop to prevent blocking other requests during large imports
-    await yieldToEventLoop();
-  }
-  
-  // Legacy processBatch for compatibility - now queues batch for parallel processing
-  async function processBatch(): Promise<void> {
-    if (batchRows.length === 0) return;
-    
-    // Queue the current batch
-    pendingBatches.push([...batchRows]);
-    batchRows = [];
-    
-    // Process more aggressively - start processing when we have 2+ batches (not 4)
-    // This ensures faster commits and prevents large queues building up
-    if (pendingBatches.length >= 2) {
-      await processParallelBatches();
-    }
-  }
-  
-  // Process file line by line
-  return new Promise<void>((resolve, reject) => {
-    let hasSettled = false;
-    const safeReject = (err: any) => {
-      if (hasSettled) return;
-      hasSettled = true;
-      clearInterval(progressUpdateTimer);
-      if (ginIndexesDropped) {
-        storage.recreateSubscriberGinIndexes()
-          .then(() => logger.info(`[IMPORT] ${importJobId}: GIN indexes recovered after error`))
-          .catch((indexErr) => logger.error(`[IMPORT] ${importJobId}: Failed to recover GIN indexes:`, indexErr));
-      }
-      reject(err);
+    const forkOptions: any = {
+      env: {
+        ...process.env,
+        NODE_OPTIONS: "--max-old-space-size=4096",
+      },
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     };
-    const safeResolve = () => {
-      if (hasSettled) return;
-      hasSettled = true;
-      resolve();
-    };
-
-    rl.on('line', async (line: string) => {
-      try {
-        currentLineNumber++;
-        processedBytes += Buffer.byteLength(line, 'utf-8') + 1; // +1 for newline
-        
-        // Always parse header from first line, even when resuming
-        if (!headerParsed && currentLineNumber === 1) {
-          header = line.split(';').map(h => h.trim().toLowerCase());
-          emailIdx = header.indexOf('email');
-          tagsIdx = header.indexOf('tags');
-          ipIdx = header.indexOf('ip_address');
-          
-          logger.info(`[IMPORT] ${importJobId}: Header columns: ${header.join(', ')}`);
-          
-          if (emailIdx === -1) {
-            rl.close();
-            await storage.updateImportJob(importJobId, {
-              status: 'failed',
-              errorMessage: "CSV must have an 'email' column",
-            });
-            safeReject(new Error("CSV must have an 'email' column"));
-            return;
-          }
-          
-          headerParsed = true;
-          return;
-        }
-        
-        // Skip data lines if resuming from checkpoint (resume from line N means start processing at line N+1)
-        // resumeFromLine stores the last successfully processed line number
-        if (currentLineNumber <= resumeFromLine) {
-          return;
-        }
-        
-        // Skip empty lines
-        if (!line.trim()) {
-          return;
-        }
-        
-        // Parse data line
-        try {
-          const cols = line.split(';').map(c => c.trim());
-          const email = cols[emailIdx]?.toLowerCase();
-          
-          if (!email || !email.includes('@')) {
-            // Invalid email - count as parsed AND committed (immediate failure, nothing pending)
-            failedRows++;
-            parsedRows++;
-            committedRows++;
-            lastCommitTime = Date.now(); // Update commit time for immediate failures too
-            return;
-          }
-          
-          const tags = tagsIdx >= 0 && cols[tagsIdx]
-            ? cols[tagsIdx].split(',').map(t => t.trim().toUpperCase()).filter(Boolean)
-            : [];
-          const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
-          
-          batchRows.push({ email, tags, ipAddress, lineNumber: currentLineNumber });
-          parsedRows++; // Only increment parsed here - committed happens after batch insert
-          
-          // Schedule progress update (timer handles actual DB writes, no blocking)
-          scheduleProgressUpdate();
-          
-          // Process batch when full
-          if (batchRows.length >= BATCH_SIZE) {
-            // Queue the batch for parallel processing
-            await processBatch();
-            
-            // If cancelled, close the stream and exit
-            if (isCancelled) {
-              rl.close();
-              return;
-            }
-            
-            // Backpressure: pause reading if too many batches pending
-            if (pendingBatches.length >= MAX_PENDING_BATCHES && !isReadingPaused) {
-              rl.pause();
-              isReadingPaused = true;
-            }
-          }
-        } catch (parseErr) {
-          // Parse error - count as parsed AND committed (immediate failure)
-          failedRows++;
-          parsedRows++;
-          committedRows++;
-          lastCommitTime = Date.now(); // Update commit time for immediate failures too
-        }
-      } catch (err) {
-        logger.error(`[IMPORT] Error processing line ${currentLineNumber}:`, err);
-        // Line processing error - count as parsed AND committed (immediate failure)
-        failedRows++;
-        parsedRows++;
-        committedRows++;
-        lastCommitTime = Date.now(); // Update commit time for immediate failures too
-      }
-    });
     
-    rl.on('close', async () => {
-      // Stop the progress update timer
-      clearInterval(progressUpdateTimer);
+    if (isDev) {
+      const tsxPath = path.resolve(process.cwd(), "node_modules", ".bin", "tsx");
+      forkOptions.execPath = tsxPath;
+    }
+    
+    const child = fork(workerPath, [], forkOptions);
+    
+    activeImportWorker = child;
+    activeImportJobInfo = { queueId: queueItem.id, importJobId: queueItem.importJobId };
+    
+    child.on("message", async (msg: any) => {
+      if (!msg || !msg.type) return;
       
-      try {
-        // Process remaining rows in final batch (if not cancelled)
-        if (batchRows.length > 0 && !isCancelled) {
-          await processBatch();
-        }
-        
-        // Process any remaining pending batches in parallel
-        while (pendingBatches.length > 0 && !isCancelled) {
-          await processParallelBatches();
-        }
-        
-        // Re-check cancellation status from database before marking complete
-        // This handles the race condition where cancel request arrived after last batch started
-        const currentJob = await storage.getImportJob(importJobId);
-        const wasExternallyCancelled = currentJob?.status === 'cancelled';
-        
-        // If cancelled (either by our flag or externally), don't mark as completed
-        if (isCancelled || wasExternallyCancelled) {
-          logger.info(`[IMPORT] ${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (committed: ${committedRows}, parsed: ${parsedRows})`);
-          
-          // Update final progress so user knows where we stopped (but don't override cancelled status)
-          await storage.updateImportJob(importJobId, {
-            processedRows: committedRows, // Report committed rows
-            newSubscribers,
-            updatedSubscribers,
-            failedRows,
-          });
-          
-          // Clean up the CSV file even when cancelled
+      switch (msg.type) {
+        case "complete": {
+          const d = msg.data;
+          logger.info(`[IMPORT] Worker completed: committed=${d.committedRows}, new=${d.newSubscribers}, updated=${d.updatedSubscribers}, failed=${d.failedRows}, duration=${d.duration}s`);
           try {
-            if (isObjectStorage) {
-              await objectStorageService.deleteStorageObject(csvFilePath);
-              logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage after cancellation`);
+            const finalJob = await storage.getImportJob(queueItem.importJobId);
+            if (finalJob?.status === "cancelled") {
+              logger.info(`Import job ${queueItem.id} was cancelled during processing`);
             } else {
-              fs.unlinkSync(csvFilePath);
-              logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem after cancellation`);
+              await storage.completeImportQueueJob(queueItem.id, "completed");
+              storage.invalidateSegmentCountCache();
+              logger.info(`Import job ${queueItem.id} completed successfully`);
             }
-          } catch (cleanupErr) {
-            logger.error(`[IMPORT] Failed to clean up CSV file after cancellation: ${csvFilePath}`, cleanupErr);
+          } catch (err: any) {
+            logger.error(`Failed to finalize import job ${queueItem.id}:`, err);
           }
-          
-          // Recreate GIN indexes if they were dropped
-          if (ginIndexesDropped) {
-            try {
-              logger.info(`[IMPORT] ${importJobId}: Recreating GIN indexes after cancelled import`);
-              await storage.recreateSubscriberGinIndexes();
-            } catch (indexErr) {
-              logger.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes after cancellation`);
-            }
-          }
-          
-          safeResolve();
-          return;
+          break;
         }
-        
-        // Mark complete and cleanup file
-        await storage.updateImportJob(importJobId, {
-          status: 'completed',
-          completedAt: new Date(),
-          processedRows: committedRows,
-          newSubscribers,
-          updatedSubscribers,
-          failedRows,
-        });
-        
-        // Final checkpoint
-        await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
-        
-        // Recreate GIN indexes if they were dropped or are missing
-        if (isLargeImport) {
+        case "error": {
+          const d = msg.data;
+          logger.error(`[IMPORT] Worker error: ${d.message}`);
           try {
-            const indexesPresent = await storage.areGinIndexesPresent();
-            if (!indexesPresent) {
-              logger.info(`[IMPORT] ${importJobId}: GIN indexes missing (dropped=${ginIndexesDropped}), recreating after import`);
-              await storage.recreateSubscriberGinIndexes();
-            } else if (ginIndexesDropped) {
-              logger.info(`[IMPORT] ${importJobId}: GIN indexes already present despite being dropped this run`);
-            }
-          } catch (indexErr: any) {
-            logger.error(`[IMPORT] ${importJobId}: Failed to recreate GIN indexes:`, indexErr.message);
-            try {
-              await storage.logError({
-                type: "index_recreation_failed",
-                severity: "warning",
-                message: `Failed to recreate GIN indexes after import: ${indexErr.message}`,
-                importJobId,
-                details: indexErr?.stack || String(indexErr),
+            const jobAfterError = await storage.getImportJob(queueItem.importJobId);
+            if (jobAfterError?.status === "cancelled") {
+              logger.info(`Import job ${queueItem.id} was cancelled, not marking as failed`);
+            } else {
+              await storage.completeImportQueueJob(queueItem.id, "failed", d.message || "Unknown error");
+              await storage.updateImportJob(queueItem.importJobId, {
+                status: "failed",
+                errorMessage: d.message || "Unknown error",
               });
-            } catch (logErr) {
-              logger.error(`[IMPORT] ${importJobId}: Failed to log index recreation error:`, logErr);
             }
+            await storage.logError({
+              type: "import_failed",
+              severity: "error",
+              message: `Import job failed: ${d.message || "Unknown error"}`,
+              importJobId: queueItem.importJobId,
+              details: d.stack || String(d.message),
+            });
+          } catch (logErr) {
+            logger.error("Failed to log import error:", logErr);
           }
+          break;
         }
-        
-        // Clean up the CSV file after successful processing
-        try {
-          if (isObjectStorage) {
-            const deleted = await objectStorageService.deleteStorageObject(csvFilePath);
-            if (deleted) {
-              logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from object storage`);
-            } else {
-              logger.error(`[IMPORT] ${importJobId}: Failed to delete CSV file from object storage: ${csvFilePath}`);
-            }
-          } else {
-            fs.unlinkSync(csvFilePath);
-            logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file from local filesystem`);
+        case "log": {
+          const d = msg.data;
+          const level = d.level as "info" | "warn" | "error" | "debug";
+          if (logger[level]) {
+            logger[level](`[IMPORT-WORKER] ${d.message}`, d.extra);
           }
-        } catch (err) {
-          logger.error(`[IMPORT] Failed to clean up CSV file: ${csvFilePath}`, err);
+          break;
         }
-        
-        const totalDuration = (Date.now() - startTime) / 1000;
-        const finalRowsPerSecond = committedRows / totalDuration;
-        logger.info(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
-        
-        safeResolve();
-      } catch (err) {
-        safeReject(err);
       }
     });
     
-    rl.on('error', (err) => {
-      logger.error(`[IMPORT] Stream error:`, err);
-      safeReject(err);
+    child.on("exit", (code, signal) => {
+      const jobInfo = activeImportJobInfo;
+      activeImportWorker = null;
+      activeImportJobInfo = null;
+      
+      if (code !== 0 && code !== null) {
+        logger.error(`[IMPORT] Worker process exited with code ${code}, signal ${signal}`);
+        if (jobInfo) {
+          storage.completeImportQueueJob(jobInfo.queueId, "failed", `Worker crashed with exit code ${code}`)
+            .catch((err) => logger.error("Failed to mark crashed import as failed:", err));
+          storage.updateImportJob(jobInfo.importJobId, {
+            status: "failed",
+            errorMessage: `Worker process crashed (exit code ${code})`,
+          }).catch((err) => logger.error("Failed to update crashed import job:", err));
+        }
+      } else {
+        logger.info(`[IMPORT] Worker process exited cleanly (code=${code})`);
+      }
     });
     
-    fileStream.on('error', (err) => {
-      logger.error(`[IMPORT] File stream error:`, err);
-      safeReject(err);
+    child.on("error", (err) => {
+      logger.error(`[IMPORT] Worker process error:`, err);
+      activeImportWorker = null;
+      activeImportJobInfo = null;
     });
-  });
-}
-
-// High-speed bulk upsert using staging table + single merge query
-// This is 10-100x faster than individual INSERT statements
-async function bulkUpsertSubscribers(
-  jobId: string,
-  rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
-  tagMode: "merge" | "override" = "merge"
-): Promise<{ inserted: number; updated: number; failed: number }> {
-  if (rows.length === 0) {
-    return { inserted: 0, updated: 0, failed: 0 };
+    
+    child.send({
+      type: "start",
+      data: {
+        queueId: queueItem.id,
+        importJobId: queueItem.importJobId,
+        csvFilePath: queueItem.csvFilePath,
+      },
+    });
+    
+  } catch (error: any) {
+    logger.error(`Error in import job polling: ${error?.message || String(error)}`, { stack: error?.stack });
+    activeImportWorker = null;
+    activeImportJobInfo = null;
   }
-  
-  // Build multi-row VALUES clause for staging table
-  // Using parameterized query building for safety
-  const CHUNK_SIZE = 500; // Reasonable chunk for VALUES clause
-  let totalInserted = 0;
-  let totalUpdated = 0;
-  let totalFailed = 0;
-  
-  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-    const chunk = rows.slice(i, i + CHUNK_SIZE);
-    
-    // Build VALUES clause dynamically
-    const valuesClauses: string[] = [];
-    const params: any[] = [];
-    let paramIdx = 1;
-    
-    for (const row of chunk) {
-      const email = row.email.toLowerCase();
-      // Format tags as PostgreSQL array literal
-      const tagsArray = `{${row.tags.map(t => `"${t.replace(/"/g, '\\"')}"`).join(',')}}`;
-      valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}::text[], $${paramIdx + 3}, $${paramIdx + 4})`);
-      params.push(jobId, email, tagsArray, row.ipAddress, row.lineNumber);
-      paramIdx += 5;
-    }
-    
-    try {
-      // Step 1: Insert into staging table using pool directly for parameterized query
-      const insertSql = `
-        INSERT INTO import_staging (job_id, email, tags, ip_address, line_number)
-        VALUES ${valuesClauses.join(', ')}
-      `;
-      await pool.query(insertSql, params);
-      
-      // Step 2: Merge from staging to subscribers with single SQL statement
-      // First aggregate duplicate emails within the staging batch to preserve all tags
-      // Uses LEFT JOIN LATERAL to preserve rows with empty tag arrays
-      // Uses line_number for deterministic IP selection (last row wins)
-      // tagMode determines whether to merge or override existing tags
-      const mergeResult = tagMode === "override" 
-        ? await db.execute(sql`
-          WITH aggregated_staging AS (
-            SELECT 
-              s.email,
-              COALESCE(
-                array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
-                ARRAY[]::text[]
-              ) AS tags,
-              (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
-            FROM import_staging s
-            LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
-            WHERE s.job_id = ${jobId}
-            GROUP BY s.email
-          ),
-          merge_data AS (
-            INSERT INTO subscribers (email, tags, ip_address, import_date)
-            SELECT email, tags, ip_address, NOW()
-            FROM aggregated_staging
-            ON CONFLICT (email) DO UPDATE 
-            SET tags = EXCLUDED.tags,
-            ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-            RETURNING (xmax = 0) AS is_insert
-          )
-          SELECT 
-            COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-            COUNT(*) FILTER (WHERE is_insert = false) AS updated
-          FROM merge_data
-        `)
-        : await db.execute(sql`
-          WITH aggregated_staging AS (
-            SELECT 
-              s.email,
-              COALESCE(
-                array_agg(DISTINCT t.tag) FILTER (WHERE t.tag IS NOT NULL),
-                ARRAY[]::text[]
-              ) AS tags,
-              (array_agg(s.ip_address ORDER BY s.line_number DESC))[1] AS ip_address
-            FROM import_staging s
-            LEFT JOIN LATERAL unnest(s.tags) AS t(tag) ON true
-            WHERE s.job_id = ${jobId}
-            GROUP BY s.email
-          ),
-          merge_data AS (
-            INSERT INTO subscribers (email, tags, ip_address, import_date)
-            SELECT email, tags, ip_address, NOW()
-            FROM aggregated_staging
-            ON CONFLICT (email) DO UPDATE 
-            SET tags = COALESCE(
-              (SELECT array_agg(DISTINCT t) 
-               FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
-               WHERE t IS NOT NULL),
-              ARRAY[]::text[]
-            ),
-            ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-            RETURNING (xmax = 0) AS is_insert
-          )
-          SELECT 
-            COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-            COUNT(*) FILTER (WHERE is_insert = false) AS updated
-          FROM merge_data
-        `);
-      
-      // Step 3: Clear staging for this job
-      await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${jobId}`);
-      
-      if (mergeResult.rows.length > 0) {
-        const result = mergeResult.rows[0] as any;
-        totalInserted += parseInt(result.inserted || '0');
-        totalUpdated += parseInt(result.updated || '0');
-      }
-    } catch (err: any) {
-      logger.error(`[IMPORT] Bulk upsert chunk failed:`, err.message);
-      // Clean up staging on error
-      await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${jobId}`);
-      
-      // Fall back to individual inserts for this chunk
-      for (const row of chunk) {
-        try {
-          const result = tagMode === "override"
-            ? await db.execute(sql`
-              INSERT INTO subscribers (email, tags, ip_address, import_date)
-              VALUES (${row.email.toLowerCase()}, ${row.tags}::text[], ${row.ipAddress}, NOW())
-              ON CONFLICT (email) DO UPDATE 
-              SET tags = EXCLUDED.tags
-              RETURNING (xmax = 0) AS is_insert
-            `)
-            : await db.execute(sql`
-              INSERT INTO subscribers (email, tags, ip_address, import_date)
-              VALUES (${row.email.toLowerCase()}, ${row.tags}::text[], ${row.ipAddress}, NOW())
-              ON CONFLICT (email) DO UPDATE 
-              SET tags = COALESCE(
-                (SELECT array_agg(DISTINCT t) 
-                 FROM unnest(subscribers.tags || EXCLUDED.tags) AS t
-                 WHERE t IS NOT NULL),
-                ARRAY[]::text[]
-              )
-              RETURNING (xmax = 0) AS is_insert
-            `);
-          
-          if (result.rows.length > 0) {
-            const isInsert = (result.rows[0] as any).is_insert;
-            if (isInsert) totalInserted++;
-            else totalUpdated++;
-          }
-        } catch (individualErr: any) {
-          // Log each failed row for debugging and count it
-          totalFailed++;
-          logger.error(`[IMPORT] Individual insert failed for email ${row.email}: ${individualErr.message}`);
-        }
-      }
-    }
-  }
-  
-  return { inserted: totalInserted, updated: totalUpdated, failed: totalFailed };
 }
 
 // Internal processing function - called by the job queue
