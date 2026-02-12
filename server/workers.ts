@@ -231,6 +231,10 @@ async function processFlushJob(jobId: string, totalRows: number) {
   await storage.updateFlushJobProgress(jobId, processedRows);
 }
 
+let isProcessingCampaign = false;
+let isPolling = false;
+let campaignJobWakeup: (() => void) | null = null;
+
 export async function processCampaign(campaignId: string) {
   const existingStatus = await storage.getJobStatus(campaignId);
   if (existingStatus) {
@@ -244,35 +248,70 @@ export async function processCampaign(campaignId: string) {
 }
 
 async function pollForJobs() {
-  if (isMemoryPressure) {
-    logger.warn('Skipping job poll - memory pressure active');
-    return;
-  }
+  if (isPolling) return;
+  isPolling = true;
+
   try {
+    if (isMemoryPressure) {
+      logger.warn('[JOB_POLL] Skipping - memory pressure active');
+      return;
+    }
+
     const staleCount = await storage.cleanupStaleJobs(30);
     if (staleCount > 0) {
-      logger.info(`Cleaned up ${staleCount} stale jobs`);
+      logger.info(`[JOB_POLL] Cleaned up ${staleCount} stale jobs`);
+    }
+
+    if (isProcessingCampaign) {
+      return;
     }
 
     const job = await storage.claimNextJob(WORKER_ID);
-
     if (!job) {
       return;
     }
 
-    logger.info(`Worker ${WORKER_ID} claimed job ${job.id} for campaign ${job.campaignId}`);
+    logger.info(`[JOB_POLL] Worker ${WORKER_ID} claimed job ${job.id} for campaign ${job.campaignId}`);
+    isProcessingCampaign = true;
 
     try {
       await processCampaignInternal(job.campaignId, job.id);
-      await storage.completeJob(job.id, "completed");
-      logger.info(`Job ${job.id} completed successfully`);
+
+      const finalStatus = await storage.getCampaignStatus(job.campaignId);
+      if (finalStatus === "failed") {
+        await storage.completeJob(job.id, "failed", "Campaign ended in failed state");
+        logger.info(`[JOB_POLL] Job ${job.id} marked failed (campaign ${job.campaignId} status: failed)`);
+      } else if (finalStatus === "paused") {
+        await storage.completeJob(job.id, "failed", "Campaign paused (e.g. MTA down)");
+        logger.info(`[JOB_POLL] Job ${job.id} marked failed (campaign ${job.campaignId} paused)`);
+      } else {
+        await storage.completeJob(job.id, "completed");
+        logger.info(`[JOB_POLL] Job ${job.id} completed (campaign ${job.campaignId} status: ${finalStatus})`);
+      }
     } catch (error: any) {
-      logger.error(`Error processing job ${job.id}:`, error);
-      await storage.completeJob(job.id, "failed", error.message || "Unknown error");
-      await storage.updateCampaignStatusAtomic(job.campaignId, "failed");
+      logger.error(`[JOB_POLL] Error processing job ${job.id} for campaign ${job.campaignId}:`, error);
+      try {
+        await storage.completeJob(job.id, "failed", error.message || "Unknown error");
+      } catch (completeErr) {
+        logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
+      }
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await storage.updateCampaignStatusAtomic(job.campaignId, "failed");
+          logger.info(`[JOB_POLL] Campaign ${job.campaignId} marked as failed (attempt ${attempt + 1})`);
+          break;
+        } catch (statusErr) {
+          logger.error(`[JOB_POLL] Failed to mark campaign ${job.campaignId} as failed (attempt ${attempt + 1}):`, statusErr);
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+    } finally {
+      isProcessingCampaign = false;
     }
   } catch (error) {
-    logger.error("Error in job polling:", error);
+    logger.error("[JOB_POLL] Error in job polling:", error);
+  } finally {
+    isPolling = false;
   }
 }
 
@@ -360,12 +399,12 @@ function startJobProcessor() {
     return;
   }
 
-  logger.info(`Starting job processor with worker ID: ${WORKER_ID}`);
+  logger.info(`[JOB_POLL] Starting job processor with worker ID: ${WORKER_ID}`);
 
-  jobPollingInterval = setInterval(pollForJobs, 2000);
+  jobPollingInterval = setInterval(pollForJobs, 5000);
 
   messageQueue.onMessage("campaign_jobs", (payload) => {
-    logger.info(`[NOTIFY] Campaign job notification received, triggering immediate poll`);
+    logger.info(`[JOB_POLL] NOTIFY received for campaign_jobs, triggering immediate poll`);
     pollForJobs();
   });
 

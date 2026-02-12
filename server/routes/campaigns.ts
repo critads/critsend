@@ -6,6 +6,7 @@ import { insertCampaignSchema, campaigns, campaignJobs } from "@shared/schema";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
 import { logger } from "../logger";
+import { messageQueue } from "../message-queue";
 import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml } from "../utils";
 import * as cheerio from "cheerio";
 import * as fs from "fs";
@@ -299,6 +300,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(404).json({ error: "Campaign not found" });
       }
       
+      if (existingCampaign.status !== "sending" && campaign.status === "sending") {
+        await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
+        logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
+      }
+      
       res.json(campaign);
     } catch (error) {
       logger.error("Error updating campaign:", error);
@@ -370,6 +376,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
+      
+      await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
+      logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
+      
       res.json(campaign);
     } catch (error) {
       logger.error("Error resuming campaign:", error);
@@ -502,6 +512,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(500).json({ error: "Failed to start campaign - status update failed" });
       }
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
+      
+      await messageQueue.notify("campaign_jobs", { campaignId });
+      logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${campaignId}`);
       
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} started successfully`);
       res.json({ 
