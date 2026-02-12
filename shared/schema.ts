@@ -57,6 +57,7 @@ export const nullsinkCaptures = pgTable("nullsink_captures", {
   toEmail: text("to_email").notNull(),
   subject: text("subject").notNull(),
   messageSize: integer("message_size").default(0), // Size in bytes
+  htmlBody: text("html_body"),
   status: text("status").notNull().default("captured"), // captured, simulated_failure
   handshakeTimeMs: integer("handshake_time_ms").default(0),
   totalTimeMs: integer("total_time_ms").default(0),

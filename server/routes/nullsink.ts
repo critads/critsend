@@ -86,6 +86,26 @@ export function registerNullsinkRoutes(app: Express, helpers: {
     }
   });
 
+  app.get("/api/nullsink/captures/:id", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const result = await db.execute(sql`
+        SELECT id, campaign_id, subscriber_id, mta_id, from_email, to_email, subject, 
+               message_size, html_body, status, handshake_time_ms, total_time_ms, timestamp
+        FROM nullsink_captures 
+        WHERE id = ${req.params.id}
+      `);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Capture not found" });
+      }
+      res.json(result.rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get capture" });
+    }
+  });
+
   app.get("/api/nullsink/metrics", async (req: Request, res: Response) => {
     try {
       const campaignId = req.query.campaignId as string | undefined;

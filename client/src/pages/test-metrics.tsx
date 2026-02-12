@@ -14,6 +14,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   FlaskConical,
   Play,
   Square,
@@ -24,6 +31,7 @@ import {
   XCircle,
   Clock,
   Zap,
+  Eye,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -129,6 +137,7 @@ function StatCard({
 export default function TestMetrics() {
   const { toast } = useToast();
   const [page, setPage] = useState(1);
+  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
   const limit = 20;
 
   const { data: status, isLoading: statusLoading } = useQuery<NullsinkStatus>({
@@ -148,6 +157,17 @@ export default function TestMetrics() {
     queryKey: [`/api/nullsink/captures?offset=${offset}&limit=${limit}`],
     refetchInterval: 3000,
     staleTime: 0,
+  });
+
+  const { data: captureDetail, isLoading: detailLoading } = useQuery<{
+    id: string;
+    to_email: string;
+    from_email: string;
+    subject: string;
+    html_body: string | null;
+  }>({
+    queryKey: [`/api/nullsink/captures/${selectedCaptureId}`],
+    enabled: !!selectedCaptureId,
   });
 
   const startMutation = useMutation({
@@ -336,6 +356,7 @@ export default function TestMetrics() {
                       <TableHead>Subject</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Total Time</TableHead>
+                      <TableHead>Content</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -363,6 +384,16 @@ export default function TestMetrics() {
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm">
                           {capture.totalTimeMs ?? 0}ms
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setSelectedCaptureId(capture.id)}
+                            data-testid={`button-view-content-${index}`}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -410,6 +441,32 @@ export default function TestMetrics() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedCaptureId} onOpenChange={(open) => { if (!open) setSelectedCaptureId(null); }}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Email Content</DialogTitle>
+            <DialogDescription>
+              {captureDetail ? `To: ${captureDetail.to_email} — Subject: ${captureDetail.subject}` : 'Loading...'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {detailLoading ? (
+              <Skeleton className="h-full w-full" />
+            ) : captureDetail?.html_body ? (
+              <iframe
+                srcDoc={captureDetail.html_body}
+                className="w-full h-full min-h-[400px] border rounded-md bg-white"
+                sandbox=""
+                title="Email preview"
+                data-testid="iframe-email-preview"
+              />
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No email content available</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
