@@ -264,7 +264,6 @@ async function pollForJobs() {
     const staleCount = await storage.cleanupStaleJobs(30);
     if (staleCount > 0) {
       logger.info(`[JOB_POLL] Cleaned up ${staleCount} stale jobs`);
-      await resumeInterruptedCampaigns();
     }
 
     if (isProcessingCampaign) {
@@ -431,7 +430,10 @@ async function resumeInterruptedCampaigns() {
       AND NOT EXISTS (
         SELECT 1 FROM campaign_jobs cj 
         WHERE cj.campaign_id = c.id 
-        AND cj.status IN ('pending', 'processing')
+        AND (
+          cj.status IN ('pending', 'processing')
+          OR (cj.status = 'failed' AND cj.completed_at > NOW() - INTERVAL '2 minutes')
+        )
       )
     `);
 

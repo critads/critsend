@@ -1090,6 +1090,16 @@ export class DatabaseStorage implements IStorage {
   // ═══════════════════════════════════════════════════════════════
 
   async enqueueCampaignJob(campaignId: string): Promise<CampaignJob> {
+    const existing = await db.execute(sql`
+      SELECT id FROM campaign_jobs
+      WHERE campaign_id = ${campaignId} AND status IN ('pending', 'processing')
+      LIMIT 1
+    `);
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0] as any;
+      const existingJob = await db.select().from(campaignJobs).where(eq(campaignJobs.id, row.id)).limit(1);
+      return existingJob[0];
+    }
     const [job] = await db.insert(campaignJobs).values({
       campaignId,
       status: "pending",
@@ -1098,6 +1108,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async enqueueCampaignJobWithRetry(campaignId: string, retryCount: number, delaySeconds: number): Promise<any> {
+    const existing = await db.execute(sql`
+      SELECT id FROM campaign_jobs
+      WHERE campaign_id = ${campaignId} AND status IN ('pending', 'processing')
+      LIMIT 1
+    `);
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0] as any;
+      return { id: row.id, campaignId, status: 'pending', retryCount, nextRetryAt: null, createdAt: new Date(), startedAt: null, completedAt: null, workerId: null, errorMessage: null };
+    }
     const result = await db.execute(sql`
       INSERT INTO campaign_jobs (id, campaign_id, status, retry_count, next_retry_at, created_at)
       VALUES (gen_random_uuid(), ${campaignId}, 'pending', ${retryCount}, NOW() + INTERVAL '1 second' * ${delaySeconds}, NOW())
