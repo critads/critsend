@@ -127,6 +127,7 @@ export interface IStorage {
   finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void>;
   recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>; // NOTE: Potentially dead code - no callers found outside storage.ts
   recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes?: number): Promise<number>;
+  resetOrphanedFailedSends(campaignId: string): Promise<number>;
   forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
   bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]>;
   bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void>;
@@ -914,6 +915,34 @@ export class DatabaseStorage implements IStorage {
       logger.info('Recovered orphaned pending sends', { recoveredCount, campaignId });
     }
     return recoveredCount;
+  }
+
+  async resetOrphanedFailedSends(campaignId: string): Promise<number> {
+    const result = await db.execute(sql`
+      WITH orphaned AS (
+        DELETE FROM campaign_sends 
+        WHERE campaign_id = ${campaignId} 
+          AND status = 'failed'
+          AND retry_count = 0
+          AND first_open_at IS NULL
+          AND first_click_at IS NULL
+        RETURNING id
+      ),
+      counter_update AS (
+        UPDATE campaigns 
+        SET 
+          failed_count = GREATEST(failed_count - (SELECT COUNT(*) FROM orphaned), 0)
+        WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM orphaned) > 0
+        RETURNING id
+      )
+      SELECT (SELECT COUNT(*) FROM orphaned) as reset_count
+    `);
+    
+    const resetCount = Number(result.rows[0]?.reset_count ?? 0);
+    if (resetCount > 0) {
+      logger.info(`[RESUME] Deleted ${resetCount} orphaned failed sends for campaign ${campaignId} - will be re-reserved on next send`);
+    }
+    return resetCount;
   }
 
   async forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean> {

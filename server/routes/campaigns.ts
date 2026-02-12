@@ -391,6 +391,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
       await storage.clearStuckJobsForCampaign(req.params.id);
       
+      const resetCount = await storage.resetOrphanedFailedSends(req.params.id);
+      if (resetCount > 0) {
+        logger.info(`[CAMPAIGN_RESUME] Reset ${resetCount} orphaned failed sends for campaign ${req.params.id}`);
+      }
+      
       const campaign = await db.transaction(async (tx) => {
         const [updated] = await tx.update(campaigns).set({ status: "sending", pauseReason: null }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
         if (!updated) return null;
