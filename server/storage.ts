@@ -13,6 +13,8 @@ import {
   errorLogs,
   pendingTagOperations,
   flushJobs,
+  dbMaintenanceRules,
+  dbMaintenanceLogs,
   type Subscriber,
   type InsertSubscriber,
   type Segment,
@@ -40,8 +42,12 @@ import {
   type PendingTagOperation,
   type FlushJob,
   type FlushJobStatus,
+  type DbMaintenanceRule,
+  type InsertDbMaintenanceRule,
+  type DbMaintenanceLog,
   users,
 } from "@shared/schema";
+import { pool } from "./db";
 import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
 import { encrypt, decrypt } from "./crypto";
@@ -239,6 +245,19 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<any | null>;
   getUserById(id: string): Promise<any | null>;
   getUserCount(): Promise<number>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // DATABASE MAINTENANCE
+  // ═══════════════════════════════════════════════════════════════
+  getMaintenanceRules(): Promise<DbMaintenanceRule[]>;
+  getMaintenanceRule(id: string): Promise<DbMaintenanceRule | undefined>;
+  upsertMaintenanceRule(data: InsertDbMaintenanceRule): Promise<DbMaintenanceRule>;
+  updateMaintenanceRule(id: string, data: Partial<InsertDbMaintenanceRule>): Promise<DbMaintenanceRule | undefined>;
+  deleteMaintenanceRule(id: string): Promise<void>;
+  getMaintenanceLogs(limit?: number): Promise<DbMaintenanceLog[]>;
+  createMaintenanceLog(data: Omit<DbMaintenanceLog, 'id' | 'executedAt'>): Promise<DbMaintenanceLog>;
+  getTableStats(): Promise<Array<{tableName: string; rowCount: number; sizeBytes: number; sizePretty: string}>>;
+  seedDefaultMaintenanceRules(): Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════
   // DASHBOARD & ANALYTICS
@@ -2090,6 +2109,82 @@ export class DatabaseStorage implements IStorage {
       const result = await db.delete(nullsinkCaptures);
       return result.rowCount || 0;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DATABASE MAINTENANCE
+  // ═══════════════════════════════════════════════════════════════
+
+  async getMaintenanceRules(): Promise<DbMaintenanceRule[]> {
+    return db.select().from(dbMaintenanceRules).orderBy(dbMaintenanceRules.tableName);
+  }
+
+  async getMaintenanceRule(id: string): Promise<DbMaintenanceRule | undefined> {
+    const [rule] = await db.select().from(dbMaintenanceRules).where(eq(dbMaintenanceRules.id, id));
+    return rule;
+  }
+
+  async upsertMaintenanceRule(data: InsertDbMaintenanceRule): Promise<DbMaintenanceRule> {
+    const [rule] = await db.insert(dbMaintenanceRules).values(data).onConflictDoNothing({ target: dbMaintenanceRules.tableName }).returning();
+    if (!rule) {
+      const [existing] = await db.select().from(dbMaintenanceRules).where(eq(dbMaintenanceRules.tableName, data.tableName));
+      return existing;
+    }
+    return rule;
+  }
+
+  async updateMaintenanceRule(id: string, data: Partial<InsertDbMaintenanceRule>): Promise<DbMaintenanceRule | undefined> {
+    const [rule] = await db.update(dbMaintenanceRules).set(data).where(eq(dbMaintenanceRules.id, id)).returning();
+    return rule;
+  }
+
+  async deleteMaintenanceRule(id: string): Promise<void> {
+    await db.delete(dbMaintenanceLogs).where(eq(dbMaintenanceLogs.ruleId, id));
+    await db.delete(dbMaintenanceRules).where(eq(dbMaintenanceRules.id, id));
+  }
+
+  async getMaintenanceLogs(limit: number = 50): Promise<DbMaintenanceLog[]> {
+    return db.select().from(dbMaintenanceLogs).orderBy(desc(dbMaintenanceLogs.executedAt)).limit(limit);
+  }
+
+  async createMaintenanceLog(data: Omit<DbMaintenanceLog, 'id' | 'executedAt'>): Promise<DbMaintenanceLog> {
+    const [log] = await db.insert(dbMaintenanceLogs).values(data).returning();
+    return log;
+  }
+
+  async getTableStats(): Promise<Array<{tableName: string; rowCount: number; sizeBytes: number; sizePretty: string}>> {
+    const result = await pool.query(`
+      SELECT 
+        relname as table_name,
+        n_live_tup as row_count,
+        pg_total_relation_size(quote_ident(relname)) as size_bytes,
+        pg_size_pretty(pg_total_relation_size(quote_ident(relname))) as size_pretty
+      FROM pg_stat_user_tables 
+      WHERE schemaname = 'public'
+      ORDER BY pg_total_relation_size(quote_ident(relname)) DESC
+    `);
+    return result.rows.map((row: any) => ({
+      tableName: row.table_name,
+      rowCount: Number(row.row_count),
+      sizeBytes: Number(row.size_bytes),
+      sizePretty: row.size_pretty,
+    }));
+  }
+
+  async seedDefaultMaintenanceRules(): Promise<void> {
+    const defaults: InsertDbMaintenanceRule[] = [
+      { tableName: "nullsink_captures", displayName: "Nullsink Captures", description: "Test email captures from nullsink campaigns", retentionDays: 7, enabled: true },
+      { tableName: "campaign_sends", displayName: "Campaign Sends", description: "Individual email send records per campaign", retentionDays: 180, enabled: true },
+      { tableName: "pending_tag_operations", displayName: "Tag Operations", description: "Completed tag operation queue entries", retentionDays: 7, enabled: true },
+      { tableName: "campaign_jobs", displayName: "Campaign Jobs", description: "Completed campaign job queue entries", retentionDays: 30, enabled: true },
+      { tableName: "import_job_queue", displayName: "Import Queue", description: "Completed import queue entries", retentionDays: 30, enabled: true },
+      { tableName: "error_logs", displayName: "Error Logs", description: "Application error log entries", retentionDays: 30, enabled: true },
+      { tableName: "session", displayName: "Sessions", description: "Expired user sessions", retentionDays: 7, enabled: true },
+    ];
+    for (const rule of defaults) {
+      await this.upsertMaintenanceRule(rule);
+    }
+    logger.info("[MAINTENANCE] Default maintenance rules seeded");
   }
 }
 

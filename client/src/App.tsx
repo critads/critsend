@@ -29,6 +29,7 @@ import TestMetrics from "@/pages/test-metrics";
 import Warmup from "@/pages/warmup";
 import Automation from "@/pages/automation";
 import AdvancedAnalytics from "@/pages/advanced-analytics";
+import DatabaseHealth from "@/pages/database-health";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -53,6 +54,7 @@ function Router() {
       <Route path="/warmup" component={Warmup} />
       <Route path="/automation" component={Automation} />
       <Route path="/advanced-analytics" component={AdvancedAnalytics} />
+      <Route path="/database-health" component={DatabaseHealth} />
       <Route component={NotFound} />
     </Switch>
   );

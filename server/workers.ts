@@ -11,6 +11,8 @@ import * as fs from "fs";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
+import { pool } from "./db";
+
 let tagQueueInterval: NodeJS.Timeout | null = null;
 let tagCleanupInterval: NodeJS.Timeout | null = null;
 let jobPollingInterval: NodeJS.Timeout | null = null;
@@ -18,6 +20,7 @@ let importJobPollingInterval: NodeJS.Timeout | null = null;
 let flushJobPollingInterval: NodeJS.Timeout | null = null;
 let mtaRecoveryInterval: NodeJS.Timeout | null = null;
 let memoryCheckInterval: NodeJS.Timeout | null = null;
+let maintenanceInterval: NodeJS.Timeout | null = null;
 
 let activeImportWorker: ChildProcess | null = null;
 let activeImportJobInfo: { queueId: string; importJobId: string } | null = null;
@@ -40,12 +43,13 @@ export function getImportJobProcessorRunning(): boolean {
   return !!importJobPollingInterval;
 }
 
-export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean } {
+export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean; maintenanceWorker: boolean } {
   return {
     jobProcessor: !!jobPollingInterval,
     importProcessor: !!importJobPollingInterval,
     tagQueueWorker: !!tagQueueInterval,
     flushProcessor: !!flushJobPollingInterval,
+    maintenanceWorker: !!maintenanceInterval,
   };
 }
 
@@ -692,9 +696,149 @@ async function pollForImportJobs() {
   }
 }
 
+const MAINTENANCE_INTERVAL = 21600000; // 6 hours
+const MAINTENANCE_BATCH_SIZE = 1000;
+const MAINTENANCE_MAX_ROWS = 50000;
+
+const TABLE_CLEANUP_QUERIES: Record<string, { column: string; statusFilter?: boolean }> = {
+  nullsink_captures: { column: "timestamp" },
+  campaign_sends: { column: "sent_at" },
+  pending_tag_operations: { column: "created_at", statusFilter: true },
+  campaign_jobs: { column: "created_at", statusFilter: true },
+  import_job_queue: { column: "created_at", statusFilter: true },
+  error_logs: { column: "timestamp" },
+  session: { column: "expire" },
+};
+
+async function runMaintenanceForRule(rule: any, triggeredBy: string): Promise<{ rowsDeleted: number; durationMs: number; status: string; errorMessage?: string }> {
+  const startTime = Date.now();
+  let totalDeleted = 0;
+  const config = TABLE_CLEANUP_QUERIES[rule.tableName];
+  if (!config) {
+    return { rowsDeleted: 0, durationMs: 0, status: "failed", errorMessage: `No cleanup config for table ${rule.tableName}` };
+  }
+
+  try {
+    const cutoff = new Date(Date.now() - rule.retentionDays * 24 * 60 * 60 * 1000);
+
+    while (totalDeleted < MAINTENANCE_MAX_ROWS) {
+      let query: string;
+      let params: any[];
+
+      if (rule.tableName === "session") {
+        query = `DELETE FROM session WHERE ctid IN (SELECT ctid FROM session WHERE expire < NOW() LIMIT $1)`;
+        params = [MAINTENANCE_BATCH_SIZE];
+      } else if (config.statusFilter) {
+        query = `DELETE FROM ${rule.tableName} WHERE ctid IN (SELECT ctid FROM ${rule.tableName} WHERE status IN ('completed', 'failed') AND ${config.column} < $1 LIMIT $2)`;
+        params = [cutoff, MAINTENANCE_BATCH_SIZE];
+      } else {
+        query = `DELETE FROM ${rule.tableName} WHERE ctid IN (SELECT ctid FROM ${rule.tableName} WHERE ${config.column} < $1 LIMIT $2)`;
+        params = [cutoff, MAINTENANCE_BATCH_SIZE];
+      }
+
+      const result = await pool.query(query, params);
+      const deletedCount = result.rowCount || 0;
+      totalDeleted += deletedCount;
+
+      if (deletedCount < MAINTENANCE_BATCH_SIZE) {
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    const durationMs = Date.now() - startTime;
+    return { rowsDeleted: totalDeleted, durationMs, status: "success" };
+  } catch (error: any) {
+    const durationMs = Date.now() - startTime;
+    return { rowsDeleted: totalDeleted, durationMs, status: totalDeleted > 0 ? "partial" : "failed", errorMessage: error.message };
+  }
+}
+
+let maintenanceRunning = false;
+
+export async function runMaintenanceNow(triggeredBy: string = "auto"): Promise<Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }>> {
+  if (maintenanceRunning) {
+    logger.info(`[MAINTENANCE] Skipping ${triggeredBy} run - already in progress`);
+    return [];
+  }
+  maintenanceRunning = true;
+  try {
+    return await _runMaintenance(triggeredBy);
+  } finally {
+    maintenanceRunning = false;
+  }
+}
+
+async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }>> {
+  const rules = await storage.getMaintenanceRules();
+  const enabledRules = rules.filter(r => r.enabled);
+  const results: Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }> = [];
+
+  logger.info(`[MAINTENANCE] Starting cleanup run (${triggeredBy}), ${enabledRules.length} rules enabled`);
+
+  for (const rule of enabledRules) {
+    try {
+      const result = await runMaintenanceForRule(rule, triggeredBy);
+
+      await storage.createMaintenanceLog({
+        ruleId: rule.id,
+        tableName: rule.tableName,
+        rowsDeleted: result.rowsDeleted,
+        durationMs: result.durationMs,
+        status: result.status,
+        errorMessage: result.errorMessage || null,
+        triggeredBy,
+      });
+
+      await storage.updateMaintenanceRule(rule.id, {});
+      await pool.query(
+        `UPDATE db_maintenance_rules SET last_run_at = NOW(), last_rows_deleted = $1 WHERE id = $2`,
+        [result.rowsDeleted, rule.id]
+      );
+
+      results.push({ tableName: rule.tableName, ...result });
+
+      if (result.rowsDeleted > 0) {
+        logger.info(`[MAINTENANCE] ${rule.tableName}: deleted ${result.rowsDeleted} rows in ${result.durationMs}ms (${result.status})`);
+      }
+    } catch (error: any) {
+      logger.error(`[MAINTENANCE] Error processing rule for ${rule.tableName}:`, error);
+      results.push({ tableName: rule.tableName, rowsDeleted: 0, durationMs: 0, status: "failed" });
+    }
+  }
+
+  const totalDeleted = results.reduce((sum, r) => sum + r.rowsDeleted, 0);
+  logger.info(`[MAINTENANCE] Cleanup run complete (${triggeredBy}): ${totalDeleted} total rows deleted across ${results.length} tables`);
+
+  return results;
+}
+
+function startMaintenanceWorker() {
+  if (maintenanceInterval) return;
+  logger.info("[MAINTENANCE] Starting maintenance worker (6h interval)");
+  maintenanceInterval = setInterval(() => {
+    runMaintenanceNow("auto").catch(err => {
+      logger.error("[MAINTENANCE] Auto maintenance run failed:", err);
+    });
+  }, MAINTENANCE_INTERVAL);
+}
+
+function stopMaintenanceWorker() {
+  if (maintenanceInterval) {
+    clearInterval(maintenanceInterval);
+    maintenanceInterval = null;
+    logger.info("[MAINTENANCE] Maintenance worker stopped");
+  }
+}
+
 export async function startAllWorkers() {
   await startJobProcessor();
   startTagQueueWorker();
+  startMaintenanceWorker();
+  storage.seedDefaultMaintenanceRules().catch(err => {
+    logger.error("[MAINTENANCE] Failed to seed default rules:", err);
+  });
 }
 
 export function stopAllBackgroundWorkers() {
@@ -702,6 +846,7 @@ export function stopAllBackgroundWorkers() {
   stopMemoryMonitor();
   stopJobProcessor();
   stopTagQueueWorker();
+  stopMaintenanceWorker();
   closeNullsinkTransporter();
   logger.info("[SHUTDOWN] All background workers stopped");
 }

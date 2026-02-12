@@ -23,6 +23,7 @@ import { registerCampaignRoutes } from "./routes/campaigns";
 import { registerImportExportRoutes } from "./routes/import-export";
 import { registerHealthRoutes } from "./routes/health";
 import { registerNullsinkRoutes } from "./routes/nullsink";
+import { registerDatabaseHealthRoutes } from "./routes/database-health";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -95,6 +96,7 @@ export async function registerRoutes(
   registerAdvancedAnalyticsRoutes(app);
   registerCampaignRoutes(app, helpers, campaignLimiter);
   registerImportExportRoutes(app, helpers);
+  registerDatabaseHealthRoutes(app);
 
   return httpServer;
 }

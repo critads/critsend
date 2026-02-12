@@ -756,6 +756,37 @@ export const insertAutomationWorkflowSchema = createInsertSchema(automationWorkf
 
 export const insertAnalyticsDailySchema = createInsertSchema(analyticsDaily).omit({ id: true, updatedAt: true });
 
+// Database maintenance rules - configurable cleanup for heavy tables
+export const dbMaintenanceRules = pgTable("db_maintenance_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tableName: text("table_name").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  retentionDays: integer("retention_days").notNull().default(90),
+  enabled: boolean("enabled").notNull().default(true),
+  lastRunAt: timestamp("last_run_at"),
+  lastRowsDeleted: integer("last_rows_deleted").default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Database maintenance execution log
+export const dbMaintenanceLogs = pgTable("db_maintenance_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleId: varchar("rule_id").notNull().references(() => dbMaintenanceRules.id),
+  tableName: text("table_name").notNull(),
+  rowsDeleted: integer("rows_deleted").notNull().default(0),
+  durationMs: integer("duration_ms").notNull().default(0),
+  status: text("status").notNull().default("success"),
+  errorMessage: text("error_message"),
+  triggeredBy: text("triggered_by").notNull().default("auto"),
+  executedAt: timestamp("executed_at").notNull().defaultNow(),
+}, (table) => ({
+  ruleIdx: index("db_maint_log_rule_idx").on(table.ruleId),
+  executedAtIdx: index("db_maint_log_executed_idx").on(table.executedAt),
+}));
+
+export const insertDbMaintenanceRuleSchema = createInsertSchema(dbMaintenanceRules).omit({ id: true, lastRunAt: true, lastRowsDeleted: true, createdAt: true });
+
 // Types for enterprise features
 export type AbTestVariant = typeof abTestVariants.$inferSelect;
 export type InsertAbTestVariant = z.infer<typeof insertAbTestVariantSchema>;
@@ -775,3 +806,7 @@ export type TriggerType = "subscriber_added" | "tag_added" | "tag_removed" | "su
 export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
 export type WarmupStatus = "active" | "paused" | "completed";
 export type EnrollmentStatus = "active" | "completed" | "failed" | "cancelled";
+
+export type DbMaintenanceRule = typeof dbMaintenanceRules.$inferSelect;
+export type InsertDbMaintenanceRule = z.infer<typeof insertDbMaintenanceRuleSchema>;
+export type DbMaintenanceLog = typeof dbMaintenanceLogs.$inferSelect;
