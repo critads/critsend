@@ -647,6 +647,7 @@ export function sendEmailBatchNullsink(
   const baseHtml = precomputedBaseHtml ?? precomputeBaseHtml(campaign, mta);
 
   const results: BatchNullsinkResult[] = [];
+  let htmlBodyStored = false;
 
   for (const sub of subscribers) {
     try {
@@ -689,11 +690,12 @@ export function sendEmailBatchNullsink(
         toEmail: subscriber.email,
         subject: subject,
         messageSize: messageSize,
-        htmlBody: htmlContent,
+        htmlBody: !htmlBodyStored ? htmlContent : null,
         status: shouldFail ? "simulated_failure" : "captured",
         handshakeTimeMs: 0,
         totalTimeMs: 0,
       };
+      if (!htmlBodyStored) htmlBodyStored = true;
 
       results.push({
         subscriberId: subscriber.id,

@@ -168,7 +168,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
           retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch), `${logPrefix} flushBuffer`),
         ];
         if (captureBatch.length > 0) {
-          flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch(() => {}));
+          flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch((e: any) => {
+            logger.error(`${logPrefix} Bulk nullsink capture insert failed: ${e.message}`);
+          }));
         }
         await Promise.all(flushOps);
       } catch (err: any) {
@@ -206,7 +208,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
           retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch), `${logPrefix} flushBufferAsync`),
         ];
         if (captureBatch.length > 0) {
-          flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch(() => {}));
+          flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch((e: any) => {
+            logger.error(`${logPrefix} Bulk nullsink capture insert failed: ${e.message}`);
+          }));
         }
         await Promise.all(flushOps);
       } catch (err: any) {
