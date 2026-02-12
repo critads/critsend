@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import type { CampaignJob } from "@shared/schema";
 import { processCampaignInternal } from "./services/campaign-sender";
 import { verifyTransporter, closeNullsinkTransporter } from "./email-service";
 import { messageQueue } from "./message-queue";
@@ -235,7 +236,8 @@ async function processFlushJob(jobId: string, totalRows: number) {
   await storage.updateFlushJobProgress(jobId, processedRows);
 }
 
-let isProcessingCampaign = false;
+const MAX_CONCURRENT_CAMPAIGNS = 5;
+const activeCampaigns = new Set<string>();
 let isPolling = false;
 let campaignJobWakeup: (() => void) | null = null;
 
@@ -249,6 +251,112 @@ export async function processCampaign(campaignId: string) {
   await storage.enqueueCampaignJob(campaignId);
   await messageQueue.notify("campaign_jobs", { campaignId });
   logger.info(`Campaign ${campaignId} added to PostgreSQL job queue`);
+}
+
+async function handleJobCompletion(job: CampaignJob) {
+  try {
+    const finalStatus = await storage.getCampaignStatus(job.campaignId);
+    if (finalStatus === "paused") {
+      await storage.completeJob(job.id, "failed", `Campaign paused - no automatic retry for paused campaigns`);
+      logger.info(`[JOB_POLL] Job ${job.id} ended - campaign ${job.campaignId} is paused (skipping retry)`);
+    } else if (finalStatus === "failed") {
+      const campaignData = await storage.getCampaign(job.campaignId);
+      let retryDeadline = campaignData?.retryUntil;
+      const jobRetryCount = (job as any).retryCount || 0;
+
+      if (!retryDeadline) {
+        retryDeadline = new Date(Date.now() + 12 * 60 * 60 * 1000);
+        await storage.updateCampaign(job.campaignId, { retryUntil: retryDeadline });
+        logger.info(`[JOB_POLL] Set retry deadline for campaign ${job.campaignId}: ${retryDeadline.toISOString()}`);
+      }
+
+      if (Date.now() < retryDeadline.getTime()) {
+        const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
+        await storage.completeJob(job.id, "failed", `Campaign failed - scheduling retry #${jobRetryCount + 1}`);
+        await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
+        await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
+        logger.info(`[JOB_POLL] Campaign ${job.campaignId} failed - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s (deadline: ${retryDeadline.toISOString()})`);
+      } else {
+        await storage.completeJob(job.id, "failed", `Campaign ended in failed state (retry window expired)`);
+        logger.info(`[JOB_POLL] Job ${job.id} marked failed (campaign ${job.campaignId} status: failed, no more retries)`);
+      }
+    } else {
+      await storage.completeJob(job.id, "completed");
+      logger.info(`[JOB_POLL] Job ${job.id} completed (campaign ${job.campaignId} status: ${finalStatus})`);
+    }
+  } catch (err) {
+    logger.error(`[JOB_POLL] Error in handleJobCompletion for job ${job.id}:`, err);
+  }
+}
+
+async function handleJobError(job: CampaignJob, error: any) {
+  const campaignData = await storage.getCampaign(job.campaignId).catch(() => null);
+  const campaignStatus = campaignData?.status;
+  const jobRetryCount = (job as any).retryCount || 0;
+
+  if (campaignStatus === "paused") {
+    try {
+      await storage.completeJob(job.id, "failed", `Campaign paused - no automatic retry for paused campaigns`);
+      logger.info(`[JOB_POLL] Job ${job.id} error but campaign ${job.campaignId} is paused (skipping retry)`);
+    } catch (completeErr) {
+      logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
+    }
+  } else {
+    let retryDeadline = campaignData?.retryUntil;
+
+    if (!retryDeadline && campaignData) {
+      retryDeadline = new Date(Date.now() + 12 * 60 * 60 * 1000);
+      await storage.updateCampaign(job.campaignId, { retryUntil: retryDeadline }).catch(() => {});
+    }
+
+    if (retryDeadline && Date.now() < retryDeadline.getTime()) {
+      const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
+      try {
+        await storage.completeJob(job.id, "failed", `Error: ${error.message} - scheduling retry #${jobRetryCount + 1}`);
+        await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
+        await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
+        logger.info(`[JOB_POLL] Campaign ${job.campaignId} error - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s`);
+      } catch (retryErr) {
+        logger.error(`[JOB_POLL] Failed to schedule retry for campaign ${job.campaignId}:`, retryErr);
+        try {
+          await storage.completeJob(job.id, "failed", error.message || "Unknown error");
+        } catch (completeErr) {
+          logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
+        }
+      }
+    } else {
+      try {
+        await storage.completeJob(job.id, "failed", error.message || "Unknown error");
+      } catch (completeErr) {
+        logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
+      }
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await storage.updateCampaignStatusAtomic(job.campaignId, "failed");
+          logger.info(`[JOB_POLL] Campaign ${job.campaignId} marked as failed (attempt ${attempt + 1})`);
+          break;
+        } catch (statusErr) {
+          logger.error(`[JOB_POLL] Failed to mark campaign ${job.campaignId} as failed (attempt ${attempt + 1}):`, statusErr);
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+    }
+  }
+}
+
+async function runCampaignJob(job: CampaignJob) {
+  logger.info(`[JOB_POLL] Worker ${WORKER_ID} started job ${job.id} for campaign ${job.campaignId} (${activeCampaigns.size}/${MAX_CONCURRENT_CAMPAIGNS} active)`);
+
+  try {
+    await processCampaignInternal(job.campaignId, job.id);
+    await handleJobCompletion(job);
+  } catch (error: any) {
+    logger.error(`[JOB_POLL] Error processing job ${job.id} for campaign ${job.campaignId}:`, error);
+    await handleJobError(job, error);
+  } finally {
+    activeCampaigns.delete(job.campaignId);
+    logger.info(`[JOB_POLL] Campaign ${job.campaignId} finished (${activeCampaigns.size}/${MAX_CONCURRENT_CAMPAIGNS} active)`);
+  }
 }
 
 async function pollForJobs() {
@@ -266,107 +374,18 @@ async function pollForJobs() {
       logger.info(`[JOB_POLL] Cleaned up ${staleCount} stale jobs`);
     }
 
-    if (isProcessingCampaign) {
-      return;
-    }
+    while (activeCampaigns.size < MAX_CONCURRENT_CAMPAIGNS) {
+      const job = await storage.claimNextJob(WORKER_ID);
+      if (!job) break;
 
-    const job = await storage.claimNextJob(WORKER_ID);
-    if (!job) {
-      return;
-    }
-
-    logger.info(`[JOB_POLL] Worker ${WORKER_ID} claimed job ${job.id} for campaign ${job.campaignId}`);
-    isProcessingCampaign = true;
-
-    try {
-      await processCampaignInternal(job.campaignId, job.id);
-
-      const finalStatus = await storage.getCampaignStatus(job.campaignId);
-      if (finalStatus === "paused") {
-        await storage.completeJob(job.id, "failed", `Campaign paused - no automatic retry for paused campaigns`);
-        logger.info(`[JOB_POLL] Job ${job.id} ended - campaign ${job.campaignId} is paused (skipping retry)`);
-      } else if (finalStatus === "failed") {
-        const campaignData = await storage.getCampaign(job.campaignId);
-        let retryDeadline = campaignData?.retryUntil;
-        const jobRetryCount = (job as any).retryCount || 0;
-
-        if (!retryDeadline) {
-          retryDeadline = new Date(Date.now() + 12 * 60 * 60 * 1000);
-          await storage.updateCampaign(job.campaignId, { retryUntil: retryDeadline });
-          logger.info(`[JOB_POLL] Set retry deadline for campaign ${job.campaignId}: ${retryDeadline.toISOString()}`);
-        }
-
-        if (Date.now() < retryDeadline.getTime()) {
-          const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
-          await storage.completeJob(job.id, "failed", `Campaign failed - scheduling retry #${jobRetryCount + 1}`);
-          await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
-          await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
-          logger.info(`[JOB_POLL] Campaign ${job.campaignId} failed - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s (deadline: ${retryDeadline.toISOString()})`);
-        } else {
-          await storage.completeJob(job.id, "failed", `Campaign ended in failed state (retry window expired)`);
-          logger.info(`[JOB_POLL] Job ${job.id} marked failed (campaign ${job.campaignId} status: failed, no more retries)`);
-        }
-      } else {
-        await storage.completeJob(job.id, "completed");
-        logger.info(`[JOB_POLL] Job ${job.id} completed (campaign ${job.campaignId} status: ${finalStatus})`);
+      if (activeCampaigns.has(job.campaignId)) {
+        await storage.completeJob(job.id, "failed", "Duplicate job for already-active campaign");
+        logger.warn(`[JOB_POLL] Skipped duplicate job ${job.id} - campaign ${job.campaignId} already active`);
+        continue;
       }
-    } catch (error: any) {
-      logger.error(`[JOB_POLL] Error processing job ${job.id} for campaign ${job.campaignId}:`, error);
 
-      const campaignData = await storage.getCampaign(job.campaignId).catch(() => null);
-      const campaignStatus = campaignData?.status;
-      const jobRetryCount = (job as any).retryCount || 0;
-
-      if (campaignStatus === "paused") {
-        try {
-          await storage.completeJob(job.id, "failed", `Campaign paused - no automatic retry for paused campaigns`);
-          logger.info(`[JOB_POLL] Job ${job.id} error but campaign ${job.campaignId} is paused (skipping retry)`);
-        } catch (completeErr) {
-          logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
-        }
-      } else {
-        let retryDeadline = campaignData?.retryUntil;
-
-        if (!retryDeadline && campaignData) {
-          retryDeadline = new Date(Date.now() + 12 * 60 * 60 * 1000);
-          await storage.updateCampaign(job.campaignId, { retryUntil: retryDeadline }).catch(() => {});
-        }
-
-        if (retryDeadline && Date.now() < retryDeadline.getTime()) {
-          const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
-          try {
-            await storage.completeJob(job.id, "failed", `Error: ${error.message} - scheduling retry #${jobRetryCount + 1}`);
-            await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
-            await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
-            logger.info(`[JOB_POLL] Campaign ${job.campaignId} error - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s`);
-          } catch (retryErr) {
-            logger.error(`[JOB_POLL] Failed to schedule retry for campaign ${job.campaignId}:`, retryErr);
-            try {
-              await storage.completeJob(job.id, "failed", error.message || "Unknown error");
-            } catch (completeErr) {
-              logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
-            }
-          }
-        } else {
-          try {
-            await storage.completeJob(job.id, "failed", error.message || "Unknown error");
-          } catch (completeErr) {
-            logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
-          }
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              await storage.updateCampaignStatusAtomic(job.campaignId, "failed");
-              logger.info(`[JOB_POLL] Campaign ${job.campaignId} marked as failed (attempt ${attempt + 1})`);
-              break;
-            } catch (statusErr) {
-              logger.error(`[JOB_POLL] Failed to mark campaign ${job.campaignId} as failed (attempt ${attempt + 1}):`, statusErr);
-              if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-            }
-          }
-        }
-      }
-    } finally {
-      isProcessingCampaign = false;
+      activeCampaigns.add(job.campaignId);
+      runCampaignJob(job);
     }
   } catch (error) {
     logger.error("[JOB_POLL] Error in job polling:", error);
