@@ -51,10 +51,12 @@ export function createTransporter(mta: Mta): Transporter {
     return existingTransporter;
   }
 
+  const port = mta.port || 587;
+  const isSecurePort = port === 465 || port === 2465;
   const transporter = nodemailer.createTransport({
     host: mta.hostname || "localhost",
-    port: mta.port || 587,
-    secure: mta.port === 465,
+    port: port,
+    secure: isSecurePort,
     auth: mta.username && mta.password ? {
       user: mta.username,
       pass: mta.password,
