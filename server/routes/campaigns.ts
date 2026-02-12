@@ -2,7 +2,7 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
-import { insertCampaignSchema, campaigns, campaignJobs } from "@shared/schema";
+import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs } from "@shared/schema";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
 import { logger } from "../logger";
@@ -225,15 +225,28 @@ export function registerCampaignRoutes(app: Express, helpers: {
   app.post("/api/campaigns", campaignLimiter, async (req: Request, res: Response) => {
     try {
       logger.info("POST /api/campaigns - Body:", JSON.stringify(req.body));
-      
+
+      const isDraft = req.body.status === "draft" || !req.body.status;
+
       const normalizedBody = {
         ...req.body,
         mtaId: req.body.mtaId || null,
         segmentId: req.body.segmentId || null,
+        replyEmail: req.body.replyEmail || null,
       };
-      
-      const data = insertCampaignSchema.parse(normalizedBody);
-      if (data.htmlContent) {
+
+      let data: any;
+      if (isDraft) {
+        data = insertCampaignDraftSchema.parse(normalizedBody);
+        if (!data.subject) data.subject = "(Draft)";
+        if (!data.htmlContent) data.htmlContent = "";
+        if (!data.fromName) data.fromName = "";
+        if (!data.fromEmail) data.fromEmail = "";
+      } else {
+        data = insertCampaignSchema.parse(normalizedBody);
+      }
+
+      if (data.htmlContent && data.htmlContent !== "") {
         data.htmlContent = sanitizeCampaignHtml(data.htmlContent);
       }
       const campaign = await db.transaction(async (tx) => {
@@ -246,7 +259,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
         }
         return created;
       });
-      
+
       logger.info("Campaign created successfully:", campaign.id);
       res.status(201).json(campaign);
     } catch (error) {
@@ -265,25 +278,37 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Invalid ID format" });
       }
       logger.info(`PATCH /api/campaigns/${req.params.id} - Body:`, JSON.stringify(req.body));
-      
+
       const existingCampaign = await storage.getCampaign(req.params.id);
       if (!existingCampaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      
+
       logger.info(`Campaign ${req.params.id} current status: ${existingCampaign.status}, new status: ${req.body.status || 'unchanged'}`);
-      
-      const normalizedBody = { ...req.body };
-      if ('mtaId' in normalizedBody && !normalizedBody.mtaId) {
-        normalizedBody.mtaId = null;
+
+      const isDraft = existingCampaign.status === "draft";
+
+      let normalizedBody: Record<string, any>;
+      if (isDraft) {
+        const parsed = updateCampaignDraftSchema.parse(req.body);
+        normalizedBody = { ...parsed };
+      } else {
+        normalizedBody = { ...req.body };
+        if ('mtaId' in normalizedBody && !normalizedBody.mtaId) {
+          normalizedBody.mtaId = null;
+        }
+        if ('segmentId' in normalizedBody && !normalizedBody.segmentId) {
+          normalizedBody.segmentId = null;
+        }
+        if ('replyEmail' in normalizedBody && !normalizedBody.replyEmail) {
+          normalizedBody.replyEmail = null;
+        }
       }
-      if ('segmentId' in normalizedBody && !normalizedBody.segmentId) {
-        normalizedBody.segmentId = null;
-      }
-      if (normalizedBody.htmlContent) {
+
+      if (normalizedBody.htmlContent && normalizedBody.htmlContent !== "") {
         normalizedBody.htmlContent = sanitizeCampaignHtml(normalizedBody.htmlContent);
       }
-      
+
       const campaign = await db.transaction(async (tx) => {
         const [updated] = await tx.update(campaigns).set(normalizedBody).where(sql`${campaigns.id} = ${req.params.id}`).returning();
         if (!updated) return null;
@@ -299,14 +324,18 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      
+
       if (existingCampaign.status !== "sending" && campaign.status === "sending") {
         await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
         logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
       }
-      
+
       res.json(campaign);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        logger.error("Campaign PATCH validation error:", error.errors);
+        return res.status(400).json({ error: error.errors });
+      }
       logger.error("Error updating campaign:", error);
       res.status(500).json({ error: "Failed to update campaign" });
     }

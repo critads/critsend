@@ -395,6 +395,65 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   htmlContent: z.string().min(1, "HTML content required").max(5000000, "Content too large"),
   sendingSpeed: z.enum(["slow", "medium", "fast", "godzilla"]).optional(),
 });
+
+export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
+  id: true,
+  sentCount: true,
+  pendingCount: true,
+  failedCount: true,
+  createdAt: true,
+  startedAt: true,
+  completedAt: true,
+}).extend({
+  name: z.string().min(1, "Name required").max(200, "Name too long"),
+  fromName: z.string().max(200, "From name too long").optional().default(""),
+  fromEmail: z.string().max(254, "Email too long").optional().default(""),
+  replyEmail: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().email("Invalid reply email").max(254).nullable().optional()
+  ),
+  subject: z.string().max(998, "Subject too long").optional().default(""),
+  preheader: z.string().max(500, "Preheader too long").nullable().optional(),
+  htmlContent: z.string().max(5000000, "Content too large").optional().default(""),
+  mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  sendingSpeed: z.enum(["slow", "medium", "fast", "godzilla"]).optional(),
+  status: z.string().optional().default("draft"),
+});
+
+export const updateCampaignDraftSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  fromName: z.string().max(200).optional(),
+  fromEmail: z.string().max(254).optional(),
+  replyEmail: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().email().max(254).nullable().optional()
+  ),
+  subject: z.string().max(998).optional(),
+  preheader: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().max(500).nullable().optional()
+  ),
+  htmlContent: z.string().max(5000000).optional(),
+  mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  trackClicks: z.boolean().optional(),
+  trackOpens: z.boolean().optional(),
+  unsubscribeText: z.string().optional(),
+  companyAddress: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().nullable().optional()
+  ),
+  sendingSpeed: z.enum(["slow", "medium", "fast", "godzilla"]).optional(),
+  scheduledAt: z.preprocess(
+    (v) => (v === "" || v === null ? null : v),
+    z.union([z.string(), z.date()]).nullable().optional()
+  ),
+  status: z.string().optional(),
+  openTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  clickTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  unsubscribeTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+});
 export const insertImportJobSchema = createInsertSchema(importJobs).omit({ 
   id: true, 
   processedRows: true, 

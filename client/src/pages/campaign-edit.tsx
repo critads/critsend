@@ -144,7 +144,7 @@ export default function CampaignEdit() {
         trackOpens: campaign.trackOpens ?? true,
         unsubscribeText: campaign.unsubscribeText || "Unsubscribe",
         companyAddress: campaign.companyAddress || "",
-        sendingSpeed: campaign.sendingSpeed || "medium",
+        sendingSpeed: (campaign.sendingSpeed as "slow" | "medium" | "fast" | "godzilla") || "medium",
         openTag: campaign.openTag || "",
         clickTag: campaign.clickTag || "",
         unsubscribeTag: campaign.unsubscribeTag || "",

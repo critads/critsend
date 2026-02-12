@@ -34,6 +34,7 @@ import {
   Code,
   X,
   Loader2,
+  Save,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign } from "@shared/schema";
 
@@ -48,10 +49,24 @@ const steps = [
 
 const sendingSpeeds = [
   { value: "slow", label: "Slow", description: "500 emails/min" },
-  { value: "medium", label: "Medium", description: "1,000 emails/min" },
-  { value: "fast", label: "Fast", description: "2,000 emails/min" },
-  { value: "godzilla", label: "Godzilla", description: "3,000 emails/min" },
+  { value: "medium", label: "Medium", description: "2,000 emails/min" },
+  { value: "fast", label: "Fast", description: "5,000 emails/min" },
+  { value: "godzilla", label: "Godzilla", description: "60,000 emails/min" },
 ];
+
+function normalizeForApi(data: Partial<InsertCampaign>) {
+  return {
+    ...data,
+    replyEmail: data.replyEmail || null,
+    mtaId: data.mtaId || null,
+    segmentId: data.segmentId || null,
+    openTag: data.openTag || null,
+    clickTag: data.clickTag || null,
+    unsubscribeTag: data.unsubscribeTag || null,
+    companyAddress: data.companyAddress || null,
+    status: "draft",
+  };
+}
 
 export default function CampaignNew() {
   const [, navigate] = useLocation();
@@ -85,8 +100,8 @@ export default function CampaignNew() {
   const [sendingTest, setSendingTest] = useState(false);
   const [assetSessionId, setAssetSessionId] = useState<string | null>(null);
   const [processingImages, setProcessingImages] = useState(false);
-  const [campaignId, setCampaignId] = useState<number | null>(null);
-  const [autoSaving, setAutoSaving] = useState(false);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [savedIndicator, setSavedIndicator] = useState(false);
   const { toast } = useToast();
 
   const processHtmlImages = async (html: string): Promise<string> => {
@@ -98,18 +113,18 @@ export default function CampaignNew() {
         sessionId = sessionData.sessionId;
         setAssetSessionId(sessionId);
       }
-      
+
       setProcessingImages(true);
       const res = await apiRequest("POST", `/api/campaigns/${sessionId}/process-html`, { html });
       const data = await res.json();
-      
+
       if (data.downloaded > 0) {
         toast({
           title: "Images processed",
           description: `Downloaded ${data.downloaded} image(s) to local storage.${data.failed > 0 ? ` ${data.failed} failed.` : ""}`,
         });
       }
-      
+
       return data.html;
     } catch (error) {
       console.error("Error processing HTML images:", error);
@@ -142,16 +157,6 @@ export default function CampaignNew() {
     const [year, month, day] = datePart.split("-").map(Number);
     const [hours, minutes] = timePart.split(":").map(Number);
     const parisDateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Europe/Paris",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
     const utcDate = new Date(parisDateStr + "+01:00");
     return utcDate;
   };
@@ -159,7 +164,7 @@ export default function CampaignNew() {
   const handleHtmlDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const file = e.dataTransfer.files[0];
     if (file && (file.type === "text/html" || file.name.endsWith(".html") || file.name.endsWith(".htm"))) {
       const reader = new FileReader();
@@ -222,54 +227,19 @@ export default function CampaignNew() {
     }
   }, [formData.segmentId]);
 
-  const createMutation = useMutation({
-    mutationFn: async (data: Partial<InsertCampaign>) => {
-      const res = await apiRequest("POST", "/api/campaigns", data);
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      if (data?.id) {
-        setCampaignId(data.id);
-      }
-      toast({
-        title: "Campaign created",
-        description: "Your campaign has been saved as draft.",
-      });
-      navigate("/campaigns");
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to create campaign. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
+  const showSavedIndicator = () => {
+    setSavedIndicator(true);
+    setTimeout(() => setSavedIndicator(false), 2000);
+  };
 
-  const autoSaveMutation = useMutation({
+  const saveDraftMutation = useMutation({
     mutationFn: async (data: Partial<InsertCampaign>) => {
+      const normalized = normalizeForApi(data);
       if (campaignId) {
-        // For PATCH, convert empty strings to null for FK fields
-        const patchData = {
-          ...data,
-          mtaId: data.mtaId || null,
-          segmentId: data.segmentId || null,
-        };
-        const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, patchData);
+        const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, normalized);
         return res.json();
       } else {
-        // When creating a new campaign, provide default values for required fields
-        // that may not be filled yet (they're on later steps)
-        // Convert empty strings to null for foreign key fields to avoid FK violations
-        const createData = {
-          ...data,
-          subject: data.subject || "(Draft)",
-          htmlContent: data.htmlContent || "<html><body></body></html>",
-          mtaId: data.mtaId || null,
-          segmentId: data.segmentId || null,
-        };
-        const res = await apiRequest("POST", "/api/campaigns", createData);
+        const res = await apiRequest("POST", "/api/campaigns", normalized);
         return res.json();
       }
     },
@@ -278,52 +248,33 @@ export default function CampaignNew() {
       if (data?.id && !campaignId) {
         setCampaignId(data.id);
       }
-    },
-    onError: () => {
-      toast({
-        title: "Auto-save failed",
-        description: "Could not save your progress. Please try again.",
-        variant: "destructive",
-      });
+      showSavedIndicator();
     },
   });
 
   const sendMutation = useMutation({
     mutationFn: async (data: Partial<InsertCampaign>) => {
-      // Step 1: Ensure campaign is saved first to get a valid campaignId
+      const normalized = normalizeForApi(data);
       let currentCampaignId = campaignId;
-      
+
       if (!currentCampaignId) {
-        // Create the campaign first
-        const createRes = await apiRequest("POST", "/api/campaigns", data);
-        if (!createRes.ok) {
-          const errorData = await createRes.json();
-          throw new Error(errorData.error || "Failed to create campaign");
-        }
+        const createRes = await apiRequest("POST", "/api/campaigns", normalized);
         const createdCampaign = await createRes.json();
         currentCampaignId = createdCampaign.id;
         setCampaignId(currentCampaignId);
       } else {
-        // Save any pending changes first
-        const saveRes = await apiRequest("PATCH", `/api/campaigns/${currentCampaignId}`, data);
-        if (!saveRes.ok) {
-          const errorData = await saveRes.json();
-          throw new Error(errorData.error || "Failed to save campaign");
-        }
+        await apiRequest("PATCH", `/api/campaigns/${currentCampaignId}`, normalized);
       }
-      
-      // Step 2: Call the dedicated send endpoint with scheduledAt if set
-      const sendPayload = formData.scheduledAt ? { scheduledAt: formData.scheduledAt } : {};
+
+      const sendPayload = data.scheduledAt ? { scheduledAt: data.scheduledAt } : {};
       const sendRes = await apiRequest("POST", `/api/campaigns/${currentCampaignId}/send`, sendPayload);
-      
+
       if (!sendRes.ok) {
         const errorData = await sendRes.json();
-        console.error("[SendMutation] Send failed:", errorData);
         throw new Error(errorData.details?.join(", ") || errorData.error || "Failed to start campaign");
       }
-      
-      const result = await sendRes.json();
-      return result;
+
+      return sendRes.json();
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
@@ -335,7 +286,6 @@ export default function CampaignNew() {
       navigate("/campaigns");
     },
     onError: (error: Error) => {
-      console.error("[SendMutation] Error:", error);
       toast({
         title: "Failed to start campaign",
         description: error.message || "Please check campaign settings and try again.",
@@ -353,7 +303,7 @@ export default function CampaignNew() {
       });
       return;
     }
-    
+
     setSendingTest(true);
     try {
       const res = await apiRequest("POST", "/api/campaigns/test", {
@@ -369,7 +319,7 @@ export default function CampaignNew() {
         trackOpens: formData.trackOpens,
         trackClicks: formData.trackClicks,
       });
-      
+
       if (res.ok) {
         toast({
           title: "Test sent",
@@ -391,7 +341,7 @@ export default function CampaignNew() {
   };
 
   const updateField = (field: keyof InsertCampaign, value: unknown) => {
-    setFormData({ ...formData, [field]: value });
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const isStepValid = (step: number): boolean => {
@@ -413,17 +363,10 @@ export default function CampaignNew() {
     }
   };
 
-  const nextStep = async () => {
-    if (isStepValid(currentStep) && currentStep < 6) {
-      setAutoSaving(true);
-      try {
-        await autoSaveMutation.mutateAsync(formData);
-        setCurrentStep(currentStep + 1);
-      } catch {
-        // Error already handled by mutation's onError
-      } finally {
-        setAutoSaving(false);
-      }
+  const nextStep = () => {
+    if (currentStep < 6 && isStepValid(currentStep)) {
+      saveDraftMutation.mutate(formData);
+      setCurrentStep(currentStep + 1);
     }
   };
 
@@ -433,24 +376,40 @@ export default function CampaignNew() {
     }
   };
 
-  const handleSaveDraft = async () => {
-    if (campaignId) {
-      try {
-        await autoSaveMutation.mutateAsync(formData);
-        toast({
-          title: "Campaign saved",
-          description: "Your campaign has been updated.",
-        });
-        navigate("/campaigns");
-      } catch {
-        // Error handled by mutation
-      }
-    } else {
-      createMutation.mutate(formData);
+  const handleSaveDraft = () => {
+    if (!formData.name) {
+      toast({
+        title: "Name required",
+        description: "Please enter a campaign name before saving.",
+        variant: "destructive",
+      });
+      return;
     }
+    saveDraftMutation.mutate(formData);
+  };
+
+  const isReadyToSend = (): string[] => {
+    const missing: string[] = [];
+    if (!formData.name) missing.push("Campaign Name");
+    if (!formData.fromName) missing.push("From Name");
+    if (!formData.fromEmail) missing.push("From Email");
+    if (!formData.mtaId) missing.push("Sending Server");
+    if (!formData.segmentId) missing.push("Segment");
+    if (!formData.subject) missing.push("Subject Line");
+    if (!formData.htmlContent) missing.push("HTML Content");
+    return missing;
   };
 
   const handleSend = () => {
+    const missing = isReadyToSend();
+    if (missing.length > 0) {
+      toast({
+        title: "Cannot send campaign",
+        description: `Please complete: ${missing.join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
     sendMutation.mutate(formData);
   };
 
@@ -547,7 +506,7 @@ export default function CampaignNew() {
                 <div className="text-center py-8 text-muted-foreground">
                   <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No active sending servers available.</p>
-                  <Button variant="ghost" onClick={() => navigate("/mtas")} className="text-primary">
+                  <Button variant="ghost" onClick={() => navigate("/mtas")} data-testid="link-configure-mtas">
                     Configure MTAs
                   </Button>
                 </div>
@@ -583,7 +542,7 @@ export default function CampaignNew() {
                 <div className="text-center py-8 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No segments available.</p>
-                  <Button variant="ghost" onClick={() => navigate("/segments")} className="text-primary">
+                  <Button variant="ghost" onClick={() => navigate("/segments")} data-testid="link-create-segment">
                     Create Segment
                   </Button>
                 </div>
@@ -594,7 +553,7 @@ export default function CampaignNew() {
                 <CardContent className="flex items-center gap-4 p-4">
                   <Users className="h-8 w-8 text-primary" />
                   <div>
-                    <p className="text-2xl font-bold">{subscriberCount.toLocaleString()}</p>
+                    <p className="text-2xl font-bold" data-testid="text-subscriber-count">{subscriberCount.toLocaleString()}</p>
                     <p className="text-sm text-muted-foreground">subscribers in this segment</p>
                   </div>
                 </CardContent>
@@ -741,28 +700,66 @@ export default function CampaignNew() {
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="unsubscribe-text">Unsubscribe Link Text</Label>
-                <Input
-                  id="unsubscribe-text"
-                  placeholder="Unsubscribe"
-                  value={formData.unsubscribeText || ""}
-                  onChange={(e) => updateField("unsubscribeText", e.target.value)}
-                  data-testid="input-unsubscribe-text"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="company-address">Company Address</Label>
-                <Input
-                  id="company-address"
-                  placeholder="123 Main St, City, Country"
-                  value={formData.companyAddress || ""}
-                  onChange={(e) => updateField("companyAddress", e.target.value)}
-                  data-testid="input-company-address"
-                />
+            <div className="space-y-2">
+              <Label>Sending Speed</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {sendingSpeeds.map((speed) => (
+                  <div
+                    key={speed.value}
+                    className={`p-4 rounded-md border cursor-pointer transition-colors ${
+                      formData.sendingSpeed === speed.value
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                    onClick={() => updateField("sendingSpeed", speed.value)}
+                    data-testid={`speed-option-${speed.value}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Zap className={`h-4 w-4 ${formData.sendingSpeed === speed.value ? "text-primary" : "text-muted-foreground"}`} />
+                      <span className="font-medium">{speed.label}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">{speed.description}</p>
+                  </div>
+                ))}
               </div>
             </div>
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <Label>Send Test Email</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    placeholder="test@example.com"
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-test-email"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={sendTestEmail}
+                    disabled={sendingTest || !testEmail || !formData.mtaId || !formData.htmlContent}
+                    data-testid="button-send-test"
+                  >
+                    {sendingTest ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="h-4 w-4 mr-2" />
+                        Send Test
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Send a test email to verify your content before launching
+                </p>
+              </CardContent>
+            </Card>
           </div>
         );
 
@@ -771,7 +768,7 @@ export default function CampaignNew() {
           <div className="space-y-6">
             <Card>
               <CardContent className="p-4 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
                     <Eye className="h-5 w-5 text-muted-foreground" />
                     <div>
@@ -804,7 +801,7 @@ export default function CampaignNew() {
 
             <Card>
               <CardContent className="p-4 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
                     <MousePointer2 className="h-5 w-5 text-muted-foreground" />
                     <div>
@@ -850,36 +847,35 @@ export default function CampaignNew() {
                 </p>
               </CardContent>
             </Card>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="unsubscribe-text">Unsubscribe Link Text</Label>
+                <Input
+                  id="unsubscribe-text"
+                  placeholder="Unsubscribe"
+                  value={formData.unsubscribeText || ""}
+                  onChange={(e) => updateField("unsubscribeText", e.target.value)}
+                  data-testid="input-unsubscribe-text"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="company-address">Company Address</Label>
+                <Input
+                  id="company-address"
+                  placeholder="123 Main St, City, Country"
+                  value={formData.companyAddress || ""}
+                  onChange={(e) => updateField("companyAddress", e.target.value)}
+                  data-testid="input-company-address"
+                />
+              </div>
+            </div>
           </div>
         );
 
       case 6:
         return (
           <div className="space-y-6">
-            <div className="space-y-2">
-              <Label>Sending Speed</Label>
-              <div className="grid grid-cols-2 gap-3">
-                {sendingSpeeds.map((speed) => (
-                  <div
-                    key={speed.value}
-                    className={`p-4 rounded-md border cursor-pointer transition-colors ${
-                      formData.sendingSpeed === speed.value
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50"
-                    }`}
-                    onClick={() => updateField("sendingSpeed", speed.value)}
-                    data-testid={`speed-option-${speed.value}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Zap className={`h-4 w-4 ${formData.sendingSpeed === speed.value ? "text-primary" : "text-muted-foreground"}`} />
-                      <span className="font-medium">{speed.label}</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">{speed.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="schedule">Schedule (optional) - Paris Time</Label>
               <Input
@@ -894,41 +890,6 @@ export default function CampaignNew() {
               </p>
             </div>
 
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <Label>Send Test Email</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="email"
-                    placeholder="test@example.com"
-                    value={testEmail}
-                    onChange={(e) => setTestEmail(e.target.value)}
-                    className="flex-1"
-                    data-testid="input-test-email"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={sendTestEmail}
-                    disabled={sendingTest || !testEmail || !formData.mtaId || !formData.htmlContent}
-                    data-testid="button-send-test"
-                  >
-                    {sendingTest ? (
-                      <>Sending...</>
-                    ) : (
-                      <>
-                        <Mail className="h-4 w-4 mr-2" />
-                        Send Test
-                      </>
-                    )}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Send a test email to verify your content before launching
-                </p>
-              </CardContent>
-            </Card>
-
             {subscriberCount !== null && (
               <Card className="bg-primary/5 border-primary/20">
                 <CardContent className="p-4">
@@ -936,7 +897,7 @@ export default function CampaignNew() {
                     <Mail className="h-10 w-10 text-primary" />
                     <div>
                       <p className="text-sm text-muted-foreground">Ready to send to</p>
-                      <p className="text-3xl font-bold text-primary">
+                      <p className="text-3xl font-bold" data-testid="text-send-subscriber-count">
                         {subscriberCount.toLocaleString()}
                       </p>
                       <p className="text-sm text-muted-foreground">subscribers</p>
@@ -956,33 +917,43 @@ export default function CampaignNew() {
   return (
     <div className="p-6 lg:p-8 space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/campaigns")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/campaigns")} data-testid="button-back">
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-3xl font-bold tracking-tight">Create Campaign</h1>
           <p className="text-muted-foreground">
             Follow the steps to create a new email campaign
           </p>
         </div>
+        {savedIndicator && (
+          <div className="flex items-center gap-1 text-sm text-muted-foreground" data-testid="text-saved-indicator">
+            <Check className="h-4 w-4" />
+            Saved
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2">
-        {steps.map((step, index) => (
+        {steps.map((step) => (
           <div
             key={step.id}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md cursor-pointer transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors whitespace-nowrap ${
               currentStep === step.id
                 ? "bg-primary text-primary-foreground"
                 : currentStep > step.id
-                ? "bg-muted text-foreground"
+                ? "bg-muted text-foreground cursor-pointer"
                 : "bg-muted/50 text-muted-foreground"
             }`}
-            onClick={() => step.id <= currentStep && setCurrentStep(step.id)}
+            onClick={() => step.id < currentStep && setCurrentStep(step.id)}
+            data-testid={`step-${step.id}`}
           >
-            <step.icon className="h-4 w-4" />
+            {currentStep > step.id ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <step.icon className="h-4 w-4" />
+            )}
             <span className="text-sm font-medium">{step.title}</span>
-            {currentStep > step.id && <Check className="h-4 w-4" />}
           </div>
         ))}
       </div>
@@ -1017,40 +988,46 @@ export default function CampaignNew() {
           <Button
             variant="outline"
             onClick={handleSaveDraft}
-            disabled={createMutation.isPending || autoSaving || processingImages}
+            disabled={saveDraftMutation.isPending || processingImages}
             data-testid="button-save-draft"
           >
-            {createMutation.isPending || (autoSaving && !isStepValid(currentStep)) ? "Saving..." : "Save Draft"}
+            {saveDraftMutation.isPending ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save Draft
+              </>
+            )}
           </Button>
           {currentStep < 6 ? (
             <Button
               onClick={nextStep}
-              disabled={!isStepValid(currentStep) || autoSaving || processingImages}
+              disabled={!isStepValid(currentStep) || processingImages}
               data-testid="button-next-step"
             >
-              {autoSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  Next
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </>
-              )}
+              Next
+              <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
           ) : (
             <Button
               onClick={handleSend}
-              disabled={sendMutation.isPending || !isStepValid(currentStep) || processingImages}
+              disabled={sendMutation.isPending || processingImages}
               data-testid="button-send-campaign"
             >
-              {sendMutation.isPending
-                ? "Starting..."
-                : formData.scheduledAt
-                ? "Schedule Campaign"
-                : "Send Now"}
+              {sendMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Starting...
+                </>
+              ) : formData.scheduledAt ? (
+                "Schedule Campaign"
+              ) : (
+                "Send Now"
+              )}
             </Button>
           )}
         </div>
