@@ -338,6 +338,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSubscriber(id: string): Promise<void> {
+    await db.delete(campaignStats).where(eq(campaignStats.subscriberId, id));
+    await db.delete(campaignSends).where(eq(campaignSends.subscriberId, id));
+    await db.execute(sql`DELETE FROM nullsink_captures WHERE subscriber_id = ${id}`);
+    await db.execute(sql`DELETE FROM error_logs WHERE subscriber_id = ${id}`);
     await db.delete(subscribers).where(eq(subscribers.id, id));
   }
 
@@ -588,6 +592,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSegment(id: string): Promise<void> {
+    await db.execute(sql`UPDATE campaigns SET segment_id = NULL WHERE segment_id = ${id}`);
     await db.delete(segments).where(eq(segments.id, id));
   }
 
@@ -630,6 +635,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteMta(id: string): Promise<void> {
+    await db.delete(nullsinkCaptures).where(eq(nullsinkCaptures.mtaId, id));
+    await db.execute(sql`UPDATE campaigns SET mta_id = NULL WHERE mta_id = ${id}`);
     await db.delete(mtas).where(eq(mtas.id, id));
   }
 
@@ -698,8 +705,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCampaign(id: string): Promise<void> {
+    await db.delete(nullsinkCaptures).where(eq(nullsinkCaptures.campaignId, id));
     await db.delete(campaignStats).where(eq(campaignStats.campaignId, id));
     await db.delete(campaignSends).where(eq(campaignSends.campaignId, id));
+    await db.delete(campaignJobs).where(eq(campaignJobs.campaignId, id));
+    await db.delete(errorLogs).where(eq(errorLogs.campaignId, id));
+    await db.execute(sql`DELETE FROM pending_tag_operations WHERE campaign_id = ${id}`);
+    await db.execute(sql`DELETE FROM analytics_daily WHERE campaign_id = ${id}`);
     await db.delete(campaigns).where(eq(campaigns.id, id));
   }
 
