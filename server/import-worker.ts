@@ -19,10 +19,11 @@ const maskedUrl = connectionString.replace(/\/\/([^:]+):([^@]+)@/, "//$1:***@");
 log("info", `Worker DB connection: ${maskedUrl.substring(0, 80)}...`, { isExternalDb });
 
 const CONCURRENCY = 4;
+const importPoolMax = Number(process.env.PG_IMPORT_POOL_MAX || 4);
 
 const pool = new Pool({
   connectionString,
-  max: CONCURRENCY + 2,
+  max: importPoolMax,
   min: 1,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 30000,

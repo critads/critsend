@@ -26,9 +26,11 @@ if (connectionString.includes("neon.tech")) {
 
 export const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SSL === "true";
 
+const pgPoolMax = Number(process.env.PG_POOL_MAX || (isExternalDb ? 5 : 10));
+
 const poolConfig: pg.PoolConfig = {
   connectionString,
-  max: isExternalDb ? 15 : 20,
+  max: pgPoolMax,
   min: isExternalDb ? 1 : 2,
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
   connectionTimeoutMillis: isExternalDb ? 15000 : 10000,
@@ -56,3 +58,12 @@ pool.on('connect', (client) => {
 });
 
 export const db = drizzle(pool, { schema });
+
+setInterval(() => {
+  logger.debug("PG pool stats", {
+    total: pool.totalCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount,
+    max: pgPoolMax,
+  });
+}, 30_000);

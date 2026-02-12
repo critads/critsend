@@ -181,31 +181,29 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const failedImages: string[] = [];
       let imageIndex = 0;
       
-      const downloadPromises: Promise<void>[] = [];
+      const imageTasks: Array<{ el: any; src: string; currentIndex: number }> = [];
       
       imgElements.each((_, el) => {
         const src = $(el).attr("src");
         if (src && (src.startsWith("http://") || src.startsWith("https://"))) {
-          const currentIndex = imageIndex++;
-          const ext = getExtensionFromUrl(src);
-          const filename = `img_${currentIndex}.${ext}`;
-          const destPath = path.join(campaignImagesDir, filename);
-          const localUrl = `/images/${campaignId}/${filename}`;
-          
-          const promise = downloadImage(src, destPath).then((success) => {
-            if (success) {
-              $(el).attr("src", localUrl);
-              downloadedImages.push({ original: src, local: localUrl });
-            } else {
-              failedImages.push(src);
-            }
-          });
-          
-          downloadPromises.push(promise);
+          imageTasks.push({ el, src, currentIndex: imageIndex++ });
         }
       });
-      
-      await Promise.all(downloadPromises);
+
+      const { mapWithConcurrency } = await import("../utils");
+      await mapWithConcurrency(imageTasks, 5, async (task) => {
+        const ext = getExtensionFromUrl(task.src);
+        const filename = `img_${task.currentIndex}.${ext}`;
+        const destPath = path.join(campaignImagesDir, filename);
+        const localUrl = `/images/${campaignId}/${filename}`;
+        const success = await downloadImage(task.src, destPath);
+        if (success) {
+          $(task.el).attr("src", localUrl);
+          downloadedImages.push({ original: task.src, local: localUrl });
+        } else {
+          failedImages.push(task.src);
+        }
+      });
       
       const processedHtml = $.html();
       

@@ -1556,22 +1556,20 @@ export class DatabaseStorage implements IStorage {
       db.select().from(campaigns).where(eq(campaigns.status, "completed")).orderBy(desc(campaigns.completedAt)).limit(10),
     ]);
 
-    const campaignMetrics = await Promise.all(
-      allCampaigns.map(async (campaign) => {
-        // Use unique counts from campaign_sends for accurate rates
-        const [uniqueOpens, uniqueClicks] = await Promise.all([
-          this.getUniqueOpenCount(campaign.id),
-          this.getUniqueClickCount(campaign.id),
-        ]);
-        return {
-          id: campaign.id,
-          name: campaign.name,
-          sentCount: campaign.sentCount,
-          openRate: campaign.sentCount > 0 ? (uniqueOpens / campaign.sentCount) * 100 : 0,
-          clickRate: campaign.sentCount > 0 ? (uniqueClicks / campaign.sentCount) * 100 : 0,
-        };
-      })
-    );
+    const { mapWithConcurrency } = await import("./utils");
+    const campaignMetrics = await mapWithConcurrency(allCampaigns, 3, async (campaign) => {
+      const [uniqueOpens, uniqueClicks] = await Promise.all([
+        this.getUniqueOpenCount(campaign.id),
+        this.getUniqueClickCount(campaign.id),
+      ]);
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        sentCount: campaign.sentCount,
+        openRate: campaign.sentCount > 0 ? (uniqueOpens / campaign.sentCount) * 100 : 0,
+        clickRate: campaign.sentCount > 0 ? (uniqueClicks / campaign.sentCount) * 100 : 0,
+      };
+    });
 
     const avgOpenRate = campaignMetrics.length > 0
       ? campaignMetrics.reduce((acc, c) => acc + c.openRate, 0) / campaignMetrics.length
@@ -1618,17 +1616,16 @@ export class DatabaseStorage implements IStorage {
 
     // Recent activity with subscriber emails
     const recentStats = stats.slice(0, 20);
-    const recentActivity = await Promise.all(
-      recentStats.map(async (stat) => {
-        const sub = await this.getSubscriber(stat.subscriberId);
-        return {
-          email: sub?.email || "unknown",
-          type: stat.type,
-          timestamp: stat.timestamp.toISOString(),
-          link: stat.link || undefined,
-        };
-      })
-    );
+    const { mapWithConcurrency: mapConcurrent } = await import("./utils");
+    const recentActivity = await mapConcurrent(recentStats, 3, async (stat: any) => {
+      const sub = await this.getSubscriber(stat.subscriberId);
+      return {
+        email: sub?.email || "unknown",
+        type: stat.type,
+        timestamp: stat.timestamp.toISOString(),
+        link: stat.link || undefined,
+      };
+    });
 
     // Count total opens from campaign_stats (all events including repeat opens)
     const opens = stats.filter(s => s.type === "open");

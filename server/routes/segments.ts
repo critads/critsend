@@ -24,11 +24,10 @@ export function registerSegmentRoutes(app: Express, helpers: {
     try {
       const segmentsList = await storage.getSegments();
       const counts: Record<string, number> = {};
-      await Promise.all(
-        segmentsList.map(async (segment) => {
-          counts[segment.id] = await storage.getSegmentSubscriberCountCached(segment.id);
-        })
-      );
+      const { mapWithConcurrency } = await import("../utils");
+      await mapWithConcurrency(segmentsList, 3, async (segment) => {
+        counts[segment.id] = await storage.getSegmentSubscriberCountCached(segment.id);
+      });
       res.json(counts);
     } catch (error) {
       logger.error("Error fetching segment counts:", error);
