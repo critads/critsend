@@ -23,6 +23,8 @@ const poolConfig: pg.PoolConfig = {
   connectionTimeoutMillis: isExternalDb ? 15000 : 10000,
   statement_timeout: 120000,
   allowExitOnIdle: false,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 };
 
 if (isExternalDb) {

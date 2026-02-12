@@ -10,6 +10,24 @@ import {
 import { logger } from "../logger";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 
+async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxRetries = 3): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const msg = err.message || '';
+      const isTransient = /connection timeout|Connection terminated|connection refused|ECONNRESET|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer/i.test(msg);
+      if (!isTransient || attempt >= maxRetries) {
+        throw err;
+      }
+      const delay = Math.pow(2, attempt - 1) * 1000;
+      logger.warn(`${label} DB operation failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms: ${msg}`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('Unreachable');
+}
+
 export const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: number }> = {
   slow: { emailsPerMinute: 500, concurrency: 5 },
   medium: { emailsPerMinute: 2000, concurrency: 30 },
@@ -147,7 +165,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     const doFlush = async () => {
       try {
         const flushOps: Promise<void>[] = [
-          storage.bulkFinalizeSends(campaignId, successBatch, failedBatch),
+          retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch), `${logPrefix} flushBuffer`),
         ];
         if (captureBatch.length > 0) {
           flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch(() => {}));
@@ -185,7 +203,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     flushPromise = (async () => {
       try {
         const flushOps: Promise<void>[] = [
-          storage.bulkFinalizeSends(campaignId, successBatch, failedBatch),
+          retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch), `${logPrefix} flushBufferAsync`),
         ];
         if (captureBatch.length > 0) {
           flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch(() => {}));
@@ -221,11 +239,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   async function checkStatusAndHeartbeat(): Promise<void> {
     const now = Date.now();
     if (jobId && now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-      await storage.heartbeatJob(jobId);
+      await retryDbOp(() => storage.heartbeatJob(jobId!), `${logPrefix} heartbeat`);
       lastHeartbeat = now;
     }
     if (now - lastStatusCheck >= STATUS_CHECK_INTERVAL) {
-      cachedStatus = (await storage.getCampaignStatus(campaignId)) || "cancelled";
+      cachedStatus = (await retryDbOp(() => storage.getCampaignStatus(campaignId), `${logPrefix} statusCheck`)) || "cancelled";
       lastStatusCheck = now;
       if (cachedStatus !== "sending") {
         logger.info(`${logPrefix} Status changed to '${cachedStatus}' - stopping send loop`);
@@ -242,9 +260,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
   async function getNextBatch(segmentId: string, cursor: string | undefined): Promise<Subscriber[]> {
     if (prefetchPromise) {
-      const batch = await prefetchPromise;
-      prefetchPromise = null;
-      return batch;
+      try {
+        const batch = await prefetchPromise;
+        prefetchPromise = null;
+        return batch;
+      } catch (err) {
+        prefetchPromise = null;
+        throw err;
+      }
     }
     return storage.getSubscribersForSegmentCursor(segmentId, BATCH_SIZE, cursor);
   }
@@ -265,7 +288,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         break;
       }
 
-      const batch = await getNextBatch(campaign.segmentId, cursorId);
+      const batch = await retryDbOp(() => getNextBatch(campaign.segmentId, cursorId), `${logPrefix} getNextBatch`);
       if (batch.length === 0) {
         logger.info(`${logPrefix} No more subscribers to process (batchNumber: ${batchNumber})`);
         break;
@@ -278,7 +301,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const subscriberIds = batch.map(s => s.id);
       let reservedIds: string[];
       try {
-        reservedIds = await storage.bulkReserveSendSlots(campaignId, subscriberIds);
+        reservedIds = await retryDbOp(() => storage.bulkReserveSendSlots(campaignId, subscriberIds), `${logPrefix} bulkReserve`);
       } catch (err: any) {
         logger.error(`${logPrefix} Bulk reserve failed, falling back: ${err.message}`);
         reservedIds = [];
@@ -411,14 +434,27 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     if (mta) closeTransporter(mta.id);
     closeNullsinkTransporter();
 
-    await storage.updateCampaignStatusAtomic(campaignId, "failed", "sending").catch(() => {});
-    await storage.logError({
-      type: "campaign_fatal",
-      severity: "error",
-      message: `Campaign send failed: ${error.message}`,
-      campaignId,
-      details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
-    }).catch(() => {});
+    const fatalMsg = error.message || '';
+    const isTransientDb = /connection timeout|Connection terminated|connection refused|ECONNRESET|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer/i.test(fatalMsg);
+    if (isTransientDb) {
+      await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "db_connection_error" }).catch(() => {});
+      await storage.logError({
+        type: "campaign_paused",
+        severity: "warning",
+        message: `Campaign paused due to transient DB error: ${error.message}`,
+        campaignId,
+        details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
+      }).catch(() => {});
+    } else {
+      await storage.updateCampaignStatusAtomic(campaignId, "failed", "sending").catch(() => {});
+      await storage.logError({
+        type: "campaign_fatal",
+        severity: "error",
+        message: `Campaign send failed: ${error.message}`,
+        campaignId,
+        details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
+      }).catch(() => {});
+    }
 
     throw error;
   }
