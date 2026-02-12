@@ -95,6 +95,7 @@ export const campaigns = pgTable("campaigns", {
   scheduledAt: timestamp("scheduled_at"),
   status: text("status").notNull().default("draft"),
   pauseReason: text("pause_reason"),
+  retryUntil: timestamp("retry_until"),
   openTag: text("open_tag"),
   clickTag: text("click_tag"),
   unsubscribeTag: text("unsubscribe_tag"),
@@ -148,7 +149,9 @@ export const campaignSends = pgTable("campaign_sends", {
   campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
   subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id),
   sentAt: timestamp("sent_at").notNull().defaultNow(),
-  status: text("status").notNull().default("sent"), // sent, failed, bounced
+  status: text("status").notNull().default("sent"), // sent, failed, bounced, pending
+  retryCount: integer("retry_count").notNull().default(0),
+  lastRetryAt: timestamp("last_retry_at"),
   firstOpenAt: timestamp("first_open_at"),
   firstClickAt: timestamp("first_click_at"),
 }, (table) => ({
@@ -208,6 +211,8 @@ export const campaignJobs = pgTable("campaign_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
   status: text("status").notNull().default("pending"), // pending, processing, completed, failed
+  retryCount: integer("retry_count").notNull().default(0),
+  nextRetryAt: timestamp("next_retry_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),

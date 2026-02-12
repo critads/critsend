@@ -50,6 +50,13 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     return;
   }
 
+  if (!campaign.retryUntil) {
+    const retryDeadline = new Date(Date.now() + 12 * 60 * 60 * 1000);
+    await storage.updateCampaign(campaignId, { retryUntil: retryDeadline });
+    campaign.retryUntil = retryDeadline;
+    logger.info(`${logPrefix} Set retry deadline to ${retryDeadline.toISOString()}`);
+  }
+
   if (!campaign.segmentId) {
     logger.error(`${logPrefix} No segment assigned - marking as failed`);
     await storage.updateCampaignStatusAtomic(campaignId, "failed");
@@ -472,6 +479,116 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     closeTransporter(mta.id);
   }
   closeNullsinkTransporter();
+
+  const RETRY_WINDOW_MS = 12 * 60 * 60 * 1000;
+  const retryDeadline = campaign.retryUntil ? campaign.retryUntil.getTime() : Date.now() + RETRY_WINDOW_MS;
+
+  if (totalFailed > 0 && !shouldStop && Date.now() < retryDeadline) {
+    logger.info(`${logPrefix} Starting retry phase for ${totalFailed} failed emails (deadline: ${new Date(retryDeadline).toISOString()})`);
+
+    let retryPass = 0;
+
+    while (!shouldStop && Date.now() < retryDeadline) {
+      const failedSends = await retryDbOp(
+        () => storage.getFailedSendsForRetry(campaignId, BATCH_SIZE),
+        `${logPrefix} getFailedSendsForRetry`
+      );
+
+      if (failedSends.length === 0) {
+        logger.info(`${logPrefix} Retry phase complete - all failed sends recovered`);
+        break;
+      }
+
+      retryPass++;
+      logger.info(`${logPrefix} Retry pass ${retryPass}: ${failedSends.length} failed sends to retry`);
+
+      const retrySubIds = failedSends.map(s => s.subscriberId);
+      const markedCount = await retryDbOp(
+        () => storage.bulkMarkSendsForRetry(campaignId, retrySubIds),
+        `${logPrefix} bulkMarkSendsForRetry`
+      );
+      logger.info(`${logPrefix} Retry pass ${retryPass}: Marked ${markedCount} sends for retry`);
+
+      for (let i = 0; i < failedSends.length; i += concurrency) {
+        if (shouldStop) break;
+
+        const chunk = failedSends.slice(i, i + concurrency);
+
+        if (isNullsink && mta) {
+          const subscriberObjects = await Promise.all(
+            chunk.map(async (s) => {
+              const sub = await storage.getSubscriber(s.subscriberId);
+              return sub;
+            })
+          );
+          const validSubs = subscriberObjects.filter((s): s is NonNullable<typeof s> => s != null);
+
+          if (validSubs.length > 0) {
+            const results = sendEmailBatchNullsink(mta, validSubs, campaign, trackingOpts, customHeadersMap, precomputedHtml);
+            for (const r of results) {
+              if (r.success) {
+                totalSent++;
+                totalFailed--;
+                pendingSuccessIds.push(r.subscriberId);
+              } else {
+                pendingFailedIds.push(r.subscriberId);
+              }
+              if (r.capture) pendingCaptures.push(r.capture);
+            }
+          }
+        } else if (mta) {
+          const results = await Promise.allSettled(
+            chunk.map(async (s) => {
+              const sub = await storage.getSubscriber(s.subscriberId);
+              if (!sub) return { success: false, subscriberId: s.subscriberId, email: s.email, error: 'Subscriber not found' };
+              try {
+                const result = await sendEmailWithNullsink(mta, sub, campaign, trackingOpts, customHeadersMap);
+                return { success: result.success, subscriberId: sub.id, email: sub.email, error: result.error };
+              } catch (error: any) {
+                return { success: false, subscriberId: sub.id, email: sub.email, error: error.message };
+              }
+            })
+          );
+
+          for (const result of results) {
+            if (result.status === 'fulfilled') {
+              if (result.value.success) {
+                totalSent++;
+                totalFailed--;
+                pendingSuccessIds.push(result.value.subscriberId);
+              } else {
+                pendingFailedIds.push(result.value.subscriberId);
+              }
+            }
+          }
+        }
+
+        if (shouldFlush()) {
+          await flushBufferAsync();
+        }
+      }
+
+      if (flushPromise) await flushPromise;
+      await flushBuffer();
+
+      await checkStatusAndHeartbeat();
+      if (shouldStop) break;
+
+      const backoffMs = Math.min(30000 * Math.pow(2, retryPass - 1), 15 * 60 * 1000);
+      logger.info(`${logPrefix} Retry pass ${retryPass} done. Waiting ${Math.round(backoffMs / 1000)}s before next pass`);
+
+      const backoffEnd = Date.now() + backoffMs;
+      while (Date.now() < backoffEnd && !shouldStop) {
+        const waitTime = Math.min(HEARTBEAT_INTERVAL, backoffEnd - Date.now());
+        await new Promise(r => setTimeout(r, waitTime));
+        await checkStatusAndHeartbeat();
+      }
+    }
+
+    if (Date.now() >= retryDeadline) {
+      logger.info(`${logPrefix} Retry window expired after 12 hours`);
+    }
+  }
 
   if (!shouldStop) {
     const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");

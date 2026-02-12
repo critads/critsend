@@ -141,12 +141,16 @@ export interface IStorage {
   // CAMPAIGN JOB QUEUE
   // ═══════════════════════════════════════════════════════════════
   enqueueCampaignJob(campaignId: string): Promise<CampaignJob>;
+  enqueueCampaignJobWithRetry(campaignId: string, retryCount: number, delaySeconds: number): Promise<any>;
   claimNextJob(workerId: string): Promise<CampaignJob | null>;
   completeJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void>;
   clearStuckJobsForCampaign(campaignId: string): Promise<number>;
   getJobStatus(campaignId: string): Promise<CampaignJobStatus | null>;
   getActiveJobs(): Promise<CampaignJob[]>;
   cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
+  getFailedSendsForRetry(campaignId: string, limit: number): Promise<Array<{subscriberId: string, email: string, retryCount: number}>>;
+  markSendForRetry(campaignId: string, subscriberId: string): Promise<void>;
+  bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number>;
 
   // ═══════════════════════════════════════════════════════════════
   // IMPORT JOB MANAGEMENT
@@ -1093,6 +1097,27 @@ export class DatabaseStorage implements IStorage {
     return job;
   }
 
+  async enqueueCampaignJobWithRetry(campaignId: string, retryCount: number, delaySeconds: number): Promise<any> {
+    const result = await db.execute(sql`
+      INSERT INTO campaign_jobs (id, campaign_id, status, retry_count, next_retry_at, created_at)
+      VALUES (gen_random_uuid(), ${campaignId}, 'pending', ${retryCount}, NOW() + INTERVAL '1 second' * ${delaySeconds}, NOW())
+      RETURNING *
+    `);
+    const row = result.rows[0] as any;
+    return {
+      id: row.id,
+      campaignId: row.campaign_id,
+      status: row.status,
+      retryCount: Number(row.retry_count ?? 0),
+      nextRetryAt: row.next_retry_at ? new Date(row.next_retry_at) : null,
+      createdAt: new Date(row.created_at),
+      startedAt: row.started_at ? new Date(row.started_at) : null,
+      completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      workerId: row.worker_id,
+      errorMessage: row.error_message,
+    };
+  }
+
   async claimNextJob(workerId: string): Promise<CampaignJob | null> {
     const result = await db.execute(sql`
       UPDATE campaign_jobs
@@ -1102,6 +1127,7 @@ export class DatabaseStorage implements IStorage {
       WHERE id = (
         SELECT id FROM campaign_jobs
         WHERE status = 'pending'
+          AND (next_retry_at IS NULL OR next_retry_at <= NOW())
         ORDER BY created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
@@ -1118,12 +1144,65 @@ export class DatabaseStorage implements IStorage {
       id: row.id,
       campaignId: row.campaign_id,
       status: row.status,
+      retryCount: Number(row.retry_count ?? 0),
+      nextRetryAt: row.next_retry_at ? new Date(row.next_retry_at) : null,
       createdAt: new Date(row.created_at),
       startedAt: row.started_at ? new Date(row.started_at) : null,
       completedAt: row.completed_at ? new Date(row.completed_at) : null,
       workerId: row.worker_id,
       errorMessage: row.error_message,
     };
+  }
+
+  async getFailedSendsForRetry(campaignId: string, limit: number): Promise<Array<{subscriberId: string, email: string, retryCount: number}>> {
+    const result = await db.execute(sql`
+      SELECT cs.subscriber_id, s.email, cs.retry_count
+      FROM campaign_sends cs
+      JOIN subscribers s ON cs.subscriber_id = s.id
+      WHERE cs.campaign_id = ${campaignId} AND cs.status = 'failed'
+      ORDER BY cs.retry_count ASC, cs.sent_at ASC
+      LIMIT ${limit}
+    `);
+    return result.rows.map((row: any) => ({
+      subscriberId: row.subscriber_id,
+      email: row.email,
+      retryCount: Number(row.retry_count ?? 0),
+    }));
+  }
+
+  async markSendForRetry(campaignId: string, subscriberId: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE campaign_sends
+      SET status = 'pending', retry_count = retry_count + 1, last_retry_at = NOW()
+      WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'failed'
+    `);
+    await db.execute(sql`
+      UPDATE campaigns
+      SET failed_count = failed_count - 1, pending_count = pending_count + 1
+      WHERE id = ${campaignId}
+    `);
+  }
+
+  async bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number> {
+    if (subscriberIds.length === 0) return 0;
+    const arrayLiteral = `{${subscriberIds.map(id => `"${id}"`).join(',')}}::text[]`;
+    const result = await db.execute(sql`
+      UPDATE campaign_sends
+      SET status = 'pending', retry_count = retry_count + 1, last_retry_at = NOW()
+      WHERE campaign_id = ${campaignId}
+        AND subscriber_id = ANY(${sql.raw(arrayLiteral)})
+        AND status = 'failed'
+      RETURNING id
+    `);
+    const matchCount = result.rows.length;
+    if (matchCount > 0) {
+      await db.execute(sql`
+        UPDATE campaigns
+        SET failed_count = failed_count - ${matchCount}, pending_count = pending_count + ${matchCount}
+        WHERE id = ${campaignId}
+      `);
+    }
+    return matchCount;
   }
 
   async completeJob(jobId: string, status: "completed" | "failed", errorMessage?: string): Promise<void> {
