@@ -351,6 +351,20 @@ async function checkMtaRecovery() {
 
 async function resumeInterruptedCampaigns() {
   try {
+    const staleResult = await db.execute(sql`
+      UPDATE campaign_jobs
+      SET status = 'failed',
+          completed_at = NOW(),
+          error_message = 'Job abandoned by dead worker'
+      WHERE status = 'processing'
+        AND worker_id IS NOT NULL
+        AND worker_id != ${WORKER_ID}
+      RETURNING id, campaign_id
+    `);
+    if (staleResult.rows.length > 0) {
+      logger.info(`[RECOVERY] Cleaned up ${staleResult.rows.length} stale job(s) from dead workers`);
+    }
+
     const result = await db.execute(sql`
       SELECT c.id, c.name FROM campaigns c
       WHERE c.status = 'sending'
