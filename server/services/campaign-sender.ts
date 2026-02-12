@@ -288,7 +288,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         break;
       }
 
-      const batch = await retryDbOp(() => getNextBatch(campaign.segmentId, cursorId), `${logPrefix} getNextBatch`);
+      const batch = await retryDbOp(() => getNextBatch(campaign.segmentId!, cursorId), `${logPrefix} getNextBatch`);
       if (batch.length === 0) {
         logger.info(`${logPrefix} No more subscribers to process (batchNumber: ${batchNumber})`);
         break;

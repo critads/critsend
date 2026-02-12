@@ -260,6 +260,7 @@ async function pollForJobs() {
     const staleCount = await storage.cleanupStaleJobs(30);
     if (staleCount > 0) {
       logger.info(`[JOB_POLL] Cleaned up ${staleCount} stale jobs`);
+      await resumeInterruptedCampaigns();
     }
 
     if (isProcessingCampaign) {
@@ -420,6 +421,11 @@ function startJobProcessor() {
     mtaRecoveryInterval = setInterval(checkMtaRecovery, 30000);
     logger.info("MTA recovery checker started (30s interval)");
   }
+
+  setInterval(() => {
+    resumeInterruptedCampaigns();
+  }, 60000);
+  logger.info("Stuck campaign recovery checker started (60s interval)");
 
   startMemoryMonitor();
 }
