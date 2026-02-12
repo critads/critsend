@@ -925,10 +925,11 @@ export class DatabaseStorage implements IStorage {
     
     for (let i = 0; i < subscriberIds.length; i += CHUNK_SIZE) {
       const chunk = subscriberIds.slice(i, i + CHUNK_SIZE);
+      const arrayLiteral = `{${chunk.map(id => `"${id}"`).join(',')}}`;
       const result = await db.execute(sql`
         INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
         SELECT gen_random_uuid(), ${campaignId}, unnest_id, 'pending', NOW()
-        FROM unnest(${chunk}::text[]) AS unnest_id
+        FROM unnest(${arrayLiteral}::text[]) AS unnest_id
         ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
         RETURNING subscriber_id
       `);
@@ -953,18 +954,20 @@ export class DatabaseStorage implements IStorage {
       if (successIds.length > 0) {
         for (let i = 0; i < successIds.length; i += CHUNK_SIZE) {
           const chunk = successIds.slice(i, i + CHUNK_SIZE);
+          const arrayLiteral = `{${chunk.map(id => `"${id}"`).join(',')}}`;
           await tx.execute(sql`
             UPDATE campaign_sends SET status = 'sent'
-            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[]) AND status = 'pending'
+            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arrayLiteral}::text[]) AND status = 'pending'
           `);
         }
       }
       if (failedIds.length > 0) {
         for (let i = 0; i < failedIds.length; i += CHUNK_SIZE) {
           const chunk = failedIds.slice(i, i + CHUNK_SIZE);
+          const arrayLiteral = `{${chunk.map(id => `"${id}"`).join(',')}}`;
           await tx.execute(sql`
             UPDATE campaign_sends SET status = 'failed'
-            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[]) AND status = 'pending'
+            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arrayLiteral}::text[]) AND status = 'pending'
           `);
         }
       }

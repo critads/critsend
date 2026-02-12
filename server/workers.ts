@@ -395,7 +395,7 @@ async function resumeInterruptedCampaigns() {
   }
 }
 
-function startJobProcessor() {
+async function startJobProcessor() {
   if (jobPollingInterval) {
     return;
   }
@@ -408,6 +408,11 @@ function startJobProcessor() {
     logger.info(`[JOB_POLL] NOTIFY received for campaign_jobs, triggering immediate poll`);
     pollForJobs();
   });
+
+  const startupStaleCount = await storage.cleanupStaleJobs(0);
+  if (startupStaleCount > 0) {
+    logger.info(`[JOB_POLL] Startup: cleaned up ${startupStaleCount} orphaned processing jobs`);
+  }
 
   pollForJobs();
 
@@ -673,8 +678,8 @@ async function pollForImportJobs() {
   }
 }
 
-export function startAllWorkers() {
-  startJobProcessor();
+export async function startAllWorkers() {
+  await startJobProcessor();
   startTagQueueWorker();
 }
 
