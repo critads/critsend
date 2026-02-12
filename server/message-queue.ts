@@ -57,8 +57,17 @@ class NotifyQueue {
     if (this.isShuttingDown) return;
 
     try {
-      const connString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL!;
+      let connString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL!;
       const useSSL = connString.includes("neon.tech") || process.env.DB_SSL === "true";
+      if (connString.includes("neon.tech")) {
+        try {
+          const url = new URL(connString);
+          if (url.pathname !== "/neondb") {
+            url.pathname = "/neondb";
+            connString = url.toString();
+          }
+        } catch {}
+      }
       this.client = new pg.Client({
         connectionString: connString,
         application_name: "notify_queue_listener",

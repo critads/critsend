@@ -13,6 +13,17 @@ if (!connectionString) {
   );
 }
 
+if (connectionString.includes("neon.tech")) {
+  try {
+    const url = new URL(connectionString);
+    if (url.pathname !== "/neondb") {
+      logger.info(`Database path override: '${url.pathname}' -> '/neondb'`);
+      url.pathname = "/neondb";
+      connectionString = url.toString();
+    }
+  } catch {}
+}
+
 export const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SSL === "true";
 
 const poolConfig: pg.PoolConfig = {
