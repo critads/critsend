@@ -920,15 +920,24 @@ export class DatabaseStorage implements IStorage {
   async bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]> {
     if (subscriberIds.length === 0) return [];
     
-    const result = await db.execute(sql`
-      INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
-      SELECT gen_random_uuid(), ${campaignId}, unnest_id, 'pending', NOW()
-      FROM unnest(${subscriberIds}::text[]) AS unnest_id
-      ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
-      RETURNING subscriber_id
-    `);
+    const CHUNK_SIZE = 1000;
+    const allReserved: string[] = [];
     
-    return result.rows.map((r: any) => r.subscriber_id);
+    for (let i = 0; i < subscriberIds.length; i += CHUNK_SIZE) {
+      const chunk = subscriberIds.slice(i, i + CHUNK_SIZE);
+      const result = await db.execute(sql`
+        INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
+        SELECT gen_random_uuid(), ${campaignId}, unnest_id, 'pending', NOW()
+        FROM unnest(${chunk}::text[]) AS unnest_id
+        ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
+        RETURNING subscriber_id
+      `);
+      for (const r of result.rows) {
+        allReserved.push((r as any).subscriber_id);
+      }
+    }
+    
+    return allReserved;
   }
 
   async bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void> {
@@ -938,48 +947,35 @@ export class DatabaseStorage implements IStorage {
     
     if (totalProcessed === 0) return;
     
-    const hasSuccess = successIds.length > 0;
-    const hasFailed = failedIds.length > 0;
+    const CHUNK_SIZE = 1000;
     
-    if (hasSuccess && hasFailed) {
-      await db.execute(sql`
-        WITH mark_sent AS (
-          UPDATE campaign_sends SET status = 'sent'
-          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${successIds}) AND status = 'pending'
-        ),
-        mark_failed AS (
-          UPDATE campaign_sends SET status = 'failed'
-          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${failedIds}) AND status = 'pending'
-        )
+    await db.transaction(async (tx) => {
+      if (successIds.length > 0) {
+        for (let i = 0; i < successIds.length; i += CHUNK_SIZE) {
+          const chunk = successIds.slice(i, i + CHUNK_SIZE);
+          await tx.execute(sql`
+            UPDATE campaign_sends SET status = 'sent'
+            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[]) AND status = 'pending'
+          `);
+        }
+      }
+      if (failedIds.length > 0) {
+        for (let i = 0; i < failedIds.length; i += CHUNK_SIZE) {
+          const chunk = failedIds.slice(i, i + CHUNK_SIZE);
+          await tx.execute(sql`
+            UPDATE campaign_sends SET status = 'failed'
+            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[]) AND status = 'pending'
+          `);
+        }
+      }
+      await tx.execute(sql`
         UPDATE campaigns SET
           sent_count = sent_count + ${sentCount},
           failed_count = failed_count + ${failCount},
           pending_count = GREATEST(pending_count - ${totalProcessed}, 0)
         WHERE id = ${campaignId}
       `);
-    } else if (hasSuccess) {
-      await db.execute(sql`
-        WITH mark_sent AS (
-          UPDATE campaign_sends SET status = 'sent'
-          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${successIds}) AND status = 'pending'
-        )
-        UPDATE campaigns SET
-          sent_count = sent_count + ${sentCount},
-          pending_count = GREATEST(pending_count - ${sentCount}, 0)
-        WHERE id = ${campaignId}
-      `);
-    } else {
-      await db.execute(sql`
-        WITH mark_failed AS (
-          UPDATE campaign_sends SET status = 'failed'
-          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${failedIds}) AND status = 'pending'
-        )
-        UPDATE campaigns SET
-          failed_count = failed_count + ${failCount},
-          pending_count = GREATEST(pending_count - ${failCount}, 0)
-        WHERE id = ${campaignId}
-      `);
-    }
+    });
   }
 
   async heartbeatJob(jobId: string): Promise<void> {
@@ -2014,7 +2010,11 @@ export class DatabaseStorage implements IStorage {
 
   async bulkCreateNullsinkCaptures(data: InsertNullsinkCapture[]): Promise<void> {
     if (data.length === 0) return;
-    await db.insert(nullsinkCaptures).values(data);
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+      const chunk = data.slice(i, i + CHUNK_SIZE);
+      await db.insert(nullsinkCaptures).values(chunk);
+    }
   }
 
   async getNullsinkCaptures(options?: {
