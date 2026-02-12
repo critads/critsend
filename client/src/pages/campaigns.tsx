@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Search,
   Plus,
@@ -45,10 +46,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Eye,
+  RefreshCw,
 } from "lucide-react";
-import type { Campaign } from "@shared/schema";
+import type { Campaign, ErrorLog } from "@shared/schema";
 
-function CampaignStatusBadge({ status }: { status: string }) {
+function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; onClick?: () => void; campaignId?: string }) {
   const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }> = {
     draft: { variant: "secondary", icon: <Clock className="h-3 w-3" /> },
     scheduled: { variant: "outline", icon: <Clock className="h-3 w-3" />, className: "border-blue-500 text-blue-600" },
@@ -61,7 +63,12 @@ function CampaignStatusBadge({ status }: { status: string }) {
   const config = variants[status] || variants.draft;
 
   return (
-    <Badge variant={config.variant} className={`gap-1 ${config.className || ""}`}>
+    <Badge
+      variant={config.variant}
+      className={`gap-1 ${config.className || ""} ${onClick ? "cursor-pointer" : ""}`}
+      onClick={onClick}
+      data-testid={onClick && campaignId ? `badge-failed-status-${campaignId}` : undefined}
+    >
       {config.icon}
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </Badge>
@@ -71,6 +78,7 @@ function CampaignStatusBadge({ status }: { status: string }) {
 export default function Campaigns() {
   const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
+  const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
   const { toast } = useToast();
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
@@ -134,6 +142,30 @@ export default function Campaigns() {
       toast({
         title: "Error",
         description: "Failed to update campaign status. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const { data: failedInfo, isLoading: isLoadingErrors } = useQuery<{ pauseReason: string | null; errors: ErrorLog[] }>({
+    queryKey: ["/api/campaigns", failedInfoCampaign?.id, "errors"],
+    enabled: !!failedInfoCampaign,
+  });
+
+  const requeueMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/campaigns/${id}/requeue`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setFailedInfoCampaign(null);
+      toast({
+        title: "Campaign requeued",
+        description: "The campaign has been requeued for sending.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to requeue campaign. Please try again.",
         variant: "destructive",
       });
     },
@@ -209,7 +241,11 @@ export default function Campaigns() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <CampaignStatusBadge status={campaign.status} />
+                        <CampaignStatusBadge
+                          status={campaign.status}
+                          campaignId={campaign.id}
+                          onClick={campaign.status === "failed" ? () => setFailedInfoCampaign(campaign) : undefined}
+                        />
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-0.5">
@@ -270,6 +306,24 @@ export default function Campaigns() {
                                 Resume
                               </DropdownMenuItem>
                             )}
+                            {campaign.status === "failed" && (
+                              <DropdownMenuItem
+                                onClick={() => setFailedInfoCampaign(campaign)}
+                                data-testid={`button-why-failed-${campaign.id}`}
+                              >
+                                <AlertCircle className="h-4 w-4 mr-2" />
+                                Why Failed?
+                              </DropdownMenuItem>
+                            )}
+                            {campaign.status === "failed" && (
+                              <DropdownMenuItem
+                                onClick={() => requeueMutation.mutate(campaign.id)}
+                                data-testid={`button-requeue-${campaign.id}`}
+                              >
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Requeue
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive"
@@ -327,6 +381,74 @@ export default function Campaigns() {
               data-testid="button-confirm-delete-campaign"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!failedInfoCampaign} onOpenChange={() => setFailedInfoCampaign(null)}>
+        <DialogContent className="max-w-lg" data-testid="dialog-failed-info">
+          <DialogHeader>
+            <DialogTitle>Campaign Failure Details</DialogTitle>
+            <DialogDescription>
+              {failedInfoCampaign?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {failedInfo?.pauseReason && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
+                <p className="text-sm font-medium text-destructive">Reason</p>
+                <p className="text-sm text-muted-foreground mt-1" data-testid="text-pause-reason">
+                  {failedInfo.pauseReason}
+                </p>
+              </div>
+            )}
+            <div>
+              <p className="text-sm font-medium mb-2">Error Logs</p>
+              {isLoadingErrors ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : failedInfo?.errors && failedInfo.errors.length > 0 ? (
+                <ScrollArea className="h-[300px]">
+                  <div className="space-y-2 pr-4">
+                    {failedInfo.errors.map((error) => (
+                      <div
+                        key={error.id}
+                        className="rounded-md border p-3 text-sm"
+                        data-testid={`error-log-${error.id}`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <Badge variant="outline" className="text-xs">
+                            {error.type}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(error.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-muted-foreground">{error.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <p className="text-sm text-muted-foreground">No error logs found for this campaign.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFailedInfoCampaign(null)}>
+              Close
+            </Button>
+            <Button
+              onClick={() => failedInfoCampaign && requeueMutation.mutate(failedInfoCampaign.id)}
+              disabled={requeueMutation.isPending}
+              data-testid="button-requeue-campaign"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              {requeueMutation.isPending ? "Requeuing..." : "Requeue Campaign"}
             </Button>
           </DialogFooter>
         </DialogContent>

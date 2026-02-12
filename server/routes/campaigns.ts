@@ -416,6 +416,70 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
 
+  app.get("/api/campaigns/:id/errors", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const campaign = await storage.getCampaign(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      const { logs } = await storage.getErrorLogs({
+        campaignId: req.params.id,
+        limit: 50,
+        page: 1,
+      });
+      res.json({ pauseReason: campaign.pauseReason, errors: logs });
+    } catch (error) {
+      logger.error("Error fetching campaign errors:", error);
+      res.status(500).json({ error: "Failed to fetch campaign errors" });
+    }
+  });
+
+  app.post("/api/campaigns/:id/requeue", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const existingCampaign = await storage.getCampaign(req.params.id);
+      if (!existingCampaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      if (existingCampaign.status !== "failed") {
+        return res.status(400).json({ error: "Only failed campaigns can be requeued" });
+      }
+
+      await storage.clearStuckJobsForCampaign(req.params.id);
+
+      const campaign = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(campaigns).set({
+          status: "sending",
+          pauseReason: null,
+          sentCount: 0,
+          failedCount: 0,
+        }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
+        if (!updated) return null;
+        await tx.insert(campaignJobs).values({
+          campaignId: updated.id,
+          status: "pending",
+        });
+        return updated;
+      });
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
+      logger.info(`[CAMPAIGN_REQUEUE] NOTIFY sent for campaign ${req.params.id}`);
+
+      res.json(campaign);
+    } catch (error) {
+      logger.error("Error requeuing campaign:", error);
+      res.status(500).json({ error: "Failed to requeue campaign" });
+    }
+  });
+
   app.post("/api/campaigns/:id/send", async (req: Request, res: Response) => {
     if (isMemoryPressure) {
       res.setHeader('Retry-After', '60');
