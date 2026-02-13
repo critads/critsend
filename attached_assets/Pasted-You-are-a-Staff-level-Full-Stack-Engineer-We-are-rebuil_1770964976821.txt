@@ -1,0 +1,155 @@
+You are a Staff-level Full-Stack Engineer. We are rebuilding our “Segments” feature in our Email Marketing SaaS (TypeScript end-to-end: React frontend + Express API backend + Postgres on Neon). Current segments implementation is buggy, poorly designed, error-prone, and must be discarded.
+
+MISSION
+- Delete/ignore the current Segments implementation entirely (code + endpoints + UI logic), and rebuild from scratch.
+- The goal is to ship a “best-in-class” Segments feature: robust, scalable, correct, fast, testable, observable, and easy to extend.
+- Do NOT patch or incrementally modify the old design. Start fresh with a clean architecture.
+
+CONTEXT / PRODUCT REQUIREMENTS
+Segments allow users to target a subset of contacts (subscribers/leads) for campaigns. A segment is defined by rules/filters on contact attributes and events. We need:
+1) Segment Builder (UI) with nested logic:
+   - Groups with AND/OR
+   - Nested groups
+   - Conditions like:
+     - Contact fields
+     - Tags
+2) Operators:
+   - equals, notEquals
+   - contains, notContains
+   - startsWith, endsWith
+   - in / notIn (lists)
+   - exists / notExists
+   - greaterThan, greaterOrEqual, lessThan, lessOrEqual
+   - between (for dates/numbers)
+   - isTrue / isFalse
+3) Segment types:
+   - “Dynamic segment” (computed from rules)
+   - “Static snapshot” (optional): ability to freeze results at a point in time (can be phase 2, but design should allow it cleanly)
+4) Preview:
+   - Show estimated count + preview first N contacts
+   - Must be fast and resilient for large datasets
+5) Save / Edit / Duplicate / Delete segments
+6) Use in campaigns:
+   - API returns list of contact IDs (paginated) for sending jobs
+   - Must handle large segments without loading everything into memory
+
+NON-FUNCTIONAL REQUIREMENTS (CRITICAL)
+- Multi-tenant safety: every query MUST be scoped by tenantId/accountId.
+- Correctness first: nested logic must be reliably represented and evaluated.
+- Performance: handle millions of contacts, avoid full table scans, use indexes, pagination, and query planning.
+- Security: strict validation, prevent injection, never allow raw SQL from client.
+- Reliability: no random “database connection error” under load. Limit concurrency, use pooling properly, and ensure query composition is efficient.
+- Observability: structured logs, meaningful error messages, tracing-like correlation id, and metrics hooks.
+- Testing: unit tests for rule-to-query compiler + integration tests for API.
+- DX: clean types, clear folder structure, minimal tech debt.
+
+IMPLEMENTATION PLAN (YOU MUST FOLLOW)
+Step 0 — Inventory & Removal Plan
+- Locate current segments code (frontend + backend + db tables).
+- Explain what you’ll deprecate/remove and what data you will migrate/keep.
+- If legacy segments exist in production DB, propose a safe migration plan (new tables + mapping + backward compatibility for a limited time if needed).
+
+Step 1 — Data Model & Schema
+Design a strong schema (Postgres) for:
+- segments table: id, tenantId, name, description, status, createdAt, updatedAt
+- segment_rules table or jsonb rules field (justify choice)
+- segment_materialized (optional for snapshot): segmentId, contactId, createdAt
+- custom_fields definitions and values (if we already have it, integrate cleanly)
+
+You must propose indexes. Example priorities:
+- contacts(tenantId, createdAt)
+- contacts(tenantId, email)
+- contact_events(tenantId, contactId, eventType, occurredAt)
+- contact_tags(tenantId, tagId, contactId)
+- plus any partial indexes for unsubscribed/bounced if relevant
+
+Step 2 — Rule DSL (Canonical JSON)
+Define a canonical JSON structure for segment rules that supports nesting:
+- Node types: group { op: "AND"|"OR", children: [...] } and condition { field, operator, value }
+- Strongly typed in TypeScript (zod schema) for runtime validation.
+- Version the DSL (rulesVersion) to allow future evolution.
+
+Step 3 — Query Compiler (Rules -> SQL)
+Implement a compiler that converts the DSL into safe parameterized SQL (or a query builder like Kysely/Knex/Prisma raw with params).
+Rules:
+- Absolutely no string concatenation for values. Parameterize everything.
+- Whitelist fields/operators (explicit mapping).
+- Support joins only when needed (events, tags, custom fields).
+- Return:
+  - count query
+  - preview query (limit/offset, order by stable key)
+  - export/paginated ids query for sending engine
+- Handle edge cases:
+  - empty groups
+  - invalid operators for a field type
+  - nulls
+  - timezone-safe date filters
+
+Step 4 — Backend API (Express)
+Create new endpoints (versioned /api/v2 if needed):
+- POST /segments/preview (rules + optional list scope) -> { count, contactsPreview[] }
+- POST /segments -> create { name, rules }
+- GET /segments -> list
+- GET /segments/:id -> details
+- PUT /segments/:id -> update
+- POST /segments/:id/duplicate
+- DELETE /segments/:id
+- GET /segments/:id/contacts?cursor=... -> paginated contact ids (for sending)
+Add:
+- auth middleware + tenant scoping
+- input validation with zod
+- consistent error responses (problem+json style)
+- rate limiting or basic guardrails for expensive previews
+
+Step 5 — Frontend (React)
+Rebuild UI cleanly:
+- Segment list page + create/edit page
+- Visual rule builder with nested groups
+- Operator dropdown based on field type
+- “Preview count” button + live validation errors
+- UX: prevent impossible states, show helpful messages
+- Manage state with a predictable pattern (e.g., react-hook-form + zod + local reducer)
+
+Step 6 — Background/Scale Considerations
+- For huge segments, preview count can be async (phase 2), but for now implement a fast count with safeguards:
+  - timeouts
+  - max preview limit
+  - optional “estimated count” strategy if exact count too heavy (explain tradeoffs)
+- Ensure the “GET contacts ids for sending” is streaming-friendly/paginated:
+  - use cursor pagination by (id) or (createdAt,id)
+
+Step 7 — Testing & Quality Gate
+- Unit tests: rule parser, validator, compiler for many nested scenarios
+- Integration tests: create segment -> preview -> fetch ids
+- Performance tests (light): explain how to benchmark with EXPLAIN ANALYZE
+- Add lint/typecheck and ensure build passes
+
+DELIVERABLES
+1) A short technical design doc (in repo as /docs/segments-v2.md) with:
+   - DSL spec (examples)
+   - schema choice (jsonb vs relational) and why
+   - indexing strategy
+   - query compilation approach
+   - API contract examples
+2) Implementation in code:
+   - New folder structure (backend/modules/segments, frontend/features/segments)
+   - Fully typed TS + zod validation
+   - Tests
+3) A migration note:
+   - How to safely switch UI + campaigns to v2
+   - Any scripts required
+4) A checklist of what you removed/retired from v1 and why
+
+IMPORTANT CONSTRAINTS
+- Our DB is Neon Postgres. Be mindful of connection pooling and long-running queries.
+- Avoid N+1 queries.
+- Do not load large results into memory.
+- All queries must be tenant-scoped.
+- Keep the code maintainable and readable. Prefer clarity + correctness.
+
+START NOW
+First, scan the repo and show:
+- Where the current segments code lives
+- Current DB tables related to segments (if any)
+- Current API routes related to segments
+Then propose the v2 design + implementation steps and begin implementing.
