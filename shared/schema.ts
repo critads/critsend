@@ -525,7 +525,139 @@ export type ImportJobQueueStatus = "pending" | "processing" | "completed" | "fai
 export type FlushJob = typeof flushJobs.$inferSelect;
 export type FlushJobStatus = "pending" | "processing" | "completed" | "failed" | "cancelled";
 
-// Base segment rule - individual filter condition
+// ====== Segment Rules DSL v2 ======
+
+export const segmentConditionSchema = z.object({
+  type: z.literal("condition"),
+  field: z.enum(["email", "tags", "date_added", "ip_address"]),
+  operator: z.enum([
+    "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty",
+    "has_tag", "not_has_tag", "has_any_tag", "has_no_tags",
+    "before", "after", "between", "in_last_days", "not_in_last_days",
+  ]),
+  value: z.union([z.string(), z.array(z.string()), z.null()]),
+  value2: z.string().nullable().default(null),
+});
+
+export type SegmentCondition = z.output<typeof segmentConditionSchema>;
+
+type SegmentGroupInput = {
+  type: "group";
+  combinator: "AND" | "OR";
+  children: Array<z.input<typeof segmentConditionSchema> | SegmentGroupInput>;
+};
+
+export const segmentGroupSchema: z.ZodType<SegmentGroupInput> = z.object({
+  type: z.literal("group"),
+  combinator: z.enum(["AND", "OR"]),
+  children: z.lazy(() => z.array(z.union([segmentConditionSchema, segmentGroupSchema]))),
+});
+
+export type SegmentGroup = z.infer<typeof segmentGroupSchema>;
+
+export const segmentRulesV2Schema = z.object({
+  version: z.literal(2),
+  root: segmentGroupSchema,
+});
+
+export type SegmentRulesV2 = z.infer<typeof segmentRulesV2Schema>;
+
+export const fieldOperatorsV2 = {
+  email: ["equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty"],
+  tags: ["has_tag", "not_has_tag", "has_any_tag", "has_no_tags"],
+  date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
+  ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
+} as const;
+
+export const operatorLabelsV2: Record<string, string> = {
+  equals: "equals",
+  not_equals: "does not equal",
+  contains: "contains",
+  not_contains: "does not contain",
+  starts_with: "starts with",
+  ends_with: "ends with",
+  is_empty: "is empty",
+  is_not_empty: "is not empty",
+  has_tag: "has tag",
+  not_has_tag: "does not have tag",
+  has_any_tag: "has any tag",
+  has_no_tags: "has no tags",
+  before: "is before",
+  after: "is after",
+  between: "is between",
+  in_last_days: "in the last N days",
+  not_in_last_days: "not in the last N days",
+};
+
+export const segmentRulesInputSchema = z.union([
+  segmentRulesV2Schema,
+  z.array(z.any()).min(1, "At least one rule is required"),
+]);
+
+export function migrateRulesV1toV2(rules: any[]): SegmentRulesV2 {
+  function convertCondition(rule: any): SegmentCondition {
+    let operator = rule.operator;
+    if (rule.field === "tags") {
+      if (operator === "contains") operator = "has_tag";
+      else if (operator === "not_contains") operator = "not_has_tag";
+    }
+    return {
+      type: "condition" as const,
+      field: rule.field,
+      operator,
+      value: rule.value ?? null,
+      value2: rule.value2 ?? null,
+    };
+  }
+
+  function convertGroup(group: any): SegmentGroup {
+    return {
+      type: "group" as const,
+      combinator: group.combinator || "AND",
+      children: (group.rules || []).map((r: any) => convertCondition(r)),
+    };
+  }
+
+  const rootChildren: Array<SegmentCondition | SegmentGroup> = [];
+  let orChildren: Array<SegmentCondition | SegmentGroup> = [];
+
+  for (const rule of rules) {
+    if (rule.type === "group") {
+      const nested = convertGroup(rule);
+      if (rule.logic === "OR") {
+        orChildren.push(nested);
+      } else {
+        rootChildren.push(nested);
+      }
+    } else {
+      const cond = convertCondition(rule);
+      if (rule.logic === "OR") {
+        orChildren.push(cond);
+      } else {
+        rootChildren.push(cond);
+      }
+    }
+  }
+
+  if (orChildren.length > 0) {
+    rootChildren.push({
+      type: "group" as const,
+      combinator: "OR",
+      children: orChildren,
+    });
+  }
+
+  return {
+    version: 2,
+    root: {
+      type: "group" as const,
+      combinator: "AND",
+      children: rootChildren,
+    },
+  };
+}
+
+/** @deprecated Use segmentConditionSchema instead */
 export const segmentRuleSchema = z.object({
   field: z.enum(["tags", "email", "date_added", "ip_address"]),
   operator: z.enum(["contains", "not_contains", "equals", "not_equals", "starts_with", "ends_with", "before", "after", "between"]),
@@ -534,8 +666,10 @@ export const segmentRuleSchema = z.object({
   logic: z.enum(["AND", "OR"]).optional(),
 });
 
+/** @deprecated Use SegmentCondition instead */
 export type SegmentRule = z.infer<typeof segmentRuleSchema>;
 
+/** @deprecated Use segmentGroupSchema instead */
 export const segmentRuleGroupSchema = z.object({
   type: z.literal("group"),
   logic: z.enum(["AND", "OR"]),
@@ -543,18 +677,22 @@ export const segmentRuleGroupSchema = z.object({
   rules: z.array(segmentRuleSchema),
 });
 
+/** @deprecated Use SegmentGroup instead */
 export type SegmentRuleGroup = z.infer<typeof segmentRuleGroupSchema>;
 
+/** @deprecated Use SegmentCondition | SegmentGroup instead */
 export type SegmentRuleItem = SegmentRule | SegmentRuleGroup;
 
+/** @deprecated Use segmentRulesInputSchema instead */
 export const segmentRuleItemSchema: z.ZodType<SegmentRuleItem> = z.union([
   segmentRuleSchema,
   segmentRuleGroupSchema,
 ]);
 
+/** @deprecated Use segmentRulesInputSchema instead */
 export const segmentRulesArraySchema = z.array(segmentRuleItemSchema).min(1, "At least one rule is required");
 
-// Operators available for each field type
+/** @deprecated Use fieldOperatorsV2 instead */
 export const fieldOperators = {
   tags: ["contains", "not_contains", "equals", "not_equals"] as const,
   email: ["contains", "not_contains", "equals", "not_equals", "starts_with", "ends_with"] as const,
@@ -562,6 +700,7 @@ export const fieldOperators = {
   ip_address: ["equals", "not_equals", "starts_with", "contains"] as const,
 };
 
+/** @deprecated Use operatorLabelsV2 instead */
 export const operatorLabels: Record<string, string> = {
   contains: "contains",
   not_contains: "does not contain",

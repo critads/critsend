@@ -52,6 +52,8 @@ import { db } from "./db";
 import { eq, like, or, sql, desc, and, arrayContains, not } from "drizzle-orm";
 import { encrypt, decrypt } from "./crypto";
 import { logger } from "./logger";
+import { compileSegmentRules } from "./services/segment-compiler";
+import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
 import bcrypt from "bcrypt";
 
 export interface IStorage {
@@ -80,6 +82,8 @@ export interface IStorage {
   deleteSegment(id: string): Promise<void>;
   getSegmentSubscriberCountCached(segmentId: string): Promise<number>;
   invalidateSegmentCountCache(segmentId?: string): void;
+  previewSegmentRules(rules: SegmentRulesV2, sampleLimit?: number): Promise<{ count: number; sample: Subscriber[] }>;
+  duplicateSegment(id: string): Promise<Segment | undefined>;
 
   // ═══════════════════════════════════════════════════════════════
   // MTA MANAGEMENT
@@ -385,19 +389,25 @@ export class DatabaseStorage implements IStorage {
   // SEGMENT OPERATIONS
   // ═══════════════════════════════════════════════════════════════
 
+  private normalizeRules(rules: any): SegmentRulesV2 | null {
+    if (!rules) return null;
+    if (rules.version === 2) return rules as SegmentRulesV2;
+    if (Array.isArray(rules) && rules.length > 0) return migrateRulesV1toV2(rules);
+    return null;
+  }
+
   async getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]> {
     const segment = await this.getSegment(segmentId);
     if (!segment) return [];
 
-    const rules = segment.rules as SegmentRule[];
-    if (!rules || rules.length === 0) return [];
+    const normalized = this.normalizeRules(segment.rules);
+    if (!normalized) return [];
 
-    // Build SQL WHERE clause for segment rules - much more efficient than loading all into memory
-    const whereCondition = this.buildSegmentSqlCondition(rules);
+    const whereCondition = compileSegmentRules(normalized);
     
     let query = db.select().from(subscribers).where(
       and(
-        not(sql`'BCK' = ANY(${subscribers.tags})`), // Always exclude BCK
+        not(sql`'BCK' = ANY(${subscribers.tags})`),
         whereCondition
       )
     );
@@ -416,10 +426,10 @@ export class DatabaseStorage implements IStorage {
     const segment = await this.getSegment(segmentId);
     if (!segment) return [];
 
-    const rules = segment.rules as SegmentRule[];
-    if (!rules || rules.length === 0) return [];
+    const normalized = this.normalizeRules(segment.rules);
+    if (!normalized) return [];
 
-    const whereCondition = this.buildSegmentSqlCondition(rules);
+    const whereCondition = compileSegmentRules(normalized);
     
     const conditions = [
       not(sql`'BCK' = ANY(${subscribers.tags})`),
@@ -440,10 +450,10 @@ export class DatabaseStorage implements IStorage {
     const segment = await this.getSegment(segmentId);
     if (!segment) return 0;
 
-    const rules = segment.rules as SegmentRule[];
-    if (!rules || rules.length === 0) return 0;
+    const normalized = this.normalizeRules(segment.rules);
+    if (!normalized) return 0;
 
-    const whereCondition = this.buildSegmentSqlCondition(rules);
+    const whereCondition = compileSegmentRules(normalized);
     
     const [{ count }] = await db.select({ count: sql<number>`count(*)` })
       .from(subscribers)
@@ -456,8 +466,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async countSubscribersForRules(rules: any[]): Promise<number> {
-    if (!rules || rules.length === 0) return 0;
-    const whereCondition = this.buildSegmentSqlCondition(rules);
+    const normalized = this.normalizeRules(rules);
+    if (!normalized) return 0;
+    const whereCondition = compileSegmentRules(normalized);
     const [{ count }] = await db.select({ count: sql<number>`count(*)` })
       .from(subscribers)
       .where(and(
@@ -467,133 +478,29 @@ export class DatabaseStorage implements IStorage {
     return Number(count);
   }
 
-  private escapeLikeValue(value: string): string {
-    return value.replace(/[%_\\]/g, '\\$&');
+  async previewSegmentRules(rules: SegmentRulesV2, sampleLimit: number = 10): Promise<{ count: number; sample: Subscriber[] }> {
+    const whereCondition = compileSegmentRules(rules);
+    const [countResult, sample] = await Promise.all([
+      db.select({ count: sql<number>`count(*)` })
+        .from(subscribers)
+        .where(and(not(sql`'BCK' = ANY(${subscribers.tags})`), whereCondition)),
+      db.select().from(subscribers)
+        .where(and(not(sql`'BCK' = ANY(${subscribers.tags})`), whereCondition))
+        .orderBy(desc(subscribers.importDate))
+        .limit(sampleLimit),
+    ]);
+    return { count: Number(countResult[0]?.count ?? 0), sample };
   }
 
-  private buildSingleRuleCondition(rule: any): ReturnType<typeof sql> | null {
-    if (rule.field === "email") {
-      switch (rule.operator) {
-        case "contains":
-          return sql`${subscribers.email} ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'}`;
-        case "not_contains":
-          return sql`${subscribers.email} NOT ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'}`;
-        case "equals":
-          return sql`LOWER(${subscribers.email}) = LOWER(${rule.value})`;
-        case "not_equals":
-          return sql`LOWER(${subscribers.email}) != LOWER(${rule.value})`;
-        case "starts_with":
-          return sql`${subscribers.email} ILIKE ${this.escapeLikeValue(rule.value) + '%'}`;
-        case "ends_with":
-          return sql`${subscribers.email} ILIKE ${'%' + this.escapeLikeValue(rule.value)}`;
-        default:
-          return null;
-      }
-    } else if (rule.field === "tags") {
-      switch (rule.operator) {
-        case "contains":
-          return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'})`;
-        case "not_contains":
-          return sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + this.escapeLikeValue(rule.value) + '%'})`;
-        case "equals":
-          return sql`${subscribers.tags} @> ARRAY[${rule.value}]::text[]`;
-        case "not_equals":
-          return sql`NOT (${subscribers.tags} @> ARRAY[${rule.value}]::text[])`;
-        default:
-          return null;
-      }
-    } else if (rule.field === "date_added") {
-      switch (rule.operator) {
-        case "before":
-          return sql`${subscribers.importDate} < ${rule.value}::timestamp`;
-        case "after":
-          return sql`${subscribers.importDate} > ${rule.value}::timestamp`;
-        case "between":
-          return sql`${subscribers.importDate} BETWEEN ${rule.value}::timestamp AND ${(rule as any).value2 || rule.value}::timestamp`;
-        default:
-          return null;
-      }
-    } else if (rule.field === "ip_address") {
-      switch (rule.operator) {
-        case "equals":
-          return sql`${subscribers.ipAddress} = ${rule.value}`;
-        case "not_equals":
-          return sql`${subscribers.ipAddress} != ${rule.value}`;
-        case "starts_with":
-          return sql`${subscribers.ipAddress} LIKE ${this.escapeLikeValue(rule.value) + '%'}`;
-        case "contains":
-          return sql`${subscribers.ipAddress} LIKE ${'%' + this.escapeLikeValue(rule.value) + '%'}`;
-        default:
-          return null;
-      }
-    }
-    return null;
-  }
-
-  private buildGroupCondition(group: any): ReturnType<typeof sql> | null {
-    if (!group.rules || group.rules.length === 0) return null;
-
-    const conditions: ReturnType<typeof sql>[] = [];
-
-    for (const rule of group.rules) {
-      const condition = this.buildSingleRuleCondition(rule);
-      if (condition) {
-        conditions.push(condition);
-      }
-    }
-
-    if (conditions.length === 0) return null;
-
-    const combinator = group.combinator || "AND";
-    let result = conditions[0];
-    for (let i = 1; i < conditions.length; i++) {
-      if (combinator === "OR") {
-        result = sql`(${result} OR ${conditions[i]})`;
-      } else {
-        result = sql`(${result} AND ${conditions[i]})`;
-      }
-    }
-
-    return sql`(${result})`;
-  }
-
-  private buildSegmentSqlCondition(rules: any[]) {
-    const conditions: ReturnType<typeof sql>[] = [];
-    const logics: string[] = [];
-
-    for (let i = 0; i < rules.length; i++) {
-      const item = rules[i];
-
-      if (item.type === "group" && Array.isArray(item.rules)) {
-        const groupCondition = this.buildGroupCondition(item);
-        if (groupCondition) {
-          conditions.push(groupCondition);
-          logics.push(i === 0 ? "AND" : (item.logic || "AND"));
-        }
-        continue;
-      }
-
-      const condition = this.buildSingleRuleCondition(item);
-      if (condition) {
-        conditions.push(condition);
-        logics.push(i === 0 ? "AND" : (item.logic || "AND"));
-      }
-    }
-
-    if (conditions.length === 0) {
-      return sql`TRUE`;
-    }
-
-    let result = conditions[0];
-    for (let i = 1; i < conditions.length; i++) {
-      if (logics[i] === "OR") {
-        result = sql`(${result} OR ${conditions[i]})`;
-      } else {
-        result = sql`(${result} AND ${conditions[i]})`;
-      }
-    }
-
-    return result;
+  async duplicateSegment(id: string): Promise<Segment | undefined> {
+    const original = await this.getSegment(id);
+    if (!original) return undefined;
+    const [dup] = await db.insert(segments).values({
+      name: `${original.name} (Copy)`,
+      description: original.description,
+      rules: original.rules,
+    }).returning();
+    return dup;
   }
 
   async getSegments(): Promise<Segment[]> {

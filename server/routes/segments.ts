@@ -1,7 +1,8 @@
 import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
-import { insertSegmentSchema, segmentRulesArraySchema } from "@shared/schema";
+import { insertSegmentSchema, segmentRulesInputSchema, migrateRulesV1toV2 } from "@shared/schema";
+import type { SegmentRulesV2 } from "@shared/schema";
 import { z } from "zod";
 
 export function registerSegmentRoutes(app: Express, helpers: {
@@ -9,6 +10,13 @@ export function registerSegmentRoutes(app: Express, helpers: {
   validateId: (id: string) => boolean;
 }) {
   const { validateId, parsePagination } = helpers;
+
+  function normalizeRules(rules: any): SegmentRulesV2 | null {
+    if (!rules) return null;
+    if (rules.version === 2) return rules;
+    if (Array.isArray(rules) && rules.length > 0) return migrateRulesV1toV2(rules);
+    return null;
+  }
 
   app.get("/api/segments", async (req: Request, res: Response) => {
     try {
@@ -38,12 +46,20 @@ export function registerSegmentRoutes(app: Express, helpers: {
   app.post("/api/segments/preview-count", async (req: Request, res: Response) => {
     try {
       const { rules } = req.body;
-      if (!rules || !Array.isArray(rules) || rules.length === 0) {
-        return res.json({ count: 0 });
+      if (!rules) return res.json({ count: 0, sample: [] });
+      
+      const normalized = normalizeRules(rules);
+      if (!normalized) return res.json({ count: 0, sample: [] });
+      
+      if (!normalized.root?.children?.length) {
+        return res.json({ count: 0, sample: [] });
       }
-      segmentRulesArraySchema.parse(rules);
-      const count = await storage.countSubscribersForRules(rules);
-      res.json({ count });
+      
+      segmentRulesInputSchema.parse(rules);
+      
+      const sampleLimit = Math.min(parseInt(req.query.sampleLimit as string) || 10, 25);
+      const result = await storage.previewSegmentRules(normalized, sampleLimit);
+      res.json(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
@@ -86,7 +102,12 @@ export function registerSegmentRoutes(app: Express, helpers: {
     try {
       const data = insertSegmentSchema.parse(req.body);
       if (data.rules) {
-        segmentRulesArraySchema.parse(data.rules);
+        segmentRulesInputSchema.parse(data.rules);
+      }
+      if (data.rules && data.rules.version === 2) {
+        if (!data.rules.root?.children?.length) {
+          return res.status(400).json({ error: "Segment must have at least one rule" });
+        }
       }
       const segment = await storage.createSegment(data);
       res.status(201).json(segment);
@@ -105,7 +126,12 @@ export function registerSegmentRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Invalid ID format" });
       }
       if (req.body.rules) {
-        segmentRulesArraySchema.parse(req.body.rules);
+        segmentRulesInputSchema.parse(req.body.rules);
+      }
+      if (req.body.rules && req.body.rules.version === 2) {
+        if (!req.body.rules.root?.children?.length) {
+          return res.status(400).json({ error: "Segment must have at least one rule" });
+        }
       }
       const segment = await storage.updateSegment(req.params.id, req.body);
       if (!segment) {
@@ -263,6 +289,22 @@ export function registerSegmentRoutes(app: Express, helpers: {
       } else {
         res.end();
       }
+    }
+  });
+
+  app.post("/api/segments/:id/duplicate", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const duplicated = await storage.duplicateSegment(req.params.id);
+      if (!duplicated) {
+        return res.status(404).json({ error: "Segment not found" });
+      }
+      res.status(201).json(duplicated);
+    } catch (error) {
+      logger.error("Error duplicating segment:", error);
+      res.status(500).json({ error: "Failed to duplicate segment" });
     }
   });
 

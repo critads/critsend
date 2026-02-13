@@ -39,9 +39,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Filter, Plus, MoreVertical, Trash2, Edit2, Users, X, Mail, Tag, Calendar, Globe, Layers, Eye, Download, ChevronLeft, ChevronRight } from "lucide-react";
-import type { Segment, SegmentRule, SegmentRuleGroup, SegmentRuleItem, Subscriber } from "@shared/schema";
-import { fieldOperators, operatorLabels } from "@shared/schema";
+import {
+  Filter, Plus, MoreVertical, Trash2, Edit2, Users, X,
+  Mail, Tag, Calendar, Globe, Layers, Eye, Download, Copy,
+  ChevronLeft, ChevronRight,
+} from "lucide-react";
+import type { Segment, SegmentCondition, SegmentGroup, SegmentRulesV2, Subscriber } from "@shared/schema";
+import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/schema";
 
 const fieldLabels: Record<string, string> = {
   tags: "Tags",
@@ -49,6 +53,74 @@ const fieldLabels: Record<string, string> = {
   date_added: "Date Added",
   ip_address: "IP Address",
 };
+
+const fieldIcons: Record<string, typeof Tag> = {
+  tags: Tag,
+  email: Mail,
+  date_added: Calendar,
+  ip_address: Globe,
+};
+
+const unaryOperators = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags"];
+
+function makeEmptyCondition(): SegmentCondition {
+  return { type: "condition", field: "email", operator: "contains", value: "", value2: null };
+}
+
+function makeEmptyGroup(): SegmentGroup {
+  return { type: "group", combinator: "AND", children: [makeEmptyCondition()] };
+}
+
+function defaultRootGroup(): SegmentGroup {
+  return makeEmptyGroup();
+}
+
+function getRulesAsV2(rules: unknown): SegmentGroup {
+  if (rules && typeof rules === "object" && (rules as any).version === 2) {
+    return (rules as SegmentRulesV2).root;
+  }
+  if (Array.isArray(rules) && rules.length > 0) {
+    return migrateRulesV1toV2(rules).root;
+  }
+  return defaultRootGroup();
+}
+
+function isConditionValid(c: SegmentCondition): boolean {
+  if (unaryOperators.includes(c.operator)) return true;
+  if (typeof c.value === "string") return c.value.trim().length > 0;
+  if (Array.isArray(c.value)) return c.value.length > 0;
+  return false;
+}
+
+function hasValidCondition(group: SegmentGroup): boolean {
+  for (const child of group.children) {
+    if (child.type === "condition" && isConditionValid(child)) return true;
+    if (child.type === "group" && hasValidCondition(child)) return true;
+  }
+  return false;
+}
+
+function summarizeRules(rules: unknown): Array<{ text: string; depth: number }> {
+  const root = getRulesAsV2(rules);
+  const results: Array<{ text: string; depth: number }> = [];
+
+  function walk(group: SegmentGroup, depth: number) {
+    for (const child of group.children) {
+      if (results.length >= 3) return;
+      if (child.type === "condition") {
+        const label = operatorLabelsV2[child.operator] || child.operator;
+        const val = unaryOperators.includes(child.operator) ? "" : ` "${child.value || ""}"`;
+        results.push({ text: `${fieldLabels[child.field] || child.field} ${label}${val}`, depth });
+      } else {
+        results.push({ text: `Group (${child.combinator})`, depth });
+        walk(child, depth + 1);
+      }
+    }
+  }
+
+  walk(root, 0);
+  return results;
+}
 
 interface SegmentSubscribersResponse {
   subscribers: Subscriber[];
@@ -58,6 +130,248 @@ interface SegmentSubscribersResponse {
   totalPages: number;
 }
 
+interface PreviewResult {
+  count: number;
+  sample: Subscriber[];
+}
+
+function ConditionRow({
+  condition,
+  onChange,
+  onRemove,
+  testIdPrefix,
+}: {
+  condition: SegmentCondition;
+  onChange: (c: SegmentCondition) => void;
+  onRemove: () => void;
+  testIdPrefix: string;
+}) {
+  const operators = fieldOperatorsV2[condition.field as keyof typeof fieldOperatorsV2] || [];
+  const isUnary = unaryOperators.includes(condition.operator);
+  const isBetween = condition.operator === "between";
+  const isDays = condition.operator === "in_last_days" || condition.operator === "not_in_last_days";
+  const isDate = condition.operator === "before" || condition.operator === "after";
+  const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag";
+
+  const handleFieldChange = (field: string) => {
+    const newOps = fieldOperatorsV2[field as keyof typeof fieldOperatorsV2];
+    const opValid = (newOps as readonly string[]).includes(condition.operator);
+    onChange({
+      ...condition,
+      field: field as SegmentCondition["field"],
+      operator: opValid ? condition.operator : newOps[0],
+      value: "",
+      value2: null,
+    });
+  };
+
+  const handleOperatorChange = (op: string) => {
+    const wasUnary = unaryOperators.includes(condition.operator);
+    const nowUnary = unaryOperators.includes(op);
+    onChange({
+      ...condition,
+      operator: op,
+      value: nowUnary ? null : (wasUnary ? "" : condition.value),
+      value2: op === "between" ? (condition.value2 || "") : null,
+    });
+  };
+
+  const FieldIcon = fieldIcons[condition.field] || Tag;
+
+  return (
+    <div className="flex gap-2 items-center flex-wrap">
+      <Select value={condition.field} onValueChange={handleFieldChange}>
+        <SelectTrigger className="w-36" data-testid={`${testIdPrefix}-field`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {Object.entries(fieldLabels).map(([key, label]) => {
+            const Icon = fieldIcons[key] || Tag;
+            return (
+              <SelectItem key={key} value={key}>
+                <span className="flex items-center gap-1"><Icon className="h-3 w-3" /> {label}</span>
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+
+      <Select value={condition.operator} onValueChange={handleOperatorChange}>
+        <SelectTrigger className="w-44" data-testid={`${testIdPrefix}-operator`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {operators.map((op) => (
+            <SelectItem key={op} value={op}>{operatorLabelsV2[op]}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {!isUnary && (
+        <>
+          {isBetween ? (
+            <div className="flex gap-2 flex-1 min-w-[150px]">
+              <Input
+                type="date"
+                value={typeof condition.value === "string" ? condition.value : ""}
+                onChange={(e) => onChange({ ...condition, value: e.target.value })}
+                className="flex-1"
+                data-testid={`${testIdPrefix}-value`}
+              />
+              <Input
+                type="date"
+                value={condition.value2 || ""}
+                onChange={(e) => onChange({ ...condition, value2: e.target.value })}
+                className="flex-1"
+                data-testid={`${testIdPrefix}-value2`}
+              />
+            </div>
+          ) : isDays ? (
+            <Input
+              type="number"
+              min={1}
+              placeholder="Days"
+              value={typeof condition.value === "string" ? condition.value : ""}
+              onChange={(e) => onChange({ ...condition, value: e.target.value })}
+              className="w-24"
+              data-testid={`${testIdPrefix}-value`}
+            />
+          ) : isDate ? (
+            <Input
+              type="date"
+              value={typeof condition.value === "string" ? condition.value : ""}
+              onChange={(e) => onChange({ ...condition, value: e.target.value })}
+              className="flex-1 min-w-[150px]"
+              data-testid={`${testIdPrefix}-value`}
+            />
+          ) : isTagText ? (
+            <Input
+              placeholder="Tag value..."
+              value={typeof condition.value === "string" ? condition.value : ""}
+              onChange={(e) => onChange({ ...condition, value: e.target.value.toUpperCase() })}
+              className="flex-1 min-w-[150px]"
+              data-testid={`${testIdPrefix}-value`}
+            />
+          ) : (
+            <Input
+              placeholder={condition.field === "email" ? "e.g., @gmail.com" : condition.field === "ip_address" ? "e.g., 192.168.1" : "Value..."}
+              value={typeof condition.value === "string" ? condition.value : ""}
+              onChange={(e) => onChange({ ...condition, value: e.target.value })}
+              className="flex-1 min-w-[150px]"
+              data-testid={`${testIdPrefix}-value`}
+            />
+          )}
+        </>
+      )}
+
+      <Button variant="ghost" size="icon" onClick={onRemove} data-testid={`${testIdPrefix}-remove`}>
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+function GroupBuilder({
+  group,
+  onChange,
+  onRemove,
+  depth,
+  testIdPrefix,
+}: {
+  group: SegmentGroup;
+  onChange: (g: SegmentGroup) => void;
+  onRemove?: () => void;
+  depth: number;
+  testIdPrefix: string;
+}) {
+  const updateChild = (index: number, child: SegmentCondition | SegmentGroup) => {
+    const newChildren = [...group.children];
+    newChildren[index] = child;
+    onChange({ ...group, children: newChildren });
+  };
+
+  const removeChild = (index: number) => {
+    if (group.children.length <= 1) return;
+    onChange({ ...group, children: group.children.filter((_, i) => i !== index) });
+  };
+
+  const addCondition = () => {
+    onChange({ ...group, children: [...group.children, makeEmptyCondition()] });
+  };
+
+  const addNestedGroup = () => {
+    onChange({ ...group, children: [...group.children, makeEmptyGroup()] });
+  };
+
+  const isRoot = depth === 0;
+  const wrapperClass = isRoot ? "space-y-3" : "border rounded-md p-3 space-y-3";
+
+  return (
+    <div className={wrapperClass} data-testid={`${testIdPrefix}-group`}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Layers className="h-4 w-4 text-muted-foreground" />
+          <Select
+            value={group.combinator}
+            onValueChange={(v) => onChange({ ...group, combinator: v as "AND" | "OR" })}
+          >
+            <SelectTrigger className="w-32" data-testid={`${testIdPrefix}-combinator`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="AND">Match ALL</SelectItem>
+              <SelectItem value="OR">Match ANY</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex gap-1 flex-wrap">
+          <Button variant="outline" size="sm" onClick={addCondition} data-testid={`${testIdPrefix}-add-condition`}>
+            <Plus className="h-4 w-4 mr-1" />
+            Condition
+          </Button>
+          {depth < 3 && (
+            <Button variant="outline" size="sm" onClick={addNestedGroup} data-testid={`${testIdPrefix}-add-group`}>
+              <Layers className="h-4 w-4 mr-1" />
+              Group
+            </Button>
+          )}
+          {onRemove && (
+            <Button variant="ghost" size="icon" onClick={onRemove} data-testid={`${testIdPrefix}-remove-group`}>
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {group.children.map((child, index) => (
+        <div key={index} className="space-y-2">
+          {index > 0 && (
+            <Badge variant="outline" className="text-xs" data-testid={`${testIdPrefix}-connector-${index}`}>
+              {group.combinator}
+            </Badge>
+          )}
+          {child.type === "condition" ? (
+            <ConditionRow
+              condition={child}
+              onChange={(c) => updateChild(index, c)}
+              onRemove={() => removeChild(index)}
+              testIdPrefix={`${testIdPrefix}-c${index}`}
+            />
+          ) : (
+            <GroupBuilder
+              group={child}
+              onChange={(g) => updateChild(index, g)}
+              onRemove={() => removeChild(index)}
+              depth={depth + 1}
+              testIdPrefix={`${testIdPrefix}-g${index}`}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Segments() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
@@ -65,12 +379,11 @@ export default function Segments() {
   const [viewingSegment, setViewingSegment] = useState<Segment | null>(null);
   const [viewPage, setViewPage] = useState(1);
   const [isExporting, setIsExporting] = useState<string | null>(null);
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [rules, setRules] = useState<SegmentRuleItem[]>([
-    { field: "tags", operator: "contains", value: "" },
-  ]);
-  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [rootGroup, setRootGroup] = useState<SegmentGroup>(defaultRootGroup());
+  const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
   const [isCountLoading, setIsCountLoading] = useState(false);
   const { toast } = useToast();
 
@@ -95,12 +408,124 @@ export default function Segments() {
     enabled: !!viewingSegment,
   });
 
+  const resetForm = () => {
+    setName("");
+    setDescription("");
+    setRootGroup(defaultRootGroup());
+    setPreviewResult(null);
+    setIsCountLoading(false);
+  };
+
+  const handleEditClick = (segment: Segment) => {
+    setEditingSegment(segment);
+    setName(segment.name);
+    setDescription(segment.description || "");
+    setRootGroup(getRulesAsV2(segment.rules));
+    setPreviewResult(null);
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; description: string; rules: SegmentRulesV2 }) =>
+      apiRequest("POST", "/api/segments", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
+      resetForm();
+      setIsCreateOpen(false);
+      toast({ title: "Segment created", description: "Your new segment has been created successfully." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create segment. Please try again.", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name: string; description: string; rules: SegmentRulesV2 } }) =>
+      apiRequest("PATCH", `/api/segments/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
+      setEditingSegment(null);
+      resetForm();
+      toast({ title: "Segment updated", description: "Your segment has been updated successfully." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update segment. Please try again.", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/segments/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
+      setDeleteConfirm(null);
+      toast({ title: "Segment deleted", description: "The segment has been deleted." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete segment. Please try again.", variant: "destructive" });
+    },
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/segments/${id}/duplicate`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
+      toast({ title: "Segment duplicated", description: "A copy of the segment has been created." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to duplicate segment. Please try again.", variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!name.trim()) {
+      toast({ title: "Validation Error", description: "Please provide a segment name.", variant: "destructive" });
+      return;
+    }
+    if (!hasValidCondition(rootGroup)) {
+      toast({ title: "Validation Error", description: "Please add at least one condition with a value.", variant: "destructive" });
+      return;
+    }
+
+    const payload = {
+      name: name.trim(),
+      description: description.trim(),
+      rules: { version: 2 as const, root: rootGroup } as SegmentRulesV2,
+    };
+
+    if (editingSegment) {
+      updateMutation.mutate({ id: editingSegment.id, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
+  };
+
+  const handlePreviewCount = async () => {
+    if (!hasValidCondition(rootGroup)) {
+      toast({ title: "No rules defined", description: "Please add at least one condition with a value to preview.", variant: "destructive" });
+      return;
+    }
+    setIsCountLoading(true);
+    setPreviewResult(null);
+    try {
+      const res = await apiRequest("POST", "/api/segments/preview-count", {
+        rules: { version: 2, root: rootGroup } as SegmentRulesV2,
+      });
+      const data = await res.json();
+      setPreviewResult(data);
+    } catch {
+      toast({ title: "Error", description: "Failed to preview. Please try again.", variant: "destructive" });
+    } finally {
+      setIsCountLoading(false);
+    }
+  };
+
   const handleExportSegment = async (segment: Segment) => {
     setIsExporting(segment.id);
     try {
-      const response = await fetch(`/api/segments/${segment.id}/export`, {
-        credentials: "include",
-      });
+      const response = await fetch(`/api/segments/${segment.id}/export`, { credentials: "include" });
       if (!response.ok) throw new Error("Export failed");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -111,269 +536,15 @@ export default function Segments() {
       a.click();
       window.URL.revokeObjectURL(url);
       a.remove();
-      toast({
-        title: "Export started",
-        description: `Segment "${segment.name}" exported successfully.`,
-      });
+      toast({ title: "Export started", description: `Segment "${segment.name}" exported successfully.` });
     } catch {
-      toast({
-        title: "Error",
-        description: "Failed to export segment. Please try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to export segment. Please try again.", variant: "destructive" });
     } finally {
       setIsExporting(null);
     }
   };
 
-  const isGroup = (item: SegmentRuleItem): item is SegmentRuleGroup => {
-    return 'type' in item && item.type === "group";
-  };
-
-  const createMutation = useMutation({
-    mutationFn: (data: { name: string; description: string; rules: SegmentRuleItem[] }) =>
-      apiRequest("POST", "/api/segments", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
-      resetForm();
-      setIsCreateOpen(false);
-      toast({
-        title: "Segment created",
-        description: "Your new segment has been created successfully.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to create segment. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name: string; description: string; rules: SegmentRuleItem[] } }) =>
-      apiRequest("PATCH", `/api/segments/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
-      setEditingSegment(null);
-      resetForm();
-      toast({
-        title: "Segment updated",
-        description: "Your segment has been updated successfully.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update segment. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("DELETE", `/api/segments/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
-      setDeleteConfirm(null);
-      toast({
-        title: "Segment deleted",
-        description: "The segment has been deleted.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to delete segment. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const resetForm = () => {
-    setName("");
-    setDescription("");
-    setRules([{ field: "tags", operator: "contains", value: "" }]);
-    setPreviewCount(null);
-    setIsCountLoading(false);
-  };
-
-  const handleEditClick = (segment: Segment) => {
-    setEditingSegment(segment);
-    setName(segment.name);
-    setDescription(segment.description || "");
-    setRules((segment.rules as SegmentRuleItem[]) || [{ field: "tags", operator: "contains", value: "" }]);
-  };
-
-  const addRule = () => {
-    setRules([...rules, { field: "tags", operator: "contains", value: "", logic: "AND" }]);
-  };
-
-  const removeRule = (index: number) => {
-    if (rules.length > 1) {
-      setRules(rules.filter((_, i) => i !== index));
-    }
-  };
-
-  const updateRule = (index: number, updates: Partial<SegmentRule>) => {
-    setRules(rules.map((item, i) => {
-      if (i !== index || isGroup(item)) return item;
-      const rule = item as SegmentRule;
-      if (updates.field && updates.field !== rule.field) {
-        const newOperators = fieldOperators[updates.field as keyof typeof fieldOperators];
-        const operatorValid = (newOperators as readonly string[]).includes(rule.operator);
-        return { 
-          ...rule, 
-          ...updates, 
-          operator: operatorValid ? rule.operator : newOperators[0],
-          value: "",
-          value2: undefined,
-        };
-      }
-      return { ...rule, ...updates };
-    }));
-  };
-
-  const addGroup = () => {
-    const newGroup: SegmentRuleGroup = {
-      type: "group",
-      logic: "AND",
-      combinator: "OR",
-      rules: [
-        { field: "tags", operator: "contains", value: "" },
-        { field: "tags", operator: "contains", value: "" },
-      ],
-    };
-    setRules([...rules, newGroup]);
-  };
-
-  const updateGroupLogic = (groupIndex: number, logic: "AND" | "OR") => {
-    setRules(rules.map((item, i) => {
-      if (i !== groupIndex || !isGroup(item)) return item;
-      return { ...item, logic };
-    }));
-  };
-
-  const updateGroupCombinator = (groupIndex: number, combinator: "AND" | "OR") => {
-    setRules(rules.map((item, i) => {
-      if (i !== groupIndex || !isGroup(item)) return item;
-      return { ...item, combinator };
-    }));
-  };
-
-  const addRuleToGroup = (groupIndex: number) => {
-    setRules(rules.map((item, i) => {
-      if (i !== groupIndex || !isGroup(item)) return item;
-      return { ...item, rules: [...item.rules, { field: "tags" as const, operator: "contains" as const, value: "" }] };
-    }));
-  };
-
-  const removeRuleFromGroup = (groupIndex: number, ruleIndex: number) => {
-    setRules(rules.map((item, i) => {
-      if (i !== groupIndex || !isGroup(item)) return item;
-      if (item.rules.length <= 1) return item;
-      return { ...item, rules: item.rules.filter((_, ri) => ri !== ruleIndex) };
-    }));
-  };
-
-  const updateGroupRule = (groupIndex: number, ruleIndex: number, updates: Partial<SegmentRule>) => {
-    setRules(rules.map((item, i) => {
-      if (i !== groupIndex || !isGroup(item)) return item;
-      return {
-        ...item,
-        rules: item.rules.map((rule, ri) => {
-          if (ri !== ruleIndex) return rule;
-          if (updates.field && updates.field !== rule.field) {
-            const newOperators = fieldOperators[updates.field as keyof typeof fieldOperators];
-            const operatorValid = (newOperators as readonly string[])?.includes(rule.operator);
-            return { ...rule, ...updates, operator: operatorValid ? rule.operator : (newOperators?.[0] || "contains"), value: "", value2: undefined } as SegmentRule;
-          }
-          return { ...rule, ...updates };
-        }),
-      };
-    }));
-  };
-
-  const handleSubmit = () => {
-    const validRules = rules.filter((item) => {
-      if (isGroup(item)) {
-        return item.rules.some(r => r.value.trim());
-      }
-      return (item as SegmentRule).value.trim();
-    }).map((item) => {
-      if (isGroup(item)) {
-        return { ...item, rules: item.rules.filter(r => r.value.trim()) };
-      }
-      return item;
-    });
-
-    if (!name.trim() || validRules.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "Please provide a name and at least one rule with a value.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (editingSegment) {
-      updateMutation.mutate({
-        id: editingSegment.id,
-        data: { name: name.trim(), description: description.trim(), rules: validRules },
-      });
-    } else {
-      createMutation.mutate({
-        name: name.trim(),
-        description: description.trim(),
-        rules: validRules,
-      });
-    }
-  };
-
-  const handlePreviewCount = async () => {
-    const validRules = rules.filter((item) => {
-      if (isGroup(item)) {
-        return item.rules.some(r => r.value.trim());
-      }
-      return (item as SegmentRule).value.trim();
-    }).map((item) => {
-      if (isGroup(item)) {
-        return { ...item, rules: item.rules.filter(r => r.value.trim()) };
-      }
-      return item;
-    });
-
-    if (validRules.length === 0) {
-      toast({
-        title: "No rules defined",
-        description: "Please add at least one rule with a value to count subscribers.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsCountLoading(true);
-    setPreviewCount(null);
-    try {
-      const res = await apiRequest("POST", "/api/segments/preview-count", { rules: validRules });
-      const data = await res.json();
-      setPreviewCount(data.count);
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: "Failed to count subscribers. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsCountLoading(false);
-    }
-  };
-
-const segmentFormContent = (
+  const segmentFormContent = (
     <div className="space-y-6">
       <div className="space-y-2">
         <Label htmlFor="segment-name">Segment Name</Label>
@@ -397,241 +568,16 @@ const segmentFormContent = (
           data-testid="input-segment-description"
         />
       </div>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-2">
-          <Label>Rules</Label>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={addRule} data-testid="button-add-rule">
-              <Plus className="h-4 w-4 mr-1" />
-              Add Rule
-            </Button>
-            <Button variant="outline" size="sm" onClick={addGroup} data-testid="button-add-group">
-              <Layers className="h-4 w-4 mr-1" />
-              Add Group
-            </Button>
-          </div>
-        </div>
-        {rules.map((item, index) => (
-          <div key={index} className="space-y-2">
-            {index > 0 && (
-              <Select
-                value={isGroup(item) ? (item.logic || "AND") : ((item as SegmentRule).logic || "AND")}
-                onValueChange={(v) => {
-                  if (isGroup(item)) {
-                    updateGroupLogic(index, v as "AND" | "OR");
-                  } else {
-                    updateRule(index, { logic: v as "AND" | "OR" });
-                  }
-                }}
-              >
-                <SelectTrigger className="w-24" data-testid={`select-logic-${index}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="AND">AND</SelectItem>
-                  <SelectItem value="OR">OR</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-            {isGroup(item) ? (
-              <Card className="p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Layers className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Group</span>
-                    <Select
-                      value={item.combinator}
-                      onValueChange={(v) => updateGroupCombinator(index, v as "AND" | "OR")}
-                    >
-                      <SelectTrigger className="w-28" data-testid={`select-combinator-${index}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="AND">Match ALL</SelectItem>
-                        <SelectItem value="OR">Match ANY</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => addRuleToGroup(index)} data-testid={`button-add-rule-to-group-${index}`}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => removeRule(index)} data-testid={`button-remove-group-${index}`}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                {item.rules.map((groupRule, gIndex) => (
-                  <div key={gIndex} className="flex gap-2 items-center flex-wrap">
-                    <Select
-                      value={groupRule.field}
-                      onValueChange={(v) => updateGroupRule(index, gIndex, { field: v as any })}
-                    >
-                      <SelectTrigger className="w-36" data-testid={`select-group-field-${index}-${gIndex}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="tags"><span className="flex items-center gap-1"><Tag className="h-3 w-3" /> Tags</span></SelectItem>
-                        <SelectItem value="email"><span className="flex items-center gap-1"><Mail className="h-3 w-3" /> Email</span></SelectItem>
-                        <SelectItem value="date_added"><span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Date Added</span></SelectItem>
-                        <SelectItem value="ip_address"><span className="flex items-center gap-1"><Globe className="h-3 w-3" /> IP Address</span></SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={groupRule.operator}
-                      onValueChange={(v) => updateGroupRule(index, gIndex, { operator: v as any })}
-                    >
-                      <SelectTrigger className="w-40" data-testid={`select-group-operator-${index}-${gIndex}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fieldOperators[groupRule.field as keyof typeof fieldOperators]?.map((op) => (
-                          <SelectItem key={op} value={op}>
-                            {operatorLabels[op]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {groupRule.field === "date_added" ? (
-                      <div className="flex gap-2 flex-1 min-w-[150px]">
-                        <Input
-                          type="date"
-                          value={groupRule.value}
-                          onChange={(e) => updateGroupRule(index, gIndex, { value: e.target.value })}
-                          className="flex-1"
-                          data-testid={`input-group-rule-value-${index}-${gIndex}`}
-                        />
-                        {groupRule.operator === "between" && (
-                          <Input
-                            type="date"
-                            value={(groupRule as any).value2 || ""}
-                            onChange={(e) => updateGroupRule(index, gIndex, { value2: e.target.value } as any)}
-                            className="flex-1"
-                            data-testid={`input-group-rule-value2-${index}-${gIndex}`}
-                          />
-                        )}
-                      </div>
-                    ) : (
-                      <Input
-                        placeholder={groupRule.field === "email" ? "e.g., @gmail.com" : groupRule.field === "ip_address" ? "e.g., 192.168.1" : "Tag value..."}
-                        value={groupRule.value}
-                        onChange={(e) => updateGroupRule(index, gIndex, { 
-                          value: groupRule.field === "tags" ? e.target.value.toUpperCase() : e.target.value 
-                        })}
-                        className="flex-1 min-w-[150px]"
-                        data-testid={`input-group-rule-value-${index}-${gIndex}`}
-                      />
-                    )}
-                    {item.rules.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeRuleFromGroup(index, gIndex)}
-                        data-testid={`button-remove-group-rule-${index}-${gIndex}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </Card>
-            ) : (
-              <div className="flex gap-2 items-center flex-wrap">
-                <Select
-                  value={(item as SegmentRule).field}
-                  onValueChange={(v) => updateRule(index, { field: v as SegmentRule["field"] })}
-                >
-                  <SelectTrigger className="w-36" data-testid={`select-field-${index}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tags">
-                      <span className="flex items-center gap-1">
-                        <Tag className="h-3 w-3" />
-                        Tags
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="email">
-                      <span className="flex items-center gap-1">
-                        <Mail className="h-3 w-3" />
-                        Email
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="date_added">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        Date Added
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="ip_address">
-                      <span className="flex items-center gap-1">
-                        <Globe className="h-3 w-3" />
-                        IP Address
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={(item as SegmentRule).operator}
-                  onValueChange={(v) => updateRule(index, { operator: v as SegmentRule["operator"] })}
-                >
-                  <SelectTrigger className="w-40" data-testid={`select-operator-${index}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fieldOperators[(item as SegmentRule).field].map((op) => (
-                      <SelectItem key={op} value={op}>
-                        {operatorLabels[op]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {(item as SegmentRule).field === "date_added" ? (
-                  <div className="flex gap-2 flex-1 min-w-[150px]">
-                    <Input
-                      type="date"
-                      value={(item as SegmentRule).value}
-                      onChange={(e) => updateRule(index, { value: e.target.value })}
-                      className="flex-1"
-                      data-testid={`input-rule-value-${index}`}
-                    />
-                    {(item as SegmentRule).operator === "between" && (
-                      <Input
-                        type="date"
-                        value={(item as any).value2 || ""}
-                        onChange={(e) => updateRule(index, { value2: e.target.value } as any)}
-                        className="flex-1"
-                        data-testid={`input-rule-value2-${index}`}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <Input
-                    placeholder={(item as SegmentRule).field === "email" ? "e.g., @gmail.com" : (item as SegmentRule).field === "ip_address" ? "e.g., 192.168.1" : "Tag value..."}
-                    value={(item as SegmentRule).value}
-                    onChange={(e) => updateRule(index, { 
-                      value: (item as SegmentRule).field === "tags" ? e.target.value.toUpperCase() : e.target.value 
-                    })}
-                    className="flex-1 min-w-[150px]"
-                    data-testid={`input-rule-value-${index}`}
-                  />
-                )}
-                {rules.length > 1 && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeRule(index)}
-                    data-testid={`button-remove-rule-${index}`}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+      <div className="space-y-3">
+        <Label>Rules</Label>
+        <GroupBuilder
+          group={rootGroup}
+          onChange={setRootGroup}
+          depth={0}
+          testIdPrefix="root"
+        />
       </div>
-      <div className="flex items-center gap-3 pt-2">
+      <div className="flex items-center gap-3 pt-2 flex-wrap">
         <Button
           type="button"
           variant="outline"
@@ -641,14 +587,47 @@ const segmentFormContent = (
           data-testid="button-preview-count"
         >
           <Users className="h-4 w-4 mr-1" />
-          {isCountLoading ? "Counting..." : "Count Subscribers"}
+          {isCountLoading ? "Counting..." : "Preview Subscribers"}
         </Button>
-        {previewCount !== null && (
+        {previewResult !== null && (
           <span className="text-sm text-muted-foreground" data-testid="text-preview-count">
-            {previewCount.toLocaleString()} subscriber{previewCount !== 1 ? "s" : ""} match
+            {previewResult.count.toLocaleString()} subscriber{previewResult.count !== 1 ? "s" : ""} match
           </span>
         )}
       </div>
+      {previewResult && previewResult.sample.length > 0 && (
+        <div className="rounded-md border" data-testid="preview-sample-table">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>Tags</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {previewResult.sample.map((sub) => (
+                <TableRow key={sub.id} data-testid={`preview-sample-row-${sub.id}`}>
+                  <TableCell className="font-mono text-sm">{sub.email}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {sub.tags && sub.tags.length > 0 ? (
+                        sub.tags.slice(0, 3).map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground text-sm">None</span>
+                      )}
+                      {sub.tags && sub.tags.length > 3 && (
+                        <Badge variant="outline" className="text-xs">+{sub.tags.length - 3}</Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 
@@ -668,7 +647,7 @@ const segmentFormContent = (
               Create Segment
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create Segment</DialogTitle>
               <DialogDescription>
@@ -700,105 +679,95 @@ const segmentFormContent = (
         </div>
       ) : segments && segments.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {segments.map((segment) => (
-            <Card key={segment.id} data-testid={`segment-card-${segment.id}`}>
-              <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
-                <div className="flex-1 min-w-0">
-                  <CardTitle className="text-lg truncate">{segment.name}</CardTitle>
-                  {segment.description && (
-                    <CardDescription className="mt-1 line-clamp-2">
-                      {segment.description}
-                    </CardDescription>
-                  )}
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" data-testid={`button-segment-menu-${segment.id}`}>
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setViewPage(1);
-                        setViewingSegment(segment);
-                      }}
-                      data-testid={`menu-view-subscribers-${segment.id}`}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Subscribers
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => handleExportSegment(segment)}
-                      disabled={isExporting === segment.id}
-                      data-testid={`menu-export-segment-${segment.id}`}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      {isExporting === segment.id ? "Exporting..." : "Export CSV"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleEditClick(segment)}>
-                      <Edit2 className="h-4 w-4 mr-2" />
-                      Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      onClick={() => setDeleteConfirm(segment)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Users className="h-4 w-4" />
-                  <span>
-                    {segmentCounts
-                      ? `${(segmentCounts[segment.id] ?? 0).toLocaleString()} subscribers`
-                      : "Loading..."}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {(segment.rules as SegmentRuleItem[])?.slice(0, 3).map((item, i) => (
-                    <div key={i} className="flex items-center gap-1 flex-wrap">
-                      {i > 0 && (
-                        <Badge variant="outline" className="text-xs">
-                          {isGroup(item) ? (item.logic || "AND") : ((item as SegmentRule).logic || "AND")}
-                        </Badge>
-                      )}
-                      {isGroup(item) ? (
-                        <>
-                          <Layers className="h-3 w-3" />
-                          <span className="text-sm">Group ({item.combinator})</span>
-                          <Badge variant="secondary" className="text-xs">{item.rules.length} rules</Badge>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-sm flex items-center gap-1">
-                            {(item as SegmentRule).field === "email" ? <Mail className="h-3 w-3" /> : 
-                             (item as SegmentRule).field === "date_added" ? <Calendar className="h-3 w-3" /> :
-                             (item as SegmentRule).field === "ip_address" ? <Globe className="h-3 w-3" /> :
-                             <Tag className="h-3 w-3" />}
-                            {fieldLabels[(item as SegmentRule).field] || (item as SegmentRule).field}
-                          </span>
-                          <Badge variant="secondary" className="text-xs">
-                            {operatorLabels[(item as SegmentRule).operator]}
-                          </Badge>
-                          <Badge className="text-xs">{(item as SegmentRule).value}</Badge>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                  {(segment.rules as SegmentRuleItem[])?.length > 3 && (
-                    <span className="text-xs text-muted-foreground">
-                      +{(segment.rules as SegmentRuleItem[]).length - 3} more rules
+          {segments.map((segment) => {
+            const summary = summarizeRules(segment.rules);
+            return (
+              <Card key={segment.id} data-testid={`segment-card-${segment.id}`}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-lg truncate">{segment.name}</CardTitle>
+                    {segment.description && (
+                      <CardDescription className="mt-1 line-clamp-2">
+                        {segment.description}
+                      </CardDescription>
+                    )}
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" data-testid={`button-segment-menu-${segment.id}`}>
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => { setViewPage(1); setViewingSegment(segment); }}
+                        data-testid={`menu-view-subscribers-${segment.id}`}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Subscribers
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => duplicateMutation.mutate(segment.id)}
+                        disabled={duplicateMutation.isPending}
+                        data-testid={`menu-duplicate-segment-${segment.id}`}
+                      >
+                        <Copy className="h-4 w-4 mr-2" />
+                        Duplicate
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleExportSegment(segment)}
+                        disabled={isExporting === segment.id}
+                        data-testid={`menu-export-segment-${segment.id}`}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        {isExporting === segment.id ? "Exporting..." : "Export CSV"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleEditClick(segment)}
+                        data-testid={`menu-edit-segment-${segment.id}`}
+                      >
+                        <Edit2 className="h-4 w-4 mr-2" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => setDeleteConfirm(segment)}
+                        data-testid={`menu-delete-segment-${segment.id}`}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Users className="h-4 w-4" />
+                    <span data-testid={`text-segment-count-${segment.id}`}>
+                      {segmentCounts
+                        ? `${(segmentCounts[segment.id] ?? 0).toLocaleString()} subscribers`
+                        : "Loading..."}
                     </span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  </div>
+                  <div className="space-y-1">
+                    {summary.map((item, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-1 flex-wrap text-sm"
+                        style={{ paddingLeft: `${item.depth * 12}px` }}
+                        data-testid={`text-rule-summary-${segment.id}-${i}`}
+                      >
+                        <span className="text-muted-foreground">{item.text}</span>
+                      </div>
+                    ))}
+                    {summary.length === 0 && (
+                      <span className="text-xs text-muted-foreground">No rules</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       ) : (
         <Card>
@@ -808,7 +777,7 @@ const segmentFormContent = (
             <p className="text-muted-foreground max-w-md mb-4">
               Create segments to target specific groups of subscribers based on tags, email, date, or IP address.
             </p>
-            <Button onClick={() => setIsCreateOpen(true)}>
+            <Button onClick={() => setIsCreateOpen(true)} data-testid="button-create-first-segment">
               <Plus className="h-4 w-4 mr-2" />
               Create Your First Segment
             </Button>
@@ -817,7 +786,7 @@ const segmentFormContent = (
       )}
 
       <Dialog open={!!editingSegment} onOpenChange={() => setEditingSegment(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Segment</DialogTitle>
             <DialogDescription>
@@ -867,7 +836,7 @@ const segmentFormContent = (
       <Dialog open={!!viewingSegment} onOpenChange={(open) => { if (!open) { setViewingSegment(null); setViewPage(1); } }}>
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 flex-wrap">
               <Eye className="h-5 w-5" />
               {viewingSegment?.name}
             </DialogTitle>
