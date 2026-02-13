@@ -40,6 +40,8 @@ export const mtas = pgTable("mtas", {
   trackingDomain: text("tracking_domain"),
   openTrackingDomain: text("open_tracking_domain"),
   imageHostingDomain: text("image_hosting_domain"), // Domain for locally hosted email images
+  fromName: text("from_name").notNull().default(""),
+  fromEmail: text("from_email").notNull().default(""),
   isActive: boolean("is_active").notNull().default(true),
   mode: text("mode").notNull().default("real"), // "real" or "nullsink"
   simulatedLatencyMs: integer("simulated_latency_ms").default(0), // Latency to simulate for nullsink
@@ -374,6 +376,8 @@ export const insertSegmentSchema = createInsertSchema(segments).omit({ id: true,
 });
 export const insertMtaSchema = createInsertSchema(mtas).omit({ id: true, createdAt: true }).extend({
   name: z.string().min(1, "Name required").max(200, "Name too long"),
+  fromName: z.string().min(1, "From Name is required").max(200, "From Name too long"),
+  fromEmail: z.string().email("Invalid From Email").min(1, "From Email is required").max(254, "From Email too long"),
   hostname: z.string().max(253, "Hostname too long").nullable().optional(),
   port: z.number().int().min(1).max(65535).optional(),
   username: z.string().max(200).nullable().optional(),
