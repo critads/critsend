@@ -40,11 +40,10 @@ import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 
 const steps = [
   { id: 1, title: "Basic Info", icon: Mail },
-  { id: 2, title: "Server", icon: Server },
-  { id: 3, title: "Audience", icon: Users },
-  { id: 4, title: "Content", icon: FileText },
-  { id: 5, title: "Tracking", icon: Settings },
-  { id: 6, title: "Schedule", icon: Clock },
+  { id: 2, title: "Audience", icon: Users },
+  { id: 3, title: "Content", icon: FileText },
+  { id: 4, title: "Tracking", icon: Settings },
+  { id: 5, title: "Schedule", icon: Clock },
 ];
 
 const sendingSpeeds = [
@@ -375,19 +374,27 @@ export default function CampaignEdit() {
     },
   });
 
+  const handleMtaSelect = (mtaId: string) => {
+    const selectedMta = mtas?.find(m => m.id === mtaId);
+    setFormData(prev => ({
+      ...prev,
+      mtaId,
+      ...(selectedMta?.fromName ? { fromName: selectedMta.fromName } : {}),
+      ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail } : {}),
+    }));
+  };
+
   const isStepValid = (step: number): boolean => {
     switch (step) {
       case 1:
-        return !!(formData.name && formData.fromName && formData.fromEmail);
+        return !!(formData.name && formData.fromName && formData.fromEmail && formData.mtaId);
       case 2:
-        return !!formData.mtaId;
-      case 3:
         return !!formData.segmentId;
-      case 4:
+      case 3:
         return !!(formData.subject && formData.htmlContent);
-      case 5:
+      case 4:
         return true;
-      case 6:
+      case 5:
         return true;
       default:
         return false;
@@ -395,7 +402,7 @@ export default function CampaignEdit() {
   };
 
   const nextStep = () => {
-    if (isStepValid(currentStep) && currentStep < 6) {
+    if (isStepValid(currentStep) && currentStep < 5) {
       autoSaveMutation.mutate(formData);
       setCurrentStep(currentStep + 1);
     }
@@ -492,6 +499,55 @@ export default function CampaignEdit() {
                 data-testid="input-campaign-name"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Sending Server *</Label>
+              {loadingMtas ? (
+                <Skeleton className="h-10 w-full" />
+              ) : mtas && mtas.length > 0 ? (
+                <div className="grid gap-3">
+                  {mtas.filter(m => m.isActive).map((mta) => (
+                    <div
+                      key={mta.id}
+                      className={`p-4 rounded-md border cursor-pointer transition-colors ${
+                        formData.mtaId === mta.id
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                      onClick={() => handleMtaSelect(mta.id)}
+                      data-testid={`mta-option-${mta.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-md ${formData.mtaId === mta.id ? "bg-primary" : "bg-muted"}`}>
+                          <Server className={`h-4 w-4 ${formData.mtaId === mta.id ? "text-primary-foreground" : "text-muted-foreground"}`} />
+                        </div>
+                        <div>
+                          <p className="font-medium">{mta.name}</p>
+                          <p className="text-sm text-muted-foreground font-mono">
+                            {mta.hostname}:{mta.port}
+                          </p>
+                          {(mta.fromName || mta.fromEmail) && (
+                            <p className="text-xs text-muted-foreground">
+                              {mta.fromName}{mta.fromName && mta.fromEmail ? " · " : ""}{mta.fromEmail}
+                            </p>
+                          )}
+                        </div>
+                        {formData.mtaId === mta.id && (
+                          <Check className="h-5 w-5 text-primary ml-auto" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No active sending servers available.</p>
+                  <Button variant="ghost" onClick={() => navigate("/mtas")} className="text-primary">
+                    Configure MTAs
+                  </Button>
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="from-name">From Name *</Label>
@@ -530,56 +586,6 @@ export default function CampaignEdit() {
         );
 
       case 2:
-        return (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <Label>Select Sending Server *</Label>
-              {loadingMtas ? (
-                <Skeleton className="h-10 w-full" />
-              ) : mtas && mtas.length > 0 ? (
-                <div className="grid gap-3">
-                  {mtas.filter(m => m.isActive).map((mta) => (
-                    <div
-                      key={mta.id}
-                      className={`p-4 rounded-md border cursor-pointer transition-colors ${
-                        formData.mtaId === mta.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                      onClick={() => updateField("mtaId", mta.id)}
-                      data-testid={`mta-option-${mta.id}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-md ${formData.mtaId === mta.id ? "bg-primary" : "bg-muted"}`}>
-                          <Server className={`h-4 w-4 ${formData.mtaId === mta.id ? "text-primary-foreground" : "text-muted-foreground"}`} />
-                        </div>
-                        <div>
-                          <p className="font-medium">{mta.name}</p>
-                          <p className="text-sm text-muted-foreground font-mono">
-                            {mta.hostname}:{mta.port}
-                          </p>
-                        </div>
-                        {formData.mtaId === mta.id && (
-                          <Check className="h-5 w-5 text-primary ml-auto" />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No active sending servers available.</p>
-                  <Button variant="ghost" onClick={() => navigate("/mtas")} className="text-primary">
-                    Configure MTAs
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-
-      case 3:
         return (
           <div className="space-y-6">
             <div className="space-y-2">
@@ -626,7 +632,7 @@ export default function CampaignEdit() {
           </div>
         );
 
-      case 4:
+      case 3:
         return (
           <div className="space-y-6">
             <div className="space-y-2">
@@ -789,7 +795,7 @@ export default function CampaignEdit() {
           </div>
         );
 
-      case 5:
+      case 4:
         return (
           <div className="space-y-6">
             <Card>
@@ -876,7 +882,7 @@ export default function CampaignEdit() {
           </div>
         );
 
-      case 6:
+      case 5:
         return (
           <div className="space-y-6">
             <div className="space-y-2">
@@ -1045,7 +1051,7 @@ export default function CampaignEdit() {
           >
             {updateMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
-          {currentStep < 6 ? (
+          {currentStep < 5 ? (
             <Button
               onClick={nextStep}
               disabled={!isStepValid(currentStep)}

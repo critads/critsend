@@ -35,6 +35,8 @@ export default function MTAs() {
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState<Partial<InsertMta>>({
     name: "",
+    fromName: "",
+    fromEmail: "",
     hostname: "",
     port: 587,
     username: "",
@@ -116,6 +118,8 @@ export default function MTAs() {
   const resetForm = () => {
     setFormData({
       name: "",
+      fromName: "",
+      fromEmail: "",
       hostname: "",
       port: 587,
       username: "",
@@ -135,6 +139,8 @@ export default function MTAs() {
     setEditingMta(mta);
     setFormData({
       name: mta.name,
+      fromName: mta.fromName || "",
+      fromEmail: mta.fromEmail || "",
       hostname: mta.hostname,
       port: mta.port,
       username: mta.username,
@@ -158,6 +164,22 @@ export default function MTAs() {
       });
       return;
     }
+    if (!formData.fromName?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please provide a From Name.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!formData.fromEmail?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please provide a From Email.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     if (editingMta) {
       updateMutation.mutate({ id: editingMta.id, data: formData });
@@ -177,6 +199,27 @@ export default function MTAs() {
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             data-testid="input-mta-name"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="mta-from-name">From Name *</Label>
+          <Input
+            id="mta-from-name"
+            placeholder="e.g., My Company"
+            value={formData.fromName ?? ""}
+            onChange={(e) => setFormData({ ...formData, fromName: e.target.value })}
+            data-testid="input-mta-from-name"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="mta-from-email">From Email *</Label>
+          <Input
+            id="mta-from-email"
+            type="email"
+            placeholder="hello@company.com"
+            value={formData.fromEmail ?? ""}
+            onChange={(e) => setFormData({ ...formData, fromEmail: e.target.value })}
+            data-testid="input-mta-from-email"
           />
         </div>
         <div className="space-y-2">
@@ -463,6 +506,12 @@ export default function MTAs() {
                   <span className="text-muted-foreground">User:</span>{" "}
                   <span className="font-mono">{mta.username}</span>
                 </div>
+                {mta.fromName && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">From:</span>{" "}
+                    <span>{mta.fromName} &lt;{mta.fromEmail}&gt;</span>
+                  </div>
+                )}
                 {mta.trackingDomain && (
                   <div className="text-sm">
                     <span className="text-muted-foreground">Click tracking:</span>{" "}
