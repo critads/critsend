@@ -1898,12 +1898,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   async clearSubscriberDependencies(): Promise<void> {
-    await db.execute(sql`DELETE FROM campaign_sends`);
-    await db.execute(sql`DELETE FROM campaign_stats`);
-    await db.execute(sql`DELETE FROM error_logs WHERE subscriber_id IS NOT NULL`);
-    await db.execute(sql`DELETE FROM nullsink_captures`);
-    await db.execute(sql`DELETE FROM pending_tag_operations`);
-    await db.execute(sql`DELETE FROM automation_enrollments`);
+    const batchSize = 10000;
+    let deleted: number;
+
+    do {
+      const r = await db.execute(sql`DELETE FROM campaign_sends WHERE ctid IN (SELECT ctid FROM campaign_sends LIMIT ${batchSize})`);
+      deleted = (r.rowCount as number) || 0;
+      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
+    } while (deleted > 0);
+
+    do {
+      const r = await db.execute(sql`DELETE FROM campaign_stats WHERE ctid IN (SELECT ctid FROM campaign_stats LIMIT ${batchSize})`);
+      deleted = (r.rowCount as number) || 0;
+      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
+    } while (deleted > 0);
+
+    do {
+      const r = await db.execute(sql`DELETE FROM error_logs WHERE subscriber_id IS NOT NULL AND ctid IN (SELECT ctid FROM error_logs WHERE subscriber_id IS NOT NULL LIMIT ${batchSize})`);
+      deleted = (r.rowCount as number) || 0;
+      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
+    } while (deleted > 0);
+
+    do {
+      const r = await db.execute(sql`DELETE FROM nullsink_captures WHERE ctid IN (SELECT ctid FROM nullsink_captures LIMIT ${batchSize})`);
+      deleted = (r.rowCount as number) || 0;
+      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
+    } while (deleted > 0);
+
+    do {
+      const r = await db.execute(sql`DELETE FROM pending_tag_operations WHERE ctid IN (SELECT ctid FROM pending_tag_operations LIMIT ${batchSize})`);
+      deleted = (r.rowCount as number) || 0;
+      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
+    } while (deleted > 0);
+
+    do {
+      const r = await db.execute(sql`DELETE FROM automation_enrollments WHERE ctid IN (SELECT ctid FROM automation_enrollments LIMIT ${batchSize})`);
+      deleted = (r.rowCount as number) || 0;
+      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
+    } while (deleted > 0);
   }
 
   async deleteSubscriberBatch(batchSize: number): Promise<number> {

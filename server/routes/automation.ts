@@ -5,11 +5,8 @@ import { eq, and, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { z } from "zod";
 
-function validateId(id: string): boolean {
-  return typeof id === 'string' && id.length > 0 && id.length <= 100 && /^[a-zA-Z0-9_-]+$/.test(id);
-}
-
-export function registerAutomationRoutes(app: Express) {
+export function registerAutomationRoutes(app: Express, helpers: { validateId: (id: string) => boolean }) {
+  const { validateId } = helpers;
 
   app.get("/api/automation", async (req: Request, res: Response) => {
     try {

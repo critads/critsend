@@ -205,9 +205,27 @@ async function pollForFlushJobs() {
   }
 }
 
+async function retryOnDeadlock<T>(fn: () => Promise<T>, label: string, maxRetries = 5): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('deadlock') && attempt < maxRetries) {
+        const delay = Math.min(500 * Math.pow(2, attempt - 1), 5000);
+        logger.warn(`[FLUSH] Deadlock detected in ${label}, retry ${attempt}/${maxRetries} after ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`${label} failed after max retries`);
+}
+
 async function processFlushJob(jobId: string, totalRows: number) {
   logger.info(`[FLUSH] Job ${jobId}: Clearing dependent tables first...`);
-  await storage.clearSubscriberDependencies();
+  await retryOnDeadlock(() => storage.clearSubscriberDependencies(), 'clearSubscriberDependencies');
   logger.info(`[FLUSH] Job ${jobId}: Dependent tables cleared. Starting subscriber batch deletion...`);
 
   let processedRows = 0;
@@ -219,7 +237,10 @@ async function processFlushJob(jobId: string, totalRows: number) {
       return;
     }
 
-    const deletedCount = await storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE);
+    const deletedCount = await retryOnDeadlock(
+      () => storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE),
+      `deleteSubscriberBatch`
+    );
 
     if (deletedCount === 0) {
       break;

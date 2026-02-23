@@ -11,11 +11,8 @@ function calculateDailyVolume(day: number, initialCap: number, rampMultiplier: n
   return Math.min(volume, maxVolume);
 }
 
-function validateId(id: string): boolean {
-  return typeof id === 'string' && id.length > 0 && id.length <= 100 && /^[a-zA-Z0-9_-]+$/.test(id);
-}
-
-export function registerWarmupRoutes(app: Express) {
+export function registerWarmupRoutes(app: Express, helpers: { validateId: (id: string) => boolean }) {
+  const { validateId } = helpers;
   app.get("/api/warmup", async (req: Request, res: Response) => {
     try {
       const schedules = await db

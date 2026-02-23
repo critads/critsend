@@ -91,8 +91,8 @@ export async function registerRoutes(
   registerWebhookRoutes(app);
   registerAnalyticsRoutes(app, helpers);
   registerAbTestingRoutes(app, helpers);
-  registerWarmupRoutes(app);
-  registerAutomationRoutes(app);
+  registerWarmupRoutes(app, helpers);
+  registerAutomationRoutes(app, helpers);
   registerAdvancedAnalyticsRoutes(app);
   registerCampaignRoutes(app, helpers, campaignLimiter);
   registerImportExportRoutes(app, helpers);
