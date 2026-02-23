@@ -55,6 +55,7 @@ import {
   CheckCircle2,
   XCircle,
   Filter,
+  ShieldBan,
 } from "lucide-react";
 import type { Subscriber } from "@shared/schema";
 
@@ -423,7 +424,15 @@ export default function Subscribers() {
                     {data.subscribers.map((subscriber) => (
                       <TableRow key={subscriber.id} data-testid={`subscriber-row-${subscriber.id}`}>
                         <TableCell className="font-mono text-sm">
-                          {subscriber.email}
+                          <div className="flex items-center gap-2">
+                            {subscriber.email}
+                            {subscriber.tags?.includes("BCK") && (
+                              <Badge variant="destructive" className="text-xs gap-1" data-testid={`badge-blacklisted-${subscriber.id}`}>
+                                <ShieldBan className="h-3 w-3" />
+                                Blacklisted
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
@@ -544,6 +553,12 @@ export default function Subscribers() {
             </DialogTitle>
             <DialogDescription>
               Manage tags for {editingSubscriber?.email}
+              {editingSubscriber?.tags?.includes("BCK") && (
+                <Badge variant="destructive" className="ml-2 text-xs gap-1 inline-flex" data-testid="badge-edit-blacklisted">
+                  <ShieldBan className="h-3 w-3" />
+                  Blacklisted
+                </Badge>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-6">
@@ -553,7 +568,7 @@ export default function Subscribers() {
                 {editingSubscriber?.tags?.map((tag) => (
                   <Badge
                     key={tag}
-                    variant="secondary"
+                    variant={tag === "BCK" ? "destructive" : "secondary"}
                     className="gap-1 pr-1"
                   >
                     {tag}
