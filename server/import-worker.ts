@@ -18,18 +18,20 @@ const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SS
 const maskedUrl = connectionString.replace(/\/\/([^:]+):([^@]+)@/, "//$1:***@");
 log("info", `Worker DB connection: ${maskedUrl.substring(0, 80)}...`, { isExternalDb });
 
-const CONCURRENCY = 4;
-const importPoolMax = Number(process.env.PG_IMPORT_POOL_MAX || 4);
+const CONCURRENCY = isExternalDb ? 2 : 4;
+const importPoolMax = Number(process.env.PG_IMPORT_POOL_MAX || (isExternalDb ? 2 : 4));
 
 const pool = new Pool({
   connectionString,
   max: importPoolMax,
   min: 1,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 30000,
+  idleTimeoutMillis: isExternalDb ? 20000 : 30000,
+  connectionTimeoutMillis: isExternalDb ? 15000 : 30000,
   statement_timeout: 300000,
   ...(isExternalDb ? { ssl: { rejectUnauthorized: false } } : {}),
 });
+
+log("info", `Import worker pool configured: max=${importPoolMax}, concurrency=${CONCURRENCY}, external=${isExternalDb}`);
 
 pool.on("error", (err) => {
   log("error", "Unexpected DB pool error on idle client", { error: err.message });
