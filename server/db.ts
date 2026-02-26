@@ -26,7 +26,7 @@ if (connectionString.includes("neon.tech")) {
 
 export const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SSL === "true";
 
-const pgPoolMax = Number(process.env.PG_POOL_MAX || (isExternalDb ? 8 : 10));
+const pgPoolMax = Number(process.env.PG_POOL_MAX || (isExternalDb ? 5 : 10));
 
 const poolConfig: pg.PoolConfig = {
   connectionString,

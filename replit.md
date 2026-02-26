@@ -47,7 +47,7 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 
 ## External Dependencies
 
-- **PostgreSQL (Neon):** Primary database, hosted on Neon, configured for SSL. Connection pool defaults: 8 max (Neon), 10 max (local), configurable via `PG_POOL_MAX` env var.
+- **PostgreSQL (Neon):** Primary database, hosted on Neon, configured for SSL. Connection pool defaults: 5 max (Neon), 10 max (local), configurable via `PG_POOL_MAX` env var.
 - **Nodemailer:** Used for real SMTP email sending with pooling and retries.
 - **`sanitize-html`:** For sanitizing HTML content in campaigns.
 - **`connect-pg-simple`:** For persistent session management using PostgreSQL.
