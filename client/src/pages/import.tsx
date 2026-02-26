@@ -535,15 +535,16 @@ export default function Import() {
             </h4>
             <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
 {`email;tags;refs;ip_address
-john@example.com;VIP,SOLDES,PROMO;2ag-3cb-5df;192.168.1.1
+john@example.com;VIP,SOLDES,PROMO;2AG,3CB,5DF;192.168.1.1
 jane@example.com;NEWSLETTER;;192.168.1.2
-bob@example.com;;1aa-2ag;`}
+bob@example.com;;1AA,2AG;`}
             </pre>
             <div className="text-xs text-muted-foreground mt-2 space-y-1">
               <p>Columns are separated by semicolons (;). Only the email column is required.</p>
-              <p><strong>tags:</strong> comma-separated, uppercase (e.g. VIP,PROMO). Tag mode (merge/override) applies here.</p>
-              <p><strong>refs:</strong> dash-separated, lowercase (e.g. 2ag-3cb). Always merged. If present, you will confirm before importing.</p>
+              <p><strong>tags:</strong> comma-separated, UPPERCASE (e.g. VIP,PROMO). Tag mode (merge/override) applies here.</p>
+              <p><strong>refs:</strong> comma-separated, UPPERCASE (e.g. 2AG,3CB). Always merged. If present, you will confirm before importing.</p>
               <p><strong>ip_address:</strong> optional IP address for the subscriber.</p>
+              <p className="text-amber-600 dark:text-amber-400 font-medium mt-1">Import continues in the background even if you navigate away or get disconnected.</p>
             </div>
           </div>
         </CardContent>
@@ -648,29 +649,74 @@ bob@example.com;;1aa-2ag;`}
                           </div>
                         );
                       })()}
+                      {(job.newSubscribers > 0 || job.updatedSubscribers > 0 || job.failedRows > 0) && (
+                        <div className="grid grid-cols-3 gap-3 text-xs mt-2 p-2 rounded bg-muted/50">
+                          <div>
+                            <span className="text-muted-foreground">New: </span>
+                            <span className="font-medium text-green-600">+{job.newSubscribers.toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Updated: </span>
+                            <span className="font-medium text-blue-600">{job.updatedSubscribers.toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Failed: </span>
+                            <span className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`}>{job.failedRows.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      )}
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        Import continues in the background even if you navigate away or get disconnected.
+                      </p>
                     </div>
                   )}
 
                   {job.status === "completed" && (
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <p className="text-muted-foreground">New</p>
-                        <p className="font-medium text-green-600">
-                          +{job.newSubscribers.toLocaleString()}
-                        </p>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <p className="text-muted-foreground">New</p>
+                          <p className="font-medium text-green-600">
+                            +{job.newSubscribers.toLocaleString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Updated</p>
+                          <p className="font-medium text-blue-600">
+                            {job.updatedSubscribers.toLocaleString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Failed</p>
+                          <p className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                            {job.failedRows.toLocaleString()}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Updated</p>
-                        <p className="font-medium text-blue-600">
-                          {job.updatedSubscribers.toLocaleString()}
-                        </p>
+                      <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 space-y-0.5">
+                        <p>Total rows in file: {job.totalRows.toLocaleString()} (header: 1{(job as any).skippedRows > 0 ? `, empty/skipped: ${(job as any).skippedRows.toLocaleString()}` : ""})</p>
+                        <p>Processed: {job.processedRows.toLocaleString()} (new: {job.newSubscribers.toLocaleString()}, updated: {job.updatedSubscribers.toLocaleString()}, failed: {job.failedRows.toLocaleString()})</p>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Failed</p>
-                        <p className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`}>
-                          {job.failedRows.toLocaleString()}
-                        </p>
-                      </div>
+                      {job.failedRows > 0 && (job as any).failureReasons && (() => {
+                        const reasons = (job as any).failureReasons as Record<string, number>;
+                        const labels: Record<string, string> = {
+                          empty_email: "Empty email",
+                          invalid_email_no_at: "Invalid email (no @)",
+                          parse_error: "CSV parse error",
+                          processing_error: "Processing error",
+                          db_constraint: "Database constraint",
+                        };
+                        return (
+                          <div className="text-xs bg-red-50 dark:bg-red-950/30 rounded p-2 space-y-0.5">
+                            <p className="font-medium text-red-700 dark:text-red-400 mb-1">Failed row reasons:</p>
+                            {Object.entries(reasons).map(([key, count]) => (
+                              <p key={key} className="text-red-600 dark:text-red-400">
+                                {labels[key] || key}: {(count as number).toLocaleString()}
+                              </p>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 

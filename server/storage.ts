@@ -353,9 +353,11 @@ export class DatabaseStorage implements IStorage {
     let countQuery = db.select({ count: sql<number>`count(*)` }).from(subscribers);
 
     if (search) {
+      const searchUpper = search.toUpperCase();
       const searchCondition = or(
         like(subscribers.email, `%${search}%`),
-        sql`${search} = ANY(${subscribers.tags})`
+        sql`${searchUpper} = ANY(${subscribers.tags})`,
+        sql`${searchUpper} = ANY(${subscribers.refs})`
       );
       query = query.where(searchCondition) as typeof query;
       countQuery = countQuery.where(searchCondition) as typeof countQuery;

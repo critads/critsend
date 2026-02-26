@@ -202,6 +202,14 @@ async function updateImportJob(importJobId: string, data: Record<string, any>): 
     setClauses.push(`detected_refs = $${paramIdx++}::text[]`);
     params.push(data.detectedRefs);
   }
+  if (data.failureReasons !== undefined) {
+    setClauses.push(`failure_reasons = $${paramIdx++}::jsonb`);
+    params.push(JSON.stringify(data.failureReasons));
+  }
+  if (data.skippedRows !== undefined) {
+    setClauses.push(`skipped_rows = $${paramIdx++}`);
+    params.push(data.skippedRows);
+  }
 
   if (setClauses.length === 0) return;
   params.push(importJobId);
@@ -900,9 +908,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let failedRows = resumeFromLine > 0 ? (importJob?.failedRows || 0) : 0;
   let committedRows = resumeFromLine > 0 ? (newSubscribers + updatedSubscribers + failedRows) : 0;
   let parsedRows = committedRows;
+  let skippedRows = 0;
   let lastHeartbeat = Date.now();
   let lastCheckpointLine = resumeFromLine;
   let processedBytes = queueItem?.processedBytes || 0;
+  const failureReasons: Record<string, number> = {};
 
   if (resumeFromLine > 0) {
     log("info", `${importJobId}: Resuming from line ${resumeFromLine}, committed rows: ${committedRows} (new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows})`);
@@ -1014,6 +1024,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       newSubscribers,
       updatedSubscribers,
       failedRows,
+      failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+      skippedRows,
     });
 
     if (committedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
@@ -1050,6 +1062,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
         newSubscribers,
         updatedSubscribers,
         failedRows,
+        failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+        skippedRows,
       });
 
       const elapsedSec = (now - startTime) / 1000;
@@ -1116,6 +1130,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
         }
 
         if (!line.trim()) {
+          skippedRows++;
           return;
         }
 
@@ -1123,10 +1138,18 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           const cols = line.split(";").map((c) => c.trim());
           const email = cols[emailIdx]?.toLowerCase();
 
-          if (!email || !email.includes("@")) {
+          if (!email) {
             failedRows++;
             parsedRows++;
             committedRows++;
+            failureReasons["empty_email"] = (failureReasons["empty_email"] || 0) + 1;
+            return;
+          }
+          if (!email.includes("@")) {
+            failedRows++;
+            parsedRows++;
+            committedRows++;
+            failureReasons["invalid_email_no_at"] = (failureReasons["invalid_email_no_at"] || 0) + 1;
             return;
           }
 
@@ -1140,8 +1163,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           const refs =
             refsIdx >= 0 && cols[refsIdx]
               ? cols[refsIdx]
-                  .split("-")
-                  .map((r) => r.trim().toLowerCase())
+                  .split(",")
+                  .map((r) => r.trim().toUpperCase())
                   .filter(Boolean)
               : [];
           const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
@@ -1173,12 +1196,14 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           failedRows++;
           parsedRows++;
           committedRows++;
+          failureReasons["parse_error"] = (failureReasons["parse_error"] || 0) + 1;
         }
       } catch (err) {
         log("error", `Error processing line ${currentLineNumber}: ${err}`);
         failedRows++;
         parsedRows++;
         committedRows++;
+        failureReasons["processing_error"] = (failureReasons["processing_error"] || 0) + 1;
       }
     });
 
@@ -1209,6 +1234,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             newSubscribers,
             updatedSubscribers,
             failedRows,
+            failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+            skippedRows,
           });
 
           try {
@@ -1243,6 +1270,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           newSubscribers,
           updatedSubscribers,
           failedRows,
+          failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+          skippedRows,
         });
 
         await updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
@@ -1398,8 +1427,8 @@ async function processRefsImportPhase1(queueId: string, importJobId: string, csv
         const refs =
           refsSource >= 0 && cols[refsSource]
             ? cols[refsSource]
-                .split("-")
-                .map((r) => r.trim().toLowerCase())
+                .split(",")
+                .map((r) => r.trim().toUpperCase())
                 .filter(Boolean)
             : [];
         const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
@@ -1604,7 +1633,7 @@ async function processRefsImportPhase2(queueId: string, importJobId: string, csv
           ? cols[tagsIdx].split(",").map(t => t.trim().toUpperCase()).filter(Boolean)
           : [];
         const refs = refsIdx >= 0 && cols[refsIdx]
-          ? cols[refsIdx].split("-").map(r => r.trim().toLowerCase()).filter(Boolean)
+          ? cols[refsIdx].split(",").map(r => r.trim().toUpperCase()).filter(Boolean)
           : [];
         const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
 

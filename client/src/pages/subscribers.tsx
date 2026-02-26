@@ -291,6 +291,7 @@ export default function Subscribers() {
     const rules = [
       { field: "email", operator: "contains", value: searchTerm },
       { field: "tags", operator: "contains", value: searchTerm.toUpperCase(), logic: "OR" },
+      { field: "refs", operator: "has_ref", value: searchTerm.toUpperCase(), logic: "OR" },
     ];
     saveAsSegmentMutation.mutate({ name: segmentName.trim(), rules });
   };
@@ -374,7 +375,7 @@ export default function Subscribers() {
             <div className="relative flex-1 sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by email or tag..."
+                placeholder="Search by email, tag, or ref..."
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -896,6 +897,8 @@ export default function Subscribers() {
                 <Badge variant="secondary" className="text-xs">Email contains "{search}"</Badge>
                 <Badge variant="outline" className="text-xs">OR</Badge>
                 <Badge variant="secondary" className="text-xs">Tag contains "{search.toUpperCase()}"</Badge>
+                <Badge variant="outline" className="text-xs">OR</Badge>
+                <Badge variant="secondary" className="text-xs">Ref is "{search.toUpperCase()}"</Badge>
               </div>
             </div>
           </div>

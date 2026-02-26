@@ -191,6 +191,8 @@ export const importJobs = pgTable("import_jobs", {
   cleanExistingRefs: boolean("clean_existing_refs").notNull().default(false),
   deleteExistingRefs: boolean("delete_existing_refs").notNull().default(false),
   errorMessage: text("error_message"),
+  failureReasons: jsonb("failure_reasons"),
+  skippedRows: integer("skipped_rows").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -478,6 +480,8 @@ export const insertImportJobSchema = createInsertSchema(importJobs).omit({
   failedRows: true,
   status: true,
   errorMessage: true,
+  failureReasons: true,
+  skippedRows: true,
   createdAt: true,
   completedAt: true,
 });

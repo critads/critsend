@@ -199,6 +199,8 @@ export function registerImportExportRoutes(app: Express, helpers: {
         newSubscribers: job.newSubscribers,
         updatedSubscribers: job.updatedSubscribers,
         failedRows: job.failedRows,
+        failureReasons: job.failureReasons,
+        skippedRows: job.skippedRows,
         progress: job.totalRows > 0 ? Math.min(Math.round((job.processedRows / job.totalRows) * 100), 100) : 0,
         errorMessage: job.errorMessage,
         createdAt: job.createdAt,
@@ -549,7 +551,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
             let val = "";
             if (field === "email") val = sub.email;
             else if (field === "tags") val = (sub.tags || []).join(",");
-            else if (field === "refs") val = (sub.refs || []).join("-");
+            else if (field === "refs") val = (sub.refs || []).join(",");
             else if (field === "ipAddress") val = sub.ipAddress || "";
             else if (field === "importDate") val = sub.importDate.toISOString();
             val = sanitizeCsvValue(val);
