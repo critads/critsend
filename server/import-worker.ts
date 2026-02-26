@@ -234,8 +234,18 @@ async function updateImportQueueProgressWithCheckpoint(
   `);
 }
 
+async function hasActiveSendingCampaigns(): Promise<boolean> {
+  const result = await pool.query(`SELECT COUNT(*) AS count FROM campaigns WHERE status = 'sending'`);
+  return parseInt(result.rows[0]?.count || "0", 10) > 0;
+}
+
 async function dropSubscriberGinIndexes(): Promise<void> {
-  log("info", "Dropping GIN indexes for large tag import optimization");
+  const activeSends = await hasActiveSendingCampaigns();
+  if (activeSends) {
+    log("warn", "Skipping GIN index drop — active campaign sends detected. Import will proceed without index optimization to protect send performance.");
+    return;
+  }
+  log("info", "Dropping GIN indexes for large tag import optimization (no active sends)");
   await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
   await db.execute(sql`DROP INDEX IF EXISTS refs_gin_idx`);
   log("info", "GIN indexes dropped (tags_gin_idx, refs_gin_idx)");
@@ -870,9 +880,14 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
   if (isLargeImport && resumeFromLine === 0) {
     try {
-      log("info", `${importJobId}: Large import detected (${totalLines} rows), dropping GIN indexes for faster processing`);
+      log("info", `${importJobId}: Large import detected (${totalLines} rows), attempting GIN index drop for faster processing`);
+      const beforeDrop = await areGinIndexesPresent();
       await dropSubscriberGinIndexes();
-      ginIndexesDropped = true;
+      const afterDrop = await areGinIndexesPresent();
+      ginIndexesDropped = beforeDrop && !afterDrop;
+      if (!ginIndexesDropped && beforeDrop) {
+        log("info", `${importJobId}: GIN indexes were kept (active campaigns protect sends)`);
+      }
     } catch (err: any) {
       log("error", `${importJobId}: Failed to drop GIN indexes: ${err.message}`);
     }

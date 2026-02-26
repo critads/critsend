@@ -62,22 +62,30 @@ async function processTagQueue() {
       return;
     }
 
+    const groups = new Map<string, typeof operations>();
     for (const op of operations) {
-      try {
-        await storage.addTagToSubscriber(
-          op.subscriberId,
-          op.tagValue
-        );
+      const key = op.tagValue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(op);
+    }
 
-        await storage.completeTagOperation(op.id);
+    for (const [tagValue, ops] of groups) {
+      try {
+        const subscriberIds = ops.map(op => op.subscriberId);
+        await storage.bulkAddTagToSubscribers(subscriberIds, tagValue);
+        for (const op of ops) {
+          await storage.completeTagOperation(op.id);
+        }
       } catch (error: any) {
-        logger.error(`Failed to process tag operation ${op.id}:`, error);
-        await storage.failTagOperation(op.id, error.message || "Unknown error");
+        logger.error(`Failed to bulk process tag operations for tag ${tagValue}:`, error);
+        for (const op of ops) {
+          await storage.failTagOperation(op.id, error.message || "Unknown error");
+        }
       }
     }
 
     if (operations.length > 0) {
-      logger.info(`Processed ${operations.length} tag operations`);
+      logger.info(`Processed ${operations.length} tag operations in ${groups.size} bulk groups`);
     }
   } catch (error) {
     logger.error("Error in tag queue processing:", error);

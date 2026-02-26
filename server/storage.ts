@@ -63,6 +63,7 @@ export interface IStorage {
   getSubscribers(page: number, limit: number, search?: string): Promise<{ subscribers: Subscriber[]; total: number }>;
   getSubscriber(id: string): Promise<Subscriber | undefined>;
   getSubscriberByEmail(email: string): Promise<Subscriber | undefined>;
+  getSubscribersByEmails(emails: string[]): Promise<Map<string, Subscriber>>;
   createSubscriber(data: InsertSubscriber): Promise<Subscriber>;
   updateSubscriber(id: string, data: Partial<InsertSubscriber>): Promise<Subscriber | undefined>;
   deleteSubscriber(id: string): Promise<void>;
@@ -205,6 +206,8 @@ export interface IStorage {
   getTagQueueStats(): Promise<{ pending: number; processing: number; completed: number; failed: number }>;
   cleanupCompletedTagOperations(olderThanDays?: number): Promise<number>;
   addTagToSubscriber(subscriberId: string, tagValue: string): Promise<boolean>;
+  bulkAddTagToSubscribers(subscriberIds: string[], tagValue: string): Promise<number>;
+  bulkAddTags(subscriberIds: string[], tags: string[]): Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════
   // NULLSINK
@@ -327,6 +330,18 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   private segmentCountCache = new Map<string, { count: number; timestamp: number }>();
   private SEGMENT_COUNT_CACHE_TTL = 300000; // 5 minutes
+  private cacheCleanupInterval: NodeJS.Timeout;
+
+  constructor() {
+    this.cacheCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [key, entry] of this.segmentCountCache) {
+        if (now - entry.timestamp > this.SEGMENT_COUNT_CACHE_TTL) {
+          this.segmentCountCache.delete(key);
+        }
+      }
+    }, 300000);
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // SUBSCRIBER MANAGEMENT
@@ -362,6 +377,17 @@ export class DatabaseStorage implements IStorage {
   async getSubscriberByEmail(email: string): Promise<Subscriber | undefined> {
     const [sub] = await db.select().from(subscribers).where(eq(subscribers.email, email.toLowerCase()));
     return sub;
+  }
+
+  async getSubscribersByEmails(emails: string[]): Promise<Map<string, Subscriber>> {
+    const result = new Map<string, Subscriber>();
+    if (emails.length === 0) return result;
+    const lowerEmails = emails.map(e => e.toLowerCase());
+    const rows = await db.select().from(subscribers).where(sql`${subscribers.email} = ANY(${lowerEmails})`);
+    for (const row of rows) {
+      result.set(row.email.toLowerCase(), row);
+    }
+    return result;
   }
 
   async createSubscriber(data: InsertSubscriber): Promise<Subscriber> {
@@ -2218,8 +2244,28 @@ export class DatabaseStorage implements IStorage {
       RETURNING id
     `);
     
-    // If no rows affected, tag already exists - that's still a success
     return true;
+  }
+
+  async bulkAddTagToSubscribers(subscriberIds: string[], tagValue: string): Promise<number> {
+    if (subscriberIds.length === 0) return 0;
+    const result = await db.execute(sql`
+      UPDATE subscribers
+      SET tags = array_append(
+        array_remove(tags, ${tagValue}),
+        ${tagValue}
+      )
+      WHERE id = ANY(${subscriberIds})
+      AND NOT (${tagValue} = ANY(tags))
+    `);
+    return result.rowCount || 0;
+  }
+
+  async bulkAddTags(subscriberIds: string[], tags: string[]): Promise<void> {
+    if (subscriberIds.length === 0 || tags.length === 0) return;
+    for (const tag of tags) {
+      await this.bulkAddTagToSubscribers(subscriberIds, tag);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════

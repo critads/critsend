@@ -3,6 +3,28 @@ import { storage } from "../storage";
 import { logger } from "../logger";
 import { verifyTrackingSignature } from "../tracking";
 
+const campaignTagCache = new Map<string, { openTag: string | null; clickTag: string | null; fetchedAt: number }>();
+const CAMPAIGN_CACHE_TTL = 60000;
+
+async function getCampaignTagsCached(campaignId: string): Promise<{ openTag: string | null; clickTag: string | null } | null> {
+  const cached = campaignTagCache.get(campaignId);
+  if (cached && Date.now() - cached.fetchedAt < CAMPAIGN_CACHE_TTL) {
+    return { openTag: cached.openTag, clickTag: cached.clickTag };
+  }
+  const campaign = await storage.getCampaign(campaignId);
+  if (!campaign) return null;
+  campaignTagCache.set(campaignId, {
+    openTag: campaign.openTag || null,
+    clickTag: campaign.clickTag || null,
+    fetchedAt: Date.now(),
+  });
+  if (campaignTagCache.size > 500) {
+    const oldest = [...campaignTagCache.entries()].sort((a, b) => a[1].fetchedAt - b[1].fetchedAt);
+    for (let i = 0; i < 100; i++) campaignTagCache.delete(oldest[i][0]);
+  }
+  return { openTag: campaign.openTag || null, clickTag: campaign.clickTag || null };
+}
+
 export function registerTrackingRoutes(app: Express) {
   app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {
     const { campaignId, subscriberId } = req.params;
@@ -31,9 +53,9 @@ export function registerTrackingRoutes(app: Express) {
       returnPixel();
       
       if (isFirstOpen) {
-        const campaign = await storage.getCampaign(campaignId);
-        if (campaign?.openTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.openTag, "open", campaignId)
+        const tags = await getCampaignTagsCached(campaignId);
+        if (tags?.openTag) {
+          storage.enqueueTagOperation(subscriberId, tags.openTag, "open", campaignId)
             .catch(err => logger.error("Failed to enqueue open tag:", err));
         }
       }
@@ -77,9 +99,9 @@ export function registerTrackingRoutes(app: Express) {
       res.redirect(url);
       
       if (isFirstClick) {
-        const campaign = await storage.getCampaign(campaignId);
-        if (campaign?.clickTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.clickTag, "click", campaignId)
+        const tags = await getCampaignTagsCached(campaignId);
+        if (tags?.clickTag) {
+          storage.enqueueTagOperation(subscriberId, tags.clickTag, "click", campaignId)
             .catch(err => logger.error("Failed to enqueue click tag:", err));
         }
       }

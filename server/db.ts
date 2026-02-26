@@ -26,7 +26,7 @@ if (connectionString.includes("neon.tech")) {
 
 export const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SSL === "true";
 
-const pgPoolMax = Number(process.env.PG_POOL_MAX || (isExternalDb ? 5 : 10));
+const pgPoolMax = Number(process.env.PG_POOL_MAX || (isExternalDb ? 8 : 10));
 
 const poolConfig: pg.PoolConfig = {
   connectionString,
@@ -46,6 +46,8 @@ if (isExternalDb) {
 }
 
 export const pool = new Pool(poolConfig);
+
+logger.info(`PG pool configured: max=${pgPoolMax}, min=${poolConfig.min}, idleTimeout=${poolConfig.idleTimeoutMillis}ms, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}`);
 
 pool.on('error', (err) => {
   logger.error('Unexpected DB pool error on idle client', { error: err.message });

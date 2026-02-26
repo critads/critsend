@@ -105,38 +105,51 @@ export function registerWebhookRoutes(app: Express) {
       let blocklisted = 0;
       let notFound = 0;
       let skipped = 0;
-      
+
+      const emails = [...new Set(bounces.map(b => b.email.toLowerCase()))];
+      const subscriberMap = await storage.getSubscribersByEmails(emails);
+
+      const hardBounceIds: string[] = [];
+      const complaintIds: string[] = [];
+      const softBounceIds: string[] = [];
+
       for (const bounce of bounces) {
-        const subscriber = await storage.getSubscriberByEmail(bounce.email);
+        const subscriber = subscriberMap.get(bounce.email.toLowerCase());
         if (!subscriber) {
           notFound++;
           continue;
         }
-        
+
         const currentTags = subscriber.tags || [];
-        
+
         if (bounce.type === "hard_bounce" || bounce.type === "complaint") {
           if (currentTags.includes("BCK")) {
             skipped++;
             processed++;
             continue;
           }
-          await storage.updateSubscriber(subscriber.id, {
-            tags: [...currentTags, "BCK", `bounce:${bounce.type}`],
-          });
+          if (bounce.type === "hard_bounce") hardBounceIds.push(subscriber.id);
+          else complaintIds.push(subscriber.id);
           blocklisted++;
         } else if (bounce.type === "soft_bounce") {
-          const bounceTag = `bounce:soft`;
-          if (currentTags.includes(bounceTag)) {
+          if (currentTags.includes("bounce:soft")) {
             skipped++;
             processed++;
             continue;
           }
-          await storage.updateSubscriber(subscriber.id, {
-            tags: [...currentTags, bounceTag],
-          });
+          softBounceIds.push(subscriber.id);
         }
         processed++;
+      }
+
+      if (hardBounceIds.length > 0) {
+        await storage.bulkAddTags(hardBounceIds, ["BCK", "bounce:hard_bounce"]);
+      }
+      if (complaintIds.length > 0) {
+        await storage.bulkAddTags(complaintIds, ["BCK", "bounce:complaint"]);
+      }
+      if (softBounceIds.length > 0) {
+        await storage.bulkAddTags(softBounceIds, ["bounce:soft"]);
       }
       
       logger.info(`[BOUNCE] Batch processed: ${processed} bounces, ${blocklisted} blocklisted, ${skipped} skipped (already processed), ${notFound} not found`);
