@@ -1,0 +1,426 @@
+# CritSend — Database Modifications for Segment Import
+
+**Context**: We need to import daily segmentation CSVs (email + ref codes like `2ag-3cb-5df`) without affecting system tags (BCK, bounce, unsub). Currently everything lives in `subscribers.tags`, so imports can destroy blacklist data.
+
+**Solution**: Separate `refs` (segment targeting) from `tags` (system/behavioral). Add a smart detection + clean flow during import.
+
+---
+
+## PART 1 — Database Schema Changes
+
+### 1.1 — Add `refs` column to `subscribers`
+
+```sql
+ALTER TABLE subscribers
+ADD COLUMN refs text[] NOT NULL DEFAULT '{}';
+
+CREATE INDEX refs_gin_idx ON subscribers USING GIN (refs);
+```
+
+**What it does**: Stores segment ref codes (e.g. `["2ag", "3cb", "5df"]`) separately from system tags. The GIN index enables fast `ANY()` lookups, same type as the existing `tags_gin_idx`.
+
+**Why**: Tags and refs serve two different purposes. Tags are system-managed (BCK, bounce, unsub — set by tracking/webhooks, must never be erased). Refs are import-managed (daily segment targeting — overwritten regularly). Mixing them in one column means imports either erase blacklist status or accumulate stale data forever.
+
+**Impact**: Zero risk. Additive column with default value. PostgreSQL 11+ adds NOT NULL columns with defaults instantly without rewriting the table, regardless of row count.
+
+---
+
+### 1.2 — Add `refs` column to `import_staging`
+
+```sql
+ALTER TABLE import_staging
+ADD COLUMN refs text[] NOT NULL DEFAULT '{}';
+```
+
+**What it does**: Transit column during import. CSV data lands here first via COPY, then gets merged into `subscribers.refs`.
+
+**Why**: The staging table currently only has `tags`. We need a parallel column so the COPY pipeline can target refs without touching tags.
+
+**Impact**: Zero risk. This table is emptied after every import.
+
+---
+
+### 1.3 — Add 3 columns to `import_jobs`
+
+```sql
+ALTER TABLE import_jobs
+ADD COLUMN import_target text NOT NULL DEFAULT 'refs',
+ADD COLUMN detected_refs text[] NOT NULL DEFAULT '{}',
+ADD COLUMN clean_existing_refs boolean NOT NULL DEFAULT false;
+```
+
+| Column | Purpose |
+|---|---|
+| `import_target` | `"refs"` = daily segment import (new path). `"tags"` = blacklist/system tag import (original path, unchanged). |
+| `detected_refs` | Auto-populated after staging. Stores the distinct refs found in the CSV (e.g. `["1aa","2ag","3cb"]`). Used for display in UI and for the clean step. |
+| `clean_existing_refs` | User's choice: `true` = remove the detected refs from ALL subscribers before merging (solves stale ref problem). `false` = just merge/append. |
+
+**Impact**: Zero risk. New columns with defaults, no existing logic affected.
+
+---
+
+## PART 2 — Two Import Paths
+
+The import pipeline needs to branch based on `import_target`.
+
+### 2.1 — Path A: `import_target = "refs"` (new, daily workflow)
+
+This is the new path for daily segment imports. The flow is:
+
+```
+Upload CSV → COPY to staging.refs → Detect refs → Pause for confirmation
+→ User confirms (clean yes/no) → Clean if requested → Merge refs → Done
+```
+
+**Key rules**:
+- CSV tag column goes to `import_staging.refs`, NOT to `import_staging.tags`
+- The merge SQL writes to `subscribers.refs` ONLY, `subscribers.tags` is NEVER in the UPDATE clause
+- Always merge+dedup (append new refs to existing, remove duplicates)
+
+**CSV parsing change**:
+```typescript
+// The CSV tag column (e.g. "2ag-3cb-5df") is split into refs:
+const refs = row.tag.split("-").map(r => r.trim()).filter(r => r.length > 0);
+stagingRow.refs = refs;
+stagingRow.tags = [];  // empty, never write to tags from segment import
+```
+
+**COPY command change**: Target the `refs` column instead of `tags`:
+```sql
+COPY import_staging (job_id, email, refs, ip_address, line_number) FROM STDIN
+```
+
+**Merge SQL**:
+```sql
+INSERT INTO subscribers (email, refs, import_date)
+SELECT email, refs, NOW()
+FROM import_staging WHERE job_id = $1
+ON CONFLICT (email) DO UPDATE SET
+  refs = (
+    SELECT COALESCE(array_agg(DISTINCT r), '{}')
+    FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
+  ),
+  import_date = NOW();
+```
+
+Note: `tags` column is completely absent from this statement. BCK/bounce/unsub tags are never read, never written, never touched.
+
+### 2.2 — Path B: `import_target = "tags"` (original, unchanged)
+
+This is the existing import logic. Use it for rare operations like bulk-importing a blacklist CSV.
+
+No changes to existing code. The original `tag_mode` (merge/override) still applies. No detection step, no confirmation step — processes immediately as it does today.
+
+**The only code change**: wrap the existing import logic in a condition:
+```typescript
+if (job.importTarget === 'tags') {
+  // existing import logic, untouched
+} else {
+  // new refs path
+}
+```
+
+---
+
+## PART 3 — Detection + Confirmation Flow (refs path only)
+
+This is the new feature. After staging is loaded, the system detects which refs are in the import, shows them to the user, and asks whether to clean old data before proceeding.
+
+### 3.1 — Detection query
+
+After COPY to staging, run:
+```sql
+SELECT DISTINCT unnest(refs) AS ref
+FROM import_staging
+WHERE job_id = $1
+ORDER BY ref;
+```
+
+This returns all unique refs in the import, e.g. `["1aa", "2ag", "3cb", "5df"]`.
+
+Store them on the job:
+```sql
+UPDATE import_jobs
+SET detected_refs = $detected_refs, status = 'awaiting_confirmation'
+WHERE id = $1;
+```
+
+### 3.2 — New import status: `awaiting_confirmation`
+
+Add this to the import job status lifecycle:
+```
+pending → processing → awaiting_confirmation → processing → completed/failed
+```
+
+This status only applies when `import_target = 'refs'`. The tags path never uses it.
+
+### 3.3 — Confirmation API endpoint
+
+**New endpoint**: `PATCH /api/import-jobs/:id/confirm`
+
+```json
+// Request:
+{ "cleanExistingRefs": true }
+
+// Response:
+{ "id": "uuid", "status": "processing" }
+```
+
+This sets `clean_existing_refs` on the job and resumes processing. The worker must be re-notified (via `NOTIFY import_jobs` or equivalent) to pick the job back up.
+
+### 3.4 — Confirmation UI screen
+
+After staging, show:
+```
+Detected refs: [1aa] [2ag] [3cb] [5df]
+☐ Remove these refs from existing subscribers before importing
+Affected subscribers: 1,204,587
+[Cancel] [Confirm Import]
+```
+
+The affected count comes from:
+```sql
+SELECT COUNT(*) FROM subscribers WHERE refs && $detected_refs::text[];
+```
+
+### 3.5 — Clean step (if user checked the box)
+
+If `clean_existing_refs = true`, run this BEFORE the merge:
+
+```sql
+UPDATE subscribers
+SET refs = (
+  SELECT COALESCE(array_agg(r), '{}')
+  FROM unnest(refs) AS r
+  WHERE r != ALL($detected_refs::text[])
+)
+WHERE refs && $detected_refs::text[];
+```
+
+**What this does**: Removes ONLY the detected refs from ALL subscribers who have them. Other refs are preserved.
+
+**Example**:
+- Import contains refs `[2ag, 3cb]`
+- Subscriber A: `refs = ["2ag", "7xx"]` → after clean: `["7xx"]` → then merge adds `2ag` back if A is in import
+- Subscriber B: `refs = ["2ag"]` (stale from yesterday, NOT in today's import) → after clean: `[]` → stays empty (stale ref gone)
+- Subscriber C: `refs = ["7xx", "9zz"]` (no overlap) → NOT touched at all
+
+---
+
+## PART 4 — Segment DSL Extension
+
+The segment compiler (`segment-compiler.ts`) needs to support `refs` as a filterable field.
+
+### 4.1 — Add `refs` to available fields
+
+Current: `email`, `tags`, `date_added`, `ip_address`
+New: `email`, `tags`, `refs`, `date_added`, `ip_address`
+
+### 4.2 — Add operators
+
+```typescript
+case "refs":
+  switch (operator) {
+    case "has_ref":
+      return sql`${bindParam(value)} = ANY(${subscribersTable.refs})`;
+    case "not_has_ref":
+      return sql`NOT (${bindParam(value)} = ANY(${subscribersTable.refs}))`;
+    case "has_any_ref":
+      return sql`array_length(${subscribersTable.refs}, 1) > 0`;
+    case "has_no_refs":
+      return sql`${subscribersTable.refs} = '{}'`;
+  }
+```
+
+### 4.3 — Segment builder UI
+
+Add `refs` to the field dropdown. Operators: `has_ref`, `not_has_ref`, `has_any_ref`, `has_no_refs`.
+
+A campaign targeting ref "2ag" compiles to:
+```sql
+SELECT * FROM subscribers
+WHERE '2ag' = ANY(refs) AND NOT ('BCK' = ANY(tags))
+```
+
+The BCK filter is already applied automatically — no change needed.
+
+---
+
+## PART 5 — Storage & UI Updates
+
+### 5.1 — Add `refs` to all subscriber queries
+
+Anywhere subscribers are selected in `storage.ts`, add `refs` to the select list:
+```typescript
+refs: subscribers.refs,  // ADD to every subscriber select
+```
+
+### 5.2 — Subscriber detail view
+
+Display refs alongside tags with different styling:
+- Tags: red/system badges (BCK, bounce:hard, etc.)
+- Refs: neutral/blue badges (2ag, 3cb, 5df)
+
+### 5.3 — Three new storage functions
+
+```typescript
+detectImportRefs(jobId)       → returns string[] of distinct refs from staging
+countAffectedSubscribers(refs) → returns number of subscribers with any of these refs
+cleanExistingRefs(refs)        → removes these refs from all affected subscribers
+```
+
+---
+
+## PART 6 — Critical Concerns to Address
+
+These are issues identified during review that MUST be solved for the implementation to work correctly.
+
+### 6.1 — CRITICAL: Worker lifecycle at `awaiting_confirmation`
+
+**Problem**: The current import worker claims a job via `FOR UPDATE SKIP LOCKED`, processes it to completion, then claims the next. There is no concept of "pause and come back later." When the refs path pauses at `awaiting_confirmation`, the worker needs to release the job cleanly and be able to resume it later.
+
+**What to figure out**:
+- How does the worker release the `import_job_queue` row without marking it complete?
+- When the user confirms (PATCH endpoint), how is the worker re-notified?
+- The worker needs to distinguish between "start from scratch" and "resume after confirmation" — it must call the merge logic, NOT redo the staging
+- Suggested approach: split into two `import_job_queue` entries (one for staging+detect, one for clean+merge created after confirmation), or add a `phase` column to the queue
+
+**Risk if not handled**: Worker hangs, or restages CSV on resume (duplicating data in staging), or two workers process the same job.
+
+---
+
+### 6.2 — HIGH: Clean step must be batched
+
+**Problem**: The clean SQL updates every subscriber with a matching ref in a single transaction. With 1M+ affected rows, this generates a long lock, large WAL, and may hit Neon timeout limits.
+
+**What to do**: Batch the clean in chunks of 50,000 rows:
+
+```typescript
+while (true) {
+  const result = await db.execute(sql`
+    UPDATE subscribers
+    SET refs = (
+      SELECT COALESCE(array_agg(r), '{}')
+      FROM unnest(refs) AS r
+      WHERE r != ALL(${refs}::text[])
+    )
+    WHERE id IN (
+      SELECT id FROM subscribers
+      WHERE refs && ${refs}::text[]
+      LIMIT 50000
+    )
+  `);
+  if (result.rowCount === 0) break;
+}
+```
+
+Each batch commits independently. Short locks, no timeout risk.
+
+**Trade-off**: Between batches, a campaign could read partially-cleaned data. This is acceptable because imports and campaign sends don't happen at the exact same moment in practice.
+
+---
+
+### 6.3 — MEDIUM: Abandoned imports leave staging data
+
+**Problem**: After staging, the job pauses at `awaiting_confirmation`. If the user never confirms (closes browser, forgets), the staging data (potentially millions of rows) sits in `import_staging` forever.
+
+**What to do**: Add an expiration mechanism. Either in the existing maintenance system or as a periodic check:
+
+```sql
+-- Auto-fail imports stuck in awaiting_confirmation for more than 2 hours
+UPDATE import_jobs
+SET status = 'failed', error_message = 'Confirmation timeout (2h)'
+WHERE status = 'awaiting_confirmation'
+  AND created_at < NOW() - INTERVAL '2 hours';
+
+-- Clean their staging data
+DELETE FROM import_staging
+WHERE job_id IN (
+  SELECT id FROM import_jobs WHERE status = 'failed'
+  AND error_message LIKE 'Confirmation timeout%'
+);
+```
+
+Can be added as a new rule in `db_maintenance_rules` or run inside the existing 6-hour maintenance cycle.
+
+---
+
+### 6.4 — MEDIUM: Affected subscribers count can be slow
+
+**Problem**: `SELECT COUNT(*) FROM subscribers WHERE refs && $detected_refs::text[]` on millions of rows can take 2-10 seconds. This blocks the confirmation screen from loading.
+
+**What to do**: Make the count asynchronous. Return the detected refs immediately, then fetch the count in the background:
+
+```
+Step 1: Return { status: "awaiting_confirmation", detectedRefs: [...], affectedSubscribers: null }
+Step 2: Client calls GET /api/import-jobs/:id/affected-count → { affectedSubscribers: 1204587 }
+```
+
+The confirmation screen shows detected refs immediately with "Calculating..." for the count.
+
+---
+
+### 6.5 — LOW: COPY column must match import_target
+
+**Problem**: The COPY command specifies columns explicitly. If `import_target = "refs"`, COPY must target `import_staging.refs`. If `import_target = "tags"`, COPY must target `import_staging.tags`. A mismatch silently puts data in the wrong column.
+
+**What to do**: Validate the COPY column list against `import_target` before executing. Add a defensive assertion or conditional that selects the right COPY column set.
+
+---
+
+### 6.6 — LOW: Empty tags in CSV should fail gracefully
+
+**Problem**: If the CSV has no tag column or all values are empty, `detected_refs` will be `[]`. The confirmation screen would show "Detected refs: (none)" which is confusing and useless.
+
+**What to do**: If `detected_refs` is empty after detection, fail the import with a clear error message:
+```
+"No refs detected in CSV. Check that the tag column exists and contains valid ref codes."
+```
+
+---
+
+## SUMMARY
+
+### New database columns (5 total)
+
+| Table | Column | Type |
+|---|---|---|
+| `subscribers` | `refs` | `text[] DEFAULT '{}'` |
+| `import_staging` | `refs` | `text[] DEFAULT '{}'` |
+| `import_jobs` | `import_target` | `text DEFAULT 'refs'` |
+| `import_jobs` | `detected_refs` | `text[] DEFAULT '{}'` |
+| `import_jobs` | `clean_existing_refs` | `boolean DEFAULT false` |
+
+### New index (1)
+
+| Table | Index | Type |
+|---|---|---|
+| `subscribers` | `refs_gin_idx` | GIN on `refs` |
+
+### Files to modify
+
+```
+shared/schema.ts                      ← 5 new columns across 3 tables
+server/services/storage.ts            ← subscriber queries + 3 new functions
+server/services/segment-compiler.ts   ← refs field + 4 operators
+server/services/import-*.ts           ← two-path pipeline (refs/tags) + detect + clean
+server/routes/import.ts               ← new PATCH confirm endpoint
+client/components/import/*            ← import type selector + detection/confirm screen
+client/components/subscribers/*       ← refs badge display
+client/components/segments/*          ← refs in segment builder field dropdown
+migrations/                           ← SQL migration file
+```
+
+### What is NOT modified
+
+```
+campaign-sender.ts        tracking.ts             webhooks.ts
+campaign_sends            campaign_stats           pending_tag_operations
+ab_test_variants          warmup_schedules         automation_workflows
+automation_enrollments    analytics_daily          dashboard_cache
+flush_jobs                nullsink_captures        email_headers
+mtas                      segments                 campaign_jobs
+db_maintenance_rules      db_maintenance_logs      users / session / error_logs
+```
+
+22 out of 25 tables are completely untouched. The BCK blacklist system, unsubscribe tracking, bounce handling, campaign sending, and all other features continue working exactly as before.

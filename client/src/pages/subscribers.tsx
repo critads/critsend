@@ -415,6 +415,7 @@ export default function Subscribers() {
                     <TableRow>
                       <TableHead>Email</TableHead>
                       <TableHead>Tags</TableHead>
+                      <TableHead>Refs</TableHead>
                       <TableHead>IP Address</TableHead>
                       <TableHead>Import Date</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
@@ -452,6 +453,29 @@ export default function Subscribers() {
                             {subscriber.tags && subscriber.tags.length > 3 && (
                               <Badge variant="outline" className="text-xs">
                                 +{subscriber.tags.length - 3}
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {subscriber.refs && subscriber.refs.length > 0 ? (
+                              subscriber.refs.slice(0, 3).map((ref) => (
+                                <Badge
+                                  key={ref}
+                                  variant="outline"
+                                  className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
+                                  data-testid={`badge-ref-${subscriber.id}-${ref}`}
+                                >
+                                  {ref}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-muted-foreground text-sm">None</span>
+                            )}
+                            {subscriber.refs && subscriber.refs.length > 3 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{subscriber.refs.length - 3}
                               </Badge>
                             )}
                           </div>
@@ -597,6 +621,26 @@ export default function Subscribers() {
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
+            </div>
+            <div className="space-y-3">
+              <label className="text-sm font-medium">Refs (read-only)</label>
+              <div className="flex flex-wrap gap-2">
+                {editingSubscriber?.refs && editingSubscriber.refs.length > 0 ? (
+                  editingSubscriber.refs.map((ref) => (
+                    <Badge
+                      key={ref}
+                      variant="outline"
+                      className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
+                      data-testid={`badge-edit-ref-${ref}`}
+                    >
+                      {ref}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground text-sm">No refs</span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Refs are managed via segment imports and cannot be edited manually.</p>
             </div>
           </div>
           <DialogFooter>

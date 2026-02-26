@@ -741,6 +741,17 @@ async function pollForImportJobs() {
           }
           break;
         }
+        case "awaiting_confirmation": {
+          const d = msg.data;
+          logger.info(`[IMPORT] Worker paused for confirmation: job=${d.importJobId}, detectedRefs=${(d.detectedRefs || []).join(",")}`);
+          try {
+            await storage.completeImportQueueJob(queueItem.id, "completed");
+            logger.info(`[IMPORT] Queue item ${queueItem.id} completed (phase 1 staging done)`);
+          } catch (err: any) {
+            logger.error(`Failed to finalize phase 1 queue item:`, err);
+          }
+          break;
+        }
         case "log": {
           const d = msg.data;
           const level = d.level as "info" | "warn" | "error" | "debug";
@@ -778,12 +789,14 @@ async function pollForImportJobs() {
       activeImportJobInfo = null;
     });
 
+    const isPhase2Merge = queueItem.csvFilePath === "phase2_merge";
     child.send({
       type: "start",
       data: {
         queueId: queueItem.id,
         importJobId: queueItem.importJobId,
         csvFilePath: queueItem.csvFilePath,
+        phase: isPhase2Merge ? "refs_merge" : undefined,
       },
     });
 
@@ -915,10 +928,20 @@ async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: 
 function startMaintenanceWorker() {
   if (maintenanceInterval) return;
   logger.info("[MAINTENANCE] Starting maintenance worker (6h interval)");
-  maintenanceInterval = setInterval(() => {
-    runMaintenanceNow("auto").catch(err => {
+  maintenanceInterval = setInterval(async () => {
+    try {
+      await runMaintenanceNow("auto");
+    } catch (err) {
       logger.error("[MAINTENANCE] Auto maintenance run failed:", err);
-    });
+    }
+    try {
+      const expired = await storage.expireAbandonedImports();
+      if (expired > 0) {
+        logger.info(`[MAINTENANCE] Expired ${expired} abandoned import(s) stuck in awaiting_confirmation`);
+      }
+    } catch (err) {
+      logger.error("[MAINTENANCE] Failed to expire abandoned imports:", err);
+    }
   }, MAINTENANCE_INTERVAL);
 }
 

@@ -52,6 +52,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
   const chunkedUploads = new Map<string, {
     filename: string;
     tagMode: "merge" | "override";
+    importTarget: "refs" | "tags";
     totalChunks: number;
     totalSize: number;
     receivedChunks: Set<number>;
@@ -85,8 +86,9 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
 
       const tagMode = (req.body.tagMode === "override") ? "override" : "merge";
+      const importTarget = (req.body.importTarget === "tags") ? "tags" : "refs";
       const fileSizeBytes = req.file.size;
-      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}`);
+      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}, importTarget: ${importTarget}`);
       
       const csvFilePath = req.file.path;
       logger.info(`[IMPORT] File saved to disk: ${csvFilePath}`);
@@ -107,6 +109,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         filename: req.file.originalname,
         totalRows: totalDataRows,
         tagMode: tagMode,
+        importTarget: importTarget,
       });
       logger.info(`[IMPORT] Created import job: ${job.id}`);
 
@@ -207,9 +210,77 @@ export function registerImportExportRoutes(app: Express, helpers: {
     }
   });
 
+  app.patch("/api/import-jobs/:id/confirm", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+
+      const job = await storage.getImportJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: "Import job not found" });
+      }
+      if (job.status !== "awaiting_confirmation") {
+        return res.status(400).json({ error: `Import job is not awaiting confirmation (current status: ${job.status})` });
+      }
+
+      const cleanExistingRefs = req.body.cleanExistingRefs === true;
+      const confirmed = await storage.confirmImportJob(req.params.id, cleanExistingRefs);
+      if (!confirmed) {
+        return res.status(400).json({ error: "Failed to confirm import job" });
+      }
+
+      const [queueItem] = await db.insert(importJobQueue).values({
+        importJobId: job.id,
+        csvFilePath: "phase2_merge",
+        totalLines: job.totalRows,
+        processedLines: 0,
+        fileSizeBytes: 0,
+        processedBytes: 0,
+        lastCheckpointLine: 0,
+        status: "pending",
+      }).returning();
+
+      try {
+        await db.execute(sql`NOTIFY import_jobs`);
+      } catch {}
+
+      logger.info(`[IMPORT] Import job ${job.id} confirmed (cleanExistingRefs: ${cleanExistingRefs}), enqueued merge phase: ${queueItem.id}`);
+
+      res.json({ id: job.id, status: "processing" });
+    } catch (error) {
+      logger.error("Error confirming import job:", error);
+      res.status(500).json({ error: "Failed to confirm import job" });
+    }
+  });
+
+  app.get("/api/import-jobs/:id/affected-count", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+
+      const job = await storage.getImportJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: "Import job not found" });
+      }
+
+      const detectedRefs = job.detectedRefs || [];
+      if (detectedRefs.length === 0) {
+        return res.json({ affectedSubscribers: 0 });
+      }
+
+      const count = await storage.countAffectedSubscribers(detectedRefs);
+      res.json({ affectedSubscribers: count });
+    } catch (error) {
+      logger.error("Error fetching affected count:", error);
+      res.status(500).json({ error: "Failed to fetch affected subscriber count" });
+    }
+  });
+
   app.post("/api/import/chunked/start", async (req: Request, res: Response) => {
     try {
-      const { filename, tagMode, totalChunks, totalSize } = req.body;
+      const { filename, tagMode, importTarget, totalChunks, totalSize } = req.body;
       
       if (!filename || !totalChunks || !totalSize) {
         return res.status(400).json({ error: "Missing required fields: filename, totalChunks, totalSize" });
@@ -224,6 +295,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       chunkedUploads.set(uploadId, {
         filename,
         tagMode: tagMode === "override" ? "override" : "merge",
+        importTarget: importTarget === "tags" ? "tags" : "refs",
         totalChunks: parseInt(totalChunks),
         totalSize: parseInt(totalSize),
         receivedChunks: new Set(),
@@ -360,6 +432,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         filename: upload.filename,
         totalRows: totalDataRows,
         tagMode: upload.tagMode,
+        importTarget: upload.importTarget,
       });
       logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       

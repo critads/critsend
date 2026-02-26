@@ -113,6 +113,9 @@ interface ImportJob {
   failedRows: number;
   status: string;
   tagMode: string;
+  importTarget: string;
+  detectedRefs: string[];
+  cleanExistingRefs: boolean;
   errorMessage: string | null;
 }
 
@@ -147,6 +150,9 @@ async function getImportJob(importJobId: string): Promise<ImportJob | null> {
     failedRows: row.failed_rows,
     status: row.status,
     tagMode: row.tag_mode || "merge",
+    importTarget: row.import_target || "tags",
+    detectedRefs: row.detected_refs || [],
+    cleanExistingRefs: row.clean_existing_refs || false,
     errorMessage: row.error_message,
   };
 }
@@ -187,6 +193,10 @@ async function updateImportJob(importJobId: string, data: Record<string, any>): 
   if (data.completedAt !== undefined) {
     setClauses.push(`completed_at = $${paramIdx++}`);
     params.push(data.completedAt);
+  }
+  if (data.detectedRefs !== undefined) {
+    setClauses.push(`detected_refs = $${paramIdx++}::text[]`);
+    params.push(data.detectedRefs);
   }
 
   if (setClauses.length === 0) return;
@@ -467,6 +477,241 @@ async function bulkUpsertSubscribers(
     log("warn", `COPY batch failed, falling back to INSERT: ${err.message}`);
     return await insertFallbackUpsert(rows, tagMode);
   }
+}
+
+async function copyBatchUpsertRefs(
+  rows: Array<{ email: string; refs: string[]; ipAddress: string | null }>,
+): Promise<{ inserted: number; updated: number }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(`
+      CREATE TEMP TABLE import_staging_batch (
+        email TEXT NOT NULL,
+        refs TEXT[] NOT NULL,
+        ip_address TEXT
+      ) ON COMMIT DROP
+    `);
+
+    const copyStream = client.query(copyFrom(
+      "COPY import_staging_batch (email, refs, ip_address) FROM STDIN WITH (FORMAT text)"
+    ));
+
+    for (const row of rows) {
+      const email = escapeCopyValue(row.email);
+      const refsLiteral = formatPgArray(row.refs);
+      const ip = row.ipAddress ? escapeCopyValue(row.ipAddress) : "\\N";
+      copyStream.write(`${email}\t${refsLiteral}\t${ip}\n`);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      copyStream.on("finish", resolve);
+      copyStream.on("error", reject);
+      copyStream.end();
+    });
+
+    const mergeResult = await client.query(`
+      WITH upserted AS (
+        INSERT INTO subscribers (email, refs, ip_address, import_date)
+        SELECT email, refs, ip_address, NOW()
+        FROM import_staging_batch
+        ON CONFLICT (email) DO UPDATE SET
+          refs = (
+            SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[])
+            FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
+            WHERE r IS NOT NULL
+          ),
+          ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address),
+          import_date = NOW()
+        RETURNING (xmax = 0) AS is_insert
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
+        COUNT(*) FILTER (WHERE is_insert = false) AS updated
+      FROM upserted
+    `);
+
+    await client.query("COMMIT");
+
+    return {
+      inserted: parseInt(mergeResult.rows[0]?.inserted || "0"),
+      updated: parseInt(mergeResult.rows[0]?.updated || "0"),
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function directBatchUpsertRefs(
+  rows: Array<{ email: string; refs: string[]; ipAddress: string | null }>,
+): Promise<{ inserted: number; updated: number }> {
+  const valuesClauses: string[] = [];
+  const params: any[] = [];
+  let paramIdx = 1;
+
+  for (const row of rows) {
+    valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}::text[], $${paramIdx + 2}, NOW())`);
+    params.push(row.email.toLowerCase(), row.refs, row.ipAddress);
+    paramIdx += 3;
+  }
+
+  const query = `
+    WITH upserted AS (
+      INSERT INTO subscribers (email, refs, ip_address, import_date)
+      VALUES ${valuesClauses.join(", ")}
+      ON CONFLICT (email) DO UPDATE SET
+        refs = (
+          SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[])
+          FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
+          WHERE r IS NOT NULL
+        ),
+        ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address),
+        import_date = NOW()
+      RETURNING (xmax = 0) AS is_insert
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
+      COUNT(*) FILTER (WHERE is_insert = false) AS updated
+    FROM upserted
+  `;
+
+  const result = await pool.query(query, params);
+  return {
+    inserted: parseInt(result.rows[0]?.inserted || "0"),
+    updated: parseInt(result.rows[0]?.updated || "0"),
+  };
+}
+
+async function bulkUpsertSubscribersRefs(
+  rows: Array<{ email: string; refs: string[]; ipAddress: string | null; lineNumber: number }>,
+): Promise<{ inserted: number; updated: number; failed: number }> {
+  if (rows.length === 0) return { inserted: 0, updated: 0, failed: 0 };
+
+  try {
+    const result = await copyBatchUpsertRefs(rows);
+    return { ...result, failed: 0 };
+  } catch (err: any) {
+    log("warn", `COPY refs batch failed, falling back to INSERT: ${err.message}`);
+    const CHUNK_SIZE = 500;
+    let totalInserted = 0;
+    let totalUpdated = 0;
+    let totalFailed = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      try {
+        const result = await directBatchUpsertRefs(chunk);
+        totalInserted += result.inserted;
+        totalUpdated += result.updated;
+      } catch (chunkErr: any) {
+        log("error", `Refs batch upsert chunk failed: ${chunkErr.message}`);
+        totalFailed += chunk.length;
+      }
+    }
+    return { inserted: totalInserted, updated: totalUpdated, failed: totalFailed };
+  }
+}
+
+async function detectImportRefsFromStaging(importJobId: string): Promise<string[]> {
+  const result = await db.execute(sql`
+    SELECT DISTINCT unnest(refs) AS ref
+    FROM import_staging
+    WHERE job_id = ${importJobId}
+    ORDER BY ref
+  `);
+  return (result.rows as any[]).map((r: any) => r.ref);
+}
+
+async function stageRefsToImportStaging(
+  importJobId: string,
+  rows: Array<{ email: string; refs: string[]; ipAddress: string | null }>
+): Promise<void> {
+  if (rows.length === 0) return;
+  const client = await pool.connect();
+  try {
+    const copyStream = client.query(copyFrom(
+      "COPY import_staging (job_id, email, refs, ip_address, line_number) FROM STDIN WITH (FORMAT text)"
+    ));
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const email = escapeCopyValue(row.email.toLowerCase());
+      const refsLiteral = formatPgArray(row.refs);
+      const ip = row.ipAddress ? escapeCopyValue(row.ipAddress) : "\\N";
+      copyStream.write(`${escapeCopyValue(importJobId)}\t${email}\t${refsLiteral}\t${ip}\t${i + 1}\n`);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      copyStream.on("finish", resolve);
+      copyStream.on("error", reject);
+      copyStream.end();
+    });
+  } finally {
+    client.release();
+  }
+}
+
+async function cleanExistingRefsInDb(refs: string[]): Promise<number> {
+  if (refs.length === 0) return 0;
+  const BATCH_SIZE = 50000;
+  let totalCleaned = 0;
+
+  while (true) {
+    const result = await pool.query(`
+      UPDATE subscribers
+      SET refs = (
+        SELECT COALESCE(array_agg(r), ARRAY[]::text[])
+        FROM unnest(refs) AS r
+        WHERE r != ALL($1::text[])
+      )
+      WHERE id IN (
+        SELECT id FROM subscribers
+        WHERE refs && $1::text[]
+        LIMIT $2
+      )
+    `, [refs, BATCH_SIZE]);
+    const affected = result.rowCount || 0;
+    totalCleaned += affected;
+    if (affected === 0) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  return totalCleaned;
+}
+
+async function mergeRefsFromStaging(importJobId: string): Promise<{ inserted: number; updated: number }> {
+  const result = await pool.query(`
+    WITH upserted AS (
+      INSERT INTO subscribers (email, refs, import_date)
+      SELECT email, refs, NOW()
+      FROM import_staging WHERE job_id = $1
+      ON CONFLICT (email) DO UPDATE SET
+        refs = (
+          SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[])
+          FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
+          WHERE r IS NOT NULL
+        ),
+        import_date = NOW()
+      RETURNING (xmax = 0) AS is_insert
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
+      COUNT(*) FILTER (WHERE is_insert = false) AS updated
+    FROM upserted
+  `, [importJobId]);
+
+  return {
+    inserted: parseInt(result.rows[0]?.inserted || "0"),
+    updated: parseInt(result.rows[0]?.updated || "0"),
+  };
+}
+
+async function cleanupStagingData(importJobId: string): Promise<void> {
+  await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${importJobId}`);
 }
 
 async function processImport(queueId: string, importJobId: string, csvFilePath: string) {
@@ -975,6 +1220,198 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   });
 }
 
+async function processRefsImportPhase1(queueId: string, importJobId: string, csvFilePath: string) {
+  log("info", `[REFS PHASE 1] Staging refs for job ${importJobId} from file: ${csvFilePath}`);
+
+  await ensureDbConnection();
+
+  const isObjectStorage = csvFilePath.startsWith("/objects/");
+  let fileStream: NodeJS.ReadableStream;
+
+  if (isObjectStorage) {
+    const exists = await objectStorageService.objectExists(csvFilePath);
+    if (!exists) {
+      throw new Error(`CSV file not found in object storage: ${csvFilePath}`);
+    }
+    fileStream = await objectStorageService.getObjectStream(csvFilePath);
+  } else {
+    if (!fs.existsSync(csvFilePath)) {
+      throw new Error(`CSV file not found: ${csvFilePath}`);
+    }
+    fileStream = fs.createReadStream(csvFilePath, { encoding: "utf-8", highWaterMark: 256 * 1024 });
+  }
+
+  await updateImportJob(importJobId, { status: "processing", startedAt: new Date() });
+
+  const BATCH_SIZE = 25000;
+  let header: string[] = [];
+  let emailIdx = -1;
+  let tagsIdx = -1;
+  let ipIdx = -1;
+  let headerParsed = false;
+  let currentLineNumber = 0;
+  let parsedRows = 0;
+  let failedRows = 0;
+
+  let batchRows: Array<{ email: string; refs: string[]; ipAddress: string | null }> = [];
+
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  return new Promise<void>((resolve, reject) => {
+    let hasSettled = false;
+    const safeReject = (err: any) => { if (!hasSettled) { hasSettled = true; reject(err); } };
+    const safeResolve = () => { if (!hasSettled) { hasSettled = true; resolve(); } };
+
+    rl.on("line", async (line: string) => {
+      try {
+        currentLineNumber++;
+
+        if (!headerParsed && currentLineNumber === 1) {
+          header = line.split(";").map((h) => h.trim().toLowerCase());
+          emailIdx = header.indexOf("email");
+          tagsIdx = header.indexOf("tags");
+          ipIdx = header.indexOf("ip_address");
+
+          if (emailIdx === -1) {
+            rl.close();
+            await updateImportJob(importJobId, { status: "failed", errorMessage: "CSV must have an 'email' column" });
+            safeReject(new Error("CSV must have an 'email' column"));
+            return;
+          }
+
+          headerParsed = true;
+          return;
+        }
+
+        if (!line.trim()) return;
+
+        const cols = line.split(";").map((c) => c.trim());
+        const email = cols[emailIdx]?.toLowerCase();
+
+        if (!email || !email.includes("@")) {
+          failedRows++;
+          parsedRows++;
+          return;
+        }
+
+        const refs =
+          tagsIdx >= 0 && cols[tagsIdx]
+            ? cols[tagsIdx]
+                .split("-")
+                .map((r) => r.trim().toLowerCase())
+                .filter(Boolean)
+            : [];
+        const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
+
+        batchRows.push({ email, refs, ipAddress });
+        parsedRows++;
+
+        if (batchRows.length >= BATCH_SIZE) {
+          rl.pause();
+          await stageRefsToImportStaging(importJobId, batchRows);
+          batchRows = [];
+          await updateImportQueueHeartbeat(queueId);
+          rl.resume();
+        }
+      } catch (err) {
+        log("error", `[REFS PHASE 1] Error processing line ${currentLineNumber}: ${err}`);
+        failedRows++;
+        parsedRows++;
+      }
+    });
+
+    rl.on("close", async () => {
+      try {
+        if (batchRows.length > 0) {
+          await stageRefsToImportStaging(importJobId, batchRows);
+          batchRows = [];
+        }
+
+        const detectedRefs = await detectImportRefsFromStaging(importJobId);
+        log("info", `[REFS PHASE 1] Detected ${detectedRefs.length} refs: ${detectedRefs.join(", ")}`);
+
+        if (detectedRefs.length === 0) {
+          await cleanupStagingData(importJobId);
+          await updateImportJob(importJobId, {
+            status: "failed",
+            errorMessage: "No refs detected in CSV. Check that the tags column exists and contains valid ref codes (e.g. 2ag-3cb-5df).",
+            failedRows,
+          });
+          sendIpc("error", { message: "No refs detected in CSV" });
+          safeResolve();
+          return;
+        }
+
+        await updateImportJob(importJobId, {
+          status: "awaiting_confirmation",
+          detectedRefs,
+          processedRows: parsedRows,
+          failedRows,
+        });
+
+        log("info", `[REFS PHASE 1] Job ${importJobId} staged ${parsedRows} rows, awaiting confirmation`);
+
+        sendIpc("awaiting_confirmation", {
+          importJobId,
+          detectedRefs,
+          parsedRows,
+          failedRows,
+        });
+
+        safeResolve();
+      } catch (err) {
+        safeReject(err);
+      }
+    });
+
+    rl.on("error", (err) => safeReject(err));
+    fileStream.on("error", (err) => safeReject(err));
+  });
+}
+
+async function processRefsImportPhase2(queueId: string, importJobId: string) {
+  log("info", `[REFS PHASE 2] Merging refs for job ${importJobId}`);
+
+  await ensureDbConnection();
+
+  const importJob = await getImportJob(importJobId);
+  if (!importJob) throw new Error(`Import job ${importJobId} not found`);
+
+  const detectedRefs = importJob.detectedRefs || [];
+  const cleanExisting = importJob.cleanExistingRefs;
+
+  await updateImportJob(importJobId, { status: "processing" });
+
+  if (cleanExisting && detectedRefs.length > 0) {
+    log("info", `[REFS PHASE 2] Cleaning existing refs: ${detectedRefs.join(", ")}`);
+    const cleaned = await cleanExistingRefsInDb(detectedRefs);
+    log("info", `[REFS PHASE 2] Cleaned ${cleaned} subscribers`);
+  }
+
+  log("info", `[REFS PHASE 2] Merging refs from staging into subscribers`);
+  const mergeResult = await mergeRefsFromStaging(importJobId);
+  log("info", `[REFS PHASE 2] Merge complete: ${mergeResult.inserted} inserted, ${mergeResult.updated} updated`);
+
+  await cleanupStagingData(importJobId);
+
+  await updateImportJob(importJobId, {
+    status: "completed",
+    completedAt: new Date(),
+    newSubscribers: mergeResult.inserted,
+    updatedSubscribers: mergeResult.updated,
+  });
+
+  sendIpc("complete", {
+    committedRows: mergeResult.inserted + mergeResult.updated,
+    newSubscribers: mergeResult.inserted,
+    updatedSubscribers: mergeResult.updated,
+    failedRows: importJob.failedRows || 0,
+    duration: 0,
+  });
+
+  log("info", `[REFS PHASE 2] Job ${importJobId} completed`);
+}
+
 let isShuttingDown = false;
 
 async function shutdown() {
@@ -989,9 +1426,18 @@ async function shutdown() {
 
 process.on("message", async (msg: any) => {
   if (msg?.type === "start") {
-    const { queueId, importJobId, csvFilePath } = msg.data || msg;
+    const { queueId, importJobId, csvFilePath, phase } = msg.data || msg;
     try {
-      await processImport(queueId, importJobId, csvFilePath);
+      if (phase === "refs_merge") {
+        await processRefsImportPhase2(queueId, importJobId);
+      } else {
+        const importJob = await getImportJob(importJobId);
+        if (importJob?.importTarget === "refs") {
+          await processRefsImportPhase1(queueId, importJobId, csvFilePath);
+        } else {
+          await processImport(queueId, importJobId, csvFilePath);
+        }
+      }
     } catch (err: any) {
       log("error", `Import failed: ${err.message}`, { stack: err.stack });
       sendIpc("error", { message: err.message, stack: err.stack });

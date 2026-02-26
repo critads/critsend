@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, fetchCsrfToken } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload,
@@ -17,15 +18,127 @@ import {
   RefreshCw,
   AlertCircle,
   Ban,
+  Tag,
+  Hash,
 } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import type { ImportJob } from "@shared/schema";
 
+function ConfirmationCard({ job, onConfirmed }: { job: ImportJob; onConfirmed: () => void }) {
+  const [cleanExisting, setCleanExisting] = useState(false);
+  const { toast } = useToast();
+
+  const { data: affectedData, isLoading: affectedLoading } = useQuery<{ affectedSubscribers: number }>({
+    queryKey: ["/api/import-jobs", job.id, "affected-count"],
+    queryFn: async () => {
+      const res = await fetch(`/api/import-jobs/${job.id}/affected-count`);
+      if (!res.ok) throw new Error("Failed to fetch affected count");
+      return res.json();
+    },
+    enabled: (job.detectedRefs?.length ?? 0) > 0,
+  });
+
+  const confirmMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("PATCH", `/api/import-jobs/${job.id}/confirm`, {
+        cleanExistingRefs: cleanExisting,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      toast({ title: "Import confirmed", description: "Refs merge is now processing." });
+      onConfirmed();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Confirmation failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/import/${job.id}/cancel`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      toast({ title: "Import cancelled" });
+    },
+  });
+
+  const detectedRefs = job.detectedRefs || [];
+
+  return (
+    <div className="rounded-md border border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20 p-4 space-y-4">
+      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+        <AlertCircle className="h-5 w-5" />
+        <span className="font-medium">Awaiting Confirmation</span>
+      </div>
+
+      <div>
+        <p className="text-sm font-medium mb-2">Detected refs:</p>
+        <div className="flex flex-wrap gap-1.5">
+          {detectedRefs.map((ref) => (
+            <Badge key={ref} variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300" data-testid={`badge-ref-${ref}`}>
+              {ref}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-start space-x-2">
+        <Checkbox
+          id={`clean-${job.id}`}
+          checked={cleanExisting}
+          onCheckedChange={(checked) => setCleanExisting(checked === true)}
+          data-testid="checkbox-clean-refs"
+        />
+        <div className="grid gap-1.5 leading-none">
+          <Label htmlFor={`clean-${job.id}`} className="cursor-pointer font-normal text-sm">
+            Remove these refs from existing subscribers before importing
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Affected subscribers:{" "}
+            {affectedLoading ? (
+              <span className="text-amber-600">Calculating...</span>
+            ) : (
+              <span className="font-medium">{(affectedData?.affectedSubscribers ?? 0).toLocaleString()}</span>
+            )}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button
+          onClick={() => confirmMutation.mutate()}
+          disabled={confirmMutation.isPending}
+          data-testid="button-confirm-import"
+        >
+          {confirmMutation.isPending ? (
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Confirming...</>
+          ) : (
+            "Confirm Import"
+          )}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => cancelMutation.mutate()}
+          disabled={cancelMutation.isPending}
+          data-testid="button-cancel-confirmation"
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Import() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [tagMode, setTagMode] = useState<"merge" | "override">("merge");
+  const [importTarget, setImportTarget] = useState<"refs" | "tags">("refs");
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isChunkedUpload, setIsChunkedUpload] = useState(false);
   const { toast } = useToast();
@@ -34,7 +147,7 @@ export default function Import() {
     queryKey: ["/api/import-jobs"],
     refetchInterval: (query) => {
       const data = query.state.data as ImportJob[] | undefined;
-      if (data?.some((j) => j.status === "processing" || j.status === "queued")) {
+      if (data?.some((j) => j.status === "processing" || j.status === "queued" || j.status === "awaiting_confirmation")) {
         return 2000;
       }
       return false;
@@ -42,23 +155,21 @@ export default function Import() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ file, tagMode }: { file: File; tagMode: "merge" | "override" }) => {
-      const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
-      const CHUNK_SIZE = 25 * 1024 * 1024; // 25MB chunks (safe for platform limits)
-      const USE_CHUNKED_THRESHOLD = 25 * 1024 * 1024; // Use chunked for files > 25MB
+    mutationFn: async ({ file, tagMode, importTarget }: { file: File; tagMode: "merge" | "override"; importTarget: "refs" | "tags" }) => {
+      const MAX_FILE_SIZE = 1024 * 1024 * 1024;
+      const CHUNK_SIZE = 25 * 1024 * 1024;
+      const USE_CHUNKED_THRESHOLD = 25 * 1024 * 1024;
       
       if (file.size > MAX_FILE_SIZE) {
         throw new Error(`File too large. Maximum size is 1GB, your file is ${(file.size / (1024 * 1024)).toFixed(0)}MB.`);
       }
       
-      // For files > 25MB, use chunked upload to bypass platform limits
       if (file.size > USE_CHUNKED_THRESHOLD) {
         setIsChunkedUpload(true);
         setUploadProgress(0);
         
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
         
-        // Step 1: Start chunked upload session
         const csrfToken = await fetchCsrfToken();
         const startResponse = await fetch("/api/import/chunked/start", {
           method: "POST",
@@ -66,6 +177,7 @@ export default function Import() {
           body: JSON.stringify({
             filename: file.name,
             tagMode,
+            importTarget,
             totalChunks,
             totalSize: file.size,
           }),
@@ -78,7 +190,6 @@ export default function Import() {
         
         const { uploadId } = await startResponse.json();
         
-        // Step 2: Upload chunks sequentially
         for (let i = 0; i < totalChunks; i++) {
           const start = i * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, file.size);
@@ -102,7 +213,6 @@ export default function Import() {
           setUploadProgress(progress);
         }
         
-        // Step 3: Complete the upload
         const completeResponse = await fetch(`/api/import/chunked/${uploadId}/complete`, {
           method: "POST",
           headers: { "x-csrf-token": csrfToken },
@@ -117,10 +227,10 @@ export default function Import() {
         return completeResponse.json();
       }
       
-      // For smaller files, use regular upload
       const formData = new FormData();
       formData.append("file", file);
       formData.append("tagMode", tagMode);
+      formData.append("importTarget", importTarget);
       const importCsrfToken = await fetchCsrfToken();
       const response = await fetch("/api/import", {
         method: "POST",
@@ -142,7 +252,9 @@ export default function Import() {
       setIsChunkedUpload(false);
       toast({
         title: "Import started",
-        description: "Your CSV is being processed in the background.",
+        description: importTarget === "refs"
+          ? "Your CSV is being staged. You will be asked to confirm before merging."
+          : "Your CSV is being processed in the background.",
       });
     },
     onError: (error: Error) => {
@@ -169,7 +281,6 @@ export default function Import() {
       });
     },
     onError: () => {
-      // Also refetch on error to update UI with actual status
       queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
       toast({
         title: "Cancel failed",
@@ -213,7 +324,7 @@ export default function Import() {
 
   const handleUpload = () => {
     if (selectedFile) {
-      uploadMutation.mutate({ file: selectedFile, tagMode });
+      uploadMutation.mutate({ file: selectedFile, tagMode, importTarget });
     }
   };
 
@@ -227,6 +338,8 @@ export default function Import() {
         return <Ban className="h-5 w-5 text-muted-foreground" />;
       case "processing":
         return <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />;
+      case "awaiting_confirmation":
+        return <AlertCircle className="h-5 w-5 text-amber-500" />;
       default:
         return <Clock className="h-5 w-5 text-muted-foreground" />;
     }
@@ -235,12 +348,17 @@ export default function Import() {
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
       pending: "outline",
+      queued: "outline",
       processing: "default",
+      awaiting_confirmation: "outline",
       completed: "secondary",
       failed: "destructive",
       cancelled: "secondary",
     };
-    return <Badge variant={variants[status] || "outline"}>{status}</Badge>;
+    const labels: Record<string, string> = {
+      awaiting_confirmation: "awaiting confirmation",
+    };
+    return <Badge variant={variants[status] || "outline"}>{labels[status] || status}</Badge>;
   };
 
   return (
@@ -248,7 +366,7 @@ export default function Import() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Import Subscribers</h1>
         <p className="text-muted-foreground">
-          Upload a CSV file to import subscribers with their tags
+          Upload a CSV file to import subscribers with their tags or segment refs
         </p>
       </div>
 
@@ -300,26 +418,67 @@ export default function Import() {
           {selectedFile && (
             <div className="space-y-4">
               <div className="rounded-md border p-4">
-                <h4 className="font-medium mb-3">Tag handling for existing emails</h4>
+                <h4 className="font-medium mb-3">Import type</h4>
                 <RadioGroup
-                  value={tagMode}
-                  onValueChange={(value) => setTagMode(value as "merge" | "override")}
+                  value={importTarget}
+                  onValueChange={(value) => setImportTarget(value as "refs" | "tags")}
                   className="space-y-2"
                 >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="merge" id="merge" data-testid="radio-tag-merge" />
-                    <Label htmlFor="merge" className="font-normal cursor-pointer">
-                      Merge tags - Add new tags to existing ones
-                    </Label>
+                  <div className="flex items-start space-x-2">
+                    <RadioGroupItem value="refs" id="target-refs" data-testid="radio-target-refs" />
+                    <div>
+                      <Label htmlFor="target-refs" className="font-normal cursor-pointer">
+                        <span className="flex items-center gap-1.5">
+                          <Hash className="h-3.5 w-3.5" />
+                          Segment Import (refs)
+                        </span>
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Tags column is parsed as ref codes separated by dashes (e.g. 2ag-3cb-5df). System tags (BCK, bounce) are never touched. You will confirm before merging.
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="override" id="override" data-testid="radio-tag-override" />
-                    <Label htmlFor="override" className="font-normal cursor-pointer">
-                      Override tags - Replace all existing tags with new ones
-                    </Label>
+                  <div className="flex items-start space-x-2">
+                    <RadioGroupItem value="tags" id="target-tags" data-testid="radio-target-tags" />
+                    <div>
+                      <Label htmlFor="target-tags" className="font-normal cursor-pointer">
+                        <span className="flex items-center gap-1.5">
+                          <Tag className="h-3.5 w-3.5" />
+                          Tag Import (tags)
+                        </span>
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Tags column is parsed as system tags separated by commas (e.g. VIP,PROMO). Processes immediately.
+                      </p>
+                    </div>
                   </div>
                 </RadioGroup>
               </div>
+
+              {importTarget === "tags" && (
+                <div className="rounded-md border p-4">
+                  <h4 className="font-medium mb-3">Tag handling for existing emails</h4>
+                  <RadioGroup
+                    value={tagMode}
+                    onValueChange={(value) => setTagMode(value as "merge" | "override")}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="merge" id="merge" data-testid="radio-tag-merge" />
+                      <Label htmlFor="merge" className="font-normal cursor-pointer">
+                        Merge tags - Add new tags to existing ones
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="override" id="override" data-testid="radio-tag-override" />
+                      <Label htmlFor="override" className="font-normal cursor-pointer">
+                        Override tags - Replace all existing tags with new ones
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+              )}
+
               {isChunkedUpload && uploadMutation.isPending && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
@@ -367,15 +526,31 @@ export default function Import() {
               <AlertCircle className="h-4 w-4" />
               CSV Format
             </h4>
-            <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
+            {importTarget === "refs" ? (
+              <>
+                <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
+{`email;tags;ip_address
+john@example.com;2ag-3cb-5df;192.168.1.1
+jane@example.com;1aa-2ag;192.168.1.2`}
+                </pre>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Columns are separated by semicolons (;). Ref codes in the tags column are separated by dashes (-) and stored as refs.
+                  System tags (BCK, bounce, unsub) are never affected.
+                </p>
+              </>
+            ) : (
+              <>
+                <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
 {`email;tags;ip_address
 john@example.com;VIP,SOLDES,PROMO;192.168.1.1
 jane@example.com;NEWSLETTER;192.168.1.2`}
-            </pre>
-            <p className="text-xs text-muted-foreground mt-2">
-              Columns are separated by semicolons (;). Tags are separated by commas (,) and automatically converted to uppercase.
-              Imports are processed in batches of 5,000 rows. Existing emails will have their tags updated based on the selected tag mode.
-            </p>
+                </pre>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Columns are separated by semicolons (;). Tags are separated by commas (,) and automatically converted to uppercase.
+                  Imports are processed in batches of 5,000 rows.
+                </p>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -410,14 +585,21 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                     <div className="flex items-center gap-3">
                       {getStatusIcon(job.status)}
                       <div>
-                        <p className="font-medium truncate max-w-[300px]">{job.filename}</p>
+                        <p className="font-medium truncate max-w-[300px]">
+                          {job.filename}
+                          {job.importTarget && (
+                            <Badge variant="outline" className="ml-2 text-xs">
+                              {job.importTarget === "refs" ? "refs" : "tags"}
+                            </Badge>
+                          )}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           {new Date(job.createdAt).toLocaleString()}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {(job.status === "pending" || job.status === "processing") && (
+                      {(job.status === "pending" || job.status === "processing" || job.status === "queued") && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -432,6 +614,10 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                       {getStatusBadge(job.status)}
                     </div>
                   </div>
+
+                  {job.status === "awaiting_confirmation" && (
+                    <ConfirmationCard job={job} onConfirmed={() => refetch()} />
+                  )}
 
                   {(job.status === "processing" || job.status === "queued") && (
                     <div className="space-y-2">

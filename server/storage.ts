@@ -174,6 +174,16 @@ export interface IStorage {
   getImportJobQueueStatus(importJobId: string): Promise<ImportJobQueueStatus | null>;
   cleanupStaleImportJobs(maxAgeMinutes?: number): Promise<number>;
   recoverStuckImportJobs(): Promise<number>;
+  cancelImportJob(importJobId: string): Promise<boolean>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // SEGMENT IMPORT (REFS) OPERATIONS
+  // ═══════════════════════════════════════════════════════════════
+  detectImportRefs(jobId: string): Promise<string[]>;
+  countAffectedSubscribers(refs: string[]): Promise<number>;
+  cleanExistingRefs(refs: string[]): Promise<number>;
+  confirmImportJob(jobId: string, cleanExistingRefs: boolean): Promise<ImportJob | undefined>;
+  expireAbandonedImports(): Promise<number>;
 
   // ═══════════════════════════════════════════════════════════════
   // DATABASE INDEX MANAGEMENT
@@ -1483,6 +1493,90 @@ export class DatabaseStorage implements IStorage {
     
     return queueResult.rows.length + failedResult.rows.length;
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SEGMENT IMPORT (REFS) OPERATIONS
+  // ═══════════════════════════════════════════════════════════════
+
+  async detectImportRefs(jobId: string): Promise<string[]> {
+    const result = await db.execute(sql`
+      SELECT DISTINCT unnest(refs) AS ref
+      FROM import_staging
+      WHERE job_id = ${jobId}
+      ORDER BY ref
+    `);
+    return (result.rows as any[]).map((r) => r.ref);
+  }
+
+  async countAffectedSubscribers(refs: string[]): Promise<number> {
+    if (refs.length === 0) return 0;
+    const result = await db.execute(sql`
+      SELECT COUNT(*) AS count FROM subscribers
+      WHERE refs && ${refs}::text[]
+    `);
+    return parseInt((result.rows as any[])[0]?.count || "0");
+  }
+
+  async cleanExistingRefs(refs: string[]): Promise<number> {
+    if (refs.length === 0) return 0;
+    const BATCH_SIZE = 50000;
+    let totalCleaned = 0;
+
+    while (true) {
+      const result = await db.execute(sql`
+        UPDATE subscribers
+        SET refs = (
+          SELECT COALESCE(array_agg(r), ARRAY[]::text[])
+          FROM unnest(refs) AS r
+          WHERE r != ALL(${refs}::text[])
+        )
+        WHERE id IN (
+          SELECT id FROM subscribers
+          WHERE refs && ${refs}::text[]
+          LIMIT ${BATCH_SIZE}
+        )
+      `);
+      const affected = (result as any).rowCount || 0;
+      totalCleaned += affected;
+      if (affected === 0) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    return totalCleaned;
+  }
+
+  async confirmImportJob(jobId: string, cleanExistingRefs: boolean): Promise<ImportJob | undefined> {
+    const [job] = await db.update(importJobs)
+      .set({
+        cleanExistingRefs,
+        status: "processing",
+      })
+      .where(
+        and(
+          eq(importJobs.id, jobId),
+          eq(importJobs.status, "awaiting_confirmation"),
+        )
+      )
+      .returning();
+    return job;
+  }
+
+  async expireAbandonedImports(): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE import_jobs
+      SET status = 'failed', error_message = 'Confirmation timeout (2h)',
+          completed_at = NOW()
+      WHERE status = 'awaiting_confirmation'
+        AND created_at < NOW() - INTERVAL '2 hours'
+      RETURNING id
+    `);
+    const expiredIds = (result.rows as any[]).map((r) => r.id);
+    for (const id of expiredIds) {
+      await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${id}`);
+      logger.info(`[IMPORT] Expired abandoned import ${id} and cleaned staging data`);
+    }
+    return expiredIds.length;
+  }
   
   // ═══════════════════════════════════════════════════════════════
   // DATABASE INDEX MANAGEMENT
@@ -1491,19 +1585,23 @@ export class DatabaseStorage implements IStorage {
   async dropSubscriberGinIndexes(): Promise<void> {
     logger.info('Dropping GIN indexes for large import optimization');
     await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
+    await db.execute(sql`DROP INDEX IF EXISTS refs_gin_idx`);
     logger.info('GIN indexes dropped');
   }
   
   async recreateSubscriberGinIndexes(): Promise<void> {
     logger.info('Recreating GIN indexes after import');
-    // Use CONCURRENTLY to avoid blocking other operations
-    // Note: CONCURRENTLY can't run in a transaction, so we use separate statements
     try {
       await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
     } catch (err: any) {
-      // Fall back to non-concurrent if CONCURRENTLY fails (e.g., already exists or transaction)
       logger.info('CONCURRENTLY failed for tags_gin_idx, trying regular CREATE INDEX');
       await db.execute(sql`CREATE INDEX IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
+    }
+    try {
+      await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS refs_gin_idx ON subscribers USING gin (refs)`);
+    } catch (err: any) {
+      logger.info('CONCURRENTLY failed for refs_gin_idx, trying regular CREATE INDEX');
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS refs_gin_idx ON subscribers USING gin (refs)`);
     }
     logger.info('GIN indexes recreated');
   }

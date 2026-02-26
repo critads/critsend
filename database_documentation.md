@@ -69,13 +69,15 @@ Table centrale — chaque ligne représente un contact email.
 |---------|------|-------------|-------------|
 | `id` | `varchar` | PK, UUID auto | Identifiant unique |
 | `email` | `text` | NOT NULL, UNIQUE | Adresse email (normalisée en minuscules) |
-| `tags` | `text[]` | NOT NULL, default `{}` | Tableau de tags (ex: `["newsletter", "vip", "BCK"]`) |
+| `tags` | `text[]` | NOT NULL, default `{}` | Tableau de tags système/comportementaux (ex: `["newsletter", "vip", "BCK"]`) |
+| `refs` | `text[]` | NOT NULL, default `{}` | Tableau de refs de ciblage segment (ex: `["2ag", "3cb", "5df"]`). Séparé des tags pour protéger BCK/blacklist lors des imports |
 | `ip_address` | `text` | nullable | Adresse IP du contact |
 | `import_date` | `timestamp` | NOT NULL, default NOW | Date d'ajout |
 
 **Index :**
 - `email_idx` — B-tree sur `email` (recherche rapide par email)
 - `tags_gin_idx` — **GIN** sur `tags` (recherche ultra-rapide dans les tableaux de tags, ex: `'BCK' = ANY(tags)`)
+- `refs_gin_idx` — **GIN** sur `refs` (recherche rapide dans les refs de segment, ex: `'2ag' = ANY(refs)`)
 
 **Relations :**
 - → `campaign_stats` (1:N) — statistiques de tracking
@@ -135,8 +137,8 @@ Segments = filtres réutilisables pour cibler des groupes de contacts.
 }
 ```
 
-**Champs disponibles :** `email`, `tags`, `date_added`, `ip_address`  
-**Opérateurs (18) :** `equals`, `not_equals`, `contains`, `not_contains`, `starts_with`, `ends_with`, `is_empty`, `is_not_empty`, `has_tag`, `not_has_tag`, `has_any_tag`, `has_no_tags`, `before`, `after`, `between`, `in_last_days`, `not_in_last_days`  
+**Champs disponibles :** `email`, `tags`, `refs`, `date_added`, `ip_address`  
+**Opérateurs (22) :** `equals`, `not_equals`, `contains`, `not_contains`, `starts_with`, `ends_with`, `is_empty`, `is_not_empty`, `has_tag`, `not_has_tag`, `has_any_tag`, `has_no_tags`, `has_ref`, `not_has_ref`, `has_any_ref`, `has_no_refs`, `before`, `after`, `between`, `in_last_days`, `not_in_last_days`, `matches_regex`  
 **Profondeur max :** 3 niveaux de groupes imbriqués
 
 ---
@@ -319,8 +321,11 @@ Historique et suivi des imports CSV.
 | `new_subscribers` | `integer` | NOT NULL, default 0 | Nouveaux contacts créés |
 | `updated_subscribers` | `integer` | NOT NULL, default 0 | Contacts mis à jour |
 | `failed_rows` | `integer` | NOT NULL, default 0 | Lignes en erreur |
-| `status` | `text` | NOT NULL, default "pending" | `pending` / `processing` / `completed` / `failed` |
+| `status` | `text` | NOT NULL, default "pending" | `pending` / `processing` / `awaiting_confirmation` / `completed` / `failed` |
 | `tag_mode` | `text` | NOT NULL, default "merge" | `"merge"` (fusionne tags) / `"override"` (remplace) |
+| `import_target` | `text` | NOT NULL, default "tags" | `"tags"` (import classique) / `"refs"` (import segment avec confirmation) |
+| `detected_refs` | `text[]` | NOT NULL, default `{}` | Refs détectés dans le CSV lors de la phase 1 (staging) |
+| `clean_existing_refs` | `boolean` | NOT NULL, default false | Si true, supprime les refs détectés des contacts existants avant la fusion |
 | `error_message` | `text` | nullable | Message d'erreur |
 | `created_at` | `timestamp` | NOT NULL, default NOW | Date de création |
 | `started_at` | `timestamp` | nullable | Début du traitement |
@@ -370,7 +375,8 @@ Table temporaire de transit pour les imports haute performance via PostgreSQL `C
 | `id` | `varchar` | PK, UUID auto | Identifiant unique |
 | `job_id` | `varchar` | NOT NULL | ID du job d'import |
 | `email` | `text` | NOT NULL | Email du contact |
-| `tags` | `text[]` | NOT NULL, default `{}` | Tags du contact |
+| `tags` | `text[]` | NOT NULL, default `{}` | Tags du contact (import classique) |
+| `refs` | `text[]` | NOT NULL, default `{}` | Refs de segment (import refs) |
 | `ip_address` | `text` | nullable | Adresse IP |
 | `line_number` | `integer` | NOT NULL, default 0 | Numéro de ligne dans le CSV |
 
@@ -378,7 +384,7 @@ Table temporaire de transit pour les imports haute performance via PostgreSQL `C
 - `import_staging_job_id_idx` — B-tree sur `job_id`
 - `import_staging_email_idx` — B-tree sur `email`
 
-**Cycle de vie :** Les données CSV sont d'abord copiées ici via `COPY` PostgreSQL (pipeline de 4 opérations parallèles, batches de 25k lignes), puis fusionnées dans `subscribers` via `INSERT...ON CONFLICT` avec support merge/override des tags. La table est nettoyée après chaque import.
+**Cycle de vie :** Les données CSV sont d'abord copiées ici via `COPY` PostgreSQL (pipeline de 4 opérations parallèles, batches de 25k lignes), puis fusionnées dans `subscribers` via `INSERT...ON CONFLICT` avec support merge/override des tags ou fusion des refs. Pour les imports refs, le cycle inclut une phase de confirmation (awaiting_confirmation) avant la fusion. La table est nettoyée après chaque import.
 
 ---
 
@@ -946,6 +952,8 @@ Dans l'interface, les contacts blacklistés affichent un badge rouge **"Blacklis
 
 ## 21. Cycle de vie d'un import CSV
 
+### Import classique (tags)
+
 ```
   Upload CSV              Création job          Worker pickup
   (chunked) ──▶ import_jobs ──▶ import_job_queue ──▶ Processing
@@ -954,15 +962,64 @@ Dans l'interface, les contacts blacklistés affichent un badge rouge **"Blacklis
   Processing:
   1. Lecture CSV par stream
   2. COPY vers import_staging (batches 25k, 4 COPY parallèles)
-  3. INSERT...ON CONFLICT merge/override vers subscribers
+  3. INSERT...ON CONFLICT merge/override vers subscribers.tags
   4. Nettoyage import_staging
   5. Mise à jour compteurs import_jobs
   6. Status → completed
 ```
 
+### Import segment (refs) — Flux deux phases
+
+```
+  Upload CSV              Création job              Worker Phase 1
+  (chunked) ──▶ import_jobs ──▶ import_job_queue ──▶ Staging
+                (import_target:"refs")                (status:processing)
+
+  Phase 1 (Staging):
+  1. Lecture CSV par stream, parse des refs (délimiteur `-`)
+  2. COPY vers import_staging.refs (batches 25k)
+  3. Détection des refs uniques (SELECT DISTINCT unnest(refs))
+  4. Mise à jour import_jobs.detected_refs
+  5. Status → awaiting_confirmation ⟵ PAUSE (worker libère le job)
+
+  ── Confirmation utilisateur ──
+  PATCH /api/import-jobs/:id/confirm
+  → Met à jour clean_existing_refs
+  → Crée nouveau queue entry (csv_file_path="phase2_merge")
+  → NOTIFY import_job_available
+
+  Phase 2 (Merge):
+  1. Si clean_existing_refs: suppression batch (50k chunks) des refs détectés
+  2. Fusion import_staging.refs → subscribers.refs (INSERT...ON CONFLICT, array merge)
+  3. Nettoyage import_staging
+  4. Status → completed
+```
+
+**Import abandonné :** Les imports en `awaiting_confirmation` depuis plus de 2h sont automatiquement expirés (status → failed, staging nettoyé) par le cycle de maintenance (6h).
+
 **Capacité :** Fichiers jusqu'à 1 Go, 7M+ lignes.  
 **Performance :** Pipeline COPY avec sémaphore de backpressure (4 opérations concurrentes max).  
 **Reprise :** Checkpoint par `last_checkpoint_line` en cas d'interruption.
+
+## 22. Système Refs — Séparation tags/refs
+
+Le système `refs` sépare les codes de ciblage segment des tags système/comportementaux :
+
+| Aspect | Tags | Refs |
+|--------|------|------|
+| **Rôle** | Tags système (BCK, bounce, unsub, VIP) | Codes de ciblage segment (2ag, 3cb) |
+| **Délimiteur CSV** | `,` (virgule) | `-` (tiret) |
+| **Casse** | Majuscules (UPPERCASE) | Minuscules (lowercase) |
+| **Édition** | Manuelle (UI) + automatique (tracking) | Import segment uniquement |
+| **Import** | Import classique (tag_mode merge/override) | Import segment (deux phases avec confirmation) |
+| **Nettoyage** | Jamais automatique | Option "clean existing refs" avant fusion |
+| **Protection BCK** | Jamais touché par import refs | N/A |
+
+**DSL Segment v2 — Opérateurs refs :**
+- `has_ref` : le contact a un ref spécifique (`value = ANY(subscribers.refs)`)
+- `not_has_ref` : le contact n'a pas un ref spécifique
+- `has_any_ref` : le contact a au moins un ref
+- `has_no_refs` : le contact n'a aucun ref
 
 ---
 

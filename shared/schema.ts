@@ -8,12 +8,13 @@ export const subscribers = pgTable("subscribers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),
   tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  refs: text("refs").array().notNull().default(sql`ARRAY[]::text[]`),
   ipAddress: text("ip_address"),
   importDate: timestamp("import_date").notNull().defaultNow(),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
-  // GIN index for faster array containment queries on tags
   tagsGinIdx: index("tags_gin_idx").using("gin", table.tags),
+  refsGinIdx: index("refs_gin_idx").using("gin", table.refs),
 }));
 
 export const subscribersRelations = relations(subscribers, ({ many }) => ({
@@ -185,6 +186,9 @@ export const importJobs = pgTable("import_jobs", {
   failedRows: integer("failed_rows").notNull().default(0),
   status: text("status").notNull().default("pending"),
   tagMode: text("tag_mode").notNull().default("merge"),
+  importTarget: text("import_target").notNull().default("refs"),
+  detectedRefs: text("detected_refs").array().notNull().default(sql`ARRAY[]::text[]`),
+  cleanExistingRefs: boolean("clean_existing_refs").notNull().default(false),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
@@ -273,6 +277,7 @@ export const importStaging = pgTable("import_staging", {
   jobId: varchar("job_id").notNull(),
   email: text("email").notNull(),
   tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  refs: text("refs").array().notNull().default(sql`ARRAY[]::text[]`),
   ipAddress: text("ip_address"),
   lineNumber: integer("line_number").notNull().default(0),
 }, (table) => ({
@@ -533,10 +538,11 @@ export type FlushJobStatus = "pending" | "processing" | "completed" | "failed" |
 
 export const segmentConditionSchema = z.object({
   type: z.literal("condition"),
-  field: z.enum(["email", "tags", "date_added", "ip_address"]),
+  field: z.enum(["email", "tags", "refs", "date_added", "ip_address"]),
   operator: z.enum([
     "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty",
     "has_tag", "not_has_tag", "has_any_tag", "has_no_tags",
+    "has_ref", "not_has_ref", "has_any_ref", "has_no_refs",
     "before", "after", "between", "in_last_days", "not_in_last_days",
   ]),
   value: z.union([z.string(), z.array(z.string()), z.null()]),
@@ -569,6 +575,7 @@ export type SegmentRulesV2 = z.infer<typeof segmentRulesV2Schema>;
 export const fieldOperatorsV2 = {
   email: ["equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty"],
   tags: ["has_tag", "not_has_tag", "has_any_tag", "has_no_tags"],
+  refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
 } as const;
@@ -586,6 +593,10 @@ export const operatorLabelsV2: Record<string, string> = {
   not_has_tag: "does not have tag",
   has_any_tag: "has any tag",
   has_no_tags: "has no tags",
+  has_ref: "has ref",
+  not_has_ref: "does not have ref",
+  has_any_ref: "has any ref",
+  has_no_refs: "has no refs",
   before: "is before",
   after: "is after",
   between: "is between",

@@ -49,6 +49,7 @@ import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/
 
 const fieldLabels: Record<string, string> = {
   tags: "Tags",
+  refs: "Refs",
   email: "Email",
   date_added: "Date Added",
   ip_address: "IP Address",
@@ -56,12 +57,13 @@ const fieldLabels: Record<string, string> = {
 
 const fieldIcons: Record<string, typeof Tag> = {
   tags: Tag,
+  refs: Layers,
   email: Mail,
   date_added: Calendar,
   ip_address: Globe,
 };
 
-const unaryOperators = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags"];
+const unaryOperators = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs"];
 
 function makeEmptyCondition(): SegmentCondition {
   return { type: "condition", field: "email", operator: "contains", value: "", value2: null };
