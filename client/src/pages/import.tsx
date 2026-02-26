@@ -18,8 +18,8 @@ import {
   RefreshCw,
   AlertCircle,
   Ban,
-  Tag,
-  Hash,
+  Trash2,
+  ShieldAlert,
 } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -27,9 +27,10 @@ import type { ImportJob } from "@shared/schema";
 
 function ConfirmationCard({ job, onConfirmed }: { job: ImportJob; onConfirmed: () => void }) {
   const [cleanExisting, setCleanExisting] = useState(false);
+  const [deleteExisting, setDeleteExisting] = useState(false);
   const { toast } = useToast();
 
-  const { data: affectedData, isLoading: affectedLoading } = useQuery<{ affectedSubscribers: number }>({
+  const { data: affectedData, isLoading: affectedLoading } = useQuery<{ affectedSubscribers: number; bckProtected: number }>({
     queryKey: ["/api/import-jobs", job.id, "affected-count"],
     queryFn: async () => {
       const res = await fetch(`/api/import-jobs/${job.id}/affected-count`);
@@ -43,12 +44,13 @@ function ConfirmationCard({ job, onConfirmed }: { job: ImportJob; onConfirmed: (
     mutationFn: async () => {
       const response = await apiRequest("PATCH", `/api/import-jobs/${job.id}/confirm`, {
         cleanExistingRefs: cleanExisting,
+        deleteExistingRefs: deleteExisting,
       });
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
-      toast({ title: "Import confirmed", description: "Refs merge is now processing." });
+      toast({ title: "Import confirmed", description: "Import is now processing." });
       onConfirmed();
     },
     onError: (error: Error) => {
@@ -68,12 +70,14 @@ function ConfirmationCard({ job, onConfirmed }: { job: ImportJob; onConfirmed: (
   });
 
   const detectedRefs = job.detectedRefs || [];
+  const affectedCount = affectedData?.affectedSubscribers ?? 0;
+  const bckCount = affectedData?.bckProtected ?? 0;
 
   return (
     <div className="rounded-md border border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20 p-4 space-y-4">
       <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
         <AlertCircle className="h-5 w-5" />
-        <span className="font-medium">Awaiting Confirmation</span>
+        <span className="font-medium">Awaiting Confirmation — Refs detected in CSV</span>
       </div>
 
       <div>
@@ -87,25 +91,67 @@ function ConfirmationCard({ job, onConfirmed }: { job: ImportJob; onConfirmed: (
         </div>
       </div>
 
-      <div className="flex items-start space-x-2">
-        <Checkbox
-          id={`clean-${job.id}`}
-          checked={cleanExisting}
-          onCheckedChange={(checked) => setCleanExisting(checked === true)}
-          data-testid="checkbox-clean-refs"
-        />
-        <div className="grid gap-1.5 leading-none">
-          <Label htmlFor={`clean-${job.id}`} className="cursor-pointer font-normal text-sm">
-            Remove these refs from existing subscribers before importing
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Affected subscribers:{" "}
-            {affectedLoading ? (
-              <span className="text-amber-600">Calculating...</span>
-            ) : (
-              <span className="font-medium">{(affectedData?.affectedSubscribers ?? 0).toLocaleString()}</span>
-            )}
-          </p>
+      <div className="space-y-3">
+        <div className="flex items-start space-x-2">
+          <Checkbox
+            id={`clean-${job.id}`}
+            checked={cleanExisting}
+            onCheckedChange={(checked) => {
+              setCleanExisting(checked === true);
+              if (checked) setDeleteExisting(false);
+            }}
+            disabled={deleteExisting}
+            data-testid="checkbox-clean-refs"
+          />
+          <div className="grid gap-1.5 leading-none">
+            <Label htmlFor={`clean-${job.id}`} className="cursor-pointer font-normal text-sm">
+              Remove these refs from existing subscribers before importing
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Strips ref codes from contacts but keeps the subscriber rows.
+              Affected subscribers:{" "}
+              {affectedLoading ? (
+                <span className="text-amber-600">Calculating...</span>
+              ) : (
+                <span className="font-medium">{affectedCount.toLocaleString()}</span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start space-x-2">
+          <Checkbox
+            id={`delete-${job.id}`}
+            checked={deleteExisting}
+            onCheckedChange={(checked) => {
+              setDeleteExisting(checked === true);
+              if (checked) setCleanExisting(false);
+            }}
+            disabled={cleanExisting}
+            data-testid="checkbox-delete-refs"
+          />
+          <div className="grid gap-1.5 leading-none">
+            <Label htmlFor={`delete-${job.id}`} className="cursor-pointer font-normal text-sm text-red-700 dark:text-red-400 flex items-center gap-1.5">
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete subscribers with these refs before importing
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Permanently removes subscriber rows matching these refs.{" "}
+              {affectedLoading ? (
+                <span className="text-amber-600">Calculating...</span>
+              ) : (
+                <>
+                  <span className="font-medium text-red-600">{affectedCount.toLocaleString()}</span> would be deleted
+                  {bckCount > 0 && (
+                    <span className="inline-flex items-center gap-1 ml-1">
+                      <ShieldAlert className="h-3 w-3 text-amber-600 inline" />
+                      <span className="text-amber-600 font-medium">{bckCount.toLocaleString()} BCK-protected (safe)</span>
+                    </span>
+                  )}
+                </>
+              )}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -113,10 +159,13 @@ function ConfirmationCard({ job, onConfirmed }: { job: ImportJob; onConfirmed: (
         <Button
           onClick={() => confirmMutation.mutate()}
           disabled={confirmMutation.isPending}
+          variant={deleteExisting ? "destructive" : "default"}
           data-testid="button-confirm-import"
         >
           {confirmMutation.isPending ? (
             <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Confirming...</>
+          ) : deleteExisting ? (
+            <><Trash2 className="h-4 w-4 mr-2" />Confirm with Delete</>
           ) : (
             "Confirm Import"
           )}
@@ -138,7 +187,6 @@ export default function Import() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [tagMode, setTagMode] = useState<"merge" | "override">("merge");
-  const [importTarget, setImportTarget] = useState<"refs" | "tags">("refs");
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isChunkedUpload, setIsChunkedUpload] = useState(false);
   const { toast } = useToast();
@@ -155,7 +203,7 @@ export default function Import() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ file, tagMode, importTarget }: { file: File; tagMode: "merge" | "override"; importTarget: "refs" | "tags" }) => {
+    mutationFn: async ({ file, tagMode }: { file: File; tagMode: "merge" | "override" }) => {
       const MAX_FILE_SIZE = 1024 * 1024 * 1024;
       const CHUNK_SIZE = 25 * 1024 * 1024;
       const USE_CHUNKED_THRESHOLD = 25 * 1024 * 1024;
@@ -177,7 +225,6 @@ export default function Import() {
           body: JSON.stringify({
             filename: file.name,
             tagMode,
-            importTarget,
             totalChunks,
             totalSize: file.size,
           }),
@@ -230,7 +277,6 @@ export default function Import() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("tagMode", tagMode);
-      formData.append("importTarget", importTarget);
       const importCsrfToken = await fetchCsrfToken();
       const response = await fetch("/api/import", {
         method: "POST",
@@ -252,9 +298,7 @@ export default function Import() {
       setIsChunkedUpload(false);
       toast({
         title: "Import started",
-        description: importTarget === "refs"
-          ? "Your CSV is being staged. You will be asked to confirm before merging."
-          : "Your CSV is being processed in the background.",
+        description: "Your CSV is being processed. If refs are detected, you will be asked to confirm before merging.",
       });
     },
     onError: (error: Error) => {
@@ -324,7 +368,7 @@ export default function Import() {
 
   const handleUpload = () => {
     if (selectedFile) {
-      uploadMutation.mutate({ file: selectedFile, tagMode, importTarget });
+      uploadMutation.mutate({ file: selectedFile, tagMode });
     }
   };
 
@@ -366,7 +410,7 @@ export default function Import() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Import Subscribers</h1>
         <p className="text-muted-foreground">
-          Upload a CSV file to import subscribers with their tags or segment refs
+          Upload a CSV file to import subscribers with tags and segment refs
         </p>
       </div>
 
@@ -377,7 +421,7 @@ export default function Import() {
             Upload CSV
           </CardTitle>
           <CardDescription>
-            CSV should have columns: email, tags (semicolon-separated), ip_address (optional)
+            Unified import: tags, refs, and IP addresses in one CSV. Refs column is optional.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -418,66 +462,29 @@ export default function Import() {
           {selectedFile && (
             <div className="space-y-4">
               <div className="rounded-md border p-4">
-                <h4 className="font-medium mb-3">Import type</h4>
+                <h4 className="font-medium mb-3">Tag handling for existing emails</h4>
                 <RadioGroup
-                  value={importTarget}
-                  onValueChange={(value) => setImportTarget(value as "refs" | "tags")}
+                  value={tagMode}
+                  onValueChange={(value) => setTagMode(value as "merge" | "override")}
                   className="space-y-2"
                 >
-                  <div className="flex items-start space-x-2">
-                    <RadioGroupItem value="refs" id="target-refs" data-testid="radio-target-refs" />
-                    <div>
-                      <Label htmlFor="target-refs" className="font-normal cursor-pointer">
-                        <span className="flex items-center gap-1.5">
-                          <Hash className="h-3.5 w-3.5" />
-                          Segment Import (refs)
-                        </span>
-                      </Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Tags column is parsed as ref codes separated by dashes (e.g. 2ag-3cb-5df). System tags (BCK, bounce) are never touched. You will confirm before merging.
-                      </p>
-                    </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="merge" id="merge" data-testid="radio-tag-merge" />
+                    <Label htmlFor="merge" className="font-normal cursor-pointer">
+                      Merge tags - Add new tags to existing ones
+                    </Label>
                   </div>
-                  <div className="flex items-start space-x-2">
-                    <RadioGroupItem value="tags" id="target-tags" data-testid="radio-target-tags" />
-                    <div>
-                      <Label htmlFor="target-tags" className="font-normal cursor-pointer">
-                        <span className="flex items-center gap-1.5">
-                          <Tag className="h-3.5 w-3.5" />
-                          Tag Import (tags)
-                        </span>
-                      </Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Tags column is parsed as system tags separated by commas (e.g. VIP,PROMO). Processes immediately.
-                      </p>
-                    </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="override" id="override" data-testid="radio-tag-override" />
+                    <Label htmlFor="override" className="font-normal cursor-pointer">
+                      Override tags - Replace all existing tags with new ones
+                    </Label>
                   </div>
                 </RadioGroup>
+                <p className="text-xs text-muted-foreground mt-2">
+                  This applies to the tags column only. Refs are always merged (never overridden).
+                </p>
               </div>
-
-              {importTarget === "tags" && (
-                <div className="rounded-md border p-4">
-                  <h4 className="font-medium mb-3">Tag handling for existing emails</h4>
-                  <RadioGroup
-                    value={tagMode}
-                    onValueChange={(value) => setTagMode(value as "merge" | "override")}
-                    className="space-y-2"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="merge" id="merge" data-testid="radio-tag-merge" />
-                      <Label htmlFor="merge" className="font-normal cursor-pointer">
-                        Merge tags - Add new tags to existing ones
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="override" id="override" data-testid="radio-tag-override" />
-                      <Label htmlFor="override" className="font-normal cursor-pointer">
-                        Override tags - Replace all existing tags with new ones
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-              )}
 
               {isChunkedUpload && uploadMutation.isPending && (
                 <div className="space-y-2">
@@ -526,31 +533,18 @@ export default function Import() {
               <AlertCircle className="h-4 w-4" />
               CSV Format
             </h4>
-            {importTarget === "refs" ? (
-              <>
-                <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
-{`email;tags;ip_address
-john@example.com;2ag-3cb-5df;192.168.1.1
-jane@example.com;1aa-2ag;192.168.1.2`}
-                </pre>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Columns are separated by semicolons (;). Ref codes in the tags column are separated by dashes (-) and stored as refs.
-                  System tags (BCK, bounce, unsub) are never affected.
-                </p>
-              </>
-            ) : (
-              <>
-                <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
-{`email;tags;ip_address
-john@example.com;VIP,SOLDES,PROMO;192.168.1.1
-jane@example.com;NEWSLETTER;192.168.1.2`}
-                </pre>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Columns are separated by semicolons (;). Tags are separated by commas (,) and automatically converted to uppercase.
-                  Imports are processed in batches of 5,000 rows.
-                </p>
-              </>
-            )}
+            <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
+{`email;tags;refs;ip_address
+john@example.com;VIP,SOLDES,PROMO;2ag-3cb-5df;192.168.1.1
+jane@example.com;NEWSLETTER;;192.168.1.2
+bob@example.com;;1aa-2ag;`}
+            </pre>
+            <div className="text-xs text-muted-foreground mt-2 space-y-1">
+              <p>Columns are separated by semicolons (;). Only the email column is required.</p>
+              <p><strong>tags:</strong> comma-separated, uppercase (e.g. VIP,PROMO). Tag mode (merge/override) applies here.</p>
+              <p><strong>refs:</strong> dash-separated, lowercase (e.g. 2ag-3cb). Always merged. If present, you will confirm before importing.</p>
+              <p><strong>ip_address:</strong> optional IP address for the subscriber.</p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -587,11 +581,6 @@ jane@example.com;NEWSLETTER;192.168.1.2`}
                       <div>
                         <p className="font-medium truncate max-w-[300px]">
                           {job.filename}
-                          {job.importTarget && (
-                            <Badge variant="outline" className="ml-2 text-xs">
-                              {job.importTarget === "refs" ? "refs" : "tags"}
-                            </Badge>
-                          )}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           {new Date(job.createdAt).toLocaleString()}

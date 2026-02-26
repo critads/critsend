@@ -52,7 +52,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
   const chunkedUploads = new Map<string, {
     filename: string;
     tagMode: "merge" | "override";
-    importTarget: "refs" | "tags";
+    importTarget: "auto" | "refs" | "tags";
     totalChunks: number;
     totalSize: number;
     receivedChunks: Set<number>;
@@ -86,9 +86,9 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
 
       const tagMode = (req.body.tagMode === "override") ? "override" : "merge";
-      const importTarget = (req.body.importTarget === "tags") ? "tags" : "refs";
+      const importTarget = "auto";
       const fileSizeBytes = req.file.size;
-      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}, importTarget: ${importTarget}`);
+      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}, importTarget: auto (worker will detect refs column)`);
       
       const csvFilePath = req.file.path;
       logger.info(`[IMPORT] File saved to disk: ${csvFilePath}`);
@@ -268,7 +268,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
       const detectedRefs = job.detectedRefs || [];
       if (detectedRefs.length === 0) {
-        return res.json({ affectedSubscribers: 0 });
+        return res.json({ affectedSubscribers: 0, bckProtected: 0 });
       }
 
       const [count, bckCount] = await Promise.all([
@@ -284,7 +284,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
   app.post("/api/import/chunked/start", async (req: Request, res: Response) => {
     try {
-      const { filename, tagMode, importTarget, totalChunks, totalSize } = req.body;
+      const { filename, tagMode, totalChunks, totalSize } = req.body;
       
       if (!filename || !totalChunks || !totalSize) {
         return res.status(400).json({ error: "Missing required fields: filename, totalChunks, totalSize" });
@@ -299,7 +299,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       chunkedUploads.set(uploadId, {
         filename,
         tagMode: tagMode === "override" ? "override" : "merge",
-        importTarget: importTarget === "tags" ? "tags" : "refs",
+        importTarget: "auto",
         totalChunks: parseInt(totalChunks),
         totalSize: parseInt(totalSize),
         receivedChunks: new Set(),

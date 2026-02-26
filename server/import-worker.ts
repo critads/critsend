@@ -1453,8 +1453,8 @@ async function processRefsImportPhase1(queueId: string, importJobId: string, csv
   });
 }
 
-async function processRefsImportPhase2(queueId: string, importJobId: string) {
-  log("info", `[REFS PHASE 2] Merging refs for job ${importJobId}`);
+async function processRefsImportPhase2(queueId: string, importJobId: string, csvFilePath?: string) {
+  log("info", `[REFS PHASE 2] Processing unified import for job ${importJobId}`);
 
   await ensureDbConnection();
 
@@ -1464,6 +1464,7 @@ async function processRefsImportPhase2(queueId: string, importJobId: string) {
   const detectedRefs = importJob.detectedRefs || [];
   const cleanExisting = importJob.cleanExistingRefs;
   const deleteExisting = importJob.deleteExistingRefs;
+  const tagMode = (importJob as any).tagMode || "merge";
 
   await updateImportJob(importJobId, { status: "processing" });
 
@@ -1477,28 +1478,176 @@ async function processRefsImportPhase2(queueId: string, importJobId: string) {
     log("info", `[REFS PHASE 2] Cleaned ${cleaned} subscribers`);
   }
 
-  log("info", `[REFS PHASE 2] Merging refs from staging into subscribers`);
-  const mergeResult = await mergeRefsFromStaging(importJobId);
-  log("info", `[REFS PHASE 2] Merge complete: ${mergeResult.inserted} inserted, ${mergeResult.updated} updated`);
+  let resolvedCsvPath = csvFilePath;
+  if (!resolvedCsvPath || resolvedCsvPath === "phase2_merge") {
+    const originalQueueResult = await pool.query(
+      `SELECT csv_file_path FROM import_job_queue
+       WHERE import_job_id = $1 AND csv_file_path != 'phase2_merge'
+       ORDER BY created_at ASC LIMIT 1`,
+      [importJobId]
+    );
+    resolvedCsvPath = originalQueueResult.rows[0]?.csv_file_path;
+  }
+
+  if (!resolvedCsvPath || resolvedCsvPath === "phase2_merge") {
+    log("warn", `[REFS PHASE 2] No CSV path found, falling back to staging merge only`);
+    const mergeResult = await mergeRefsFromStaging(importJobId);
+    await cleanupStagingData(importJobId);
+
+    await updateImportJob(importJobId, {
+      status: "completed",
+      completedAt: new Date(),
+      newSubscribers: mergeResult.inserted,
+      updatedSubscribers: mergeResult.updated,
+    });
+
+    sendIpc("complete", {
+      committedRows: mergeResult.inserted + mergeResult.updated,
+      newSubscribers: mergeResult.inserted,
+      updatedSubscribers: mergeResult.updated,
+      failedRows: importJob.failedRows || 0,
+      duration: 0,
+    });
+
+    log("info", `[REFS PHASE 2] Job ${importJobId} completed (staging merge only)`);
+    return;
+  }
 
   await cleanupStagingData(importJobId);
 
-  await updateImportJob(importJobId, {
-    status: "completed",
-    completedAt: new Date(),
-    newSubscribers: mergeResult.inserted,
-    updatedSubscribers: mergeResult.updated,
-  });
+  log("info", `[REFS PHASE 2] Re-reading CSV for full import: ${resolvedCsvPath}`);
 
-  sendIpc("complete", {
-    committedRows: mergeResult.inserted + mergeResult.updated,
-    newSubscribers: mergeResult.inserted,
-    updatedSubscribers: mergeResult.updated,
-    failedRows: importJob.failedRows || 0,
-    duration: 0,
-  });
+  const isObjectStorage = resolvedCsvPath.startsWith("/objects/");
+  let fileStream: NodeJS.ReadableStream;
 
-  log("info", `[REFS PHASE 2] Job ${importJobId} completed`);
+  if (isObjectStorage) {
+    const exists = await objectStorageService.objectExists(resolvedCsvPath);
+    if (!exists) throw new Error(`CSV file not found in object storage: ${resolvedCsvPath}`);
+    fileStream = await objectStorageService.getObjectStream(resolvedCsvPath);
+  } else {
+    if (!fs.existsSync(resolvedCsvPath)) throw new Error(`CSV file not found: ${resolvedCsvPath}`);
+    fileStream = fs.createReadStream(resolvedCsvPath, { encoding: "utf-8", highWaterMark: 256 * 1024 });
+  }
+
+  const BATCH_SIZE = 25000;
+  let header: string[] = [];
+  let emailIdx = -1;
+  let tagsIdx = -1;
+  let refsIdx = -1;
+  let ipIdx = -1;
+  let headerParsed = false;
+  let currentLineNumber = 0;
+  let newSubscribers = 0;
+  let updatedSubscribers = 0;
+  let failedRows = 0;
+  let parsedRows = 0;
+
+  let batchRows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null; lineNumber: number }> = [];
+
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  await new Promise<void>((resolve, reject) => {
+    let hasSettled = false;
+    const safeReject = (err: any) => { if (!hasSettled) { hasSettled = true; reject(err); } };
+    const safeResolve = () => { if (!hasSettled) { hasSettled = true; resolve(); } };
+
+    rl.on("line", async (line: string) => {
+      try {
+        currentLineNumber++;
+
+        if (!headerParsed && currentLineNumber === 1) {
+          header = line.split(";").map(h => h.trim().toLowerCase());
+          emailIdx = header.indexOf("email");
+          tagsIdx = header.indexOf("tags");
+          refsIdx = header.indexOf("refs");
+          ipIdx = header.indexOf("ip_address");
+
+          if (emailIdx === -1) {
+            rl.close();
+            safeReject(new Error("CSV must have an 'email' column"));
+            return;
+          }
+
+          headerParsed = true;
+          return;
+        }
+
+        if (!line.trim()) return;
+
+        const cols = line.split(";").map(c => c.trim());
+        const email = cols[emailIdx]?.toLowerCase();
+
+        if (!email || !email.includes("@")) {
+          failedRows++;
+          parsedRows++;
+          return;
+        }
+
+        const tags = tagsIdx >= 0 && cols[tagsIdx]
+          ? cols[tagsIdx].split(",").map(t => t.trim().toUpperCase()).filter(Boolean)
+          : [];
+        const refs = refsIdx >= 0 && cols[refsIdx]
+          ? cols[refsIdx].split("-").map(r => r.trim().toLowerCase()).filter(Boolean)
+          : [];
+        const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
+
+        batchRows.push({ email, tags, refs, ipAddress, lineNumber: currentLineNumber });
+        parsedRows++;
+
+        if (batchRows.length >= BATCH_SIZE) {
+          rl.pause();
+          const result = await bulkUpsertSubscribers(batchRows, tagMode);
+          newSubscribers += result.inserted;
+          updatedSubscribers += result.updated;
+          failedRows += result.failed;
+          batchRows = [];
+          await updateImportQueueHeartbeat(queueId);
+          rl.resume();
+        }
+      } catch (err) {
+        log("error", `[REFS PHASE 2] Error processing line ${currentLineNumber}: ${err}`);
+        failedRows++;
+        parsedRows++;
+      }
+    });
+
+    rl.on("close", async () => {
+      try {
+        if (batchRows.length > 0) {
+          const result = await bulkUpsertSubscribers(batchRows, tagMode);
+          newSubscribers += result.inserted;
+          updatedSubscribers += result.updated;
+          failedRows += result.failed;
+          batchRows = [];
+        }
+
+        await updateImportJob(importJobId, {
+          status: "completed",
+          completedAt: new Date(),
+          newSubscribers,
+          updatedSubscribers,
+          failedRows,
+          processedRows: parsedRows,
+        });
+
+        sendIpc("complete", {
+          committedRows: newSubscribers + updatedSubscribers,
+          newSubscribers,
+          updatedSubscribers,
+          failedRows,
+          duration: 0,
+        });
+
+        log("info", `[REFS PHASE 2] Job ${importJobId} completed: ${newSubscribers} new, ${updatedSubscribers} updated, ${failedRows} failed`);
+        safeResolve();
+      } catch (err) {
+        safeReject(err);
+      }
+    });
+
+    rl.on("error", (err) => safeReject(err));
+    fileStream.on("error", (err) => safeReject(err));
+  });
 }
 
 let isShuttingDown = false;
@@ -1513,15 +1662,46 @@ async function shutdown() {
   process.exit(0);
 }
 
+async function peekCsvHasRefsColumn(csvFilePath: string): Promise<boolean> {
+  const isObjectStorage = csvFilePath.startsWith("/objects/");
+  let firstLine = "";
+
+  if (isObjectStorage) {
+    const exists = await objectStorageService.objectExists(csvFilePath);
+    if (!exists) return false;
+    const stream = await objectStorageService.getObjectStream(csvFilePath);
+    firstLine = await new Promise<string>((resolve, reject) => {
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+      rl.on("line", (line: string) => { rl.close(); resolve(line); });
+      rl.on("error", reject);
+      rl.on("close", () => resolve(firstLine));
+    });
+  } else {
+    if (!fs.existsSync(csvFilePath)) return false;
+    const stream = fs.createReadStream(csvFilePath, { encoding: "utf-8", highWaterMark: 1024 });
+    firstLine = await new Promise<string>((resolve, reject) => {
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+      rl.on("line", (line: string) => { rl.close(); resolve(line); });
+      rl.on("error", reject);
+      rl.on("close", () => resolve(firstLine));
+    });
+  }
+
+  const headers = firstLine.split(";").map(h => h.trim().toLowerCase());
+  return headers.includes("refs");
+}
+
 process.on("message", async (msg: any) => {
   if (msg?.type === "start") {
     const { queueId, importJobId, csvFilePath, phase } = msg.data || msg;
     try {
       if (phase === "refs_merge") {
-        await processRefsImportPhase2(queueId, importJobId);
+        await processRefsImportPhase2(queueId, importJobId, csvFilePath);
       } else {
-        const importJob = await getImportJob(importJobId);
-        if (importJob?.importTarget === "refs") {
+        const hasRefsColumn = await peekCsvHasRefsColumn(csvFilePath);
+        log("info", `${importJobId}: Auto-detected CSV format: refs column ${hasRefsColumn ? "present" : "absent"}`);
+
+        if (hasRefsColumn) {
           await processRefsImportPhase1(queueId, importJobId, csvFilePath);
         } else {
           await processImport(queueId, importJobId, csvFilePath);

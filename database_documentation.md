@@ -323,9 +323,10 @@ Historique et suivi des imports CSV.
 | `failed_rows` | `integer` | NOT NULL, default 0 | Lignes en erreur |
 | `status` | `text` | NOT NULL, default "pending" | `pending` / `processing` / `awaiting_confirmation` / `completed` / `failed` |
 | `tag_mode` | `text` | NOT NULL, default "merge" | `"merge"` (fusionne tags) / `"override"` (remplace) |
-| `import_target` | `text` | NOT NULL, default "tags" | `"tags"` (import classique) / `"refs"` (import segment avec confirmation) |
+| `import_target` | `text` | NOT NULL, default "tags" | `"auto"` (détection automatique par header CSV), `"tags"` (import classique), `"refs"` (import segment avec confirmation) |
 | `detected_refs` | `text[]` | NOT NULL, default `{}` | Refs détectés dans le CSV lors de la phase 1 (staging) |
 | `clean_existing_refs` | `boolean` | NOT NULL, default false | Si true, supprime les refs détectés des contacts existants avant la fusion |
+| `delete_existing_refs` | `boolean` | NOT NULL, default false | Si true, DELETE les abonnés ayant ces refs (protection BCK : jamais supprimés) |
 | `error_message` | `text` | nullable | Message d'erreur |
 | `created_at` | `timestamp` | NOT NULL, default NOW | Date de création |
 | `started_at` | `timestamp` | nullable | Début du traitement |
@@ -968,13 +969,25 @@ Dans l'interface, les contacts blacklistés affichent un badge rouge **"Blacklis
   6. Status → completed
 ```
 
-### Import segment (refs) — Flux deux phases
+### Import unifié — Détection automatique refs
 
 ```
-  Upload CSV              Création job              Worker Phase 1
-  (chunked) ──▶ import_jobs ──▶ import_job_queue ──▶ Staging
-                (import_target:"refs")                (status:processing)
+  Upload CSV              Création job              Worker auto-détection
+  (chunked) ──▶ import_jobs ──▶ import_job_queue ──▶ Peek CSV header
+                (import_target:"auto")
 
+  Si colonne "refs" absente → Import classique tags (processImport)
+  Si colonne "refs" présente → Import unifié deux phases (tags + refs)
+```
+
+**Format CSV unifié : `email;tags;refs;ip_address`**
+- `tags` : séparateur virgule, majuscules (VIP,PROMO)
+- `refs` : séparateur tiret, minuscules (2ag-3cb-5df)
+- Colonnes `tags`, `refs`, `ip_address` sont optionnelles
+
+### Import avec refs — Flux deux phases
+
+```
   Phase 1 (Staging):
   1. Lecture CSV par stream, parse des refs (délimiteur `-`)
   2. COPY vers import_staging.refs (batches 25k)
@@ -984,16 +997,28 @@ Dans l'interface, les contacts blacklistés affichent un badge rouge **"Blacklis
 
   ── Confirmation utilisateur ──
   PATCH /api/import-jobs/:id/confirm
-  → Met à jour clean_existing_refs
+  → Options : cleanExistingRefs (strip refs) OU deleteExistingRefs (DELETE rows)
   → Crée nouveau queue entry (csv_file_path="phase2_merge")
   → NOTIFY import_job_available
 
-  Phase 2 (Merge):
-  1. Si clean_existing_refs: suppression batch (50k chunks) des refs détectés
-  2. Fusion import_staging.refs → subscribers.refs (INSERT...ON CONFLICT, array merge)
-  3. Nettoyage import_staging
-  4. Status → completed
+  Phase 2 (Import unifié):
+  1. Si deleteExistingRefs: DELETE batch (50k chunks, BCK-protégé) des subscribers
+  2. Sinon si cleanExistingRefs: strip batch (50k chunks) des refs détectés
+  3. Re-lecture complète du CSV original depuis object storage
+  4. Import unifié tags + refs via bulkUpsertSubscribers (tag_mode merge/override pour tags, toujours merge pour refs)
+  5. Nettoyage import_staging
+  6. Status → completed
 ```
+
+**Delete vs Clean :**
+- `cleanExistingRefs` : strip les refs des contacts, conserve les lignes subscriber
+- `deleteExistingRefs` : DELETE les lignes subscriber ayant ces refs (BCK-protégé : jamais supprimés)
+- Les deux utilisent des batches de 50k avec 20ms de délai (row-level locks uniquement)
+
+**GIN indexes — Sécurité :**
+- Import refs (deux phases) : ne drop JAMAIS les index GIN
+- Import tags (classique, >100k lignes) : drop temporaire tags_gin_idx + refs_gin_idx, puis recreate
+- Delete/Clean subscribers : ne drop JAMAIS les index GIN
 
 **Import abandonné :** Les imports en `awaiting_confirmation` depuis plus de 2h sont automatiquement expirés (status → failed, staging nettoyé) par le cycle de maintenance (6h).
 
@@ -1011,9 +1036,9 @@ Le système `refs` sépare les codes de ciblage segment des tags système/compor
 | **Délimiteur CSV** | `,` (virgule) | `-` (tiret) |
 | **Casse** | Majuscules (UPPERCASE) | Minuscules (lowercase) |
 | **Édition** | Manuelle (UI) + automatique (tracking) | Import segment uniquement |
-| **Import** | Import classique (tag_mode merge/override) | Import segment (deux phases avec confirmation) |
-| **Nettoyage** | Jamais automatique | Option "clean existing refs" avant fusion |
-| **Protection BCK** | Jamais touché par import refs | N/A |
+| **Import** | Import unifié (tags: merge/override, refs: toujours merge) | Détection automatique par header CSV |
+| **Nettoyage** | Jamais automatique | Options "clean refs" (strip) ou "delete subscribers" (BCK-protégé) |
+| **Protection BCK** | BCK contacts jamais supprimés par deleteExistingRefs | Refs jamais affectés par tag override |
 
 **DSL Segment v2 — Opérateurs refs :**
 - `has_ref` : le contact a un ref spécifique (`value = ANY(subscribers.refs)`)
