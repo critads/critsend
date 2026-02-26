@@ -189,6 +189,7 @@ export const importJobs = pgTable("import_jobs", {
   importTarget: text("import_target").notNull().default("refs"),
   detectedRefs: text("detected_refs").array().notNull().default(sql`ARRAY[]::text[]`),
   cleanExistingRefs: boolean("clean_existing_refs").notNull().default(false),
+  deleteExistingRefs: boolean("delete_existing_refs").notNull().default(false),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),

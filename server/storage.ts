@@ -181,8 +181,10 @@ export interface IStorage {
   // ═══════════════════════════════════════════════════════════════
   detectImportRefs(jobId: string): Promise<string[]>;
   countAffectedSubscribers(refs: string[]): Promise<number>;
+  countBckProtectedSubscribers(refs: string[]): Promise<number>;
   cleanExistingRefs(refs: string[]): Promise<number>;
-  confirmImportJob(jobId: string, cleanExistingRefs: boolean): Promise<ImportJob | undefined>;
+  deleteSubscribersByRefs(refs: string[]): Promise<{ deleted: number; bckProtected: number }>;
+  confirmImportJob(jobId: string, cleanExistingRefs: boolean, deleteExistingRefs?: boolean): Promise<ImportJob | undefined>;
   expireAbandonedImports(): Promise<number>;
 
   // ═══════════════════════════════════════════════════════════════
@@ -1545,10 +1547,48 @@ export class DatabaseStorage implements IStorage {
     return totalCleaned;
   }
 
-  async confirmImportJob(jobId: string, cleanExistingRefs: boolean): Promise<ImportJob | undefined> {
+  async countBckProtectedSubscribers(refs: string[]): Promise<number> {
+    if (refs.length === 0) return 0;
+    const result = await db.execute(sql`
+      SELECT COUNT(*) AS count FROM subscribers
+      WHERE refs && ${refs}::text[]
+        AND 'BCK' = ANY(tags)
+    `);
+    return parseInt((result.rows as any[])[0]?.count || "0");
+  }
+
+  async deleteSubscribersByRefs(refs: string[]): Promise<{ deleted: number; bckProtected: number }> {
+    if (refs.length === 0) return { deleted: 0, bckProtected: 0 };
+
+    const bckProtected = await this.countBckProtectedSubscribers(refs);
+
+    const BATCH_SIZE = 50000;
+    let totalDeleted = 0;
+
+    while (true) {
+      const result = await db.execute(sql`
+        DELETE FROM subscribers
+        WHERE id IN (
+          SELECT id FROM subscribers
+          WHERE refs && ${refs}::text[]
+            AND NOT ('BCK' = ANY(tags))
+          LIMIT ${BATCH_SIZE}
+        )
+      `);
+      const affected = (result as any).rowCount || 0;
+      totalDeleted += affected;
+      if (affected === 0) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    return { deleted: totalDeleted, bckProtected };
+  }
+
+  async confirmImportJob(jobId: string, cleanExistingRefs: boolean, deleteExistingRefs?: boolean): Promise<ImportJob | undefined> {
     const [job] = await db.update(importJobs)
       .set({
         cleanExistingRefs,
+        deleteExistingRefs: deleteExistingRefs || false,
         status: "processing",
       })
       .where(

@@ -225,7 +225,8 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
 
       const cleanExistingRefs = req.body.cleanExistingRefs === true;
-      const confirmed = await storage.confirmImportJob(req.params.id, cleanExistingRefs);
+      const deleteExistingRefs = req.body.deleteExistingRefs === true;
+      const confirmed = await storage.confirmImportJob(req.params.id, cleanExistingRefs, deleteExistingRefs);
       if (!confirmed) {
         return res.status(400).json({ error: "Failed to confirm import job" });
       }
@@ -245,7 +246,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         await db.execute(sql`NOTIFY import_jobs`);
       } catch {}
 
-      logger.info(`[IMPORT] Import job ${job.id} confirmed (cleanExistingRefs: ${cleanExistingRefs}), enqueued merge phase: ${queueItem.id}`);
+      logger.info(`[IMPORT] Import job ${job.id} confirmed (cleanExistingRefs: ${cleanExistingRefs}, deleteExistingRefs: ${deleteExistingRefs}), enqueued merge phase: ${queueItem.id}`);
 
       res.json({ id: job.id, status: "processing" });
     } catch (error) {
@@ -270,8 +271,11 @@ export function registerImportExportRoutes(app: Express, helpers: {
         return res.json({ affectedSubscribers: 0 });
       }
 
-      const count = await storage.countAffectedSubscribers(detectedRefs);
-      res.json({ affectedSubscribers: count });
+      const [count, bckCount] = await Promise.all([
+        storage.countAffectedSubscribers(detectedRefs),
+        storage.countBckProtectedSubscribers(detectedRefs),
+      ]);
+      res.json({ affectedSubscribers: count, bckProtected: bckCount });
     } catch (error) {
       logger.error("Error fetching affected count:", error);
       res.status(500).json({ error: "Failed to fetch affected subscriber count" });
@@ -518,13 +522,20 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
   app.get("/api/export", async (req: Request, res: Response) => {
     try {
-      const fields = (req.query.fields as string)?.split(",") || ["email", "tags", "ipAddress", "importDate"];
+      const fields = (req.query.fields as string)?.split(",") || ["email", "tags", "refs", "ipAddress", "importDate"];
       
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename=critsend-export-${new Date().toISOString().split("T")[0]}.csv`);
       res.setHeader("Transfer-Encoding", "chunked");
       
-      res.write(fields.join(",") + "\n");
+      const headerMap: Record<string, string> = {
+        email: "email",
+        tags: "tags",
+        refs: "refs",
+        ipAddress: "ip_address",
+        importDate: "import_date",
+      };
+      res.write(fields.map(f => headerMap[f] || f).join(";") + "\n");
       
       let page = 1;
       const limit = 10000;
@@ -537,16 +548,17 @@ export function registerImportExportRoutes(app: Express, helpers: {
           const row = fields.map(field => {
             let val = "";
             if (field === "email") val = sub.email;
-            else if (field === "tags") val = (sub.tags || []).join(";");
+            else if (field === "tags") val = (sub.tags || []).join(",");
+            else if (field === "refs") val = (sub.refs || []).join("-");
             else if (field === "ipAddress") val = sub.ipAddress || "";
             else if (field === "importDate") val = sub.importDate.toISOString();
             val = sanitizeCsvValue(val);
-            if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+            if (val.includes(";") || val.includes('"') || val.includes("\n")) {
               return '"' + val.replace(/"/g, '""') + '"';
             }
             return val;
           });
-          chunk += row.join(",") + "\n";
+          chunk += row.join(";") + "\n";
         }
         
         if (chunk) {

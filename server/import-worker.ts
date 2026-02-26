@@ -116,6 +116,7 @@ interface ImportJob {
   importTarget: string;
   detectedRefs: string[];
   cleanExistingRefs: boolean;
+  deleteExistingRefs: boolean;
   errorMessage: string | null;
 }
 
@@ -153,6 +154,7 @@ async function getImportJob(importJobId: string): Promise<ImportJob | null> {
     importTarget: row.import_target || "tags",
     detectedRefs: row.detected_refs || [],
     cleanExistingRefs: row.clean_existing_refs || false,
+    deleteExistingRefs: row.delete_existing_refs || false,
     errorMessage: row.error_message,
   };
 }
@@ -233,9 +235,10 @@ async function updateImportQueueProgressWithCheckpoint(
 }
 
 async function dropSubscriberGinIndexes(): Promise<void> {
-  log("info", "Dropping GIN indexes for large import optimization");
+  log("info", "Dropping GIN indexes for large tag import optimization");
   await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
-  log("info", "GIN indexes dropped");
+  await db.execute(sql`DROP INDEX IF EXISTS refs_gin_idx`);
+  log("info", "GIN indexes dropped (tags_gin_idx, refs_gin_idx)");
 }
 
 async function recreateSubscriberGinIndexes(): Promise<void> {
@@ -246,7 +249,13 @@ async function recreateSubscriberGinIndexes(): Promise<void> {
     log("info", "CONCURRENTLY failed for tags_gin_idx, trying regular CREATE INDEX");
     await db.execute(sql`CREATE INDEX IF NOT EXISTS tags_gin_idx ON subscribers USING gin (tags)`);
   }
-  log("info", "GIN indexes recreated");
+  try {
+    await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS refs_gin_idx ON subscribers USING gin (refs)`);
+  } catch (err: any) {
+    log("info", "CONCURRENTLY failed for refs_gin_idx, trying regular CREATE INDEX");
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS refs_gin_idx ON subscribers USING gin (refs)`);
+  }
+  log("info", "GIN indexes recreated (tags_gin_idx, refs_gin_idx)");
 }
 
 async function areGinIndexesPresent(): Promise<boolean> {
@@ -255,10 +264,10 @@ async function areGinIndexesPresent(): Promise<boolean> {
     FROM pg_indexes
     WHERE schemaname = 'public'
       AND tablename = 'subscribers'
-      AND indexname = 'tags_gin_idx'
+      AND indexname IN ('tags_gin_idx', 'refs_gin_idx')
   `);
   const count = parseInt((result.rows[0] as any)?.count || "0", 10);
-  return count >= 1;
+  return count >= 2;
 }
 
 async function logError(data: {
@@ -301,7 +310,7 @@ function formatPgArray(arr: string[]): string {
 }
 
 async function copyBatchUpsert(
-  rows: Array<{ email: string; tags: string[]; ipAddress: string | null }>,
+  rows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null }>,
   tagMode: "merge" | "override"
 ): Promise<{ inserted: number; updated: number }> {
   const client = await pool.connect();
@@ -312,19 +321,21 @@ async function copyBatchUpsert(
       CREATE TEMP TABLE import_staging_batch (
         email TEXT NOT NULL,
         tags TEXT[] NOT NULL,
+        refs TEXT[] NOT NULL,
         ip_address TEXT
       ) ON COMMIT DROP
     `);
 
     const copyStream = client.query(copyFrom(
-      "COPY import_staging_batch (email, tags, ip_address) FROM STDIN WITH (FORMAT text)"
+      "COPY import_staging_batch (email, tags, refs, ip_address) FROM STDIN WITH (FORMAT text)"
     ));
 
     for (const row of rows) {
       const email = escapeCopyValue(row.email);
       const tagsLiteral = formatPgArray(row.tags);
+      const refsLiteral = formatPgArray(row.refs);
       const ip = row.ipAddress ? escapeCopyValue(row.ipAddress) : "\\N";
-      copyStream.write(`${email}\t${tagsLiteral}\t${ip}\n`);
+      copyStream.write(`${email}\t${tagsLiteral}\t${refsLiteral}\t${ip}\n`);
     }
 
     await new Promise<void>((resolve, reject) => {
@@ -333,19 +344,27 @@ async function copyBatchUpsert(
       copyStream.end();
     });
 
-    const onConflictSet = tagMode === "override"
-      ? `tags = EXCLUDED.tags, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`
+    const tagsConflict = tagMode === "override"
+      ? `tags = EXCLUDED.tags`
       : `tags = COALESCE(
           (SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL),
           ARRAY[]::text[]
-        ), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`;
+        )`;
+
+    const refsConflict = `refs = COALESCE(
+          (SELECT array_agg(DISTINCT r) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL),
+          ARRAY[]::text[]
+        )`;
 
     const mergeResult = await client.query(`
       WITH upserted AS (
-        INSERT INTO subscribers (email, tags, ip_address, import_date)
-        SELECT email, tags, ip_address, NOW()
+        INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
+        SELECT email, tags, refs, ip_address, NOW()
         FROM import_staging_batch
-        ON CONFLICT (email) DO UPDATE SET ${onConflictSet}
+        ON CONFLICT (email) DO UPDATE SET
+          ${tagsConflict},
+          ${refsConflict},
+          ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
         RETURNING (xmax = 0) AS is_insert
       )
       SELECT
@@ -369,7 +388,7 @@ async function copyBatchUpsert(
 }
 
 async function directBatchUpsert(
-  rows: Array<{ email: string; tags: string[]; ipAddress: string | null }>,
+  rows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null }>,
   tagMode: "merge" | "override"
 ): Promise<{ inserted: number; updated: number }> {
   const valuesClauses: string[] = [];
@@ -377,23 +396,31 @@ async function directBatchUpsert(
   let paramIdx = 1;
 
   for (const row of rows) {
-    valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}::text[], $${paramIdx + 2}, NOW())`);
-    params.push(row.email.toLowerCase(), row.tags, row.ipAddress);
-    paramIdx += 3;
+    valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}::text[], $${paramIdx + 2}::text[], $${paramIdx + 3}, NOW())`);
+    params.push(row.email.toLowerCase(), row.tags, row.refs, row.ipAddress);
+    paramIdx += 4;
   }
 
-  const onConflictSet = tagMode === "override"
-    ? `tags = EXCLUDED.tags, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`
+  const tagsConflict = tagMode === "override"
+    ? `tags = EXCLUDED.tags`
     : `tags = COALESCE(
         (SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL),
         ARRAY[]::text[]
-      ), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`;
+      )`;
+
+  const refsConflict = `refs = COALESCE(
+        (SELECT array_agg(DISTINCT r) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL),
+        ARRAY[]::text[]
+      )`;
 
   const query = `
     WITH upserted AS (
-      INSERT INTO subscribers (email, tags, ip_address, import_date)
+      INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
       VALUES ${valuesClauses.join(", ")}
-      ON CONFLICT (email) DO UPDATE SET ${onConflictSet}
+      ON CONFLICT (email) DO UPDATE SET
+        ${tagsConflict},
+        ${refsConflict},
+        ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
       RETURNING (xmax = 0) AS is_insert
     )
     SELECT
@@ -410,28 +437,36 @@ async function directBatchUpsert(
 }
 
 async function singleUpsert(
-  row: { email: string; tags: string[]; ipAddress: string | null },
+  row: { email: string; tags: string[]; refs: string[]; ipAddress: string | null },
   tagMode: "merge" | "override"
 ): Promise<"inserted" | "updated"> {
-  const onConflictSet = tagMode === "override"
-    ? `tags = EXCLUDED.tags, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`
+  const tagsConflict = tagMode === "override"
+    ? `tags = EXCLUDED.tags`
     : `tags = COALESCE(
         (SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL),
         ARRAY[]::text[]
-      ), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`;
+      )`;
+
+  const refsConflict = `refs = COALESCE(
+        (SELECT array_agg(DISTINCT r) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL),
+        ARRAY[]::text[]
+      )`;
 
   const result = await pool.query(
-    `INSERT INTO subscribers (email, tags, ip_address, import_date)
-     VALUES ($1, $2::text[], $3, NOW())
-     ON CONFLICT (email) DO UPDATE SET ${onConflictSet}
+    `INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
+     VALUES ($1, $2::text[], $3::text[], $4, NOW())
+     ON CONFLICT (email) DO UPDATE SET
+       ${tagsConflict},
+       ${refsConflict},
+       ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
      RETURNING (xmax = 0) AS is_insert`,
-    [row.email.toLowerCase(), row.tags, row.ipAddress]
+    [row.email.toLowerCase(), row.tags, row.refs, row.ipAddress]
   );
   return result.rows[0]?.is_insert ? "inserted" : "updated";
 }
 
 async function insertFallbackUpsert(
-  rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
+  rows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null; lineNumber: number }>,
   tagMode: "merge" | "override" = "merge"
 ): Promise<{ inserted: number; updated: number; failed: number }> {
   if (rows.length === 0) return { inserted: 0, updated: 0, failed: 0 };
@@ -465,7 +500,7 @@ async function insertFallbackUpsert(
 }
 
 async function bulkUpsertSubscribers(
-  rows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }>,
+  rows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null; lineNumber: number }>,
   tagMode: "merge" | "override" = "merge"
 ): Promise<{ inserted: number; updated: number; failed: number }> {
   if (rows.length === 0) return { inserted: 0, updated: 0, failed: 0 };
@@ -683,6 +718,37 @@ async function cleanExistingRefsInDb(refs: string[]): Promise<number> {
   return totalCleaned;
 }
 
+async function deleteSubscribersByRefsInDb(refs: string[]): Promise<{ deleted: number; bckProtected: number }> {
+  if (refs.length === 0) return { deleted: 0, bckProtected: 0 };
+
+  const bckResult = await pool.query(
+    `SELECT COUNT(*) AS count FROM subscribers WHERE refs && $1::text[] AND 'BCK' = ANY(tags)`,
+    [refs]
+  );
+  const bckProtected = parseInt(bckResult.rows[0]?.count || "0");
+
+  const BATCH_SIZE = 50000;
+  let totalDeleted = 0;
+
+  while (true) {
+    const result = await pool.query(`
+      DELETE FROM subscribers
+      WHERE id IN (
+        SELECT id FROM subscribers
+        WHERE refs && $1::text[]
+          AND NOT ('BCK' = ANY(tags))
+        LIMIT $2
+      )
+    `, [refs, BATCH_SIZE]);
+    const affected = result.rowCount || 0;
+    totalDeleted += affected;
+    if (affected === 0) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  return { deleted: totalDeleted, bckProtected };
+}
+
 async function mergeRefsFromStaging(importJobId: string): Promise<{ inserted: number; updated: number }> {
   const result = await pool.query(`
     WITH upserted AS (
@@ -828,10 +894,12 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let header: string[] = [];
   let emailIdx = -1;
   let tagsIdx = -1;
+  let refsIdx = -1;
   let ipIdx = -1;
   let headerParsed = false;
+  let hasRefsColumn = false;
 
-  let batchRows: Array<{ email: string; tags: string[]; ipAddress: string | null; lineNumber: number }> = [];
+  let batchRows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null; lineNumber: number }> = [];
   let currentLineNumber = 0;
   let batchNumber = 0;
   const startTime = Date.now();
@@ -1006,9 +1074,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           header = line.split(";").map((h) => h.trim().toLowerCase());
           emailIdx = header.indexOf("email");
           tagsIdx = header.indexOf("tags");
+          refsIdx = header.indexOf("refs");
           ipIdx = header.indexOf("ip_address");
+          hasRefsColumn = refsIdx >= 0;
 
-          log("info", `${importJobId}: Header columns: ${header.join(", ")}`);
+          log("info", `${importJobId}: Header columns: ${header.join(", ")} (refs column: ${hasRefsColumn ? "yes" : "no"})`);
 
           if (emailIdx === -1) {
             rl.close();
@@ -1050,9 +1120,16 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
                   .map((t) => t.trim().toUpperCase())
                   .filter(Boolean)
               : [];
+          const refs =
+            refsIdx >= 0 && cols[refsIdx]
+              ? cols[refsIdx]
+                  .split("-")
+                  .map((r) => r.trim().toLowerCase())
+                  .filter(Boolean)
+              : [];
           const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
 
-          batchRows.push({ email, tags, ipAddress, lineNumber: currentLineNumber });
+          batchRows.push({ email, tags, refs, ipAddress, lineNumber: currentLineNumber });
           parsedRows++;
 
           if (batchRows.length >= BATCH_SIZE) {
@@ -1247,8 +1324,10 @@ async function processRefsImportPhase1(queueId: string, importJobId: string, csv
   let header: string[] = [];
   let emailIdx = -1;
   let tagsIdx = -1;
+  let refsColIdx = -1;
   let ipIdx = -1;
   let headerParsed = false;
+  let useRefsColumn = false;
   let currentLineNumber = 0;
   let parsedRows = 0;
   let failedRows = 0;
@@ -1270,7 +1349,11 @@ async function processRefsImportPhase1(queueId: string, importJobId: string, csv
           header = line.split(";").map((h) => h.trim().toLowerCase());
           emailIdx = header.indexOf("email");
           tagsIdx = header.indexOf("tags");
+          refsColIdx = header.indexOf("refs");
           ipIdx = header.indexOf("ip_address");
+          useRefsColumn = refsColIdx >= 0;
+
+          log("info", `[REFS PHASE 1] Header: ${header.join(", ")} (refs column: ${useRefsColumn ? "yes, using refs column" : "no, falling back to tags column"})`);
 
           if (emailIdx === -1) {
             rl.close();
@@ -1294,9 +1377,10 @@ async function processRefsImportPhase1(queueId: string, importJobId: string, csv
           return;
         }
 
+        const refsSource = useRefsColumn ? refsColIdx : tagsIdx;
         const refs =
-          tagsIdx >= 0 && cols[tagsIdx]
-            ? cols[tagsIdx]
+          refsSource >= 0 && cols[refsSource]
+            ? cols[refsSource]
                 .split("-")
                 .map((r) => r.trim().toLowerCase())
                 .filter(Boolean)
@@ -1334,7 +1418,7 @@ async function processRefsImportPhase1(queueId: string, importJobId: string, csv
           await cleanupStagingData(importJobId);
           await updateImportJob(importJobId, {
             status: "failed",
-            errorMessage: "No refs detected in CSV. Check that the tags column exists and contains valid ref codes (e.g. 2ag-3cb-5df).",
+            errorMessage: "No refs detected in CSV. Ensure the CSV has a 'refs' column (or 'tags' column) with dash-separated ref codes (e.g. 2ag-3cb-5df).",
             failedRows,
           });
           sendIpc("error", { message: "No refs detected in CSV" });
@@ -1379,10 +1463,15 @@ async function processRefsImportPhase2(queueId: string, importJobId: string) {
 
   const detectedRefs = importJob.detectedRefs || [];
   const cleanExisting = importJob.cleanExistingRefs;
+  const deleteExisting = importJob.deleteExistingRefs;
 
   await updateImportJob(importJobId, { status: "processing" });
 
-  if (cleanExisting && detectedRefs.length > 0) {
+  if (deleteExisting && detectedRefs.length > 0) {
+    log("info", `[REFS PHASE 2] Deleting subscribers with refs: ${detectedRefs.join(", ")}`);
+    const { deleted, bckProtected } = await deleteSubscribersByRefsInDb(detectedRefs);
+    log("info", `[REFS PHASE 2] Deleted ${deleted} subscribers (${bckProtected} BCK-protected skipped)`);
+  } else if (cleanExisting && detectedRefs.length > 0) {
     log("info", `[REFS PHASE 2] Cleaning existing refs: ${detectedRefs.join(", ")}`);
     const cleaned = await cleanExistingRefsInDb(detectedRefs);
     log("info", `[REFS PHASE 2] Cleaned ${cleaned} subscribers`);
