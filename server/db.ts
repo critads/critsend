@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "@shared/schema";
 import { logger } from "./logger";
+import { MAIN_POOL_MAX, isExternalDb } from "./connection-budget";
 
 const { Pool } = pg;
 
@@ -24,13 +25,11 @@ if (connectionString.includes("neon.tech")) {
   } catch {}
 }
 
-export const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SSL === "true";
-
-const pgPoolMax = Number(process.env.PG_POOL_MAX || (isExternalDb ? 5 : 10));
+export { isExternalDb };
 
 const poolConfig: pg.PoolConfig = {
   connectionString,
-  max: pgPoolMax,
+  max: MAIN_POOL_MAX,
   min: isExternalDb ? 1 : 2,
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
   connectionTimeoutMillis: isExternalDb ? 15000 : 10000,
@@ -47,7 +46,7 @@ if (isExternalDb) {
 
 export const pool = new Pool(poolConfig);
 
-logger.info(`PG pool configured: max=${pgPoolMax}, min=${poolConfig.min}, idleTimeout=${poolConfig.idleTimeoutMillis}ms, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}`);
+logger.info(`PG pool configured: max=${MAIN_POOL_MAX}, min=${poolConfig.min}, idleTimeout=${poolConfig.idleTimeoutMillis}ms, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}`);
 
 pool.on('error', (err) => {
   logger.error('Unexpected DB pool error on idle client', { error: err.message });
@@ -66,6 +65,6 @@ setInterval(() => {
     total: pool.totalCount,
     idle: pool.idleCount,
     waiting: pool.waitingCount,
-    max: pgPoolMax,
+    max: MAIN_POOL_MAX,
   });
 }, 30_000);

@@ -47,7 +47,7 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 
 ## External Dependencies
 
-- **PostgreSQL (Neon):** Primary database, hosted on Neon, configured for SSL. Connection pool defaults: 5 max (Neon), 10 max (local), configurable via `PG_POOL_MAX` env var. Import worker runs as a forked child process with its own pool: 2 max (Neon), 4 max (local), configurable via `PG_IMPORT_POOL_MAX`.
+- **PostgreSQL (Neon):** Primary database, hosted on Neon, configured for SSL. Connection pool defaults: 5 max (Neon), 10 max (local), configurable via `PG_POOL_MAX` env var. Import worker runs as a forked child process with its own pool: 2 max (Neon), 4 max (local), configurable via `PG_IMPORT_POOL_MAX`. A central connection budget system (`server/connection-budget.ts`) enforces the total connection limit (`PG_CONNECTION_LIMIT`, default 10 for Neon) across all pools: main pool + import worker + LISTEN/NOTIFY = total never exceeds limit. Main pool auto-computes as `limit - import - notify`.
 - **Nodemailer:** Used for real SMTP email sending with pooling and retries.
 - **`sanitize-html`:** For sanitizing HTML content in campaigns.
 - **`connect-pg-simple`:** For persistent session management using PostgreSQL.

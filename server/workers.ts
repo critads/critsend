@@ -684,10 +684,13 @@ async function pollForImportJobs() {
       return;
     }
 
+    const { IMPORT_POOL_MAX, IMPORT_CONCURRENCY } = await import("./connection-budget");
     const forkOptions: any = {
       env: {
         ...process.env,
         NODE_OPTIONS: "--max-old-space-size=4096",
+        PG_IMPORT_POOL_MAX: String(IMPORT_POOL_MAX),
+        PG_IMPORT_CONCURRENCY: String(IMPORT_CONCURRENCY),
       },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     };

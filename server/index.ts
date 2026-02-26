@@ -13,6 +13,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { pool } from "./db";
 import { logger } from "./logger";
+import { validateConnectionBudget } from "./connection-budget";
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Promise Rejection', { reason: String(reason) });
@@ -393,6 +394,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 (async () => {
   await registerRoutes(httpServer, app);
   
+  validateConnectionBudget();
   startMetricsCollector();
   messageQueue.initialize().catch(err => logger.error('Message queue init failed', { error: String(err) }));
   

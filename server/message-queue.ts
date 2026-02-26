@@ -1,5 +1,6 @@
 import { pool } from "./db";
 import { logger } from "./logger";
+import { NOTIFY_CONNECTIONS } from "./connection-budget";
 import pg from "pg";
 import crypto from "crypto";
 
@@ -68,6 +69,7 @@ class NotifyQueue {
           }
         } catch {}
       }
+      logger.info(`NotifyQueue using ${NOTIFY_CONNECTIONS} dedicated connection (budget-controlled)`);
       this.client = new pg.Client({
         connectionString: connString,
         application_name: "notify_queue_listener",
