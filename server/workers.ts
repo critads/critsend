@@ -519,6 +519,26 @@ async function resumeInterruptedCampaigns() {
       }
     }
 
+    const stuckImportQueue = await db.execute(sql`
+      UPDATE import_job_queue q
+      SET status = 'pending',
+          started_at = NULL,
+          heartbeat = NULL,
+          worker_id = NULL,
+          retry_count = retry_count + 1
+      WHERE q.status = 'processing'
+        AND NOT EXISTS (
+          SELECT 1 FROM import_jobs j
+          WHERE j.id = q.import_job_id
+          AND j.status = 'cancelled'
+        )
+      RETURNING q.import_job_id
+    `);
+
+    if (stuckImportQueue.rows.length > 0) {
+      logger.info(`[RECOVERY] Reset ${stuckImportQueue.rows.length} stuck import queue item(s)`);
+    }
+
     const stuckImports = await db.execute(sql`
       UPDATE import_jobs SET status = 'pending', error_message = 'Interrupted by server restart - will retry'
       WHERE status = 'processing'
