@@ -43,6 +43,7 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 - **Modular Route Architecture:** Features a fully modular route architecture with 14 distinct route modules and shared utilities.
 - **Data Integrity & Concurrency:** Utilizes PostgreSQL's transactional capabilities, atomic counter updates, unique indexes, and optimistic locking to ensure data consistency.
 - **Production Architecture:** Employs PostgreSQL-backed job queues for horizontal scaling and crash recovery. Tag queue uses bulk grouped UPDATEs for higher throughput. Segment count cache auto-prunes expired entries every 5 minutes.
+- **Real-Time SSE Progress:** Server-Sent Events (`GET /api/jobs/stream`) push instant progress updates for import, flush, and campaign jobs. An in-process `EventEmitter` hub (`server/job-events.ts`) relays events from workers and campaign sender to connected browsers. Frontend `useJobStream()` hook (singleton pattern with ref-counting) updates React Query cache directly, with polling fallback at 10s intervals. Supports auto-reconnect with exponential backoff.
 - **Nullsink SMTP Testing:** An internal SMTP server allows for testing campaigns without sending real emails.
 
 ## External Dependencies

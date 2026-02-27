@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { queryClient } from "@/lib/queryClient";
 import type { ImportJob } from "@shared/schema";
 
@@ -20,50 +20,65 @@ export interface JobProgressEvent {
   campaignId?: string;
 }
 
+let activeEs: EventSource | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let retryCount = 0;
+let refCount = 0;
+
+function connect() {
+  if (activeEs) {
+    activeEs.close();
+  }
+
+  const es = new EventSource("/api/jobs/stream", { withCredentials: true });
+  activeEs = es;
+
+  es.onopen = () => {
+    retryCount = 0;
+  };
+
+  es.onmessage = (event) => {
+    try {
+      const data: JobProgressEvent = JSON.parse(event.data);
+      handleEvent(data);
+    } catch (_) {}
+  };
+
+  es.onerror = () => {
+    es.close();
+    activeEs = null;
+    if (refCount > 0) {
+      const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
+      retryCount++;
+      reconnectTimer = setTimeout(connect, delay);
+    }
+  };
+}
+
+function disconnect() {
+  if (activeEs) {
+    activeEs.close();
+    activeEs = null;
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  retryCount = 0;
+}
+
 export function useJobStream() {
-  const esRef = useRef<EventSource | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryCount = useRef(0);
-
   useEffect(() => {
-    function connect() {
-      if (esRef.current) {
-        esRef.current.close();
-      }
-
-      const es = new EventSource("/api/jobs/stream", { withCredentials: true });
-      esRef.current = es;
-
-      es.onopen = () => {
-        retryCount.current = 0;
-      };
-
-      es.onmessage = (event) => {
-        try {
-          const data: JobProgressEvent = JSON.parse(event.data);
-          handleEvent(data);
-        } catch (_) {}
-      };
-
-      es.onerror = () => {
-        es.close();
-        esRef.current = null;
-        const delay = Math.min(1000 * Math.pow(2, retryCount.current), 30000);
-        retryCount.current++;
-        reconnectTimer.current = setTimeout(connect, delay);
-      };
+    refCount++;
+    if (refCount === 1) {
+      connect();
     }
 
-    connect();
-
     return () => {
-      if (esRef.current) {
-        esRef.current.close();
-        esRef.current = null;
-      }
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = null;
+      refCount--;
+      if (refCount <= 0) {
+        refCount = 0;
+        disconnect();
       }
     };
   }, []);
