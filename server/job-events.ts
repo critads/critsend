@@ -3,12 +3,13 @@ import { EventEmitter } from "events";
 export interface JobProgressEvent {
   jobType: "import" | "flush" | "campaign";
   jobId: string;
-  status: "processing" | "completed" | "failed" | "cancelled" | "awaiting_confirmation" | "queued";
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled" | "awaiting_confirmation" | "queued";
   processedRows: number;
   totalRows: number;
   newSubscribers?: number;
   updatedSubscribers?: number;
   failedRows?: number;
+  duplicatesInFile?: number;
   failureReasons?: Record<string, number>;
   skippedRows?: number;
   sentCount?: number;

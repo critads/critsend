@@ -765,12 +765,13 @@ async function pollForImportJobs() {
             newSubscribers: d.newSubscribers || 0,
             updatedSubscribers: d.updatedSubscribers || 0,
             failedRows: d.failedRows || 0,
+            duplicatesInFile: d.duplicatesInFile || 0,
           });
           break;
         }
         case "complete": {
           const d = msg.data;
-          logger.info(`[IMPORT] Worker completed: committed=${d.committedRows}, new=${d.newSubscribers}, updated=${d.updatedSubscribers}, failed=${d.failedRows}, duration=${d.duration}s`);
+          logger.info(`[IMPORT] Worker completed: committed=${d.committedRows}, new=${d.newSubscribers}, updated=${d.updatedSubscribers}, dups=${d.duplicatesInFile || 0}, failed=${d.failedRows}, duration=${d.duration}s`);
           try {
             const finalJob = await storage.getImportJob(queueItem.importJobId);
             if (finalJob?.status === "cancelled") {
@@ -789,6 +790,7 @@ async function pollForImportJobs() {
               newSubscribers: d.newSubscribers || 0,
               updatedSubscribers: d.updatedSubscribers || 0,
               failedRows: d.failedRows || 0,
+              duplicatesInFile: d.duplicatesInFile || 0,
             });
           } catch (err: any) {
             logger.error(`Failed to finalize import job ${queueItem.id}:`, err);

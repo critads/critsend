@@ -939,6 +939,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let currentLineNumber = 0;
   let batchNumber = 0;
   const startTime = Date.now();
+  const seenEmails = new Set<string>();
+  let duplicatesInFile = 0;
 
   let isCancelled = false;
 
@@ -963,29 +965,77 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     batchSize: number;
     durationMs: number;
     batchNumber: number;
+    crossBatchDups: number;
+    withinBatchDups: number;
   }
 
   const pendingResults: BatchResult[] = [];
+
+  function deduplicateBatch(
+    batch: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null; lineNumber: number }>
+  ): { dedupedRows: typeof batch; withinBatchDups: number; crossBatchDups: number } {
+    const emailMap = new Map<string, typeof batch[0]>();
+    let withinBatchDups = 0;
+
+    for (const row of batch) {
+      const existing = emailMap.get(row.email);
+      if (existing) {
+        withinBatchDups++;
+        const mergedTags = [...new Set([...existing.tags, ...row.tags])];
+        const mergedRefs = [...new Set([...existing.refs, ...row.refs])];
+        existing.tags = mergedTags;
+        existing.refs = mergedRefs;
+        if (row.ipAddress && !existing.ipAddress) {
+          existing.ipAddress = row.ipAddress;
+        }
+      } else {
+        emailMap.set(row.email, { ...row });
+      }
+    }
+
+    let crossBatchDups = 0;
+    const dedupedRows: typeof batch = [];
+    for (const [email, row] of emailMap) {
+      if (seenEmails.has(email)) {
+        crossBatchDups++;
+      }
+      seenEmails.add(email);
+      dedupedRows.push(row);
+    }
+
+    return { dedupedRows, withinBatchDups, crossBatchDups };
+  }
 
   function submitBatch(): void {
     if (batchRows.length === 0) return;
 
     batchNumber++;
-    const batch = batchRows;
+    const rawBatch = batchRows;
     const thisBatchNumber = batchNumber;
     batchRows = [];
-    inflightCount++;
 
+    const { dedupedRows, withinBatchDups, crossBatchDups } = deduplicateBatch(rawBatch);
+    duplicatesInFile += withinBatchDups;
+
+    if (dedupedRows.length === 0) {
+      duplicatesInFile += crossBatchDups;
+      committedRows += rawBatch.length;
+      return;
+    }
+
+    inflightCount++;
     const batchStart = Date.now();
-    bulkUpsertSubscribers(batch, tagMode)
+    bulkUpsertSubscribers(dedupedRows, tagMode)
       .then((result) => {
         pendingResults.push({
           inserted: result.inserted,
-          updated: result.updated,
+          updated: Math.max(0, result.updated - crossBatchDups),
           failed: result.failed,
-          batchSize: batch.length,
+          batchSize: rawBatch.length,
           durationMs: Date.now() - batchStart,
           batchNumber: thisBatchNumber,
+          crossBatchDups,
+          withinBatchDups,
         });
       })
       .catch((err) => {
@@ -994,10 +1044,12 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
         pendingResults.push({
           inserted: 0,
           updated: 0,
-          failed: batch.length,
-          batchSize: batch.length,
+          failed: dedupedRows.length,
+          batchSize: rawBatch.length,
           durationMs: Date.now() - batchStart,
           batchNumber: thisBatchNumber,
+          crossBatchDups: 0,
+          withinBatchDups,
         });
       })
       .finally(() => {
@@ -1011,10 +1063,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       newSubscribers += r.inserted;
       updatedSubscribers += r.updated;
       failedRows += r.failed;
-      committedRows += r.inserted + r.updated + r.failed;
+      duplicatesInFile += r.crossBatchDups;
+      committedRows += r.batchSize;
 
       const rowsPerSecond = r.batchSize / (r.durationMs / 1000);
-      log("info", `${importJobId}: Batch ${r.batchNumber} (${r.batchSize} rows) in ${r.durationMs}ms (${Math.round(rowsPerSecond)}/s)`);
+      log("info", `${importJobId}: Batch ${r.batchNumber} (${r.batchSize} rows, ${r.withinBatchDups + r.crossBatchDups} dups deduped) in ${r.durationMs}ms (${Math.round(rowsPerSecond)}/s)`);
     }
   }
 
@@ -1028,12 +1081,14 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     }
 
     await updateImportQueueProgress(queueId, committedRows);
+    const allReasons = { ...failureReasons };
+    if (duplicatesInFile > 0) allReasons["duplicate_in_file"] = duplicatesInFile;
     await updateImportJob(importJobId, {
       processedRows: committedRows,
       newSubscribers,
       updatedSubscribers,
       failedRows,
-      failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+      failureReasons: Object.keys(allReasons).length > 0 ? allReasons : undefined,
       skippedRows,
     });
 
@@ -1045,9 +1100,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
     const elapsedSec = (now - startTime) / 1000;
     const commitRate = committedRows / elapsedSec;
-    log("info", `${importJobId}: Progress - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, failed: ${failedRows.toLocaleString()}`);
+    log("info", `${importJobId}: Progress - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, dups: ${duplicatesInFile.toLocaleString()}, failed: ${failedRows.toLocaleString()}`);
 
-    sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows });
+    sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows, duplicatesInFile });
   }
 
   const rl = readline.createInterface({
@@ -1066,12 +1121,14 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       }
 
       await updateImportQueueProgress(queueId, committedRows);
+      const timerReasons = { ...failureReasons };
+      if (duplicatesInFile > 0) timerReasons["duplicate_in_file"] = duplicatesInFile;
       await updateImportJob(importJobId, {
         processedRows: committedRows,
         newSubscribers,
         updatedSubscribers,
         failedRows,
-        failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+        failureReasons: Object.keys(timerReasons).length > 0 ? timerReasons : undefined,
         skippedRows,
       });
 
@@ -1080,7 +1137,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       const parseRate = parsedRows / elapsedSec;
       log("info", `${importJobId}: Timer progress - parsed: ${parsedRows.toLocaleString()} (${Math.round(parseRate)}/s), committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s)`);
 
-      sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows });
+      sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows, duplicatesInFile });
     } catch (err: any) {
       log("error", `${importJobId}: Progress update failed: ${err.message}`);
     }
@@ -1238,12 +1295,14 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
         if (isCancelled || wasExternallyCancelled) {
           log("info", `${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (committed: ${committedRows}, parsed: ${parsedRows})`);
 
+          const cancelReasons = { ...failureReasons };
+          if (duplicatesInFile > 0) cancelReasons["duplicate_in_file"] = duplicatesInFile;
           await updateImportJob(importJobId, {
             processedRows: committedRows,
             newSubscribers,
             updatedSubscribers,
             failedRows,
-            failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+            failureReasons: Object.keys(cancelReasons).length > 0 ? cancelReasons : undefined,
             skippedRows,
           });
 
@@ -1272,6 +1331,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           return;
         }
 
+        const finalReasons = { ...failureReasons };
+        if (duplicatesInFile > 0) finalReasons["duplicate_in_file"] = duplicatesInFile;
         await updateImportJob(importJobId, {
           status: "completed",
           completedAt: new Date(),
@@ -1279,7 +1340,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           newSubscribers,
           updatedSubscribers,
           failedRows,
-          failureReasons: Object.keys(failureReasons).length > 0 ? failureReasons : undefined,
+          failureReasons: Object.keys(finalReasons).length > 0 ? finalReasons : undefined,
           skippedRows,
         });
 
@@ -1324,13 +1385,14 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
         const totalDuration = (Date.now() - startTime) / 1000;
         const finalRowsPerSecond = committedRows / totalDuration;
-        log("info", `${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows}`);
+        log("info", `${importJobId}: Complete in ${Math.round(totalDuration)}s (${Math.round(finalRowsPerSecond)}/s) - committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, dups: ${duplicatesInFile}, failed: ${failedRows}`);
 
         sendIpc("complete", {
           committedRows,
           newSubscribers,
           updatedSubscribers,
           failedRows,
+          duplicatesInFile,
           duration: totalDuration,
         });
 

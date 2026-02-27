@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { useJobStream } from "@/hooks/use-job-stream";
+import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import {
   Upload,
   FileUp,
@@ -198,8 +198,9 @@ export default function Import() {
     queryKey: ["/api/import-jobs"],
     refetchInterval: (query) => {
       const data = query.state.data as ImportJob[] | undefined;
-      if (data?.some((j) => j.status === "processing" || j.status === "queued" || j.status === "awaiting_confirmation")) {
-        return 10000;
+      const hasActive = data?.some((j) => j.status === "processing" || j.status === "queued" || j.status === "pending" || j.status === "awaiting_confirmation");
+      if (hasActive) {
+        return isSSEConnected() ? 30000 : 5000;
       }
       return false;
     },
@@ -615,7 +616,7 @@ alice@example.com;VIP;;;`}
                     <ConfirmationCard job={job} onConfirmed={() => refetch()} />
                   )}
 
-                  {(job.status === "processing" || job.status === "queued") && (
+                  {(job.status === "processing" || job.status === "queued" || job.status === "pending") && (
                     <div className="space-y-2">
                       <Progress
                         value={job.totalRows > 0 ? Math.min((job.processedRows / job.totalRows) * 100, 100) : 0}
@@ -626,7 +627,7 @@ alice@example.com;VIP;;;`}
                           {Math.min(job.processedRows, job.totalRows).toLocaleString()} / {job.totalRows.toLocaleString()} rows
                         </span>
                         <span>
-                          {job.status === "queued" && job.processedRows === 0
+                          {(job.status === "queued" || job.status === "pending") && job.processedRows === 0
                             ? "Waiting to start..."
                             : `${(job.totalRows > 0 ? Math.min((job.processedRows / job.totalRows) * 100, 100) : 0).toFixed(1)}%`}
                         </span>
@@ -677,54 +678,82 @@ alice@example.com;VIP;;;`}
                     </div>
                   )}
 
-                  {job.status === "completed" && (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-3 gap-4 text-sm">
-                        <div>
-                          <p className="text-muted-foreground">New</p>
-                          <p className="font-medium text-green-600">
-                            +{job.newSubscribers.toLocaleString()}
-                          </p>
+                  {job.status === "completed" && (() => {
+                    const reasons = ((job as any).failureReasons || {}) as Record<string, number>;
+                    const dupCount = reasons["duplicate_in_file"] || (job as any).duplicatesInFile || 0;
+                    const errorReasons = Object.fromEntries(
+                      Object.entries(reasons).filter(([key]) => key !== "duplicate_in_file")
+                    );
+                    const hasErrors = Object.keys(errorReasons).length > 0;
+                    const uniqueEmails = job.newSubscribers + job.updatedSubscribers;
+                    const errorLabels: Record<string, string> = {
+                      empty_email: "Empty email",
+                      invalid_email_no_at: "Invalid email (no @)",
+                      parse_error: "Malformed CSV rows",
+                      processing_error: "Processing error",
+                      db_constraint: "Database constraint",
+                    };
+
+                    return (
+                      <div className="space-y-3">
+                        <div className={`grid ${dupCount > 0 ? "grid-cols-4" : "grid-cols-3"} gap-4 text-sm`}>
+                          <div>
+                            <p className="text-muted-foreground">New</p>
+                            <p className="font-medium text-green-600" data-testid="text-new-count">
+                              +{job.newSubscribers.toLocaleString()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Updated</p>
+                            <p className="font-medium text-blue-600" data-testid="text-updated-count">
+                              {job.updatedSubscribers.toLocaleString()}
+                            </p>
+                          </div>
+                          {dupCount > 0 && (
+                            <div>
+                              <p className="text-muted-foreground">Duplicates</p>
+                              <p className="font-medium text-amber-600" data-testid="text-duplicates-count">
+                                {dupCount.toLocaleString()}
+                              </p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-muted-foreground">Failed</p>
+                            <p className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`} data-testid="text-failed-count">
+                              {job.failedRows.toLocaleString()}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-muted-foreground">Updated</p>
-                          <p className="font-medium text-blue-600">
-                            {job.updatedSubscribers.toLocaleString()}
-                          </p>
+                        <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 space-y-0.5">
+                          <p>Total rows in file: {job.totalRows.toLocaleString()} (header: 1{(job as any).skippedRows > 0 ? `, empty/skipped: ${(job as any).skippedRows.toLocaleString()}` : ""})</p>
+                          <p>Unique emails: {uniqueEmails.toLocaleString()} (new: {job.newSubscribers.toLocaleString()}, updated: {job.updatedSubscribers.toLocaleString()})</p>
+                          {dupCount > 0 && (
+                            <p>Duplicate rows merged: {dupCount.toLocaleString()} (same email appeared multiple times in file)</p>
+                          )}
+                          {job.failedRows > 0 && (
+                            <p>Failed: {job.failedRows.toLocaleString()}</p>
+                          )}
                         </div>
-                        <div>
-                          <p className="text-muted-foreground">Failed</p>
-                          <p className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`}>
-                            {job.failedRows.toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 space-y-0.5">
-                        <p>Total rows in file: {job.totalRows.toLocaleString()} (header: 1{(job as any).skippedRows > 0 ? `, empty/skipped: ${(job as any).skippedRows.toLocaleString()}` : ""})</p>
-                        <p>Processed: {Math.min(job.processedRows, job.totalRows).toLocaleString()} (new: {job.newSubscribers.toLocaleString()}, updated: {job.updatedSubscribers.toLocaleString()}, failed: {job.failedRows.toLocaleString()})</p>
-                      </div>
-                      {job.failedRows > 0 && (job as any).failureReasons && (() => {
-                        const reasons = (job as any).failureReasons as Record<string, number>;
-                        const labels: Record<string, string> = {
-                          empty_email: "Empty email",
-                          invalid_email_no_at: "Invalid email (no @)",
-                          parse_error: "CSV parse error",
-                          processing_error: "Processing error",
-                          db_constraint: "Database constraint",
-                        };
-                        return (
+                        {dupCount > 0 && (
+                          <div className="text-xs bg-amber-50 dark:bg-amber-950/20 rounded p-2 space-y-0.5">
+                            <p className="font-medium text-amber-700 dark:text-amber-400">
+                              {dupCount.toLocaleString()} duplicate emails were found in the file and merged automatically. Tags and refs from duplicate rows are combined.
+                            </p>
+                          </div>
+                        )}
+                        {hasErrors && (
                           <div className="text-xs bg-red-50 dark:bg-red-950/30 rounded p-2 space-y-0.5">
                             <p className="font-medium text-red-700 dark:text-red-400 mb-1">Failed row reasons:</p>
-                            {Object.entries(reasons).map(([key, count]) => (
+                            {Object.entries(errorReasons).map(([key, count]) => (
                               <p key={key} className="text-red-600 dark:text-red-400">
-                                {labels[key] || key}: {(count as number).toLocaleString()}
+                                {errorLabels[key] || key}: {(count as number).toLocaleString()}
                               </p>
                             ))}
                           </div>
-                        );
-                      })()}
-                    </div>
-                  )}
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {job.status === "failed" && job.errorMessage && (
                     <p className="text-sm text-destructive">{job.errorMessage}</p>

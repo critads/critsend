@@ -11,6 +11,7 @@ export interface JobProgressEvent {
   newSubscribers?: number;
   updatedSubscribers?: number;
   failedRows?: number;
+  duplicatesInFile?: number;
   failureReasons?: Record<string, number>;
   skippedRows?: number;
   sentCount?: number;
@@ -24,6 +25,11 @@ let activeEs: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let retryCount = 0;
 let refCount = 0;
+let sseConnected = false;
+
+export function isSSEConnected(): boolean {
+  return sseConnected;
+}
 
 function connect() {
   if (activeEs) {
@@ -35,6 +41,7 @@ function connect() {
 
   es.onopen = () => {
     retryCount = 0;
+    sseConnected = true;
   };
 
   es.onmessage = (event) => {
@@ -47,6 +54,7 @@ function connect() {
   es.onerror = () => {
     es.close();
     activeEs = null;
+    sseConnected = false;
     if (refCount > 0) {
       const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
       retryCount++;
@@ -65,6 +73,7 @@ function disconnect() {
     reconnectTimer = null;
   }
   retryCount = 0;
+  sseConnected = false;
 }
 
 export function useJobStream() {
@@ -105,6 +114,7 @@ function handleImportEvent(event: JobProgressEvent) {
     if (!old) return old;
     return old.map((job) => {
       if (job.id !== event.jobId) return job;
+      const sseTimestamp = Date.now();
       return {
         ...job,
         status: event.status as ImportJob["status"],
@@ -112,9 +122,11 @@ function handleImportEvent(event: JobProgressEvent) {
         newSubscribers: event.newSubscribers ?? job.newSubscribers,
         updatedSubscribers: event.updatedSubscribers ?? job.updatedSubscribers,
         failedRows: event.failedRows ?? job.failedRows,
+        duplicatesInFile: event.duplicatesInFile ?? (job as any).duplicatesInFile,
         failureReasons: event.failureReasons ?? job.failureReasons,
         skippedRows: event.skippedRows ?? (job as any).skippedRows,
         errorMessage: event.errorMessage ?? job.errorMessage,
+        _sseTimestamp: sseTimestamp,
       };
     });
   });
