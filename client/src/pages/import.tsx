@@ -534,19 +534,22 @@ export default function Import() {
           <div className="rounded-md bg-muted/50 p-4">
             <h4 className="font-medium mb-2 flex items-center gap-2">
               <AlertCircle className="h-4 w-4" />
-              CSV Format
+              Unified CSV Format
             </h4>
-            <pre className="text-xs font-mono text-muted-foreground overflow-x-auto">
+            <pre className="text-xs font-mono text-muted-foreground overflow-x-auto whitespace-pre">
 {`email;tags;refs;ip_address
 john@example.com;VIP,SOLDES,PROMO;2AG,3CB,5DF;192.168.1.1
 jane@example.com;NEWSLETTER;;192.168.1.2
-bob@example.com;;1AA,2AG;`}
+bob@example.com;;1AA,2AG;
+alice@example.com;VIP;;;`}
             </pre>
-            <div className="text-xs text-muted-foreground mt-2 space-y-1">
-              <p>Columns are separated by semicolons (;). Only the email column is required.</p>
-              <p><strong>tags:</strong> comma-separated, UPPERCASE (e.g. VIP,PROMO). Tag mode (merge/override) applies here.</p>
-              <p><strong>refs:</strong> comma-separated, UPPERCASE (e.g. 2AG,3CB). Always merged. If present, you will confirm before importing.</p>
+            <div className="text-xs text-muted-foreground mt-2 space-y-1.5">
+              <p><strong>Separator:</strong> columns separated by semicolons (<code className="bg-muted px-1 rounded">;</code>). Only the <strong>email</strong> column is required.</p>
+              <p><strong>Header row:</strong> auto-detected and skipped. Include <code className="bg-muted px-1 rounded">email;tags;refs;ip_address</code> as the first line.</p>
+              <p><strong>tags:</strong> comma-separated, stored UPPERCASE (e.g. <code className="bg-muted px-1 rounded">VIP,PROMO</code>). Tag mode (merge/override) applies to tags only.</p>
+              <p><strong>refs:</strong> comma-separated, stored UPPERCASE (e.g. <code className="bg-muted px-1 rounded">2AG,3CB</code>). Refs always merge. If the refs column is present, a two-phase confirmation flow is triggered before importing.</p>
               <p><strong>ip_address:</strong> optional IP address for the subscriber.</p>
+              <p><strong>File size:</strong> up to 1 GB supported with chunked uploads.</p>
               <p className="text-amber-600 dark:text-amber-400 font-medium mt-1">Import continues in the background even if you navigate away or get disconnected.</p>
             </div>
           </div>
