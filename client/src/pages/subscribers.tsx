@@ -168,6 +168,7 @@ export default function Subscribers() {
     totalRows: number;
     processedRows: number;
     errorMessage: string | null;
+    phase?: string;
   }
 
   const { data: flushJob } = useQuery<FlushJob>({
@@ -180,6 +181,13 @@ export default function Subscribers() {
     },
     enabled: !!flushJobId,
     refetchInterval: flushJobId ? 10000 : false,
+    select: (freshData) => {
+      const cached = queryClient.getQueryData<FlushJob>(["/api/subscribers/flush", flushJobId]);
+      if (cached?.phase && !freshData.phase) {
+        return { ...freshData, phase: cached.phase };
+      }
+      return freshData;
+    },
   });
 
   const cancelFlushMutation = useMutation({
@@ -807,7 +815,11 @@ export default function Subscribers() {
                 ) : flushJobId ? (
                   <div className="space-y-3 py-2">
                     <div className="text-sm text-muted-foreground">
-                      Deleting subscribers in batches...
+                      {flushJob?.phase === "clearing_dependencies"
+                        ? "Clearing related data (sends, stats, logs)..."
+                        : flushJob?.phase === "deleting_subscribers"
+                        ? "Deleting subscribers in batches..."
+                        : "Preparing deletion..."}
                     </div>
                     <Progress 
                       value={flushJob?.totalRows ? (flushJob.processedRows / flushJob.totalRows) * 100 : 0} 
@@ -815,7 +827,7 @@ export default function Subscribers() {
                       data-testid="progress-flush"
                     />
                     <div className="text-sm font-medium text-center">
-                      {flushJob?.processedRows?.toLocaleString() || 0} / {flushJob?.totalRows?.toLocaleString() || data?.total?.toLocaleString() || 0} subscribers deleted
+                      {flushJob?.processedRows?.toLocaleString() || 0} / {flushJob?.totalRows?.toLocaleString() || data?.total?.toLocaleString() || 0} rows deleted
                     </div>
                   </div>
                 ) : (

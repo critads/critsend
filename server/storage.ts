@@ -238,9 +238,11 @@ export interface IStorage {
   updateFlushJobProgress(jobId: string, processedRows: number): Promise<void>;
   completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void>;
   cancelFlushJob(jobId: string): Promise<boolean>;
-  clearSubscriberDependencies(): Promise<void>;
+  countSubscriberDependencies(): Promise<number>;
+  clearSubscriberDependencies(onProgress?: (deletedInBatch: number) => void): Promise<number>;
   deleteSubscriberBatch(batchSize: number): Promise<number>;
   countAllSubscribers(): Promise<number>;
+  updateFlushJobTotalRows(jobId: string, totalRows: number): Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════
   // ERROR LOGGING
@@ -2038,6 +2040,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(flushJobs.id, jobId));
   }
 
+  async updateFlushJobTotalRows(jobId: string, totalRows: number): Promise<void> {
+    await db.update(flushJobs)
+      .set({ totalRows })
+      .where(eq(flushJobs.id, jobId));
+  }
+
   async completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void> {
     await db.update(flushJobs)
       .set({ 
@@ -2063,45 +2071,46 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async clearSubscriberDependencies(): Promise<void> {
+  async countSubscriberDependencies(): Promise<number> {
+    const result = await db.execute(sql`
+      SELECT 
+        (SELECT COUNT(*)::int FROM campaign_sends) +
+        (SELECT COUNT(*)::int FROM campaign_stats) +
+        (SELECT COUNT(*)::int FROM error_logs WHERE subscriber_id IS NOT NULL) +
+        (SELECT COUNT(*)::int FROM nullsink_captures) +
+        (SELECT COUNT(*)::int FROM pending_tag_operations) +
+        (SELECT COUNT(*)::int FROM automation_enrollments) AS total
+    `);
+    return parseInt(result.rows[0]?.total as string || "0", 10);
+  }
+
+  async clearSubscriberDependencies(onProgress?: (deletedInBatch: number) => void): Promise<number> {
     const batchSize = 10000;
     let deleted: number;
+    let totalDeleted = 0;
 
-    do {
-      const r = await db.execute(sql`DELETE FROM campaign_sends WHERE ctid IN (SELECT ctid FROM campaign_sends LIMIT ${batchSize})`);
-      deleted = (r.rowCount as number) || 0;
-      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
-    } while (deleted > 0);
+    const tables = [
+      { query: sql`DELETE FROM campaign_sends WHERE ctid IN (SELECT ctid FROM campaign_sends LIMIT ${batchSize})` },
+      { query: sql`DELETE FROM campaign_stats WHERE ctid IN (SELECT ctid FROM campaign_stats LIMIT ${batchSize})` },
+      { query: sql`DELETE FROM error_logs WHERE subscriber_id IS NOT NULL AND ctid IN (SELECT ctid FROM error_logs WHERE subscriber_id IS NOT NULL LIMIT ${batchSize})` },
+      { query: sql`DELETE FROM nullsink_captures WHERE ctid IN (SELECT ctid FROM nullsink_captures LIMIT ${batchSize})` },
+      { query: sql`DELETE FROM pending_tag_operations WHERE ctid IN (SELECT ctid FROM pending_tag_operations LIMIT ${batchSize})` },
+      { query: sql`DELETE FROM automation_enrollments WHERE ctid IN (SELECT ctid FROM automation_enrollments LIMIT ${batchSize})` },
+    ];
 
-    do {
-      const r = await db.execute(sql`DELETE FROM campaign_stats WHERE ctid IN (SELECT ctid FROM campaign_stats LIMIT ${batchSize})`);
-      deleted = (r.rowCount as number) || 0;
-      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
-    } while (deleted > 0);
+    for (const table of tables) {
+      do {
+        const r = await db.execute(table.query);
+        deleted = (r.rowCount as number) || 0;
+        if (deleted > 0) {
+          totalDeleted += deleted;
+          onProgress?.(deleted);
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+      } while (deleted > 0);
+    }
 
-    do {
-      const r = await db.execute(sql`DELETE FROM error_logs WHERE subscriber_id IS NOT NULL AND ctid IN (SELECT ctid FROM error_logs WHERE subscriber_id IS NOT NULL LIMIT ${batchSize})`);
-      deleted = (r.rowCount as number) || 0;
-      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
-    } while (deleted > 0);
-
-    do {
-      const r = await db.execute(sql`DELETE FROM nullsink_captures WHERE ctid IN (SELECT ctid FROM nullsink_captures LIMIT ${batchSize})`);
-      deleted = (r.rowCount as number) || 0;
-      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
-    } while (deleted > 0);
-
-    do {
-      const r = await db.execute(sql`DELETE FROM pending_tag_operations WHERE ctid IN (SELECT ctid FROM pending_tag_operations LIMIT ${batchSize})`);
-      deleted = (r.rowCount as number) || 0;
-      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
-    } while (deleted > 0);
-
-    do {
-      const r = await db.execute(sql`DELETE FROM automation_enrollments WHERE ctid IN (SELECT ctid FROM automation_enrollments LIMIT ${batchSize})`);
-      deleted = (r.rowCount as number) || 0;
-      if (deleted > 0) await new Promise(resolve => setTimeout(resolve, 20));
-    } while (deleted > 0);
+    return totalDeleted;
   }
 
   async deleteSubscriberBatch(batchSize: number): Promise<number> {

@@ -202,13 +202,16 @@ async function pollForFlushJobs() {
       await processFlushJob(job.id, job.totalRows);
       await storage.completeFlushJob(job.id, "completed");
       storage.invalidateSegmentCountCache();
+      const finalJob = await storage.getFlushJob(job.id);
+      const finalTotal = finalJob?.totalRows || job.totalRows;
       logger.info(`Flush job ${job.id} completed successfully`);
       jobEvents.emitProgress({
         jobType: "flush",
         jobId: job.id,
         status: "completed",
-        processedRows: job.totalRows,
-        totalRows: job.totalRows,
+        processedRows: finalTotal,
+        totalRows: finalTotal,
+        phase: "completed",
       });
     } catch (error: any) {
       logger.error(`Error processing flush job ${job.id}:`, error);
@@ -247,12 +250,44 @@ async function retryOnDeadlock<T>(fn: () => Promise<T>, label: string, maxRetrie
   throw new Error(`${label} failed after max retries`);
 }
 
-async function processFlushJob(jobId: string, totalRows: number) {
-  logger.info(`[FLUSH] Job ${jobId}: Clearing dependent tables first...`);
-  await retryOnDeadlock(() => storage.clearSubscriberDependencies(), 'clearSubscriberDependencies');
-  logger.info(`[FLUSH] Job ${jobId}: Dependent tables cleared. Starting subscriber batch deletion...`);
+async function processFlushJob(jobId: string, subscriberCount: number) {
+  logger.info(`[FLUSH] Job ${jobId}: Counting dependent rows...`);
+  const depCount = await storage.countSubscriberDependencies();
+  const totalRows = depCount + subscriberCount;
+  logger.info(`[FLUSH] Job ${jobId}: ${depCount} dependency rows + ${subscriberCount} subscribers = ${totalRows} total`);
+
+  if (totalRows !== subscriberCount) {
+    await storage.updateFlushJobTotalRows(jobId, totalRows);
+  }
 
   let processedRows = 0;
+
+  jobEvents.emitProgress({
+    jobType: "flush",
+    jobId,
+    status: "processing",
+    processedRows: 0,
+    totalRows,
+    phase: "clearing_dependencies",
+  });
+
+  logger.info(`[FLUSH] Job ${jobId}: Clearing dependent tables first...`);
+  await retryOnDeadlock(
+    () => storage.clearSubscriberDependencies((deletedInBatch) => {
+      processedRows += deletedInBatch;
+      storage.updateFlushJobProgress(jobId, processedRows);
+      jobEvents.emitProgress({
+        jobType: "flush",
+        jobId,
+        status: "processing",
+        processedRows,
+        totalRows,
+        phase: "clearing_dependencies",
+      });
+    }),
+    'clearSubscriberDependencies'
+  );
+  logger.info(`[FLUSH] Job ${jobId}: Dependent tables cleared (${processedRows} rows). Starting subscriber batch deletion...`);
 
   while (processedRows < totalRows) {
     const job = await storage.getFlushJob(jobId);
@@ -279,9 +314,10 @@ async function processFlushJob(jobId: string, totalRows: number) {
       status: "processing",
       processedRows,
       totalRows,
+      phase: "deleting_subscribers",
     });
 
-    logger.info(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} subscribers (${Math.round(processedRows/totalRows*100)}%)`);
+    logger.info(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} total (${Math.round(processedRows/totalRows*100)}%)`);
 
     await new Promise(resolve => setTimeout(resolve, 50));
   }

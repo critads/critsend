@@ -18,6 +18,7 @@ export interface JobProgressEvent {
   failedCount?: number;
   pendingCount?: number;
   errorMessage?: string;
+  phase?: string;
   campaignId?: string;
 }
 
@@ -148,6 +149,7 @@ function handleFlushEvent(event: JobProgressEvent) {
       processedRows: event.processedRows,
       totalRows: event.totalRows,
       errorMessage: event.errorMessage ?? old.errorMessage,
+      phase: event.phase ?? old.phase,
     };
   });
 

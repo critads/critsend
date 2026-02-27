@@ -17,6 +17,7 @@ export interface JobProgressEvent {
   pendingCount?: number;
   errorMessage?: string;
   campaignId?: string;
+  phase?: string;
 }
 
 class JobEventBus extends EventEmitter {
