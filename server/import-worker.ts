@@ -903,10 +903,19 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     }
   }
 
+  const totalRows = importJob?.totalRows || 0;
   let newSubscribers = resumeFromLine > 0 ? (importJob?.newSubscribers || 0) : 0;
   let updatedSubscribers = resumeFromLine > 0 ? (importJob?.updatedSubscribers || 0) : 0;
   let failedRows = resumeFromLine > 0 ? (importJob?.failedRows || 0) : 0;
   let committedRows = resumeFromLine > 0 ? (newSubscribers + updatedSubscribers + failedRows) : 0;
+
+  if (resumeFromLine > 0 && totalRows > 0 && committedRows > totalRows) {
+    log("warn", `${importJobId}: Resume sanity check - committedRows (${committedRows}) exceeds totalRows (${totalRows}), capping to totalRows`);
+    const excess = committedRows - totalRows;
+    failedRows = Math.max(0, failedRows - excess);
+    committedRows = newSubscribers + updatedSubscribers + failedRows;
+  }
+
   let parsedRows = committedRows;
   let skippedRows = 0;
   let lastHeartbeat = Date.now();
@@ -1512,7 +1521,13 @@ async function processRefsImportPhase2(queueId: string, importJobId: string, csv
   const deleteExisting = importJob.deleteExistingRefs;
   const tagMode = (importJob as any).tagMode || "merge";
 
-  await updateImportJob(importJobId, { status: "processing" });
+  await updateImportJob(importJobId, {
+    status: "processing",
+    newSubscribers: 0,
+    updatedSubscribers: 0,
+    failedRows: 0,
+    processedRows: 0,
+  });
 
   if (deleteExisting && detectedRefs.length > 0) {
     log("info", `[REFS PHASE 2] Deleting subscribers with refs: ${detectedRefs.join(", ")}`);

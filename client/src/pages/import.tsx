@@ -701,7 +701,7 @@ alice@example.com;VIP;;;`}
                       </div>
                       <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 space-y-0.5">
                         <p>Total rows in file: {job.totalRows.toLocaleString()} (header: 1{(job as any).skippedRows > 0 ? `, empty/skipped: ${(job as any).skippedRows.toLocaleString()}` : ""})</p>
-                        <p>Processed: {job.processedRows.toLocaleString()} (new: {job.newSubscribers.toLocaleString()}, updated: {job.updatedSubscribers.toLocaleString()}, failed: {job.failedRows.toLocaleString()})</p>
+                        <p>Processed: {Math.min(job.processedRows, job.totalRows).toLocaleString()} (new: {job.newSubscribers.toLocaleString()}, updated: {job.updatedSubscribers.toLocaleString()}, failed: {job.failedRows.toLocaleString()})</p>
                       </div>
                       {job.failedRows > 0 && (job as any).failureReasons && (() => {
                         const reasons = (job as any).failureReasons as Record<string, number>;
