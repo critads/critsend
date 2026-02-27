@@ -9,6 +9,7 @@ import {
 } from "../email-service";
 import { logger } from "../logger";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
+import { jobEvents } from "../job-events";
 
 async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxRetries = 3): Promise<T> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -431,6 +432,18 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const elapsed = (Date.now() - startTime) / 1000;
       const rate = processedCount / elapsed * 60;
       logger.info(`${logPrefix} Progress ${processedCount}/${total} (${rate.toFixed(0)}/min) - Sent: ${totalSent}, Failed: ${totalFailed}`);
+
+      jobEvents.emitProgress({
+        jobType: "campaign",
+        jobId: campaignId,
+        campaignId,
+        status: "processing",
+        processedRows: processedCount,
+        totalRows: total,
+        sentCount: totalSent,
+        failedCount: totalFailed,
+        pendingCount: total - processedCount,
+      });
     }
   } catch (error: any) {
     logger.error(`${logPrefix} Fatal error in send loop: ${error.message}`, { stack: error.stack });
@@ -466,6 +479,18 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
       }).catch(() => {});
     }
+
+    jobEvents.emitProgress({
+      jobType: "campaign",
+      jobId: campaignId,
+      campaignId,
+      status: "failed",
+      processedRows: processedCount,
+      totalRows: total,
+      sentCount: totalSent,
+      failedCount: totalFailed,
+      errorMessage: error.message || "Unknown error",
+    });
 
     throw error;
   }
@@ -596,10 +621,32 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
       const finalCampaign = await storage.getCampaign(campaignId);
       logger.info(`${logPrefix} COMPLETED: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
+      jobEvents.emitProgress({
+        jobType: "campaign",
+        jobId: campaignId,
+        campaignId,
+        status: "completed",
+        processedRows: processedCount,
+        totalRows: total,
+        sentCount: finalCampaign?.sentCount || totalSent,
+        failedCount: finalCampaign?.failedCount || totalFailed,
+        pendingCount: 0,
+      });
     } else {
       logger.warn(`${logPrefix} Failed to atomically set status to 'completed' - campaign may have been paused/cancelled`);
     }
   } else {
     logger.info(`${logPrefix} Stopped at ${processedCount} processed, sent: ${totalSent}, failed: ${totalFailed}`);
+    jobEvents.emitProgress({
+      jobType: "campaign",
+      jobId: campaignId,
+      campaignId,
+      status: "cancelled",
+      processedRows: processedCount,
+      totalRows: total,
+      sentCount: totalSent,
+      failedCount: totalFailed,
+      pendingCount: total - processedCount,
+    });
   }
 }

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useJobStream } from "@/hooks/use-job-stream";
 import {
   Upload,
   FileUp,
@@ -191,12 +192,14 @@ export default function Import() {
   const [isChunkedUpload, setIsChunkedUpload] = useState(false);
   const { toast } = useToast();
 
+  useJobStream();
+
   const { data: jobs, isLoading, refetch } = useQuery<ImportJob[]>({
     queryKey: ["/api/import-jobs"],
     refetchInterval: (query) => {
       const data = query.state.data as ImportJob[] | undefined;
       if (data?.some((j) => j.status === "processing" || j.status === "queued" || j.status === "awaiting_confirmation")) {
-        return 2000;
+        return 10000;
       }
       return false;
     },

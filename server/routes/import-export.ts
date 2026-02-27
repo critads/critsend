@@ -9,6 +9,7 @@ import * as path from "path";
 import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE } from "../upload";
 import { sanitizeCsvValue } from "../utils";
 import { isMemoryPressure } from "../workers";
+import { jobEvents, type JobProgressEvent } from "../job-events";
 
 function countLines(filePath: string): Promise<number> {
   return new Promise<number>((resolve, reject) => {
@@ -583,5 +584,44 @@ export function registerImportExportRoutes(app: Express, helpers: {
         res.end();
       }
     }
+  });
+
+  app.get("/api/jobs/stream", (req: Request, res: Response) => {
+    if (!req.isAuthenticated || !req.isAuthenticated()) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    res.write(":\n\n");
+
+    const onProgress = (event: JobProgressEvent) => {
+      try {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch (_) {}
+    };
+
+    jobEvents.on("progress", onProgress);
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(":\n\n");
+      } catch (_) {
+        cleanup();
+      }
+    }, 15000);
+
+    const cleanup = () => {
+      jobEvents.off("progress", onProgress);
+      clearInterval(keepAlive);
+    };
+
+    req.on("close", cleanup);
+    res.on("close", cleanup);
   });
 }

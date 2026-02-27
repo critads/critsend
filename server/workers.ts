@@ -9,6 +9,7 @@ import { logger } from "./logger";
 import { fork, ChildProcess } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
+import { jobEvents } from "./job-events";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -202,9 +203,24 @@ async function pollForFlushJobs() {
       await storage.completeFlushJob(job.id, "completed");
       storage.invalidateSegmentCountCache();
       logger.info(`Flush job ${job.id} completed successfully`);
+      jobEvents.emitProgress({
+        jobType: "flush",
+        jobId: job.id,
+        status: "completed",
+        processedRows: job.totalRows,
+        totalRows: job.totalRows,
+      });
     } catch (error: any) {
       logger.error(`Error processing flush job ${job.id}:`, error);
       await storage.completeFlushJob(job.id, "failed", error.message || "Unknown error");
+      jobEvents.emitProgress({
+        jobType: "flush",
+        jobId: job.id,
+        status: "failed",
+        processedRows: 0,
+        totalRows: job.totalRows,
+        errorMessage: error.message || "Unknown error",
+      });
     } finally {
       activeFlushJob = false;
     }
@@ -256,6 +272,14 @@ async function processFlushJob(jobId: string, totalRows: number) {
 
     processedRows += deletedCount;
     await storage.updateFlushJobProgress(jobId, processedRows);
+
+    jobEvents.emitProgress({
+      jobType: "flush",
+      jobId,
+      status: "processing",
+      processedRows,
+      totalRows,
+    });
 
     logger.info(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} subscribers (${Math.round(processedRows/totalRows*100)}%)`);
 
@@ -709,6 +733,21 @@ async function pollForImportJobs() {
       if (!msg || !msg.type) return;
 
       switch (msg.type) {
+        case "progress": {
+          const d = msg.data;
+          const importJob = await storage.getImportJob(queueItem.importJobId).catch(() => null);
+          jobEvents.emitProgress({
+            jobType: "import",
+            jobId: queueItem.importJobId,
+            status: "processing",
+            processedRows: d.committedRows || 0,
+            totalRows: importJob?.totalRows || 0,
+            newSubscribers: d.newSubscribers || 0,
+            updatedSubscribers: d.updatedSubscribers || 0,
+            failedRows: d.failedRows || 0,
+          });
+          break;
+        }
         case "complete": {
           const d = msg.data;
           logger.info(`[IMPORT] Worker completed: committed=${d.committedRows}, new=${d.newSubscribers}, updated=${d.updatedSubscribers}, failed=${d.failedRows}, duration=${d.duration}s`);
@@ -721,6 +760,16 @@ async function pollForImportJobs() {
               storage.invalidateSegmentCountCache();
               logger.info(`Import job ${queueItem.id} completed successfully`);
             }
+            jobEvents.emitProgress({
+              jobType: "import",
+              jobId: queueItem.importJobId,
+              status: "completed",
+              processedRows: d.committedRows || 0,
+              totalRows: finalJob?.totalRows || d.committedRows || 0,
+              newSubscribers: d.newSubscribers || 0,
+              updatedSubscribers: d.updatedSubscribers || 0,
+              failedRows: d.failedRows || 0,
+            });
           } catch (err: any) {
             logger.error(`Failed to finalize import job ${queueItem.id}:`, err);
           }
@@ -747,6 +796,14 @@ async function pollForImportJobs() {
               importJobId: queueItem.importJobId,
               details: d.stack || String(d.message),
             });
+            jobEvents.emitProgress({
+              jobType: "import",
+              jobId: queueItem.importJobId,
+              status: "failed",
+              processedRows: 0,
+              totalRows: 0,
+              errorMessage: d.message || "Unknown error",
+            });
           } catch (logErr) {
             logger.error("Failed to log import error:", logErr);
           }
@@ -761,6 +818,13 @@ async function pollForImportJobs() {
           } catch (err: any) {
             logger.error(`Failed to finalize phase 1 queue item:`, err);
           }
+          jobEvents.emitProgress({
+            jobType: "import",
+            jobId: queueItem.importJobId,
+            status: "awaiting_confirmation",
+            processedRows: 0,
+            totalRows: 0,
+          });
           break;
         }
         case "log": {

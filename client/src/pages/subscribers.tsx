@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useJobStream } from "@/hooks/use-job-stream";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +69,7 @@ interface SubscribersResponse {
 }
 
 export default function Subscribers() {
+  useJobStream();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [editingSubscriber, setEditingSubscriber] = useState<Subscriber | null>(null);
@@ -177,7 +179,7 @@ export default function Subscribers() {
       return res.json();
     },
     enabled: !!flushJobId,
-    refetchInterval: flushJobId ? 1000 : false,
+    refetchInterval: flushJobId ? 10000 : false,
   });
 
   const cancelFlushMutation = useMutation({

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useJobStream } from "@/hooks/use-job-stream";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,7 @@ function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; 
 }
 
 export default function Campaigns() {
+  useJobStream();
   const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
@@ -84,10 +86,9 @@ export default function Campaigns() {
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
     refetchInterval: (query) => {
-      // Auto-refresh every 2 seconds if any campaign is sending
       const data = query.state.data as Campaign[] | undefined;
       const hasSending = data?.some((c) => c.status === "sending");
-      return hasSending ? 2000 : false;
+      return hasSending ? 10000 : false;
     },
   });
 
