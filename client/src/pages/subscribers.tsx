@@ -180,7 +180,7 @@ export default function Subscribers() {
       return res.json();
     },
     enabled: !!flushJobId,
-    refetchInterval: flushJobId ? 10000 : false,
+    refetchInterval: flushJobId ? 2000 : false,
     select: (freshData) => {
       const cached = queryClient.getQueryData<FlushJob>(["/api/subscribers/flush", flushJobId]);
       if (cached?.phase && !freshData.phase) {
@@ -217,19 +217,37 @@ export default function Subscribers() {
 
   useEffect(() => {
     if (flushJob?.status === "completed") {
+      let cancelled = false;
       setFlushFinishedState("completed");
       queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
-      const timer = setTimeout(() => {
-        setFlushJobId(null);
-        setShowFlushConfirm(false);
-        setFlushFinishedState(null);
-        setPage(1);
-        toast({
-          title: "All subscribers deleted",
-          description: `Successfully deleted ${flushJob.processedRows.toLocaleString()} subscribers.`,
-        });
-      }, 2000);
-      return () => clearTimeout(timer);
+      const finalize = async () => {
+        let finalCount = flushJob.processedRows;
+        if (flushJobId) {
+          try {
+            const res = await fetch(`/api/subscribers/flush/${flushJobId}`, { credentials: "include" });
+            if (res.ok) {
+              const finalJob = await res.json();
+              finalCount = finalJob.processedRows ?? finalCount;
+            }
+          } catch {}
+        }
+        if (cancelled) return;
+        const timer = setTimeout(() => {
+          if (cancelled) return;
+          setFlushJobId(null);
+          setShowFlushConfirm(false);
+          setFlushFinishedState(null);
+          setPage(1);
+          toast({
+            title: "All subscribers deleted",
+            description: `Successfully deleted ${finalCount.toLocaleString()} subscribers.`,
+          });
+        }, 3000);
+        return timer;
+      };
+      let timerId: NodeJS.Timeout | undefined;
+      finalize().then(t => { timerId = t; });
+      return () => { cancelled = true; if (timerId) clearTimeout(timerId); };
     } else if (flushJob?.status === "failed") {
       setFlushFinishedState("failed");
     } else if (flushJob?.status === "cancelled") {
@@ -256,6 +274,14 @@ export default function Subscribers() {
     onSuccess: (response) => {
       if (response.jobId) {
         setFlushFinishedState(null);
+        queryClient.setQueryData(["/api/subscribers/flush", response.jobId], {
+          id: response.jobId,
+          status: "processing",
+          processedRows: 0,
+          totalRows: response.totalRows,
+          errorMessage: null,
+          phase: "clearing_dependencies",
+        });
         setFlushJobId(response.jobId);
       } else {
         setShowFlushConfirm(false);

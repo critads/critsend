@@ -142,19 +142,24 @@ function handleFlushEvent(event: JobProgressEvent) {
   const isTerminal = event.status === "completed" || event.status === "failed";
 
   queryClient.setQueryData(["/api/subscribers/flush", event.jobId], (old: any) => {
-    if (!old) return old;
+    const base = old || {
+      id: event.jobId,
+      status: "processing",
+      processedRows: 0,
+      totalRows: 0,
+      errorMessage: null,
+    };
     return {
-      ...old,
+      ...base,
       status: event.status,
       processedRows: event.processedRows,
       totalRows: event.totalRows,
-      errorMessage: event.errorMessage ?? old.errorMessage,
-      phase: event.phase ?? old.phase,
+      errorMessage: event.errorMessage ?? base.errorMessage,
+      phase: event.phase ?? base.phase,
     };
   });
 
   if (isTerminal) {
-    queryClient.invalidateQueries({ queryKey: ["/api/subscribers/flush", event.jobId] });
     queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
   }
 }
