@@ -26,6 +26,38 @@ let maintenanceInterval: NodeJS.Timeout | null = null;
 
 let activeImportWorker: ChildProcess | null = null;
 let activeImportJobInfo: { queueId: string; importJobId: string } | null = null;
+let importWorkerWatchdog: ReturnType<typeof setTimeout> | null = null;
+const IMPORT_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
+
+function resetImportWorkerWatchdog() {
+  if (importWorkerWatchdog) clearTimeout(importWorkerWatchdog);
+  importWorkerWatchdog = setTimeout(() => {
+    if (!activeImportWorker || !activeImportJobInfo) return;
+    logger.error(`[IMPORT] Watchdog: Worker process unresponsive for ${IMPORT_WORKER_TIMEOUT_MS / 1000}s, killing`);
+    const jobInfo = activeImportJobInfo;
+    try {
+      activeImportWorker.kill("SIGKILL");
+    } catch (_) {}
+    activeImportWorker = null;
+    activeImportJobInfo = null;
+    importWorkerWatchdog = null;
+    if (jobInfo) {
+      storage.completeImportQueueJob(jobInfo.queueId, "failed", "Worker process timed out (no response for 10 minutes)")
+        .catch((err) => logger.error("Failed to mark timed-out import as failed:", err));
+      storage.updateImportJob(jobInfo.importJobId, {
+        status: "failed",
+        errorMessage: "Import worker process stopped responding and was terminated",
+      }).catch((err) => logger.error("Failed to update timed-out import job:", err));
+    }
+  }, IMPORT_WORKER_TIMEOUT_MS);
+}
+
+function clearImportWorkerWatchdog() {
+  if (importWorkerWatchdog) {
+    clearTimeout(importWorkerWatchdog);
+    importWorkerWatchdog = null;
+  }
+}
 let activeFlushJob = false;
 let lastRecoveryCheck = 0;
 
@@ -702,6 +734,36 @@ function startImportJobProcessor() {
     .then(() => logger.info('[IMPORT] Email trigram index verified'))
     .catch((err: any) => logger.error('[IMPORT] Failed to create email trigram index:', err.message));
 
+  (async () => {
+    try {
+      const recoveredCount = await storage.recoverStuckImportJobs();
+      if (recoveredCount > 0) {
+        logger.info(`[IMPORT] Startup recovery: recovered ${recoveredCount} stuck import jobs back to pending`);
+      }
+      const staleCount = await storage.cleanupStaleImportJobs(30);
+      if (staleCount > 0) {
+        logger.info(`[IMPORT] Startup recovery: cleaned up ${staleCount} stale import jobs`);
+      }
+      const orphanResult = await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'failed',
+            error_message = 'Server restarted while import was processing',
+            completed_at = NOW()
+        WHERE status = 'processing'
+          AND id NOT IN (
+            SELECT import_job_id FROM import_job_queue
+            WHERE status = 'processing'
+          )
+        RETURNING id
+      `);
+      if (orphanResult.rows.length > 0) {
+        logger.info(`[IMPORT] Startup recovery: failed ${orphanResult.rows.length} orphaned import_jobs with no active queue item`);
+      }
+    } catch (err: any) {
+      logger.error('[IMPORT] Startup recovery failed:', err.message);
+    }
+  })();
+
   importJobPollingInterval = setInterval(pollForImportJobs, 5000);
 
   pollForImportJobs();
@@ -713,6 +775,7 @@ function stopImportJobProcessor() {
     importJobPollingInterval = null;
     logger.info("Import job processor stopped");
   }
+  clearImportWorkerWatchdog();
   if (activeImportWorker) {
     logger.info("Killing active import worker process");
     activeImportWorker.kill("SIGTERM");
@@ -797,9 +860,11 @@ async function pollForImportJobs() {
 
     activeImportWorker = child;
     activeImportJobInfo = { queueId: queueItem.id, importJobId: queueItem.importJobId };
+    resetImportWorkerWatchdog();
 
     child.on("message", async (msg: any) => {
       if (!msg || !msg.type) return;
+      resetImportWorkerWatchdog();
 
       switch (msg.type) {
         case "progress": {
@@ -910,6 +975,7 @@ async function pollForImportJobs() {
     });
 
     child.on("exit", (code, signal) => {
+      clearImportWorkerWatchdog();
       const jobInfo = activeImportJobInfo;
       activeImportWorker = null;
       activeImportJobInfo = null;
@@ -930,6 +996,7 @@ async function pollForImportJobs() {
     });
 
     child.on("error", (err) => {
+      clearImportWorkerWatchdog();
       logger.error(`[IMPORT] Worker process error:`, err);
       activeImportWorker = null;
       activeImportJobInfo = null;

@@ -576,8 +576,17 @@ export default function Import() {
       }
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+    onSuccess: (data: any) => {
+      if (data?.importJob) {
+        queryClient.setQueryData<ImportJob[]>(["/api/import-jobs"], (old) => {
+          if (!old) return [data.importJob];
+          const exists = old.some((j: ImportJob) => j.id === data.importJob.id);
+          if (exists) return old;
+          return [data.importJob, ...old];
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
       setSelectedFile(null);
       setUploadProgress(0);

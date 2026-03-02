@@ -951,6 +951,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     committedRows = newSubscribers + updatedSubscribers + failedRows;
   }
 
+  const resumeCommittedOffset = committedRows;
   let parsedRows = committedRows;
   let skippedRows = 0;
   let lastHeartbeat = Date.now();
@@ -1108,6 +1109,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     }
   }
 
+  let lastProgressLogTime = 0;
+  let lastProgressLogCommitted = -1;
+
   async function flushProgress(): Promise<void> {
     drainResults();
 
@@ -1115,6 +1119,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
       await updateImportQueueHeartbeat(queueId);
       lastHeartbeat = now;
+    }
+
+    const committedChanged = committedRows !== lastProgressLogCommitted;
+    if (!committedChanged && now - lastProgressLogTime < 2000) {
+      return;
     }
 
     await updateImportQueueProgress(queueId, committedRows);
@@ -1135,6 +1144,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       lastCheckpointLine = committedRows;
       log("info", `${importJobId}: Checkpoint at line ${currentLineNumber}, ${committedRows.toLocaleString()} rows committed`);
     }
+
+    lastProgressLogTime = now;
+    lastProgressLogCommitted = committedRows;
 
     const elapsedSec = (now - startTime) / 1000;
     const commitRate = committedRows / elapsedSec;
@@ -1249,6 +1261,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             parsedRows++;
             committedRows++;
             failureReasons["empty_email"] = (failureReasons["empty_email"] || 0) + 1;
+            if (Object.keys(sampleFailures).length < MAX_SAMPLE_FAILURES) {
+              sampleFailures[`line_${currentLineNumber}`] = line.substring(0, 200);
+            }
             return;
           }
           if (!email.includes("@") || email.length < 3) {
@@ -1256,6 +1271,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             parsedRows++;
             committedRows++;
             failureReasons["invalid_email"] = (failureReasons["invalid_email"] || 0) + 1;
+            if (Object.keys(sampleFailures).length < MAX_SAMPLE_FAILURES) {
+              sampleFailures[`line_${currentLineNumber}`] = line.substring(0, 200);
+            }
             return;
           }
           const atIdx = email.indexOf("@");
@@ -1266,6 +1284,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             parsedRows++;
             committedRows++;
             failureReasons["invalid_email"] = (failureReasons["invalid_email"] || 0) + 1;
+            if (Object.keys(sampleFailures).length < MAX_SAMPLE_FAILURES) {
+              sampleFailures[`line_${currentLineNumber}`] = line.substring(0, 200);
+            }
             return;
           }
 
@@ -1341,6 +1362,10 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     rl.on("close", async () => {
       clearInterval(progressUpdateTimer);
 
+      const finalizationHeartbeat = setInterval(() => {
+        sendIpc("log", { level: "debug", message: `${importJobId}: Finalization in progress...` });
+      }, 30000);
+
       try {
         if (batchRows.length > 0 && !isCancelled) {
           await waitForSlot();
@@ -1393,6 +1418,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             }
           }
 
+          clearInterval(finalizationHeartbeat);
           safeResolve();
           return;
         }
@@ -1403,9 +1429,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
         const expectedTotal = newSubscribers + updatedSubscribers + failedRows + duplicatesInFile + skippedRows;
         const dataRows = totalRows > 0 ? totalRows - 1 : 0;
-        if (Math.abs(expectedTotal - dataRows) > 1) {
-          log("warn", `${importJobId}: Count integrity mismatch - expected ${dataRows} data rows, got new(${newSubscribers})+updated(${updatedSubscribers})+failed(${failedRows})+dups(${duplicatesInFile})+skipped(${skippedRows})=${expectedTotal}`);
-          finalReasons["_count_discrepancy"] = { expected: dataRows, actual: expectedTotal };
+        const adjustedExpected = expectedTotal - resumeCommittedOffset;
+        const adjustedDataRows = resumeFromLine > 0 ? dataRows - (resumeFromLine - 1) : dataRows;
+        if (Math.abs(adjustedExpected - adjustedDataRows) > 1) {
+          log("warn", `${importJobId}: Count integrity mismatch - expected ${adjustedDataRows} data rows (total ${dataRows}, resume offset ${resumeFromLine > 0 ? resumeFromLine - 1 : 0}), got ${adjustedExpected} (raw total ${expectedTotal}, resume committed ${resumeCommittedOffset})`);
+          finalReasons["_count_discrepancy"] = { expected: adjustedDataRows, actual: adjustedExpected, resumeOffset: resumeCommittedOffset };
         }
 
         await updateImportJob(importJobId, {
@@ -1471,8 +1499,10 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           duration: totalDuration,
         });
 
+        clearInterval(finalizationHeartbeat);
         safeResolve();
       } catch (err) {
+        clearInterval(finalizationHeartbeat);
         safeReject(err);
       }
     });
