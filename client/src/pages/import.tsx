@@ -198,9 +198,13 @@ export default function Import() {
     queryKey: ["/api/import-jobs"],
     refetchInterval: (query) => {
       const data = query.state.data as ImportJob[] | undefined;
-      const hasActive = data?.some((j) => j.status === "processing" || j.status === "queued" || j.status === "pending" || j.status === "awaiting_confirmation");
-      if (hasActive) {
-        return isSSEConnected() ? 30000 : 5000;
+      const hasProcessing = data?.some((j) => j.status === "processing");
+      const hasWaiting = data?.some((j) => j.status === "queued" || j.status === "pending" || j.status === "awaiting_confirmation");
+      if (hasProcessing) {
+        return isSSEConnected() ? 5000 : 3000;
+      }
+      if (hasWaiting) {
+        return 10000;
       }
       return false;
     },
@@ -405,8 +409,33 @@ export default function Import() {
     };
     const labels: Record<string, string> = {
       awaiting_confirmation: "awaiting confirmation",
+      processing: "importing",
     };
     return <Badge variant={variants[status] || "outline"}>{labels[status] || status}</Badge>;
+  };
+
+  const formatDuration = (startDate: Date | string | null, endDate: Date | string | null) => {
+    if (!startDate) return null;
+    const start = new Date(startDate).getTime();
+    const end = endDate ? new Date(endDate).getTime() : Date.now();
+    const sec = Math.max(Math.round((end - start) / 1000), 1);
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    const remSec = sec % 60;
+    if (min < 60) return `${min}m ${remSec}s`;
+    const hr = Math.floor(min / 60);
+    return `${hr}h ${min % 60}m`;
+  };
+
+  const errorLabels: Record<string, string> = {
+    empty_email: "Empty email field",
+    invalid_email: "Invalid email format",
+    invalid_email_no_at: "Invalid email (no @)",
+    malformed_csv_row: "Malformed CSV row",
+    parse_error: "CSV parse error",
+    batch_processing_error: "Database batch error",
+    processing_error: "Processing error",
+    db_constraint: "Database constraint violation",
   };
 
   return (
@@ -644,6 +673,7 @@ alice@example.com;VIP;;;`}
                         const etaMin = Math.max(Math.round(etaSec / 60), 0);
                         const etaHours = Math.floor(etaMin / 60);
                         const etaMinRemainder = etaMin % 60;
+                        const elapsed = formatDuration(job.startedAt || job.createdAt, null);
                         
                         return (
                           <div className="flex justify-between text-xs text-muted-foreground mt-1">
@@ -651,6 +681,7 @@ alice@example.com;VIP;;;`}
                               {Math.round(rowsPerSec * 60).toLocaleString()} rows/min
                             </span>
                             <span>
+                              {elapsed && <span className="mr-3">Elapsed: {elapsed}</span>}
                               ETA: {remainingRows === 0 ? "finishing..." : etaHours > 0 ? `${etaHours}h ${etaMinRemainder}m` : `${etaMin}m`}
                             </span>
                           </div>
@@ -679,77 +710,103 @@ alice@example.com;VIP;;;`}
                   )}
 
                   {job.status === "completed" && (() => {
-                    const reasons = ((job as any).failureReasons || {}) as Record<string, number>;
+                    const reasons = ((job as any).failureReasons || {}) as Record<string, any>;
                     const dupCount = reasons["duplicate_in_file"] || (job as any).duplicatesInFile || 0;
+                    const sampleFails = reasons["_sample_failures"] as Record<string, string> | undefined;
                     const errorReasons = Object.fromEntries(
-                      Object.entries(reasons).filter(([key]) => key !== "duplicate_in_file")
-                    );
+                      Object.entries(reasons).filter(([key]) => key !== "duplicate_in_file" && !key.startsWith("_"))
+                    ) as Record<string, number>;
                     const hasErrors = Object.keys(errorReasons).length > 0;
-                    const uniqueEmails = job.newSubscribers + job.updatedSubscribers;
-                    const errorLabels: Record<string, string> = {
-                      empty_email: "Empty email",
-                      invalid_email_no_at: "Invalid email (no @)",
-                      parse_error: "Malformed CSV rows",
-                      processing_error: "Processing error",
-                      db_constraint: "Database constraint",
-                    };
+                    const duration = formatDuration(job.startedAt, job.completedAt);
+                    const totalDataRows = Math.max(job.totalRows - 1, 0);
+                    const processedEmails = job.newSubscribers + job.updatedSubscribers;
 
                     return (
                       <div className="space-y-3">
-                        <div className={`grid ${dupCount > 0 ? "grid-cols-4" : "grid-cols-3"} gap-4 text-sm`}>
-                          <div>
-                            <p className="text-muted-foreground">New</p>
-                            <p className="font-medium text-green-600" data-testid="text-new-count">
-                              +{job.newSubscribers.toLocaleString()}
+                        {duration && (
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span>Duration: {duration}</span>
+                            <span>Rows: {totalDataRows.toLocaleString()}</span>
+                            {totalDataRows > 0 && job.startedAt && job.completedAt && (
+                              <span>
+                                {Math.round(totalDataRows / Math.max((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000, 1)).toLocaleString()} rows/sec
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div className={`grid gap-3 text-sm ${dupCount > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
+                          <div className="p-2 rounded bg-green-50 dark:bg-green-950/20 text-center">
+                            <p className="text-xs text-muted-foreground mb-0.5">New</p>
+                            <p className="font-semibold text-green-600" data-testid="text-new-count">
+                              {job.newSubscribers.toLocaleString()}
                             </p>
                           </div>
-                          <div>
-                            <p className="text-muted-foreground">Updated</p>
-                            <p className="font-medium text-blue-600" data-testid="text-updated-count">
+                          <div className="p-2 rounded bg-blue-50 dark:bg-blue-950/20 text-center">
+                            <p className="text-xs text-muted-foreground mb-0.5">Updated</p>
+                            <p className="font-semibold text-blue-600" data-testid="text-updated-count">
                               {job.updatedSubscribers.toLocaleString()}
                             </p>
                           </div>
                           {dupCount > 0 && (
-                            <div>
-                              <p className="text-muted-foreground">Duplicates</p>
-                              <p className="font-medium text-amber-600" data-testid="text-duplicates-count">
+                            <div className="p-2 rounded bg-amber-50 dark:bg-amber-950/20 text-center">
+                              <p className="text-xs text-muted-foreground mb-0.5">Duplicates</p>
+                              <p className="font-semibold text-amber-600" data-testid="text-duplicates-count">
                                 {dupCount.toLocaleString()}
                               </p>
                             </div>
                           )}
-                          <div>
-                            <p className="text-muted-foreground">Failed</p>
-                            <p className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`} data-testid="text-failed-count">
+                          <div className={`p-2 rounded text-center ${job.failedRows > 0 ? "bg-red-50 dark:bg-red-950/20" : "bg-muted/50"}`}>
+                            <p className="text-xs text-muted-foreground mb-0.5">Failed</p>
+                            <p className={`font-semibold ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`} data-testid="text-failed-count">
                               {job.failedRows.toLocaleString()}
                             </p>
                           </div>
                         </div>
-                        <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 space-y-0.5">
-                          <p>Total rows in file: {job.totalRows.toLocaleString()} (header: 1{(job as any).skippedRows > 0 ? `, empty/skipped: ${(job as any).skippedRows.toLocaleString()}` : ""})</p>
-                          <p>Unique emails: {uniqueEmails.toLocaleString()} (new: {job.newSubscribers.toLocaleString()}, updated: {job.updatedSubscribers.toLocaleString()})</p>
-                          {dupCount > 0 && (
-                            <p>Duplicate rows merged: {dupCount.toLocaleString()} (same email appeared multiple times in file)</p>
+
+                        <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2.5 space-y-1">
+                          <div className="flex justify-between">
+                            <span>Emails processed successfully</span>
+                            <span className="font-medium">{processedEmails.toLocaleString()}</span>
+                          </div>
+                          {(job as any).skippedRows > 0 && (
+                            <div className="flex justify-between">
+                              <span>Empty/skipped lines</span>
+                              <span className="font-medium">{(job as any).skippedRows.toLocaleString()}</span>
+                            </div>
                           )}
-                          {job.failedRows > 0 && (
-                            <p>Failed: {job.failedRows.toLocaleString()}</p>
+                          {dupCount > 0 && (
+                            <div className="flex justify-between text-amber-700 dark:text-amber-400">
+                              <span>Duplicate emails merged</span>
+                              <span className="font-medium">{dupCount.toLocaleString()}</span>
+                            </div>
                           )}
                         </div>
-                        {dupCount > 0 && (
-                          <div className="text-xs bg-amber-50 dark:bg-amber-950/20 rounded p-2 space-y-0.5">
-                            <p className="font-medium text-amber-700 dark:text-amber-400">
-                              {dupCount.toLocaleString()} duplicate emails were found in the file and merged automatically. Tags and refs from duplicate rows are combined.
-                            </p>
-                          </div>
-                        )}
+
                         {hasErrors && (
-                          <div className="text-xs bg-red-50 dark:bg-red-950/30 rounded p-2 space-y-0.5">
-                            <p className="font-medium text-red-700 dark:text-red-400 mb-1">Failed row reasons:</p>
-                            {Object.entries(errorReasons).map(([key, count]) => (
-                              <p key={key} className="text-red-600 dark:text-red-400">
-                                {errorLabels[key] || key}: {(count as number).toLocaleString()}
-                              </p>
-                            ))}
-                          </div>
+                          <details className="text-xs">
+                            <summary className="cursor-pointer font-medium text-red-700 dark:text-red-400 hover:underline">
+                              {job.failedRows.toLocaleString()} rows failed — click to see details
+                            </summary>
+                            <div className="mt-2 bg-red-50 dark:bg-red-950/30 rounded p-2.5 space-y-1">
+                              {Object.entries(errorReasons).map(([key, count]) => (
+                                <div key={key} className="flex justify-between text-red-600 dark:text-red-400">
+                                  <span>{errorLabels[key] || key}</span>
+                                  <span className="font-medium">{(count as number).toLocaleString()}</span>
+                                </div>
+                              ))}
+                              {sampleFails && Object.keys(sampleFails).length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-red-200 dark:border-red-800">
+                                  <p className="font-medium mb-1">Sample failing rows:</p>
+                                  {Object.entries(sampleFails).map(([lineKey, content]) => (
+                                    <p key={lineKey} className="font-mono text-[10px] break-all text-red-500">
+                                      {lineKey}: {content}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </details>
                         )}
                       </div>
                     );

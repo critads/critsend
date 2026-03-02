@@ -110,12 +110,62 @@ function handleEvent(event: JobProgressEvent) {
 
 function handleImportEvent(event: JobProgressEvent) {
   const isTerminal = event.status === "completed" || event.status === "failed";
+  const sseTimestamp = Date.now();
 
   queryClient.setQueryData<ImportJob[]>(["/api/import-jobs"], (old) => {
-    if (!old) return old;
+    if (!old) {
+      return [{
+        id: event.jobId,
+        filename: "",
+        totalRows: event.totalRows,
+        processedRows: event.processedRows,
+        newSubscribers: event.newSubscribers ?? 0,
+        updatedSubscribers: event.updatedSubscribers ?? 0,
+        failedRows: event.failedRows ?? 0,
+        status: event.status as ImportJob["status"],
+        tagMode: "merge",
+        importTarget: "refs",
+        detectedRefs: [],
+        cleanExistingRefs: false,
+        deleteExistingRefs: false,
+        errorMessage: event.errorMessage ?? null,
+        failureReasons: event.failureReasons ?? null,
+        skippedRows: event.skippedRows ?? 0,
+        createdAt: new Date(),
+        startedAt: new Date(),
+        completedAt: null,
+        _sseTimestamp: sseTimestamp,
+      } as any];
+    }
+
+    const found = old.some((j) => j.id === event.jobId);
+    if (!found) {
+      return [{
+        id: event.jobId,
+        filename: "",
+        totalRows: event.totalRows,
+        processedRows: event.processedRows,
+        newSubscribers: event.newSubscribers ?? 0,
+        updatedSubscribers: event.updatedSubscribers ?? 0,
+        failedRows: event.failedRows ?? 0,
+        status: event.status as ImportJob["status"],
+        tagMode: "merge",
+        importTarget: "refs",
+        detectedRefs: [],
+        cleanExistingRefs: false,
+        deleteExistingRefs: false,
+        errorMessage: event.errorMessage ?? null,
+        failureReasons: event.failureReasons ?? null,
+        skippedRows: event.skippedRows ?? 0,
+        createdAt: new Date(),
+        startedAt: new Date(),
+        completedAt: null,
+        _sseTimestamp: sseTimestamp,
+      } as any, ...old];
+    }
+
     return old.map((job) => {
       if (job.id !== event.jobId) return job;
-      const sseTimestamp = Date.now();
       return {
         ...job,
         status: event.status as ImportJob["status"],
@@ -133,7 +183,9 @@ function handleImportEvent(event: JobProgressEvent) {
   });
 
   if (isTerminal) {
-    queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+    }, 500);
     queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
   }
 }

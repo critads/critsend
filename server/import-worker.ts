@@ -922,6 +922,8 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let lastCheckpointLine = resumeFromLine;
   let processedBytes = queueItem?.processedBytes || 0;
   const failureReasons: Record<string, number> = {};
+  const sampleFailures: Record<string, string> = {};
+  const MAX_SAMPLE_FAILURES = 10;
 
   if (resumeFromLine > 0) {
     log("info", `${importJobId}: Resuming from line ${resumeFromLine}, committed rows: ${committedRows} (new: ${newSubscribers}, updated: ${updatedSubscribers}, failed: ${failedRows})`);
@@ -1081,8 +1083,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     }
 
     await updateImportQueueProgress(queueId, committedRows);
-    const allReasons = { ...failureReasons };
+    const allReasons: Record<string, any> = { ...failureReasons };
     if (duplicatesInFile > 0) allReasons["duplicate_in_file"] = duplicatesInFile;
+    if (Object.keys(sampleFailures).length > 0) allReasons["_sample_failures"] = sampleFailures;
     await updateImportJob(importJobId, {
       processedRows: committedRows,
       newSubscribers,
@@ -1121,8 +1124,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       }
 
       await updateImportQueueProgress(queueId, committedRows);
-      const timerReasons = { ...failureReasons };
+      const timerReasons: Record<string, any> = { ...failureReasons };
       if (duplicatesInFile > 0) timerReasons["duplicate_in_file"] = duplicatesInFile;
+      if (Object.keys(sampleFailures).length > 0) timerReasons["_sample_failures"] = sampleFailures;
       await updateImportJob(importJobId, {
         processedRows: committedRows,
         newSubscribers,
@@ -1200,6 +1204,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           return;
         }
 
+        let rowParsedOk = false;
         try {
           const cols = line.split(";").map((c) => c.trim());
           const email = cols[emailIdx]?.toLowerCase();
@@ -1211,11 +1216,21 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             failureReasons["empty_email"] = (failureReasons["empty_email"] || 0) + 1;
             return;
           }
-          if (!email.includes("@")) {
+          if (!email.includes("@") || email.length < 3) {
             failedRows++;
             parsedRows++;
             committedRows++;
-            failureReasons["invalid_email_no_at"] = (failureReasons["invalid_email_no_at"] || 0) + 1;
+            failureReasons["invalid_email"] = (failureReasons["invalid_email"] || 0) + 1;
+            return;
+          }
+          const atIdx = email.indexOf("@");
+          const localPart = email.substring(0, atIdx);
+          const domainPart = email.substring(atIdx + 1);
+          if (!localPart || !domainPart || !domainPart.includes(".") || domainPart.endsWith(".") || domainPart.startsWith(".")) {
+            failedRows++;
+            parsedRows++;
+            committedRows++;
+            failureReasons["invalid_email"] = (failureReasons["invalid_email"] || 0) + 1;
             return;
           }
 
@@ -1237,32 +1252,47 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
           batchRows.push({ email, tags, refs, ipAddress, lineNumber: currentLineNumber });
           parsedRows++;
-
-          if (batchRows.length >= BATCH_SIZE) {
-            rl.pause();
-
-            if (await checkCancellation()) {
-              rl.close();
-              return;
-            }
-
-            if (batchError) {
-              rl.close();
-              safeReject(batchError);
-              return;
-            }
-
-            await waitForSlot();
-            submitBatch();
-            await flushProgress();
-
-            rl.resume();
-          }
-        } catch (parseErr) {
+          rowParsedOk = true;
+        } catch (parseErr: any) {
           failedRows++;
           parsedRows++;
           committedRows++;
-          failureReasons["parse_error"] = (failureReasons["parse_error"] || 0) + 1;
+          failureReasons["malformed_csv_row"] = (failureReasons["malformed_csv_row"] || 0) + 1;
+          if (Object.keys(sampleFailures).length < MAX_SAMPLE_FAILURES) {
+            sampleFailures[`line_${currentLineNumber}`] = line.substring(0, 200);
+          }
+        }
+
+        if (rowParsedOk && batchRows.length >= BATCH_SIZE) {
+          rl.pause();
+
+          if (await checkCancellation()) {
+            rl.close();
+            return;
+          }
+
+          if (batchError) {
+            rl.close();
+            safeReject(batchError);
+            return;
+          }
+
+          try {
+            await waitForSlot();
+            submitBatch();
+          } catch (batchErr: any) {
+            log("error", `${importJobId}: Batch submission error at line ${currentLineNumber}: ${batchErr.message}`);
+            const lostRows = batchRows.length;
+            failedRows += lostRows;
+            committedRows += lostRows;
+            batchRows = [];
+            failureReasons["batch_processing_error"] = (failureReasons["batch_processing_error"] || 0) + lostRows;
+          }
+          try {
+            await flushProgress();
+          } catch (_) {}
+
+          rl.resume();
         }
       } catch (err) {
         log("error", `Error processing line ${currentLineNumber}: ${err}`);
@@ -1295,8 +1325,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
         if (isCancelled || wasExternallyCancelled) {
           log("info", `${importJobId}: Processing stopped due to cancellation at line ${currentLineNumber} (committed: ${committedRows}, parsed: ${parsedRows})`);
 
-          const cancelReasons = { ...failureReasons };
+          const cancelReasons: Record<string, any> = { ...failureReasons };
           if (duplicatesInFile > 0) cancelReasons["duplicate_in_file"] = duplicatesInFile;
+          if (Object.keys(sampleFailures).length > 0) cancelReasons["_sample_failures"] = sampleFailures;
           await updateImportJob(importJobId, {
             processedRows: committedRows,
             newSubscribers,
@@ -1331,8 +1362,17 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           return;
         }
 
-        const finalReasons = { ...failureReasons };
+        const finalReasons: Record<string, any> = { ...failureReasons };
         if (duplicatesInFile > 0) finalReasons["duplicate_in_file"] = duplicatesInFile;
+        if (Object.keys(sampleFailures).length > 0) finalReasons["_sample_failures"] = sampleFailures;
+
+        const expectedTotal = newSubscribers + updatedSubscribers + failedRows + duplicatesInFile + skippedRows;
+        const dataRows = totalRows > 0 ? totalRows - 1 : 0;
+        if (Math.abs(expectedTotal - dataRows) > 1) {
+          log("warn", `${importJobId}: Count integrity mismatch - expected ${dataRows} data rows, got new(${newSubscribers})+updated(${updatedSubscribers})+failed(${failedRows})+dups(${duplicatesInFile})+skipped(${skippedRows})=${expectedTotal}`);
+          finalReasons["_count_discrepancy"] = { expected: dataRows, actual: expectedTotal };
+        }
+
         await updateImportJob(importJobId, {
           status: "completed",
           completedAt: new Date(),
