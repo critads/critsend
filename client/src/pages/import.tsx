@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, fetchCsrfToken } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -184,6 +184,286 @@ function ConfirmationCard({ job, onConfirmed }: { job: ImportJob; onConfirmed: (
   );
 }
 
+function formatDuration(startDate: Date | string | null, endDate: Date | string | null): string | null {
+  if (!startDate) return null;
+  const start = new Date(startDate).getTime();
+  const end = endDate ? new Date(endDate).getTime() : Date.now();
+  const sec = Math.max(Math.round((end - start) / 1000), 1);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const remSec = sec % 60;
+  if (min < 60) return `${min}m ${remSec}s`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ${min % 60}m`;
+}
+
+const ERROR_LABELS: Record<string, string> = {
+  empty_email: "Empty email field",
+  invalid_email: "Invalid email format",
+  invalid_email_no_at: "Invalid email (no @)",
+  malformed_csv_row: "Malformed CSV row",
+  parse_error: "CSV parse error",
+  batch_processing_error: "Database batch error",
+  processing_error: "Processing error",
+  db_constraint: "Database constraint violation",
+};
+
+function ActiveJobDisplay({ job }: { job: ImportJob }) {
+  const pct = job.totalRows > 0 ? Math.min((job.processedRows / job.totalRows) * 100, 100) : 0;
+  const isWaiting = (job.status === "queued" || job.status === "pending") && job.processedRows === 0;
+
+  const startTime = job.startedAt
+    ? new Date(job.startedAt).getTime()
+    : new Date(job.createdAt).getTime();
+  const elapsedMs = Date.now() - startTime;
+  const elapsedSec = Math.max(elapsedMs / 1000, 1);
+  const rowsPerSec = job.processedRows / elapsedSec;
+  const remainingRows = Math.max(job.totalRows - job.processedRows, 0);
+  const etaSec = rowsPerSec > 0 ? remainingRows / rowsPerSec : 0;
+  const etaMin = Math.max(Math.round(etaSec / 60), 0);
+  const etaHours = Math.floor(etaMin / 60);
+  const etaMinRemainder = etaMin % 60;
+  const elapsed = formatDuration(job.startedAt || job.createdAt, null);
+
+  return (
+    <div className="space-y-2">
+      <Progress value={pct} className="h-2" />
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>
+          {Math.min(job.processedRows, job.totalRows).toLocaleString()} / {job.totalRows.toLocaleString()} rows
+        </span>
+        <span>{isWaiting ? "Waiting to start..." : `${pct.toFixed(1)}%`}</span>
+      </div>
+      {job.processedRows > 0 && (
+        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+          <span className="text-green-600 font-medium">
+            {Math.round(rowsPerSec * 60).toLocaleString()} rows/min
+          </span>
+          <span>
+            {elapsed && <span className="mr-3">Elapsed: {elapsed}</span>}
+            ETA: {remainingRows === 0 ? "finishing..." : etaHours > 0 ? `${etaHours}h ${etaMinRemainder}m` : `${etaMin}m`}
+          </span>
+        </div>
+      )}
+      {(job.newSubscribers > 0 || job.updatedSubscribers > 0 || job.failedRows > 0) && (
+        <div className="grid grid-cols-3 gap-3 text-xs mt-2 p-2 rounded bg-muted/50">
+          <div>
+            <span className="text-muted-foreground">New: </span>
+            <span className="font-medium text-green-600">+{job.newSubscribers.toLocaleString()}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Updated: </span>
+            <span className="font-medium text-blue-600">{job.updatedSubscribers.toLocaleString()}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Failed: </span>
+            <span className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`}>
+              {job.failedRows.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      )}
+      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+        Import continues in the background even if you navigate away.
+      </p>
+    </div>
+  );
+}
+
+function CompletedJobDisplay({ job }: { job: ImportJob }) {
+  const reasons = ((job as any).failureReasons || {}) as Record<string, any>;
+  const dupCount = reasons["duplicate_in_file"] || (job as any).duplicatesInFile || 0;
+  const sampleFails = reasons["_sample_failures"] as Record<string, string> | undefined;
+  const errorReasons = Object.fromEntries(
+    Object.entries(reasons).filter(([key]) => key !== "duplicate_in_file" && !key.startsWith("_"))
+  ) as Record<string, number>;
+  const hasErrors = Object.keys(errorReasons).length > 0;
+  const duration = formatDuration(job.startedAt, job.completedAt);
+  const skippedRows = (job as any).skippedRows || 0;
+
+  const durationSec = job.startedAt && job.completedAt
+    ? Math.max((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000, 1)
+    : 0;
+  const rowsPerSec = durationSec > 0 ? Math.round(job.processedRows / durationSec) : 0;
+
+  const totalAccounted = job.newSubscribers + job.updatedSubscribers + job.failedRows + dupCount + skippedRows;
+
+  return (
+    <div className="space-y-3">
+      {duration && (
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span>Duration: {duration}</span>
+          <span>Rows processed: {job.processedRows.toLocaleString()}</span>
+          {rowsPerSec > 0 && <span>{rowsPerSec.toLocaleString()} rows/sec</span>}
+        </div>
+      )}
+
+      <div className={`grid gap-3 text-sm ${dupCount > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
+        <div className="p-2.5 rounded bg-green-50 dark:bg-green-950/20 text-center" data-testid="stat-new">
+          <p className="text-xs text-muted-foreground mb-0.5">New</p>
+          <p className="font-semibold text-green-600" data-testid="text-new-count">
+            {job.newSubscribers.toLocaleString()}
+          </p>
+        </div>
+        <div className="p-2.5 rounded bg-blue-50 dark:bg-blue-950/20 text-center" data-testid="stat-updated">
+          <p className="text-xs text-muted-foreground mb-0.5">Updated</p>
+          <p className="font-semibold text-blue-600" data-testid="text-updated-count">
+            {job.updatedSubscribers.toLocaleString()}
+          </p>
+        </div>
+        {dupCount > 0 && (
+          <div className="p-2.5 rounded bg-amber-50 dark:bg-amber-950/20 text-center" data-testid="stat-duplicates">
+            <p className="text-xs text-muted-foreground mb-0.5">Duplicates in file</p>
+            <p className="font-semibold text-amber-600" data-testid="text-duplicates-count">
+              {dupCount.toLocaleString()}
+            </p>
+          </div>
+        )}
+        <div className={`p-2.5 rounded text-center ${job.failedRows > 0 ? "bg-red-50 dark:bg-red-950/20" : "bg-muted/50"}`} data-testid="stat-failed">
+          <p className="text-xs text-muted-foreground mb-0.5">Failed</p>
+          <p className={`font-semibold ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`} data-testid="text-failed-count">
+            {job.failedRows.toLocaleString()}
+          </p>
+        </div>
+      </div>
+
+      <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2.5 space-y-1">
+        <div className="flex justify-between">
+          <span>Total rows in file</span>
+          <span className="font-medium">{job.totalRows.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Successfully imported (new + updated)</span>
+          <span className="font-medium text-green-700 dark:text-green-400">
+            {(job.newSubscribers + job.updatedSubscribers).toLocaleString()}
+          </span>
+        </div>
+        {skippedRows > 0 && (
+          <div className="flex justify-between">
+            <span>Empty/skipped lines</span>
+            <span className="font-medium">{skippedRows.toLocaleString()}</span>
+          </div>
+        )}
+        {dupCount > 0 && (
+          <div className="flex justify-between text-amber-700 dark:text-amber-400">
+            <span>Duplicate emails within file (merged)</span>
+            <span className="font-medium">{dupCount.toLocaleString()}</span>
+          </div>
+        )}
+        {totalAccounted > 0 && job.totalRows > 0 && totalAccounted !== job.totalRows && Math.abs(totalAccounted - job.totalRows) > 1 && (
+          <div className="flex justify-between text-amber-600">
+            <span>Total accounted</span>
+            <span className="font-medium">{totalAccounted.toLocaleString()}</span>
+          </div>
+        )}
+      </div>
+
+      {hasErrors && (
+        <details className="text-xs">
+          <summary className="cursor-pointer font-medium text-red-700 dark:text-red-400 hover:underline">
+            {job.failedRows.toLocaleString()} rows failed — click to see details
+          </summary>
+          <div className="mt-2 bg-red-50 dark:bg-red-950/30 rounded p-2.5 space-y-1">
+            {Object.entries(errorReasons).map(([key, count]) => (
+              <div key={key} className="flex justify-between text-red-600 dark:text-red-400">
+                <span>{ERROR_LABELS[key] || key}</span>
+                <span className="font-medium">{(count as number).toLocaleString()}</span>
+              </div>
+            ))}
+            {sampleFails && Object.keys(sampleFails).length > 0 && (
+              <div className="mt-2 pt-2 border-t border-red-200 dark:border-red-800">
+                <p className="font-medium mb-1">Sample failing rows:</p>
+                {Object.entries(sampleFails).map(([lineKey, content]) => (
+                  <p key={lineKey} className="font-mono text-[10px] break-all text-red-500">
+                    {lineKey}: {content}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: string) => void }) {
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "completed": return <CheckCircle2 className="h-5 w-5 text-green-600" />;
+      case "failed": return <XCircle className="h-5 w-5 text-red-600" />;
+      case "cancelled": return <Ban className="h-5 w-5 text-muted-foreground" />;
+      case "processing": return <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />;
+      case "awaiting_confirmation": return <AlertCircle className="h-5 w-5 text-amber-500" />;
+      default: return <Clock className="h-5 w-5 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+      pending: "outline",
+      queued: "outline",
+      processing: "default",
+      awaiting_confirmation: "outline",
+      completed: "secondary",
+      failed: "destructive",
+      cancelled: "secondary",
+    };
+    const labels: Record<string, string> = {
+      awaiting_confirmation: "awaiting confirmation",
+      processing: "importing",
+    };
+    return <Badge variant={variants[status] || "outline"} data-testid={`badge-status-${job.id}`}>{labels[status] || status}</Badge>;
+  };
+
+  const isActive = job.status === "processing" || job.status === "queued" || job.status === "pending";
+  const canCancel = isActive;
+
+  return (
+    <div className="p-4 rounded-md border bg-card" data-testid={`import-job-${job.id}`}>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div className="flex items-center gap-3">
+          {getStatusIcon(job.status)}
+          <div>
+            <p className="font-medium truncate max-w-[300px]" data-testid={`text-filename-${job.id}`}>
+              {job.filename}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {new Date(job.createdAt).toLocaleString()}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {canCancel && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onCancel(job.id)}
+              data-testid={`button-cancel-import-${job.id}`}
+            >
+              <Ban className="h-4 w-4 mr-1" />
+              Cancel
+            </Button>
+          )}
+          {getStatusBadge(job.status)}
+        </div>
+      </div>
+
+      {job.status === "awaiting_confirmation" && (
+        <ConfirmationCard job={job} onConfirmed={() => queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] })} />
+      )}
+
+      {isActive && <ActiveJobDisplay job={job} />}
+
+      {job.status === "completed" && <CompletedJobDisplay job={job} />}
+
+      {job.status === "failed" && job.errorMessage && (
+        <p className="text-sm text-destructive" data-testid={`text-error-${job.id}`}>{job.errorMessage}</p>
+      )}
+    </div>
+  );
+}
+
 export default function Import() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -215,17 +495,16 @@ export default function Import() {
       const MAX_FILE_SIZE = 1024 * 1024 * 1024;
       const CHUNK_SIZE = 25 * 1024 * 1024;
       const USE_CHUNKED_THRESHOLD = 25 * 1024 * 1024;
-      
+
       if (file.size > MAX_FILE_SIZE) {
         throw new Error(`File too large. Maximum size is 1GB, your file is ${(file.size / (1024 * 1024)).toFixed(0)}MB.`);
       }
-      
+
       if (file.size > USE_CHUNKED_THRESHOLD) {
         setIsChunkedUpload(true);
         setUploadProgress(0);
-        
+
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-        
         const csrfToken = await fetchCsrfToken();
         const startResponse = await fetch("/api/import/chunked/start", {
           method: "POST",
@@ -237,51 +516,50 @@ export default function Import() {
             totalSize: file.size,
           }),
         });
-        
+
         if (!startResponse.ok) {
           const errorData = await startResponse.json().catch(() => null);
           throw new Error(errorData?.error || "Failed to start chunked upload");
         }
-        
+
         const { uploadId } = await startResponse.json();
-        
+
         for (let i = 0; i < totalChunks; i++) {
           const start = i * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, file.size);
           const chunk = file.slice(start, end);
-          
+
           const chunkFormData = new FormData();
           chunkFormData.append("chunk", chunk, `chunk_${i}`);
-          
+
           const chunkResponse = await fetch(`/api/import/chunked/${uploadId}/chunk/${i}`, {
             method: "POST",
             headers: { "x-csrf-token": csrfToken },
             body: chunkFormData,
           });
-          
+
           if (!chunkResponse.ok) {
             const errorData = await chunkResponse.json().catch(() => null);
             throw new Error(errorData?.error || `Failed to upload chunk ${i + 1}/${totalChunks}`);
           }
-          
-          const progress = Math.round(((i + 1) / totalChunks) * 100);
-          setUploadProgress(progress);
+
+          setUploadProgress(Math.round(((i + 1) / totalChunks) * 100));
         }
-        
+
         const completeResponse = await fetch(`/api/import/chunked/${uploadId}/complete`, {
           method: "POST",
           headers: { "x-csrf-token": csrfToken },
         });
-        
+
         if (!completeResponse.ok) {
           const errorData = await completeResponse.json().catch(() => null);
           throw new Error(errorData?.error || "Failed to complete chunked upload");
         }
-        
+
         setIsChunkedUpload(false);
         return completeResponse.json();
       }
-      
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append("tagMode", tagMode);
@@ -327,18 +605,11 @@ export default function Import() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
-      toast({
-        title: "Import cancelled",
-        description: "The import job has been cancelled.",
-      });
+      toast({ title: "Import cancelled", description: "The import job has been cancelled." });
     },
     onError: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
-      toast({
-        title: "Cancel failed",
-        description: "Could not cancel the import. It may have already completed.",
-        variant: "destructive",
-      });
+      toast({ title: "Cancel failed", description: "Could not cancel the import. It may have already completed.", variant: "destructive" });
     },
   });
 
@@ -369,73 +640,11 @@ export default function Import() {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-    }
+    if (file) setSelectedFile(file);
   };
 
   const handleUpload = () => {
-    if (selectedFile) {
-      uploadMutation.mutate({ file: selectedFile, tagMode });
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle2 className="h-5 w-5 text-green-600" />;
-      case "failed":
-        return <XCircle className="h-5 w-5 text-red-600" />;
-      case "cancelled":
-        return <Ban className="h-5 w-5 text-muted-foreground" />;
-      case "processing":
-        return <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />;
-      case "awaiting_confirmation":
-        return <AlertCircle className="h-5 w-5 text-amber-500" />;
-      default:
-        return <Clock className="h-5 w-5 text-muted-foreground" />;
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-      pending: "outline",
-      queued: "outline",
-      processing: "default",
-      awaiting_confirmation: "outline",
-      completed: "secondary",
-      failed: "destructive",
-      cancelled: "secondary",
-    };
-    const labels: Record<string, string> = {
-      awaiting_confirmation: "awaiting confirmation",
-      processing: "importing",
-    };
-    return <Badge variant={variants[status] || "outline"}>{labels[status] || status}</Badge>;
-  };
-
-  const formatDuration = (startDate: Date | string | null, endDate: Date | string | null) => {
-    if (!startDate) return null;
-    const start = new Date(startDate).getTime();
-    const end = endDate ? new Date(endDate).getTime() : Date.now();
-    const sec = Math.max(Math.round((end - start) / 1000), 1);
-    if (sec < 60) return `${sec}s`;
-    const min = Math.floor(sec / 60);
-    const remSec = sec % 60;
-    if (min < 60) return `${min}m ${remSec}s`;
-    const hr = Math.floor(min / 60);
-    return `${hr}h ${min % 60}m`;
-  };
-
-  const errorLabels: Record<string, string> = {
-    empty_email: "Empty email field",
-    invalid_email: "Invalid email format",
-    invalid_email_no_at: "Invalid email (no @)",
-    malformed_csv_row: "Malformed CSV row",
-    parse_error: "CSV parse error",
-    batch_processing_error: "Database batch error",
-    processing_error: "Processing error",
-    db_constraint: "Database constraint violation",
+    if (selectedFile) uploadMutation.mutate({ file: selectedFile, tagMode });
   };
 
   return (
@@ -527,7 +736,7 @@ export default function Import() {
                   </div>
                   <Progress value={uploadProgress} className="h-2" />
                   <p className="text-xs text-muted-foreground">
-                    Large files ({(selectedFile?.size || 0) > 25 * 1024 * 1024 ? `${Math.round((selectedFile?.size || 0) / (1024 * 1024))}MB` : ''}) are uploaded in 25MB chunks to ensure reliable delivery.
+                    Large files ({(selectedFile?.size || 0) > 25 * 1024 * 1024 ? `${Math.round((selectedFile?.size || 0) / (1024 * 1024))}MB` : ''}) are uploaded in 25MB chunks.
                   </p>
                 </div>
               )}
@@ -607,215 +816,11 @@ alice@example.com;VIP;;;`}
           ) : jobs && jobs.length > 0 ? (
             <div className="space-y-4">
               {jobs.map((job) => (
-                <div
+                <ImportJobCard
                   key={job.id}
-                  className="p-4 rounded-md border bg-card"
-                  data-testid={`import-job-${job.id}`}
-                >
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="flex items-center gap-3">
-                      {getStatusIcon(job.status)}
-                      <div>
-                        <p className="font-medium truncate max-w-[300px]">
-                          {job.filename}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(job.createdAt).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {(job.status === "pending" || job.status === "processing" || job.status === "queued") && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => cancelMutation.mutate(job.id)}
-                          disabled={cancelMutation.isPending}
-                          data-testid={`button-cancel-import-${job.id}`}
-                        >
-                          <Ban className="h-4 w-4 mr-1" />
-                          Cancel
-                        </Button>
-                      )}
-                      {getStatusBadge(job.status)}
-                    </div>
-                  </div>
-
-                  {job.status === "awaiting_confirmation" && (
-                    <ConfirmationCard job={job} onConfirmed={() => refetch()} />
-                  )}
-
-                  {(job.status === "processing" || job.status === "queued" || job.status === "pending") && (
-                    <div className="space-y-2">
-                      <Progress
-                        value={job.totalRows > 0 ? Math.min((job.processedRows / job.totalRows) * 100, 100) : 0}
-                        className="h-2"
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>
-                          {Math.min(job.processedRows, job.totalRows).toLocaleString()} / {job.totalRows.toLocaleString()} rows
-                        </span>
-                        <span>
-                          {(job.status === "queued" || job.status === "pending") && job.processedRows === 0
-                            ? "Waiting to start..."
-                            : `${(job.totalRows > 0 ? Math.min((job.processedRows / job.totalRows) * 100, 100) : 0).toFixed(1)}%`}
-                        </span>
-                      </div>
-                      {job.processedRows > 0 && (() => {
-                        const startTime = job.startedAt 
-                          ? new Date(job.startedAt).getTime() 
-                          : new Date(job.createdAt).getTime();
-                        const elapsedMs = Date.now() - startTime;
-                        const elapsedSec = Math.max(elapsedMs / 1000, 1);
-                        const rowsPerSec = job.processedRows / elapsedSec;
-                        const remainingRows = Math.max(job.totalRows - job.processedRows, 0);
-                        const etaSec = rowsPerSec > 0 ? remainingRows / rowsPerSec : 0;
-                        const etaMin = Math.max(Math.round(etaSec / 60), 0);
-                        const etaHours = Math.floor(etaMin / 60);
-                        const etaMinRemainder = etaMin % 60;
-                        const elapsed = formatDuration(job.startedAt || job.createdAt, null);
-                        
-                        return (
-                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                            <span className="text-green-600 font-medium">
-                              {Math.round(rowsPerSec * 60).toLocaleString()} rows/min
-                            </span>
-                            <span>
-                              {elapsed && <span className="mr-3">Elapsed: {elapsed}</span>}
-                              ETA: {remainingRows === 0 ? "finishing..." : etaHours > 0 ? `${etaHours}h ${etaMinRemainder}m` : `${etaMin}m`}
-                            </span>
-                          </div>
-                        );
-                      })()}
-                      {(job.newSubscribers > 0 || job.updatedSubscribers > 0 || job.failedRows > 0) && (
-                        <div className="grid grid-cols-3 gap-3 text-xs mt-2 p-2 rounded bg-muted/50">
-                          <div>
-                            <span className="text-muted-foreground">New: </span>
-                            <span className="font-medium text-green-600">+{job.newSubscribers.toLocaleString()}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Updated: </span>
-                            <span className="font-medium text-blue-600">{job.updatedSubscribers.toLocaleString()}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Failed: </span>
-                            <span className={`font-medium ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`}>{job.failedRows.toLocaleString()}</span>
-                          </div>
-                        </div>
-                      )}
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Import continues in the background even if you navigate away or get disconnected.
-                      </p>
-                    </div>
-                  )}
-
-                  {job.status === "completed" && (() => {
-                    const reasons = ((job as any).failureReasons || {}) as Record<string, any>;
-                    const dupCount = reasons["duplicate_in_file"] || (job as any).duplicatesInFile || 0;
-                    const sampleFails = reasons["_sample_failures"] as Record<string, string> | undefined;
-                    const errorReasons = Object.fromEntries(
-                      Object.entries(reasons).filter(([key]) => key !== "duplicate_in_file" && !key.startsWith("_"))
-                    ) as Record<string, number>;
-                    const hasErrors = Object.keys(errorReasons).length > 0;
-                    const duration = formatDuration(job.startedAt, job.completedAt);
-                    const totalDataRows = Math.max(job.totalRows - 1, 0);
-                    const processedEmails = job.newSubscribers + job.updatedSubscribers;
-
-                    return (
-                      <div className="space-y-3">
-                        {duration && (
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            <span>Duration: {duration}</span>
-                            <span>Rows: {totalDataRows.toLocaleString()}</span>
-                            {totalDataRows > 0 && job.startedAt && job.completedAt && (
-                              <span>
-                                {Math.round(totalDataRows / Math.max((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000, 1)).toLocaleString()} rows/sec
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        <div className={`grid gap-3 text-sm ${dupCount > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
-                          <div className="p-2 rounded bg-green-50 dark:bg-green-950/20 text-center">
-                            <p className="text-xs text-muted-foreground mb-0.5">New</p>
-                            <p className="font-semibold text-green-600" data-testid="text-new-count">
-                              {job.newSubscribers.toLocaleString()}
-                            </p>
-                          </div>
-                          <div className="p-2 rounded bg-blue-50 dark:bg-blue-950/20 text-center">
-                            <p className="text-xs text-muted-foreground mb-0.5">Updated</p>
-                            <p className="font-semibold text-blue-600" data-testid="text-updated-count">
-                              {job.updatedSubscribers.toLocaleString()}
-                            </p>
-                          </div>
-                          {dupCount > 0 && (
-                            <div className="p-2 rounded bg-amber-50 dark:bg-amber-950/20 text-center">
-                              <p className="text-xs text-muted-foreground mb-0.5">Duplicates</p>
-                              <p className="font-semibold text-amber-600" data-testid="text-duplicates-count">
-                                {dupCount.toLocaleString()}
-                              </p>
-                            </div>
-                          )}
-                          <div className={`p-2 rounded text-center ${job.failedRows > 0 ? "bg-red-50 dark:bg-red-950/20" : "bg-muted/50"}`}>
-                            <p className="text-xs text-muted-foreground mb-0.5">Failed</p>
-                            <p className={`font-semibold ${job.failedRows > 0 ? "text-red-600" : "text-muted-foreground"}`} data-testid="text-failed-count">
-                              {job.failedRows.toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2.5 space-y-1">
-                          <div className="flex justify-between">
-                            <span>Emails processed successfully</span>
-                            <span className="font-medium">{processedEmails.toLocaleString()}</span>
-                          </div>
-                          {(job as any).skippedRows > 0 && (
-                            <div className="flex justify-between">
-                              <span>Empty/skipped lines</span>
-                              <span className="font-medium">{(job as any).skippedRows.toLocaleString()}</span>
-                            </div>
-                          )}
-                          {dupCount > 0 && (
-                            <div className="flex justify-between text-amber-700 dark:text-amber-400">
-                              <span>Duplicate emails merged</span>
-                              <span className="font-medium">{dupCount.toLocaleString()}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {hasErrors && (
-                          <details className="text-xs">
-                            <summary className="cursor-pointer font-medium text-red-700 dark:text-red-400 hover:underline">
-                              {job.failedRows.toLocaleString()} rows failed — click to see details
-                            </summary>
-                            <div className="mt-2 bg-red-50 dark:bg-red-950/30 rounded p-2.5 space-y-1">
-                              {Object.entries(errorReasons).map(([key, count]) => (
-                                <div key={key} className="flex justify-between text-red-600 dark:text-red-400">
-                                  <span>{errorLabels[key] || key}</span>
-                                  <span className="font-medium">{(count as number).toLocaleString()}</span>
-                                </div>
-                              ))}
-                              {sampleFails && Object.keys(sampleFails).length > 0 && (
-                                <div className="mt-2 pt-2 border-t border-red-200 dark:border-red-800">
-                                  <p className="font-medium mb-1">Sample failing rows:</p>
-                                  {Object.entries(sampleFails).map(([lineKey, content]) => (
-                                    <p key={lineKey} className="font-mono text-[10px] break-all text-red-500">
-                                      {lineKey}: {content}
-                                    </p>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </details>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  {job.status === "failed" && job.errorMessage && (
-                    <p className="text-sm text-destructive">{job.errorMessage}</p>
-                  )}
-                </div>
+                  job={job}
+                  onCancel={(id) => cancelMutation.mutate(id)}
+                />
               ))}
             </div>
           ) : (

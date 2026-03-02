@@ -376,28 +376,29 @@ async function copyBatchUpsert(
           ARRAY[]::text[]
         )`;
 
-    const mergeResult = await client.query(`
-      WITH upserted AS (
-        INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
-        SELECT email, tags, refs, ip_address, NOW()
-        FROM import_staging_batch
-        ON CONFLICT (email) DO UPDATE SET
-          ${tagsConflict},
-          ${refsConflict},
-          ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-        RETURNING (xmax = 0) AS is_insert
-      )
-      SELECT
-        COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-        COUNT(*) FILTER (WHERE is_insert = false) AS updated
-      FROM upserted
+    const existingResult = await client.query(`
+      SELECT COUNT(DISTINCT s.email) AS cnt
+      FROM subscribers s
+      INNER JOIN import_staging_batch b ON s.email = b.email
     `);
+    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
+
+    const mergeResult = await client.query(`
+      INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
+      SELECT email, tags, refs, ip_address, NOW()
+      FROM import_staging_batch
+      ON CONFLICT (email) DO UPDATE SET
+        ${tagsConflict},
+        ${refsConflict},
+        ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
+    `);
+    const totalProcessed = mergeResult.rowCount || 0;
 
     await client.query("COMMIT");
 
     return {
-      inserted: parseInt(mergeResult.rows[0]?.inserted || "0"),
-      updated: parseInt(mergeResult.rows[0]?.updated || "0"),
+      inserted: Math.max(totalProcessed - preExisting, 0),
+      updated: Math.min(preExisting, totalProcessed),
     };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -433,27 +434,40 @@ async function directBatchUpsert(
         ARRAY[]::text[]
       )`;
 
-  const query = `
-    WITH upserted AS (
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const emails = rows.map(r => r.email.toLowerCase());
+    const existingResult = await client.query(
+      `SELECT COUNT(*) AS cnt FROM subscribers WHERE email = ANY($1)`,
+      [emails]
+    );
+    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
+
+    const query = `
       INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
       VALUES ${valuesClauses.join(", ")}
       ON CONFLICT (email) DO UPDATE SET
         ${tagsConflict},
         ${refsConflict},
         ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-      RETURNING (xmax = 0) AS is_insert
-    )
-    SELECT
-      COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-      COUNT(*) FILTER (WHERE is_insert = false) AS updated
-    FROM upserted
-  `;
+    `;
 
-  const result = await pool.query(query, params);
-  return {
-    inserted: parseInt(result.rows[0]?.inserted || "0"),
-    updated: parseInt(result.rows[0]?.updated || "0"),
-  };
+    const result = await client.query(query, params);
+    const totalProcessed = result.rowCount || 0;
+
+    await client.query("COMMIT");
+    return {
+      inserted: Math.max(totalProcessed - preExisting, 0),
+      updated: Math.min(preExisting, totalProcessed),
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function singleUpsert(
@@ -472,17 +486,22 @@ async function singleUpsert(
         ARRAY[]::text[]
       )`;
 
-  const result = await pool.query(
+  const existsResult = await pool.query(
+    `SELECT 1 FROM subscribers WHERE email = $1 LIMIT 1`,
+    [row.email.toLowerCase()]
+  );
+  const existed = (existsResult.rowCount || 0) > 0;
+
+  await pool.query(
     `INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
      VALUES ($1, $2::text[], $3::text[], $4, NOW())
      ON CONFLICT (email) DO UPDATE SET
        ${tagsConflict},
        ${refsConflict},
-       ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
-     RETURNING (xmax = 0) AS is_insert`,
+       ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`,
     [row.email.toLowerCase(), row.tags, row.refs, row.ipAddress]
   );
-  return result.rows[0]?.is_insert ? "inserted" : "updated";
+  return existed ? "updated" : "inserted";
 }
 
 async function insertFallbackUpsert(
@@ -566,32 +585,33 @@ async function copyBatchUpsertRefs(
       copyStream.end();
     });
 
-    const mergeResult = await client.query(`
-      WITH upserted AS (
-        INSERT INTO subscribers (email, refs, ip_address, import_date)
-        SELECT email, refs, ip_address, NOW()
-        FROM import_staging_batch
-        ON CONFLICT (email) DO UPDATE SET
-          refs = (
-            SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[])
-            FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
-            WHERE r IS NOT NULL
-          ),
-          ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address),
-          import_date = NOW()
-        RETURNING (xmax = 0) AS is_insert
-      )
-      SELECT
-        COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-        COUNT(*) FILTER (WHERE is_insert = false) AS updated
-      FROM upserted
+    const existingResult = await client.query(`
+      SELECT COUNT(DISTINCT s.email) AS cnt
+      FROM subscribers s
+      INNER JOIN import_staging_batch b ON s.email = b.email
     `);
+    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
+
+    const mergeResult = await client.query(`
+      INSERT INTO subscribers (email, refs, ip_address, import_date)
+      SELECT email, refs, ip_address, NOW()
+      FROM import_staging_batch
+      ON CONFLICT (email) DO UPDATE SET
+        refs = (
+          SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[])
+          FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
+          WHERE r IS NOT NULL
+        ),
+        ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address),
+        import_date = NOW()
+    `);
+    const totalProcessed = mergeResult.rowCount || 0;
 
     await client.query("COMMIT");
 
     return {
-      inserted: parseInt(mergeResult.rows[0]?.inserted || "0"),
-      updated: parseInt(mergeResult.rows[0]?.updated || "0"),
+      inserted: Math.max(totalProcessed - preExisting, 0),
+      updated: Math.min(preExisting, totalProcessed),
     };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -614,8 +634,18 @@ async function directBatchUpsertRefs(
     paramIdx += 3;
   }
 
-  const query = `
-    WITH upserted AS (
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const emails = rows.map(r => r.email.toLowerCase());
+    const existingResult = await client.query(
+      `SELECT COUNT(*) AS cnt FROM subscribers WHERE email = ANY($1)`,
+      [emails]
+    );
+    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
+
+    const query = `
       INSERT INTO subscribers (email, refs, ip_address, import_date)
       VALUES ${valuesClauses.join(", ")}
       ON CONFLICT (email) DO UPDATE SET
@@ -626,19 +656,22 @@ async function directBatchUpsertRefs(
         ),
         ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address),
         import_date = NOW()
-      RETURNING (xmax = 0) AS is_insert
-    )
-    SELECT
-      COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-      COUNT(*) FILTER (WHERE is_insert = false) AS updated
-    FROM upserted
-  `;
+    `;
 
-  const result = await pool.query(query, params);
-  return {
-    inserted: parseInt(result.rows[0]?.inserted || "0"),
-    updated: parseInt(result.rows[0]?.updated || "0"),
-  };
+    const result = await client.query(query, params);
+    const totalProcessed = result.rowCount || 0;
+
+    await client.query("COMMIT");
+    return {
+      inserted: Math.max(totalProcessed - preExisting, 0),
+      updated: Math.min(preExisting, totalProcessed),
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function bulkUpsertSubscribersRefs(
@@ -770,29 +803,31 @@ async function deleteSubscribersByRefsInDb(refs: string[]): Promise<{ deleted: n
 }
 
 async function mergeRefsFromStaging(importJobId: string): Promise<{ inserted: number; updated: number }> {
-  const result = await pool.query(`
-    WITH upserted AS (
-      INSERT INTO subscribers (email, refs, import_date)
-      SELECT email, refs, NOW()
-      FROM import_staging WHERE job_id = $1
-      ON CONFLICT (email) DO UPDATE SET
-        refs = (
-          SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[])
-          FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
-          WHERE r IS NOT NULL
-        ),
-        import_date = NOW()
-      RETURNING (xmax = 0) AS is_insert
-    )
-    SELECT
-      COUNT(*) FILTER (WHERE is_insert = true) AS inserted,
-      COUNT(*) FILTER (WHERE is_insert = false) AS updated
-    FROM upserted
+  const existingResult = await pool.query(`
+    SELECT COUNT(DISTINCT s.email) AS cnt
+    FROM subscribers s
+    INNER JOIN import_staging st ON s.email = st.email
+    WHERE st.job_id = $1
   `, [importJobId]);
+  const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
+
+  const result = await pool.query(`
+    INSERT INTO subscribers (email, refs, import_date)
+    SELECT email, refs, NOW()
+    FROM import_staging WHERE job_id = $1
+    ON CONFLICT (email) DO UPDATE SET
+      refs = (
+        SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[])
+        FROM unnest(subscribers.refs || EXCLUDED.refs) AS r
+        WHERE r IS NOT NULL
+      ),
+      import_date = NOW()
+  `, [importJobId]);
+  const totalProcessed = result.rowCount || 0;
 
   return {
-    inserted: parseInt(result.rows[0]?.inserted || "0"),
-    updated: parseInt(result.rows[0]?.updated || "0"),
+    inserted: Math.max(totalProcessed - preExisting, 0),
+    updated: Math.min(preExisting, totalProcessed),
   };
 }
 
