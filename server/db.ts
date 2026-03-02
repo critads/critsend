@@ -32,7 +32,7 @@ const poolConfig: pg.PoolConfig = {
   max: MAIN_POOL_MAX,
   min: isExternalDb ? 1 : 2,
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
-  connectionTimeoutMillis: isExternalDb ? 15000 : 10000,
+  connectionTimeoutMillis: isExternalDb ? 10000 : 10000,
   statement_timeout: 120000,
   allowExitOnIdle: false,
   keepAlive: true,
@@ -51,6 +51,23 @@ logger.info(`PG pool configured: max=${MAIN_POOL_MAX}, min=${poolConfig.min}, id
 pool.on('error', (err) => {
   logger.error('Unexpected DB pool error on idle client', { error: err.message });
 });
+
+export function isPoolHealthy(): boolean {
+  if (pool.waitingCount > 0) return false;
+  if (pool.totalCount >= MAIN_POOL_MAX && pool.idleCount === 0) return false;
+  return true;
+}
+
+if (isExternalDb) {
+  const KEEPALIVE_INTERVAL = 4 * 60 * 1000;
+  const keepaliveTimer = setInterval(() => {
+    if (pool.waitingCount > 0) return;
+    pool.query('SELECT 1').catch((err) => {
+      logger.warn('Pool keepalive query failed', { error: err.message });
+    });
+  }, KEEPALIVE_INTERVAL);
+  keepaliveTimer.unref();
+}
 
 pool.on('connect', (client) => {
   if (isExternalDb) {

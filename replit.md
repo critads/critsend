@@ -37,7 +37,7 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 - **Prometheus Metrics:** Full observability via a `/metrics` endpoint, providing counters, gauges, and histograms for various system activities.
 - **MTA Password Encryption:** AES-256-GCM encryption at rest for SMTP credentials.
 - **Database Health & Maintenance:** Automated cleanup system with configurable retention rules per table, running batched DELETE operations.
-- **Security:** CSRF protection, Helmet.js security headers with CSP, CORS middleware, extensive input validation, HTML sanitization, 5-tier rate limiting, secure session management, and webhook authentication.
+- **Security:** CSRF protection, Helmet.js security headers with CSP, CORS middleware, extensive input validation, HTML sanitization, 5-tier rate limiting, secure session management, and webhook authentication. In production, static assets are served before session middleware to avoid DB pool hits for `.js`/`.css` files. Session middleware is skipped for tracking, webhook, health, and metrics endpoints.
 - **Email Send Retry:** Implements a two-tier retry system (individual email and campaign-level) with exponential backoff within a 12-hour window.
 - **Robustness:** Includes graceful shutdown, memory monitoring with load shedding, automated campaign auto-resume on server restart, bounce webhook idempotency, and bulk-optimized batch webhook processing (single SELECT + bulk UPDATEs).
 - **Modular Route Architecture:** Features a fully modular route architecture with 14 distinct route modules and shared utilities.
@@ -48,7 +48,7 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 
 ## External Dependencies
 
-- **PostgreSQL (Neon):** Primary database, hosted on Neon, configured for SSL. Connection pool defaults: 5 max (Neon), 10 max (local), configurable via `PG_POOL_MAX` env var. Import worker runs as a forked child process with its own pool: 2 max (Neon), 4 max (local), configurable via `PG_IMPORT_POOL_MAX`. A central connection budget system (`server/connection-budget.ts`) enforces the total connection limit (`PG_CONNECTION_LIMIT`, default 10 for Neon) across all pools: main pool + import worker + LISTEN/NOTIFY = total never exceeds limit. Main pool auto-computes as `limit - import - notify`.
+- **PostgreSQL (Neon):** Primary database, hosted on Neon, configured for SSL. Connection pool defaults: 5 max (Neon), 10 max (local), configurable via `PG_POOL_MAX` env var. Import worker runs as a forked child process with its own pool: 2 max (Neon), 4 max (local), configurable via `PG_IMPORT_POOL_MAX`. A central connection budget system (`server/connection-budget.ts`) enforces the total connection limit (`PG_CONNECTION_LIMIT`, default 10 for Neon) across all pools: main pool + import worker + LISTEN/NOTIFY = total never exceeds limit. Main pool auto-computes as `limit - import - notify`. Pool resilience features: `isPoolHealthy()` check (waitingCount + saturation detection) gates all background pollers to prevent connection pile-up; 4-minute keepalive query prevents Neon cold-start disconnections; 10s connection timeout for faster failure recovery. Background poller intervals: tag queue 2s, flush/import 5s, campaign 10s (LISTEN/NOTIFY provides instant wakeup).
 - **Nodemailer:** Used for real SMTP email sending with pooling and retries.
 - **`sanitize-html`:** For sanitizing HTML content in campaigns.
 - **`connect-pg-simple`:** For persistent session management using PostgreSQL.

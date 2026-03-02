@@ -11,6 +11,8 @@ import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMet
 import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import path from "path";
+import fs from "fs";
 import { pool } from "./db";
 import { logger } from "./logger";
 import { validateConnectionBudget } from "./connection-budget";
@@ -114,6 +116,13 @@ const httpServer = createServer(app);
 
 registerMetricsRoute(app);
 
+if (process.env.NODE_ENV === "production") {
+  const distPath = path.resolve(__dirname, "public");
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath, { maxAge: '1y', immutable: true }));
+  }
+}
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (isShuttingDown) {
     res.status(503).json({ error: 'Server is shutting down' });
@@ -146,7 +155,7 @@ declare module "express-session" {
 
 app.use(
   express.json({
-    limit: "10mb", // Allow large HTML content for email campaigns
+    limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
@@ -155,12 +164,10 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-// Request timeout middleware - prevents hung connections from consuming resources
 app.use((req: Request, res: Response, next: NextFunction) => {
-  // Long timeout for import/campaign/export endpoints that do heavy processing
   const longPaths = ['/api/import', '/api/campaigns', '/api/export', '/api/subscribers/flush', '/api/segments'];
   const isLongRequest = longPaths.some(p => req.path.startsWith(p));
-  const timeout = isLongRequest ? 300000 : 30000; // 5min for heavy ops, 30s for normal
+  const timeout = isLongRequest ? 300000 : 30000;
   
   req.setTimeout(timeout);
   res.setTimeout(timeout, () => {
@@ -172,32 +179,39 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use(
-  session({
-    store: new PostgresSessionStore({
-      pool,
-      createTableIfMissing: true,
-    }),
-    secret: (() => {
-      const secret = process.env.SESSION_SECRET;
-      if (!secret && process.env.NODE_ENV === "production") {
-        throw new Error("SESSION_SECRET environment variable is required in production");
-      }
-      return secret || "development_secret";
-    })(),
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === "production",
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours (reduced from 30 days)
-    },
-  })
-);
+const sessionMiddleware = session({
+  store: new PostgresSessionStore({
+    pool,
+    createTableIfMissing: true,
+  }),
+  secret: (() => {
+    const secret = process.env.SESSION_SECRET;
+    if (!secret && process.env.NODE_ENV === "production") {
+      throw new Error("SESSION_SECRET environment variable is required in production");
+    }
+    return secret || "development_secret";
+  })(),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000,
+  },
+});
+
+const sessionSkipPaths = ['/api/track/', '/api/unsubscribe/', '/api/webhooks/', '/api/health', '/metrics', '/t/', '/w/'];
 
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (!req.session.csrfToken) {
+  if (sessionSkipPaths.some(p => req.path.startsWith(p))) {
+    return next();
+  }
+  sessionMiddleware(req, res, next);
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.session && !req.session.csrfToken) {
     req.session.csrfToken = crypto.randomUUID();
   }
   next();
@@ -421,7 +435,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
+    serveStatic(app, true);
   } else {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);

@@ -13,7 +13,7 @@ import { jobEvents } from "./job-events";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
-import { pool } from "./db";
+import { pool, isPoolHealthy } from "./db";
 
 let tagQueueInterval: NodeJS.Timeout | null = null;
 let tagCleanupInterval: NodeJS.Timeout | null = null;
@@ -56,6 +56,7 @@ export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boo
 }
 
 async function processTagQueue() {
+  if (!isPoolHealthy()) return;
   try {
     const operations = await storage.claimPendingTagOperations(50);
 
@@ -101,7 +102,7 @@ export function startTagQueueWorker() {
   logger.info("Starting tag queue worker...");
 
   processTagQueue();
-  tagQueueInterval = setInterval(processTagQueue, 500);
+  tagQueueInterval = setInterval(processTagQueue, 2000);
 
   tagCleanupInterval = setInterval(async () => {
     try {
@@ -172,7 +173,7 @@ function startFlushJobProcessor() {
     return;
   }
   logger.info(`Starting flush job processor with worker ID: ${WORKER_ID}`);
-  flushJobPollingInterval = setInterval(pollForFlushJobs, 1000);
+  flushJobPollingInterval = setInterval(pollForFlushJobs, 5000);
   pollForFlushJobs();
 }
 
@@ -187,6 +188,10 @@ function stopFlushJobProcessor() {
 async function pollForFlushJobs() {
   if (isMemoryPressure) {
     logger.warn('Skipping flush job poll - memory pressure active');
+    return;
+  }
+  if (!isPoolHealthy()) {
+    logger.debug('Skipping flush job poll - pool connections saturated');
     return;
   }
   try {
@@ -457,6 +462,10 @@ async function pollForJobs() {
       logger.warn('[JOB_POLL] Skipping - memory pressure active');
       return;
     }
+    if (!isPoolHealthy()) {
+      logger.debug('[JOB_POLL] Skipping - pool connections saturated');
+      return;
+    }
 
     const staleCount = await storage.cleanupStaleJobs(30);
     if (staleCount > 0) {
@@ -606,7 +615,7 @@ async function startJobProcessor() {
 
   logger.info(`[JOB_POLL] Starting job processor with worker ID: ${WORKER_ID}`);
 
-  jobPollingInterval = setInterval(pollForJobs, 5000);
+  jobPollingInterval = setInterval(pollForJobs, 10000);
 
   messageQueue.onMessage("campaign_jobs", (payload) => {
     logger.info(`[JOB_POLL] NOTIFY received for campaign_jobs, triggering immediate poll`);
@@ -693,7 +702,7 @@ function startImportJobProcessor() {
     .then(() => logger.info('[IMPORT] Email trigram index verified'))
     .catch((err: any) => logger.error('[IMPORT] Failed to create email trigram index:', err.message));
 
-  importJobPollingInterval = setInterval(pollForImportJobs, 2000);
+  importJobPollingInterval = setInterval(pollForImportJobs, 5000);
 
   pollForImportJobs();
 }
@@ -717,6 +726,10 @@ async function pollForImportJobs() {
     return;
   }
   if (activeFlushJob) {
+    return;
+  }
+  if (!isPoolHealthy()) {
+    logger.debug('[IMPORT] Skipping poll - pool connections saturated');
     return;
   }
   try {
