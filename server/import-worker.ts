@@ -1120,48 +1120,60 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let lastProgressLogTime = 0;
   let lastProgressLogCommitted = -1;
 
+  let isFlushingProgress = false;
+
   async function flushProgress(): Promise<void> {
     drainResults();
 
     const now = Date.now();
-    if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-      await updateImportQueueHeartbeat(queueId);
-      lastHeartbeat = now;
-    }
 
     const committedChanged = committedRows !== lastProgressLogCommitted;
     if (!committedChanged && now - lastProgressLogTime < 2000) {
       return;
     }
 
-    await updateImportQueueProgress(queueId, committedRows);
-    const allReasons: Record<string, any> = { ...failureReasons };
-    if (duplicatesInFile > 0) allReasons["duplicate_in_file"] = duplicatesInFile;
-    if (Object.keys(sampleFailures).length > 0) allReasons["_sample_failures"] = sampleFailures;
-    await updateImportJob(importJobId, {
-      processedRows: committedRows,
-      newSubscribers,
-      updatedSubscribers,
-      failedRows,
-      failureReasons: Object.keys(allReasons).length > 0 ? allReasons : undefined,
-      skippedRows,
-    });
-
-    if (committedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
-      const checkpointLine = Math.max(maxCommittedLine, currentLineNumber);
-      await updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, checkpointLine);
-      lastCheckpointLine = committedRows;
-      log("info", `${importJobId}: Checkpoint at line ${checkpointLine}, ${committedRows.toLocaleString()} rows committed`);
-    }
-
     lastProgressLogTime = now;
     lastProgressLogCommitted = committedRows;
+
+    sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows, duplicatesInFile });
 
     const elapsedSec = (now - startTime) / 1000;
     const commitRate = committedRows / elapsedSec;
     log("info", `${importJobId}: Progress - committed: ${committedRows.toLocaleString()} (${Math.round(commitRate)}/s), new: ${newSubscribers.toLocaleString()}, updated: ${updatedSubscribers.toLocaleString()}, dups: ${duplicatesInFile.toLocaleString()}, failed: ${failedRows.toLocaleString()}`);
 
-    sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows, duplicatesInFile });
+    if (isFlushingProgress) return;
+    isFlushingProgress = true;
+
+    try {
+      if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+        await updateImportQueueHeartbeat(queueId);
+        lastHeartbeat = now;
+      }
+
+      await updateImportQueueProgress(queueId, committedRows);
+      const allReasons: Record<string, any> = { ...failureReasons };
+      if (duplicatesInFile > 0) allReasons["duplicate_in_file"] = duplicatesInFile;
+      if (Object.keys(sampleFailures).length > 0) allReasons["_sample_failures"] = sampleFailures;
+      await updateImportJob(importJobId, {
+        processedRows: committedRows,
+        newSubscribers,
+        updatedSubscribers,
+        failedRows,
+        failureReasons: Object.keys(allReasons).length > 0 ? allReasons : undefined,
+        skippedRows,
+      });
+
+      if (committedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
+        const checkpointLine = Math.max(maxCommittedLine, currentLineNumber);
+        await updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, checkpointLine);
+        lastCheckpointLine = committedRows;
+        log("info", `${importJobId}: Checkpoint at line ${checkpointLine}, ${committedRows.toLocaleString()} rows committed`);
+      }
+    } catch (dbErr: any) {
+      log("warn", `${importJobId}: DB progress update skipped (pool busy): ${dbErr.message}`);
+    } finally {
+      isFlushingProgress = false;
+    }
   }
 
   const rl = readline.createInterface({
@@ -1169,29 +1181,11 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     crlfDelay: Infinity,
   });
 
-  const progressUpdateTimer = setInterval(async () => {
+  const progressUpdateTimer = setInterval(() => {
     try {
       drainResults();
 
       const now = Date.now();
-      if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-        await updateImportQueueHeartbeat(queueId);
-        lastHeartbeat = now;
-      }
-
-      await updateImportQueueProgress(queueId, committedRows);
-      const timerReasons: Record<string, any> = { ...failureReasons };
-      if (duplicatesInFile > 0) timerReasons["duplicate_in_file"] = duplicatesInFile;
-      if (Object.keys(sampleFailures).length > 0) timerReasons["_sample_failures"] = sampleFailures;
-      await updateImportJob(importJobId, {
-        processedRows: committedRows,
-        newSubscribers,
-        updatedSubscribers,
-        failedRows,
-        failureReasons: Object.keys(timerReasons).length > 0 ? timerReasons : undefined,
-        skippedRows,
-      });
-
       const elapsedSec = (now - startTime) / 1000;
       const commitRate = committedRows / elapsedSec;
       const parseRate = parsedRows / elapsedSec;
@@ -1199,7 +1193,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
       sendIpc("progress", { committedRows, newSubscribers, updatedSubscribers, failedRows, parsedRows, duplicatesInFile });
     } catch (err: any) {
-      log("error", `${importJobId}: Progress update failed: ${err.message}`);
+      log("error", `${importJobId}: Timer IPC failed: ${err.message}`);
     }
   }, PROGRESS_UPDATE_INTERVAL_MS);
 

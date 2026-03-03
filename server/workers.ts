@@ -862,6 +862,8 @@ async function pollForImportJobs() {
     activeImportJobInfo = { queueId: queueItem.id, importJobId: queueItem.importJobId };
     resetImportWorkerWatchdog();
 
+    let cachedTotalRows: number | null = null;
+
     child.on("message", async (msg: any) => {
       if (!msg || !msg.type) return;
       resetImportWorkerWatchdog();
@@ -869,13 +871,16 @@ async function pollForImportJobs() {
       switch (msg.type) {
         case "progress": {
           const d = msg.data;
-          const importJob = await storage.getImportJob(queueItem.importJobId).catch(() => null);
+          if (cachedTotalRows === null || cachedTotalRows === 0) {
+            const importJob = await storage.getImportJob(queueItem.importJobId).catch(() => null);
+            if (importJob?.totalRows) cachedTotalRows = importJob.totalRows;
+          }
           jobEvents.emitProgress({
             jobType: "import",
             jobId: queueItem.importJobId,
             status: "processing",
             processedRows: d.committedRows || 0,
-            totalRows: importJob?.totalRows || 0,
+            totalRows: cachedTotalRows,
             newSubscribers: d.newSubscribers || 0,
             updatedSubscribers: d.updatedSubscribers || 0,
             failedRows: d.failedRows || 0,
