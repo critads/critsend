@@ -944,6 +944,15 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   let failedRows = resumeFromLine > 0 ? (importJob?.failedRows || 0) : 0;
   let committedRows = resumeFromLine > 0 ? (newSubscribers + updatedSubscribers + failedRows) : 0;
 
+  let preImportSubscriberCount = 0;
+  try {
+    const countResult = await pool.query("SELECT COUNT(*) AS cnt FROM subscribers");
+    preImportSubscriberCount = parseInt(countResult.rows[0]?.cnt || "0", 10);
+    log("info", `${importJobId}: Pre-import subscriber count: ${preImportSubscriberCount.toLocaleString()}`);
+  } catch (err: any) {
+    log("warn", `${importJobId}: Failed to get pre-import subscriber count: ${err.message}`);
+  }
+
   if (resumeFromLine > 0 && totalRows > 0 && committedRows > totalRows) {
     log("warn", `${importJobId}: Resume sanity check - committedRows (${committedRows}) exceeds totalRows (${totalRows}), capping to totalRows`);
     const excess = committedRows - totalRows;
@@ -1426,6 +1435,29 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           return;
         }
 
+        const batchAccumulatedNew = newSubscribers;
+        const batchAccumulatedUpdated = updatedSubscribers;
+
+        if (resumeFromLine === 0) {
+          try {
+            const postCountResult = await pool.query("SELECT COUNT(*) AS cnt FROM subscribers");
+            const postImportSubscriberCount = parseInt(postCountResult.rows[0]?.cnt || "0", 10);
+            const rawNew = postImportSubscriberCount - preImportSubscriberCount;
+            const maxPossibleNew = Math.max(0, committedRows - failedRows);
+            const actualNew = Math.max(0, Math.min(rawNew, maxPossibleNew));
+            const actualUpdated = Math.max(0, committedRows - actualNew - failedRows);
+
+            log("info", `${importJobId}: Before/after count correction - pre: ${preImportSubscriberCount}, post: ${postImportSubscriberCount}, rawNew: ${rawNew}, cappedNew: ${actualNew}, actualUpdated: ${actualUpdated} (batch accumulated: new=${batchAccumulatedNew}, updated=${batchAccumulatedUpdated})`);
+
+            newSubscribers = actualNew;
+            updatedSubscribers = actualUpdated;
+          } catch (err: any) {
+            log("warn", `${importJobId}: Failed post-import count, using batch-accumulated values: ${err.message}`);
+          }
+        } else {
+          log("info", `${importJobId}: Resume run - skipping before/after correction, using batch-accumulated values: new=${batchAccumulatedNew}, updated=${batchAccumulatedUpdated}`);
+        }
+
         if (resumeFromLine > 0 && totalRows > 0) {
           const totalAccounted = newSubscribers + updatedSubscribers + failedRows + duplicatesInFile + skippedRows;
           if (totalAccounted > totalRows) {
@@ -1449,16 +1481,29 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
         const finalProcessedRows = totalRows > 0 ? Math.min(committedRows, totalRows) : committedRows;
 
-        await updateImportJob(importJobId, {
-          status: "completed",
-          completedAt: new Date(),
-          processedRows: finalProcessedRows,
-          newSubscribers,
-          updatedSubscribers,
-          failedRows,
-          failureReasons: Object.keys(finalReasons).length > 0 ? finalReasons : undefined,
-          skippedRows,
-        });
+        let dbWriteSuccess = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            await updateImportJob(importJobId, {
+              status: "completed",
+              completedAt: new Date(),
+              processedRows: finalProcessedRows,
+              newSubscribers,
+              updatedSubscribers,
+              failedRows,
+              failureReasons: Object.keys(finalReasons).length > 0 ? finalReasons : undefined,
+              skippedRows,
+            });
+            dbWriteSuccess = true;
+            break;
+          } catch (dbErr: any) {
+            log("warn", `${importJobId}: Final DB write attempt ${attempt}/3 failed: ${dbErr.message}`);
+            if (attempt < 3) await new Promise(r => setTimeout(r, 500));
+          }
+        }
+        if (!dbWriteSuccess) {
+          log("error", `${importJobId}: Final DB write failed after 3 attempts - parent process will write values`);
+        }
 
         await updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
 
@@ -1510,6 +1555,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           failedRows,
           duplicatesInFile,
           duration: totalDuration,
+          dbWriteSuccess,
         });
 
         clearInterval(finalizationHeartbeat);

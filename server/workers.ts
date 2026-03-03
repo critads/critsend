@@ -930,6 +930,25 @@ async function pollForImportJobs() {
               storage.invalidateSegmentCountCache();
               logger.info(`Import job ${queueItem.id} completed successfully`);
             }
+
+            if (!d.dbWriteSuccess) {
+              try {
+                await storage.updateImportJob(queueItem.importJobId, {
+                  status: "completed",
+                  completedAt: new Date(),
+                  processedRows: d.committedRows || 0,
+                  newSubscribers: d.newSubscribers || 0,
+                  updatedSubscribers: d.updatedSubscribers || 0,
+                  failedRows: d.failedRows || 0,
+                });
+                logger.info(`[IMPORT] Parent wrote final IPC values to import_jobs for ${queueItem.importJobId} (worker DB write had failed)`);
+              } catch (writeErr: any) {
+                logger.warn(`[IMPORT] Parent failed to write final IPC values: ${writeErr.message}`);
+              }
+            } else {
+              logger.info(`[IMPORT] Worker already wrote final values to DB for ${queueItem.importJobId}, skipping parent write`);
+            }
+
             jobEvents.emitProgress({
               jobType: "import",
               jobId: queueItem.importJobId,
