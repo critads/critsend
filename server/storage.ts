@@ -240,7 +240,9 @@ export interface IStorage {
   cancelFlushJob(jobId: string): Promise<boolean>;
   countSubscriberDependencies(): Promise<number>;
   clearSubscriberDependencies(onProgress?: (deletedInBatch: number) => void): Promise<number>;
+  truncateSubscribers(): Promise<void>;
   deleteSubscriberBatch(batchSize: number): Promise<number>;
+  deleteSubscriberBatchByCtid(batchSize: number): Promise<number>;
   countAllSubscribers(): Promise<number>;
   updateFlushJobTotalRows(jobId: string, totalRows: number): Promise<void>;
 
@@ -2117,10 +2119,23 @@ export class DatabaseStorage implements IStorage {
     return totalDeleted;
   }
 
+  async truncateSubscribers(): Promise<void> {
+    await db.execute(sql`TRUNCATE subscribers CASCADE`);
+  }
+
   async deleteSubscriberBatch(batchSize: number): Promise<number> {
     const result = await db.execute(sql`
       DELETE FROM subscribers WHERE id IN (
         SELECT id FROM subscribers LIMIT ${batchSize}
+      )
+    `);
+    return (result.rowCount as number) || 0;
+  }
+
+  async deleteSubscriberBatchByCtid(batchSize: number): Promise<number> {
+    const result = await db.execute(sql`
+      DELETE FROM subscribers WHERE ctid IN (
+        SELECT ctid FROM subscribers LIMIT ${batchSize}
       )
     `);
     return (result.rowCount as number) || 0;

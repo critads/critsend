@@ -322,29 +322,61 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
     }),
     'clearSubscriberDependencies'
   );
-  logger.info(`[FLUSH] Job ${jobId}: Dependent tables cleared (${processedRows} rows). Starting subscriber batch deletion...`);
+  logger.info(`[FLUSH] Job ${jobId}: Dependent tables cleared (${processedRows} rows). Starting subscriber deletion...`);
 
-  while (processedRows < totalRows) {
-    const job = await storage.getFlushJob(jobId);
-    if (!job || job.status === "cancelled") {
-      logger.info(`Flush job ${jobId} was cancelled`);
-      return;
-    }
+  let usedTruncate = false;
+  try {
+    logger.info(`[FLUSH] Job ${jobId}: Attempting TRUNCATE subscribers CASCADE...`);
+    await storage.truncateSubscribers();
+    processedRows = totalRows;
+    usedTruncate = true;
+    logger.info(`[FLUSH] Job ${jobId}: TRUNCATE succeeded — all ${subscriberCount} subscribers deleted instantly`);
 
-    const deletedCount = await retryOnDeadlock(
-      () => storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE),
-      `deleteSubscriberBatch`
-    );
+    await storage.updateFlushJobProgress(jobId, processedRows);
+    jobEvents.emitProgress({
+      jobType: "flush",
+      jobId,
+      status: "processing",
+      processedRows,
+      totalRows,
+      phase: "deleting_subscribers",
+    });
+  } catch (truncateErr: any) {
+    logger.warn(`[FLUSH] Job ${jobId}: TRUNCATE failed (${truncateErr.message}), falling back to batched DELETE`);
+  }
 
-    if (deletedCount === 0) {
-      const remaining = await storage.countAllSubscribers();
-      if (remaining > 0) {
+  if (!usedTruncate) {
+    let consecutiveStalls = 0;
+    const MAX_CONSECUTIVE_STALLS = 3;
+
+    while (processedRows < totalRows) {
+      const job = await storage.getFlushJob(jobId);
+      if (!job || job.status === "cancelled") {
+        logger.info(`Flush job ${jobId} was cancelled`);
+        return;
+      }
+
+      const deletedCount = await retryOnDeadlock(
+        () => storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE),
+        `deleteSubscriberBatch`
+      );
+
+      if (deletedCount === 0) {
+        const remaining = await storage.countAllSubscribers();
+        if (remaining === 0) {
+          processedRows = totalRows;
+          break;
+        }
+
         let retried = false;
-        for (let retry = 0; retry < 3; retry++) {
-          logger.warn(`[FLUSH] Job ${jobId}: deleteSubscriberBatch returned 0 but ${remaining} subscribers remain, retry ${retry + 1}/3`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+        for (let retry = 0; retry < 5; retry++) {
+          logger.warn(`[FLUSH] Job ${jobId}: deleteSubscriberBatch returned 0 but ${remaining} subscribers remain, retry ${retry + 1}/5`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
           const retryCount = await retryOnDeadlock(
-            () => storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE),
+            () => retry >= 2
+              ? storage.deleteSubscriberBatchByCtid(FLUSH_BATCH_SIZE)
+              : storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE),
             `deleteSubscriberBatch-retry`
           );
           if (retryCount > 0) {
@@ -359,33 +391,51 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
               phase: "deleting_subscribers",
             });
             retried = true;
+            consecutiveStalls = 0;
             break;
           }
         }
         if (!retried) {
-          logger.error(`[FLUSH] Job ${jobId}: Could not delete remaining ${remaining} subscribers after retries. Stopping.`);
-          break;
+          consecutiveStalls++;
+          if (consecutiveStalls >= MAX_CONSECUTIVE_STALLS) {
+            const finalRemaining = await storage.countAllSubscribers();
+            if (finalRemaining === 0) {
+              processedRows = totalRows;
+              logger.info(`[FLUSH] Job ${jobId}: All subscribers deleted (confirmed by count)`);
+            } else {
+              logger.error(`[FLUSH] Job ${jobId}: Could not delete remaining ${finalRemaining} subscribers after ${MAX_CONSECUTIVE_STALLS} consecutive stalls. Stopping.`);
+            }
+            break;
+          }
+          logger.warn(`[FLUSH] Job ${jobId}: Stall ${consecutiveStalls}/${MAX_CONSECUTIVE_STALLS} — re-counting and retrying outer loop`);
+          const freshRemaining = await storage.countAllSubscribers();
+          if (freshRemaining === 0) {
+            processedRows = totalRows;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          continue;
         }
         continue;
       }
-      break;
+
+      consecutiveStalls = 0;
+      processedRows += deletedCount;
+      await storage.updateFlushJobProgress(jobId, processedRows);
+
+      jobEvents.emitProgress({
+        jobType: "flush",
+        jobId,
+        status: "processing",
+        processedRows,
+        totalRows,
+        phase: "deleting_subscribers",
+      });
+
+      logger.info(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} total (${Math.round(processedRows/totalRows*100)}%)`);
+
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
-
-    processedRows += deletedCount;
-    await storage.updateFlushJobProgress(jobId, processedRows);
-
-    jobEvents.emitProgress({
-      jobType: "flush",
-      jobId,
-      status: "processing",
-      processedRows,
-      totalRows,
-      phase: "deleting_subscribers",
-    });
-
-    logger.info(`[FLUSH] Job ${jobId}: Deleted ${processedRows}/${totalRows} total (${Math.round(processedRows/totalRows*100)}%)`);
-
-    await new Promise(resolve => setTimeout(resolve, 50));
   }
 
   await storage.updateFlushJobProgress(jobId, processedRows);
