@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useJobStream } from "@/hooks/use-job-stream";
+import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -180,13 +180,21 @@ export default function Subscribers() {
       return res.json();
     },
     enabled: !!flushJobId,
-    refetchInterval: flushJobId ? 2000 : false,
+    refetchInterval: flushJobId && !isSSEConnected() ? 2000 : false,
     select: (freshData) => {
       const cached = queryClient.getQueryData<FlushJob>(["/api/subscribers/flush", flushJobId]);
       if (cached?.phase && !freshData.phase) {
         return { ...freshData, phase: cached.phase };
       }
       return freshData;
+    },
+    structuralSharing: (oldData: any, newData: any) => {
+      if (!oldData || !newData) return newData;
+      if (newData.status === "completed" || newData.status === "failed") return newData;
+      if ((newData.processedRows || 0) < (oldData.processedRows || 0)) {
+        return { ...newData, processedRows: oldData.processedRows };
+      }
+      return newData;
     },
   });
 

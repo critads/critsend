@@ -236,18 +236,16 @@ async function pollForFlushJobs() {
     activeFlushJob = true;
 
     try {
-      await processFlushJob(job.id, job.totalRows);
-      await storage.completeFlushJob(job.id, "completed");
+      const actualProcessed = await processFlushJob(job.id, job.totalRows);
+      await storage.completeFlushJob(job.id, "completed", undefined, actualProcessed);
       storage.invalidateSegmentCountCache();
-      const finalJob = await storage.getFlushJob(job.id);
-      const finalTotal = finalJob?.totalRows || job.totalRows;
-      logger.info(`Flush job ${job.id} completed successfully`);
+      logger.info(`Flush job ${job.id} completed successfully (${actualProcessed} rows deleted)`);
       jobEvents.emitProgress({
         jobType: "flush",
         jobId: job.id,
         status: "completed",
-        processedRows: finalTotal,
-        totalRows: finalTotal,
+        processedRows: actualProcessed,
+        totalRows: actualProcessed,
         phase: "completed",
       });
     } catch (error: any) {
@@ -287,7 +285,7 @@ async function retryOnDeadlock<T>(fn: () => Promise<T>, label: string, maxRetrie
   throw new Error(`${label} failed after max retries`);
 }
 
-async function processFlushJob(jobId: string, subscriberCount: number) {
+async function processFlushJob(jobId: string, subscriberCount: number): Promise<number> {
   logger.info(`[FLUSH] Job ${jobId}: Counting dependent rows...`);
   const depCount = await storage.countSubscriberDependencies();
   const totalRows = depCount + subscriberCount;
@@ -339,6 +337,37 @@ async function processFlushJob(jobId: string, subscriberCount: number) {
     );
 
     if (deletedCount === 0) {
+      const remaining = await storage.countAllSubscribers();
+      if (remaining > 0) {
+        let retried = false;
+        for (let retry = 0; retry < 3; retry++) {
+          logger.warn(`[FLUSH] Job ${jobId}: deleteSubscriberBatch returned 0 but ${remaining} subscribers remain, retry ${retry + 1}/3`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const retryCount = await retryOnDeadlock(
+            () => storage.deleteSubscriberBatch(FLUSH_BATCH_SIZE),
+            `deleteSubscriberBatch-retry`
+          );
+          if (retryCount > 0) {
+            processedRows += retryCount;
+            await storage.updateFlushJobProgress(jobId, processedRows);
+            jobEvents.emitProgress({
+              jobType: "flush",
+              jobId,
+              status: "processing",
+              processedRows,
+              totalRows,
+              phase: "deleting_subscribers",
+            });
+            retried = true;
+            break;
+          }
+        }
+        if (!retried) {
+          logger.error(`[FLUSH] Job ${jobId}: Could not delete remaining ${remaining} subscribers after retries. Stopping.`);
+          break;
+        }
+        continue;
+      }
       break;
     }
 
@@ -360,6 +389,7 @@ async function processFlushJob(jobId: string, subscriberCount: number) {
   }
 
   await storage.updateFlushJobProgress(jobId, processedRows);
+  return processedRows;
 }
 
 const MAX_CONCURRENT_CAMPAIGNS = 5;

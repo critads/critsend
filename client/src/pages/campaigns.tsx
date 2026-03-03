@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useJobStream } from "@/hooks/use-job-stream";
+import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -86,9 +86,27 @@ export default function Campaigns() {
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
     refetchInterval: (query) => {
+      if (isSSEConnected()) return false;
       const data = query.state.data as Campaign[] | undefined;
       const hasSending = data?.some((c) => c.status === "sending");
       return hasSending ? 10000 : false;
+    },
+    structuralSharing: (oldData: any, newData: any) => {
+      if (!oldData || !newData || !Array.isArray(oldData) || !Array.isArray(newData)) return newData;
+      return newData.map((newCampaign: any) => {
+        const oldCampaign = oldData.find((c: any) => c.id === newCampaign.id);
+        if (!oldCampaign || newCampaign.status === "completed" || newCampaign.status === "failed" || newCampaign.status === "cancelled") {
+          return newCampaign;
+        }
+        if (oldCampaign.status === "sending" && newCampaign.status === "sending") {
+          return {
+            ...newCampaign,
+            sentCount: Math.max(newCampaign.sentCount || 0, oldCampaign.sentCount || 0),
+            failedCount: Math.max(newCampaign.failedCount || 0, oldCampaign.failedCount || 0),
+          };
+        }
+        return newCampaign;
+      });
     },
   });
 

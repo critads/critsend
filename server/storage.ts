@@ -236,7 +236,7 @@ export interface IStorage {
   getFlushJob(id: string): Promise<FlushJob | undefined>;
   claimFlushJob(workerId: string): Promise<FlushJob | null>;
   updateFlushJobProgress(jobId: string, processedRows: number): Promise<void>;
-  completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void>;
+  completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string, processedRows?: number): Promise<void>;
   cancelFlushJob(jobId: string): Promise<boolean>;
   countSubscriberDependencies(): Promise<number>;
   clearSubscriberDependencies(onProgress?: (deletedInBatch: number) => void): Promise<number>;
@@ -2046,13 +2046,17 @@ export class DatabaseStorage implements IStorage {
       .where(eq(flushJobs.id, jobId));
   }
 
-  async completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string): Promise<void> {
+  async completeFlushJob(jobId: string, status: "completed" | "failed" | "cancelled", errorMessage?: string, processedRows?: number): Promise<void> {
+    const updates: any = { 
+      status, 
+      completedAt: new Date(),
+      errorMessage: errorMessage || null,
+    };
+    if (processedRows !== undefined) {
+      updates.processedRows = processedRows;
+    }
     await db.update(flushJobs)
-      .set({ 
-        status, 
-        completedAt: new Date(),
-        errorMessage: errorMessage || null,
-      })
+      .set(updates)
       .where(eq(flushJobs.id, jobId));
   }
 

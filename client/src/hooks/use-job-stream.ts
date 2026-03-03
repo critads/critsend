@@ -167,6 +167,8 @@ function handleImportEvent(event: JobProgressEvent) {
     return old.map((job) => {
       if (job.id !== event.jobId) return job;
       const isTerminal = event.status === "completed" || event.status === "failed";
+      const jobIsTerminal = job.status === "completed" || job.status === "failed";
+      if (jobIsTerminal && !isTerminal) return job;
       return {
         ...job,
         status: event.status as ImportJob["status"],
@@ -202,10 +204,12 @@ function handleFlushEvent(event: JobProgressEvent) {
       totalRows: 0,
       errorMessage: null,
     };
+    const baseIsTerminal = base.status === "completed" || base.status === "failed";
+    if (baseIsTerminal && !isTerminal) return base;
     return {
       ...base,
       status: event.status,
-      processedRows: event.processedRows,
+      processedRows: isTerminal ? event.processedRows : Math.max(event.processedRows, base.processedRows || 0),
       totalRows: event.totalRows,
       errorMessage: event.errorMessage ?? base.errorMessage,
       phase: event.phase ?? base.phase,
@@ -213,6 +217,9 @@ function handleFlushEvent(event: JobProgressEvent) {
   });
 
   if (isTerminal) {
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribers/flush", event.jobId] });
+    }, 500);
     queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
   }
 }
@@ -220,37 +227,43 @@ function handleFlushEvent(event: JobProgressEvent) {
 function handleCampaignEvent(event: JobProgressEvent) {
   const isTerminal = event.status === "completed" || event.status === "failed" || event.status === "cancelled";
 
+  const applyCampaignUpdate = (c: any) => {
+    const cachedIsTerminal = c.status === "completed" || c.status === "failed" || c.status === "cancelled";
+    if (cachedIsTerminal && !isTerminal) return c;
+    return {
+      ...c,
+      status: isTerminal ? event.status : c.status,
+      sentCount: isTerminal
+        ? (event.sentCount ?? c.sentCount)
+        : Math.max(event.sentCount ?? 0, c.sentCount || 0),
+      failedCount: isTerminal
+        ? (event.failedCount ?? c.failedCount)
+        : Math.max(event.failedCount ?? 0, c.failedCount || 0),
+      pendingCount: event.pendingCount ?? c.pendingCount,
+    };
+  };
+
   queryClient.setQueryData<any[]>(["/api/campaigns"], (old) => {
     if (!old) return old;
     return old.map((c) => {
       if (c.id !== event.campaignId) return c;
-      return {
-        ...c,
-        status: isTerminal ? event.status : c.status,
-        sentCount: event.sentCount ?? c.sentCount,
-        failedCount: event.failedCount ?? c.failedCount,
-        pendingCount: event.pendingCount ?? c.pendingCount,
-      };
+      return applyCampaignUpdate(c);
     });
   });
 
   if (event.campaignId) {
     queryClient.setQueryData(["/api/campaigns", event.campaignId], (old: any) => {
       if (!old) return old;
-      return {
-        ...old,
-        status: isTerminal ? event.status : old.status,
-        sentCount: event.sentCount ?? old.sentCount,
-        failedCount: event.failedCount ?? old.failedCount,
-        pendingCount: event.pendingCount ?? old.pendingCount,
-      };
+      return applyCampaignUpdate(old);
     });
   }
 
   if (isTerminal) {
-    queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-    if (event.campaignId) {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", event.campaignId] });
-    }
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      if (event.campaignId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns", event.campaignId] });
+      }
+    }, 500);
   }
 }
