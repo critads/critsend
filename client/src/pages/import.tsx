@@ -284,16 +284,17 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
   const durationSec = job.startedAt && job.completedAt
     ? Math.max((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000, 1)
     : 0;
-  const rowsPerSec = durationSec > 0 ? Math.round(job.processedRows / durationSec) : 0;
-
-  const totalAccounted = job.newSubscribers + job.updatedSubscribers + job.failedRows + dupCount + skippedRows;
+  const displayProcessed = job.totalRows > 0 ? Math.min(job.processedRows, job.totalRows) : job.processedRows;
+  const rowsPerSec = durationSec > 0 ? Math.round(displayProcessed / durationSec) : 0;
+  const successfullyImported = job.newSubscribers + job.updatedSubscribers;
+  const displayImported = job.totalRows > 0 ? Math.min(successfullyImported, job.totalRows) : successfullyImported;
 
   return (
     <div className="space-y-3">
       {duration && (
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span>Duration: {duration}</span>
-          <span>Rows processed: {job.processedRows.toLocaleString()}</span>
+          <span>Rows processed: {displayProcessed.toLocaleString()}</span>
           {rowsPerSec > 0 && <span>{rowsPerSec.toLocaleString()} rows/sec</span>}
         </div>
       )}
@@ -335,7 +336,7 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
         <div className="flex justify-between">
           <span>Successfully imported (new + updated)</span>
           <span className="font-medium text-green-700 dark:text-green-400">
-            {(job.newSubscribers + job.updatedSubscribers).toLocaleString()}
+            {displayImported.toLocaleString()}
           </span>
         </div>
         {skippedRows > 0 && (
@@ -348,12 +349,6 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
           <div className="flex justify-between text-amber-700 dark:text-amber-400">
             <span>Duplicate emails within file (merged)</span>
             <span className="font-medium">{dupCount.toLocaleString()}</span>
-          </div>
-        )}
-        {totalAccounted > 0 && job.totalRows > 0 && totalAccounted !== job.totalRows && Math.abs(totalAccounted - job.totalRows) > 1 && (
-          <div className="flex justify-between text-amber-600">
-            <span>Total accounted</span>
-            <span className="font-medium">{totalAccounted.toLocaleString()}</span>
           </div>
         )}
       </div>

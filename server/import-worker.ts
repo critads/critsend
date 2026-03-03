@@ -1044,12 +1044,15 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     return { dedupedRows, withinBatchDups, crossBatchDups };
   }
 
+  let maxCommittedLine = resumeFromLine;
+
   function submitBatch(): void {
     if (batchRows.length === 0) return;
 
     batchNumber++;
     const rawBatch = batchRows;
     const thisBatchNumber = batchNumber;
+    const batchEndLine = currentLineNumber;
     batchRows = [];
 
     const { dedupedRows, withinBatchDups, crossBatchDups } = deduplicateBatch(rawBatch);
@@ -1074,6 +1077,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           batchNumber: thisBatchNumber,
           crossBatchDups,
           withinBatchDups,
+          batchEndLine,
         });
       })
       .catch((err) => {
@@ -1088,6 +1092,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           batchNumber: thisBatchNumber,
           crossBatchDups: 0,
           withinBatchDups,
+          batchEndLine,
         });
       })
       .finally(() => {
@@ -1103,6 +1108,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
       failedRows += r.failed;
       duplicatesInFile += r.crossBatchDups;
       committedRows += r.batchSize;
+      if (r.batchEndLine > maxCommittedLine) {
+        maxCommittedLine = r.batchEndLine;
+      }
 
       const rowsPerSecond = r.batchSize / (r.durationMs / 1000);
       log("info", `${importJobId}: Batch ${r.batchNumber} (${r.batchSize} rows, ${r.withinBatchDups + r.crossBatchDups} dups deduped) in ${r.durationMs}ms (${Math.round(rowsPerSecond)}/s)`);
@@ -1140,9 +1148,10 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     });
 
     if (committedRows - lastCheckpointLine >= CHECKPOINT_INTERVAL) {
-      await updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
+      const checkpointLine = Math.max(maxCommittedLine, currentLineNumber);
+      await updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, checkpointLine);
       lastCheckpointLine = committedRows;
-      log("info", `${importJobId}: Checkpoint at line ${currentLineNumber}, ${committedRows.toLocaleString()} rows committed`);
+      log("info", `${importJobId}: Checkpoint at line ${checkpointLine}, ${committedRows.toLocaleString()} rows committed`);
     }
 
     lastProgressLogTime = now;
@@ -1423,23 +1432,33 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           return;
         }
 
+        if (resumeFromLine > 0 && totalRows > 0) {
+          const totalAccounted = newSubscribers + updatedSubscribers + failedRows + duplicatesInFile + skippedRows;
+          if (totalAccounted > totalRows) {
+            const excess = totalAccounted - totalRows;
+            const reduction = Math.min(excess, updatedSubscribers);
+            log("info", `${importJobId}: Resume overlap correction: reducing updatedSubscribers by ${reduction} (double-counted rows between checkpoint line ${resumeFromLine} and committed count ${resumeCommittedOffset})`);
+            updatedSubscribers -= reduction;
+            committedRows = newSubscribers + updatedSubscribers + failedRows;
+          }
+        }
+
         const finalReasons: Record<string, any> = { ...failureReasons };
         if (duplicatesInFile > 0) finalReasons["duplicate_in_file"] = duplicatesInFile;
         if (Object.keys(sampleFailures).length > 0) finalReasons["_sample_failures"] = sampleFailures;
 
         const expectedTotal = newSubscribers + updatedSubscribers + failedRows + duplicatesInFile + skippedRows;
-        const dataRows = totalRows > 0 ? totalRows - 1 : 0;
-        const adjustedExpected = expectedTotal - resumeCommittedOffset;
-        const adjustedDataRows = resumeFromLine > 0 ? dataRows - (resumeFromLine - 1) : dataRows;
-        if (Math.abs(adjustedExpected - adjustedDataRows) > 1) {
-          log("warn", `${importJobId}: Count integrity mismatch - expected ${adjustedDataRows} data rows (total ${dataRows}, resume offset ${resumeFromLine > 0 ? resumeFromLine - 1 : 0}), got ${adjustedExpected} (raw total ${expectedTotal}, resume committed ${resumeCommittedOffset})`);
-          finalReasons["_count_discrepancy"] = { expected: adjustedDataRows, actual: adjustedExpected, resumeOffset: resumeCommittedOffset };
+        if (Math.abs(expectedTotal - totalRows) > 1) {
+          log("warn", `${importJobId}: Count integrity mismatch - expected ${totalRows} data rows, got new(${newSubscribers})+updated(${updatedSubscribers})+failed(${failedRows})+dups(${duplicatesInFile})+skipped(${skippedRows})=${expectedTotal}`);
+          finalReasons["_count_discrepancy"] = { expected: totalRows, actual: expectedTotal };
         }
+
+        const finalProcessedRows = totalRows > 0 ? Math.min(committedRows, totalRows) : committedRows;
 
         await updateImportJob(importJobId, {
           status: "completed",
           completedAt: new Date(),
-          processedRows: committedRows,
+          processedRows: finalProcessedRows,
           newSubscribers,
           updatedSubscribers,
           failedRows,
