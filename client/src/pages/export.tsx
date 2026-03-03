@@ -11,6 +11,7 @@ export default function Export() {
   const [includeFields, setIncludeFields] = useState({
     email: true,
     tags: true,
+    refs: true,
     ipAddress: true,
     importDate: true,
   });
@@ -55,6 +56,7 @@ export default function Export() {
   const fieldOptions = [
     { key: "email", label: "Email Address", required: true },
     { key: "tags", label: "Tags" },
+    { key: "refs", label: "Refs" },
     { key: "ipAddress", label: "IP Address" },
     { key: "importDate", label: "Import Date" },
   ];
