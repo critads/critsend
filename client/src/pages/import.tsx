@@ -476,12 +476,32 @@ export default function Import() {
       const hasProcessing = data?.some((j) => j.status === "processing");
       const hasWaiting = data?.some((j) => j.status === "queued" || j.status === "pending" || j.status === "awaiting_confirmation");
       if (hasProcessing) {
-        return isSSEConnected() ? 5000 : 3000;
+        return isSSEConnected() ? false : 3000;
       }
       if (hasWaiting) {
         return 10000;
       }
       return false;
+    },
+    structuralSharing: (oldData, newData) => {
+      if (!oldData || !Array.isArray(oldData) || !Array.isArray(newData)) return newData;
+      const oldJobs = oldData as ImportJob[];
+      const newJobs = newData as ImportJob[];
+      const oldMap = new Map(oldJobs.map(j => [j.id, j]));
+      return newJobs.map(newJob => {
+        const oldJob = oldMap.get(newJob.id);
+        if (!oldJob || newJob.status === "completed" || newJob.status === "failed") return newJob;
+        if (newJob.status !== "completed" && newJob.status !== "failed") {
+          return {
+            ...newJob,
+            processedRows: Math.max(newJob.processedRows, oldJob.processedRows || 0),
+            newSubscribers: Math.max(newJob.newSubscribers, oldJob.newSubscribers || 0),
+            updatedSubscribers: Math.max(newJob.updatedSubscribers, oldJob.updatedSubscribers || 0),
+            failedRows: Math.max(newJob.failedRows, oldJob.failedRows || 0),
+          };
+        }
+        return newJob;
+      });
     },
   });
 

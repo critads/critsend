@@ -166,13 +166,14 @@ function handleImportEvent(event: JobProgressEvent) {
 
     return old.map((job) => {
       if (job.id !== event.jobId) return job;
+      const isTerminal = event.status === "completed" || event.status === "failed";
       return {
         ...job,
         status: event.status as ImportJob["status"],
-        processedRows: event.processedRows,
-        newSubscribers: event.newSubscribers ?? job.newSubscribers,
-        updatedSubscribers: event.updatedSubscribers ?? job.updatedSubscribers,
-        failedRows: event.failedRows ?? job.failedRows,
+        processedRows: isTerminal ? event.processedRows : Math.max(event.processedRows, job.processedRows || 0),
+        newSubscribers: isTerminal ? (event.newSubscribers ?? job.newSubscribers) : Math.max(event.newSubscribers ?? 0, job.newSubscribers || 0),
+        updatedSubscribers: isTerminal ? (event.updatedSubscribers ?? job.updatedSubscribers) : Math.max(event.updatedSubscribers ?? 0, job.updatedSubscribers || 0),
+        failedRows: isTerminal ? (event.failedRows ?? job.failedRows) : Math.max(event.failedRows ?? 0, job.failedRows || 0),
         duplicatesInFile: event.duplicatesInFile ?? (job as any).duplicatesInFile,
         failureReasons: event.failureReasons ?? job.failureReasons,
         skippedRows: event.skippedRows ?? (job as any).skippedRows,
