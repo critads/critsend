@@ -3,7 +3,7 @@ import { logger } from "./logger";
 let connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || "";
 export const isExternalDb = connectionString.includes("neon.tech") || process.env.DB_SSL === "true";
 
-const DEFAULT_LIMIT_EXTERNAL = 10;
+const DEFAULT_LIMIT_EXTERNAL = 50;
 const DEFAULT_LIMIT_LOCAL = 20;
 
 export const PG_CONNECTION_LIMIT = Number(
@@ -13,7 +13,7 @@ export const PG_CONNECTION_LIMIT = Number(
 export const NOTIFY_CONNECTIONS = 1;
 
 export const IMPORT_POOL_MAX = Number(
-  process.env.PG_IMPORT_POOL_MAX || (isExternalDb ? 2 : 4)
+  process.env.PG_IMPORT_POOL_MAX || (isExternalDb ? 4 : 4)
 );
 export const IMPORT_CONCURRENCY = IMPORT_POOL_MAX;
 
