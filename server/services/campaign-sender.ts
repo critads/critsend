@@ -185,12 +185,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         logger.error(`${logPrefix} Bulk finalize failed, falling back: ${err.message}`);
         for (const sid of successBatch) {
           try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
+              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
+            });
           }
         }
         for (const sid of failedBatch) {
           try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
+              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
+            });
           }
         }
       }
@@ -225,12 +229,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         logger.error(`${logPrefix} Async flush failed: ${err.message}`);
         for (const sid of successBatch) {
           try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
+              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
+            });
           }
         }
         for (const sid of failedBatch) {
           try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch(() => {});
+            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
+              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
+            });
           }
         }
       }
@@ -295,7 +303,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         logger.error(`${logPrefix} ${consecutiveSmtpFailures} consecutive SMTP failures - pausing`);
         await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
         closeTransporter(mta.id);
-        await storage.logError({ type: "campaign_paused", severity: "warning", message: `Campaign auto-paused after ${consecutiveSmtpFailures} consecutive SMTP failures`, campaignId, details: `MTA: ${mta.name}, sent: ${totalSent}, failed: ${totalFailed}` }).catch(() => {});
+        await storage.logError({ type: "campaign_paused", severity: "warning", message: `Campaign auto-paused after ${consecutiveSmtpFailures} consecutive SMTP failures`, campaignId, details: `MTA: ${mta.name}, sent: ${totalSent}, failed: ${totalFailed}` }).catch((err: any) => {
+          logger.warn(`${logPrefix} logError DB write failed: ${err.message}`);
+        });
         shouldStop = true;
         break;
       }
@@ -401,7 +411,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
                 totalFailed++;
                 pendingFailedIds.push(result.value.subscriberId);
                 consecutiveSmtpFailures++;
-                storage.logError({ type: "send_failed", severity: "error", message: `Failed: ${result.value.error}`, email: result.value.email, campaignId, subscriberId: result.value.subscriberId }).catch(() => {});
+                storage.logError({ type: "send_failed", severity: "error", message: `Failed: ${result.value.error}`, email: result.value.email, campaignId, subscriberId: result.value.subscriberId }).catch((err: any) => {
+                  logger.warn(`${logPrefix} logError DB write failed: ${err.message}`);
+                });
               }
             } else {
               totalFailed++;
@@ -461,23 +473,31 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     const fatalMsg = error.message || '';
     const isTransientDb = /connection timeout|Connection terminated|connection refused|ECONNRESET|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer/i.test(fatalMsg);
     if (isTransientDb) {
-      await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "db_connection_error" }).catch(() => {});
+      await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "db_connection_error" }).catch((err: any) => {
+        logger.warn(`${logPrefix} Failed to pause campaign on DB error: ${err.message}`);
+      });
       await storage.logError({
         type: "campaign_paused",
         severity: "warning",
         message: `Campaign paused due to transient DB error: ${error.message}`,
         campaignId,
         details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
-      }).catch(() => {});
+      }).catch((err: any) => {
+        logger.warn(`${logPrefix} logError DB write failed: ${err.message}`);
+      });
     } else {
-      await storage.updateCampaignStatusAtomic(campaignId, "failed", "sending").catch(() => {});
+      await storage.updateCampaignStatusAtomic(campaignId, "failed", "sending").catch((err: any) => {
+        logger.warn(`${logPrefix} Failed to mark campaign as failed: ${err.message}`);
+      });
       await storage.logError({
         type: "campaign_fatal",
         severity: "error",
         message: `Campaign send failed: ${error.message}`,
         campaignId,
         details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
-      }).catch(() => {});
+      }).catch((err: any) => {
+        logger.warn(`${logPrefix} logError DB write failed: ${err.message}`);
+      });
     }
 
     jobEvents.emitProgress({
@@ -616,6 +636,25 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   }
 
   if (!shouldStop) {
+    try {
+      const sendCounts = await storage.getCampaignSendCounts(campaignId);
+      const expectedTotal = total;
+      const actualTotal = sendCounts.total;
+      const discrepancy = expectedTotal - actualTotal;
+      const discrepancyPct = expectedTotal > 0 ? Math.abs(discrepancy) / expectedTotal * 100 : 0;
+
+      logger.info(`${logPrefix} RECONCILIATION: expected=${expectedTotal}, actual=${actualTotal} (sent=${sendCounts.sent}, failed=${sendCounts.failed}, pending=${sendCounts.pending}), discrepancy=${discrepancy} (${discrepancyPct.toFixed(2)}%)`);
+
+      if (discrepancyPct > 1 && Math.abs(discrepancy) > 10) {
+        logger.warn(`${logPrefix} RECONCILIATION MISMATCH: ${discrepancyPct.toFixed(2)}% discrepancy (${Math.abs(discrepancy)} recipients). Expected ${expectedTotal} from segment, but campaign_sends has ${actualTotal} records.`);
+      }
+      if (sendCounts.pending > 0) {
+        logger.warn(`${logPrefix} RECONCILIATION: ${sendCounts.pending} sends still in pending/reserved status after completion`);
+      }
+    } catch (err: any) {
+      logger.warn(`${logPrefix} Reconciliation check failed: ${err.message}`);
+    }
+
     const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
     if (wasCompleted) {
       await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });

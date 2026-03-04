@@ -28,6 +28,7 @@ const pool = new Pool({
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
   connectionTimeoutMillis: isExternalDb ? 15000 : 30000,
   statement_timeout: 300000,
+  lock_timeout: 30000,
   ...(isExternalDb ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 
@@ -89,7 +90,9 @@ function sendIpc(type: string, data: any) {
   if (process.send) {
     try {
       process.send({ type, data });
-    } catch (_) {}
+    } catch (err: any) {
+      console.warn(`[IMPORT-WORKER] IPC send failed (type=${type}): ${err?.message || err}`);
+    }
   }
 }
 
@@ -302,7 +305,9 @@ async function logError(data: {
       INSERT INTO error_logs (type, severity, message, import_job_id, details)
       VALUES (${data.type}, ${data.severity}, ${data.message}, ${data.importJobId || null}, ${data.details || null})
     `);
-  } catch (_) {}
+  } catch (err: any) {
+    console.warn(`[IMPORT-WORKER] logError DB write failed: ${err?.message || err}`);
+  }
 }
 
 function getImportConfig() {
@@ -1006,7 +1011,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
         isCancelled = true;
         return true;
       }
-    } catch (_) {}
+    } catch (err: any) {
+      log("warn", `${importJobId}: Cancellation check failed: ${err?.message || err}`);
+    }
     return false;
   }
 
@@ -1365,7 +1372,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
           }
           try {
             await flushProgress();
-          } catch (_) {}
+          } catch (err: any) {
+            log("warn", `${importJobId}: flushProgress failed: ${err?.message || err}`);
+          }
 
           rl.resume();
         }
@@ -2010,7 +2019,9 @@ process.on("message", async (msg: any) => {
           status: "failed",
           errorMessage: err.message || "Unknown error",
         });
-      } catch (_) {}
+      } catch (writeErr: any) {
+        log("warn", `Failed to update import job status to 'failed': ${writeErr?.message || writeErr}`);
+      }
 
       try {
         await logError({

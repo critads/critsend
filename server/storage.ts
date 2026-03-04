@@ -157,6 +157,7 @@ export interface IStorage {
   getFailedSendsForRetry(campaignId: string, limit: number): Promise<Array<{subscriberId: string, email: string, retryCount: number}>>;
   markSendForRetry(campaignId: string, subscriberId: string): Promise<void>;
   bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number>;
+  getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number}>;
 
   // ═══════════════════════════════════════════════════════════════
   // IMPORT JOB MANAGEMENT
@@ -1040,6 +1041,25 @@ export class DatabaseStorage implements IStorage {
       WHERE campaign_id = ${campaignId} AND first_click_at IS NOT NULL
     `);
     return Number((result.rows[0] as any)?.count || 0);
+  }
+
+  async getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number}> {
+    const result = await db.execute(sql`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'sent') as sent,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed,
+        COUNT(*) FILTER (WHERE status = 'pending' OR status = 'reserved') as pending
+      FROM campaign_sends 
+      WHERE campaign_id = ${campaignId}
+    `);
+    const row = result.rows[0] as any;
+    return {
+      total: Number(row?.total || 0),
+      sent: Number(row?.sent || 0),
+      failed: Number(row?.failed || 0),
+      pending: Number(row?.pending || 0),
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════
