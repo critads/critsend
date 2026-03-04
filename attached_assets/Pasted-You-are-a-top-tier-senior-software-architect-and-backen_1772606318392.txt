@@ -1,0 +1,269 @@
+You are a top-tier senior software architect and backend engineer.
+Your task is not to patch the current code, but to redesign and rebuild the subscriber import pipeline from scratch to guarantee 100% data integrity, scalability, and deterministic results.
+
+We are experiencing a critical inconsistency bug in our subscriber import system.
+
+Current Problem
+
+Example import:
+
+CSV rows: 583,706
+
+Import progress: 100%
+
+Updated: 391,173
+
+New: 49,353
+
+However the database was empty before the import, meaning:
+
+All rows should have been 583,706 new records
+
+Some subscribers are missing
+
+The system is losing or skipping records
+
+This means the current architecture is not reliable and cannot be trusted.
+
+Your job is to rebuild the entire import system architecture so this can NEVER happen again.
+
+System Requirements
+1. Absolute Data Integrity
+
+The system must guarantee:
+
+imported_rows == rows_in_database_after_import
+
+No row can ever disappear.
+
+The system must include:
+
+row counting validation
+
+integrity checksum
+
+import reconciliation report
+
+Example output:
+
+File rows: 583706
+Processed rows: 583706
+Inserted rows: 583706
+Updated rows: 0
+Failed rows: 0
+Database total: 583706
+Status: VERIFIED
+
+If counts mismatch → import automatically fails and rolls back.
+
+Architecture Requirements
+
+You must design a new ingestion pipeline using production-grade architecture.
+
+The system must include:
+
+1. Streaming CSV parser
+
+Never load the whole CSV in memory.
+
+Use streaming.
+
+Example:
+
+CSV → Stream → Chunk processor → Queue → Worker → Database
+2. Chunk Processing
+
+Split imports into deterministic chunks.
+
+Example:
+
+batch_size = 1000 rows
+
+Each batch must include:
+
+batch ID
+
+row range
+
+checksum
+
+status
+
+Example table:
+
+import_batches
+- id
+- import_id
+- batch_number
+- rows_count
+- status
+- processed_at
+3. Queue Based Processing
+
+Imports must go through a job queue.
+
+Example:
+
+Redis / BullMQ / durable queue
+
+Flow:
+
+CSV upload
+↓
+Import job created
+↓
+CSV parsed into batches
+↓
+Batches pushed to queue
+↓
+Workers process batches
+↓
+Insert into DB
+↓
+Integrity verification
+4. Database Insert Strategy
+
+Use bulk insert with transactions.
+
+Example:
+
+INSERT INTO subscribers (...)
+VALUES (...)
+ON CONFLICT(email) DO UPDATE
+
+or
+
+UPSERT
+
+But the system must track exactly:
+
+inserted
+updated
+skipped
+failed
+5. Import Ledger
+
+Create an import ledger table.
+
+Example:
+
+imports
+- id
+- filename
+- total_rows
+- processed_rows
+- inserted_rows
+- updated_rows
+- failed_rows
+- checksum
+- status
+- created_at
+
+Status values:
+
+pending
+processing
+verifying
+completed
+failed
+6. Row-Level Logging
+
+Create a failure table:
+
+import_errors
+- import_id
+- row_number
+- email
+- error
+- raw_data
+
+No silent failure allowed.
+
+7. Idempotent Processing
+
+If import crashes:
+
+The system must resume safely without duplicates.
+
+Use:
+
+import_id
+batch_id
+row_hash
+8. Concurrency Safe
+
+System must support:
+
+10M+ rows imports
+multiple imports simultaneously
+9. Post Import Reconciliation
+
+At the end of import:
+
+Run automatic verification.
+
+Example:
+
+SELECT COUNT(*) FROM subscribers WHERE import_id = X
+
+Compare to file rows.
+
+If mismatch:
+
+import status = FAILED
+10. Observability
+
+Build an import dashboard showing:
+
+total rows
+processed rows
+rows per second
+queue backlog
+errors
+Deliverables
+
+You must:
+
+1️⃣ Rewrite the entire import system
+
+2️⃣ Provide clean modular architecture
+
+3️⃣ Use production-grade patterns
+
+4️⃣ Ensure the system supports 10M+ records safely
+
+5️⃣ Ensure no record can ever disappear again
+
+Additional Requirements
+
+The code must be:
+
+fully typed
+
+modular
+
+testable
+
+observable
+
+fault tolerant
+
+Include:
+
+unit tests
+integration tests
+import simulation tests
+Final Task
+
+Provide:
+
+1️⃣ New architecture
+2️⃣ New database schema
+3️⃣ Import pipeline implementation
+4️⃣ Queue worker implementation
+5️⃣ Validation system
+6️⃣ Full code rewrite
+
+Do not patch the existing code.
+
+Build a new production-grade import engine.

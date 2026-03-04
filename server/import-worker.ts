@@ -906,12 +906,19 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     }
   }
 
-  function waitForAllInflight(): Promise<void> {
+  function waitForAllInflight(timeoutMs: number = 300000): Promise<void> {
     if (inflightCount === 0) return Promise.resolve();
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
+      const start = Date.now();
       const check = () => {
-        if (inflightCount === 0) resolve();
-        else setTimeout(check, 50);
+        if (inflightCount === 0) {
+          resolve();
+        } else if (Date.now() - start > timeoutMs) {
+          log("error", `${importJobId}: waitForAllInflight timed out after ${timeoutMs / 1000}s with ${inflightCount} batches still in-flight`);
+          resolve();
+        } else {
+          setTimeout(check, 50);
+        }
       };
       check();
     });
@@ -1443,9 +1450,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             const postCountResult = await pool.query("SELECT COUNT(*) AS cnt FROM subscribers");
             const postImportSubscriberCount = parseInt(postCountResult.rows[0]?.cnt || "0", 10);
             const rawNew = postImportSubscriberCount - preImportSubscriberCount;
-            const maxPossibleNew = Math.max(0, committedRows - failedRows);
+            const maxPossibleNew = Math.max(0, committedRows - failedRows - duplicatesInFile);
             const actualNew = Math.max(0, Math.min(rawNew, maxPossibleNew));
-            const actualUpdated = Math.max(0, committedRows - actualNew - failedRows);
+            const actualUpdated = Math.max(0, committedRows - actualNew - failedRows - duplicatesInFile);
 
             log("info", `${importJobId}: Before/after count correction - pre: ${preImportSubscriberCount}, post: ${postImportSubscriberCount}, rawNew: ${rawNew}, cappedNew: ${actualNew}, actualUpdated: ${actualUpdated} (batch accumulated: new=${batchAccumulatedNew}, updated=${batchAccumulatedUpdated})`);
 
