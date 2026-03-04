@@ -8,6 +8,7 @@ import {
   verifyTransporter,
 } from "../email-service";
 import { logger } from "../logger";
+import { campaignReconciliationDiscrepancy } from "../metrics";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 import { jobEvents } from "../job-events";
 
@@ -644,6 +645,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const discrepancyPct = expectedTotal > 0 ? Math.abs(discrepancy) / expectedTotal * 100 : 0;
 
       logger.info(`${logPrefix} RECONCILIATION: expected=${expectedTotal}, actual=${actualTotal} (sent=${sendCounts.sent}, failed=${sendCounts.failed}, pending=${sendCounts.pending}), discrepancy=${discrepancy} (${discrepancyPct.toFixed(2)}%)`);
+      campaignReconciliationDiscrepancy.set({ campaign_id: campaignId }, discrepancyPct);
 
       if (discrepancyPct > 1 && Math.abs(discrepancy) > 10) {
         logger.warn(`${logPrefix} RECONCILIATION MISMATCH: ${discrepancyPct.toFixed(2)}% discrepancy (${Math.abs(discrepancy)} recipients). Expected ${expectedTotal} from segment, but campaign_sends has ${actualTotal} records.`);

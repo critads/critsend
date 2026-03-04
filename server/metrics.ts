@@ -136,6 +136,47 @@ export const warmupEmailsSent = new client.Counter({
   registers: [register],
 });
 
+export const jobOldestAgeSeconds = new client.Gauge({
+  name: 'critsend_job_oldest_age_seconds',
+  help: 'Age in seconds of the oldest pending/processing job',
+  labelNames: ['queue_name'] as const,
+  registers: [register],
+});
+
+export const workerRestartsTotal = new client.Counter({
+  name: 'critsend_worker_restarts_total',
+  help: 'Total worker process restarts',
+  labelNames: ['worker_type'] as const,
+  registers: [register],
+});
+
+export const bouncesTotal = new client.Counter({
+  name: 'critsend_bounces_total',
+  help: 'Total bounce/complaint events received via webhooks',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const campaignReconciliationDiscrepancy = new client.Gauge({
+  name: 'critsend_campaign_reconciliation_discrepancy_pct',
+  help: 'Percentage discrepancy between expected and actual campaign sends',
+  labelNames: ['campaign_id'] as const,
+  registers: [register],
+});
+
+export const flushJobsTotal = new client.Counter({
+  name: 'critsend_flush_jobs_total',
+  help: 'Total flush jobs processed',
+  labelNames: ['status'] as const,
+  registers: [register],
+});
+
+export const dbPoolSaturationTotal = new client.Counter({
+  name: 'critsend_db_pool_saturation_total',
+  help: 'Number of times the DB pool was found saturated (waiting > 0)',
+  registers: [register],
+});
+
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   res.on('finish', () => {
@@ -174,7 +215,9 @@ export function startMetricsCollector(): void {
           (SELECT COUNT(*) FROM import_job_queue WHERE status IN ('pending', 'processing')) as import_queue,
           (SELECT COUNT(*) FROM pending_tag_operations WHERE status = 'pending') as tag_queue,
           (SELECT COUNT(*) FROM subscribers) as total_subscribers,
-          (SELECT COUNT(*) FROM campaigns WHERE status = 'sending') as sending_campaigns
+          (SELECT COUNT(*) FROM campaigns WHERE status = 'sending') as sending_campaigns,
+          (SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) FROM campaign_jobs WHERE status IN ('pending', 'processing')) as campaign_oldest_age,
+          (SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) FROM import_job_queue WHERE status IN ('pending', 'processing')) as import_oldest_age
       `);
       
       const row = result.rows[0];
@@ -183,6 +226,13 @@ export function startMetricsCollector(): void {
       queueDepth.set({ queue_name: 'tag' }, parseInt(row.tag_queue) || 0);
       subscriberCount.set(parseInt(row.total_subscribers) || 0);
       activeCampaigns.set(parseInt(row.sending_campaigns) || 0);
+
+      jobOldestAgeSeconds.set({ queue_name: 'campaign' }, parseFloat(row.campaign_oldest_age) || 0);
+      jobOldestAgeSeconds.set({ queue_name: 'import' }, parseFloat(row.import_oldest_age) || 0);
+
+      if (pool.waitingCount > 0) {
+        dbPoolSaturationTotal.inc();
+      }
     } catch (err) {
       logger.error('Metrics collection error', { error: String(err) });
     }

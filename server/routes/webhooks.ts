@@ -1,6 +1,7 @@
 import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
+import { bouncesTotal } from "../metrics";
 import { z } from "zod";
 import crypto from "crypto";
 
@@ -32,6 +33,7 @@ export function registerWebhookRoutes(app: Express) {
       });
       
       const data = bounceSchema.parse(req.body);
+      bouncesTotal.inc({ type: data.type });
       
       const subscriber = await storage.getSubscriberByEmail(data.email);
       if (!subscriber) {
@@ -100,6 +102,9 @@ export function registerWebhookRoutes(app: Express) {
       const { bounces, idempotencyKey } = batchSchema.parse(req.body);
       if (idempotencyKey) {
         logger.info(`[BOUNCE] Batch received with idempotencyKey: ${idempotencyKey}`);
+      }
+      for (const b of bounces) {
+        bouncesTotal.inc({ type: b.type });
       }
       let processed = 0;
       let blocklisted = 0;

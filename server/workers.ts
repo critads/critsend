@@ -6,6 +6,7 @@ import { processCampaignInternal } from "./services/campaign-sender";
 import { verifyTransporter, closeNullsinkTransporter } from "./email-service";
 import { messageQueue } from "./message-queue";
 import { logger } from "./logger";
+import { workerRestartsTotal, flushJobsTotal } from "./metrics";
 import { fork, ChildProcess } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
@@ -238,6 +239,7 @@ async function pollForFlushJobs() {
     try {
       const actualProcessed = await processFlushJob(job.id, job.totalRows);
       await storage.completeFlushJob(job.id, "completed", undefined, actualProcessed);
+      flushJobsTotal.inc({ status: 'completed' });
       storage.invalidateSegmentCountCache();
       logger.info(`Flush job ${job.id} completed successfully (${actualProcessed} rows deleted)`);
       jobEvents.emitProgress({
@@ -251,6 +253,7 @@ async function pollForFlushJobs() {
     } catch (error: any) {
       logger.error(`Error processing flush job ${job.id}:`, error);
       await storage.completeFlushJob(job.id, "failed", error.message || "Unknown error");
+      flushJobsTotal.inc({ status: 'failed' });
       jobEvents.emitProgress({
         jobType: "flush",
         jobId: job.id,
@@ -937,6 +940,7 @@ async function pollForImportJobs() {
     }
 
     const child = fork(workerPath, [], forkOptions);
+    workerRestartsTotal.inc({ worker_type: 'import' });
 
     activeImportWorker = child;
     activeImportJobInfo = { queueId: queueItem.id, importJobId: queueItem.importJobId };
