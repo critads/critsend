@@ -1,0 +1,67 @@
+You are a principal-level backend engineer. Now that the import bug seems fixed, your job is to run a full “system reliability audit” to ensure no other part of our platform can suffer the same class of issues (silent drops, partial processing, race conditions, queue/worker dead letters, DB connection pool exhaustion, retries causing duplicates, etc.).
+
+GOAL
+- Proactively identify and eliminate bottlenecks and failure modes across the whole system (imports, sending jobs, schedulers, workers, APIs, DB).
+- Ensure every critical pipeline is: deterministic, idempotent, observable, and recoverable.
+
+SCOPE (check ALL of these)
+1) Job Queue / Workers (imports + sending jobs + any background tasks)
+- Confirm queue technology and configuration (visibility timeout, ack semantics, retries, backoff, concurrency).
+- Check for “lost jobs” scenarios: worker crash mid-job, non-atomic ack, missing heartbeat, visibility timeout too short/long.
+- Ensure dead-letter queue exists and is monitored.
+- Ensure idempotency keys for every job type (import_batch_id, send_campaign_id, recipient_id, etc.)
+- Verify no job can be processed twice without safe dedupe, and no job can disappear without being recorded.
+
+2) Database Reliability
+- Inspect connection pooling settings (max connections, pool size, idle timeout, statement timeout).
+- Detect pool exhaustion and long-running queries.
+- Confirm every write is transactional where needed.
+- Add statement_timeout and lock_timeout protections.
+- Ensure all “critical writes” return affected row counts and are validated (no silent failures).
+- Review indices and query plans for biggest tables involved in imports/sends.
+
+3) Sending Pipeline (campaign sending / newsletters / triggers)
+- Map the full send flow: selection → enqueue recipients → worker sends → callback/webhook updates → retry handling.
+- Guarantee exactly-once semantics at recipient level (or at least once + idempotency).
+- Ensure no recipient can be skipped silently: reconcile “selected recipients” vs “sent attempts” vs “delivered/failed”.
+- Add per-campaign reconciliation report and auto-fail if mismatch exceeds threshold.
+
+4) Error Handling & Retries
+- Search codebase for any: `catch {}`, ignored promise rejections, missing `await`, fire-and-forget tasks, unhandled async errors.
+- Make retry policies consistent (max retries, exponential backoff, jitter).
+- Ensure retries never create duplicates (idempotency keys + unique constraints).
+
+5) Observability (must be actionable)
+- Add metrics + alerts for:
+  - queue depth, job age, job success/failure rate
+  - worker restarts, timeouts, average job duration
+  - DB pool utilization, slow queries, error rates
+  - sending throughput, bounce rate, provider error rate
+- Add structured logs with correlation ids: request_id, job_id, import_id, campaign_id.
+- Ensure we can trace a single campaign/import end-to-end.
+
+6) Load/Chaos Testing
+- Create a staging test plan:
+  - Import 1M rows
+  - Run a send job to N recipients
+  - Kill a worker mid-run and verify recovery
+  - Simulate DB connection drops and confirm retries + no data loss
+- Provide scripts to reproduce and validate.
+
+DELIVERABLES
+A) A written audit report with:
+- Architecture diagram(s) of all pipelines (imports + sending + schedulers)
+- Identified risks ranked by severity (P0/P1/P2)
+- Concrete fixes for each issue
+
+B) A set of PR-ready code changes that:
+- Add missing idempotency and unique constraints
+- Add DLQ + reconciliation for sending jobs
+- Add instrumentation/metrics/logging
+- Harden DB pool and timeouts
+- Remove any silent failures
+
+RULES
+- Do not hand-wave. For each claim, point to the exact code/module and config.
+- If something can’t be proven safe, treat it as unsafe and fix it.
+- Favor database-enforced guarantees (unique constraints, transactional writes) over “we think it’s ok”.
