@@ -1,0 +1,175 @@
+You are implementing Phase 5 of a reliability refactor for Critsend. All 
+previous phases are complete. You are now separating background worker processes 
+from the Express web server so that heavy imports and campaign sends no longer 
+compete for the same memory, CPU, and connection pool as HTTP request handling.
+
+OBJECTIVE
+Currently, the Express HTTP server, campaign sender, import processor, tag queue 
+worker, flush worker, and memory monitor all run in one Node.js process. Memory 
+pressure from a large import triggers load shedding that pauses campaign sends. 
+CPU spikes during batch processing degrade API response times. Separate these 
+into distinct processes with clearly defined responsibilities.
+
+READ THESE FILES FIRST
+- server/index.ts        (main entry point, starts everything)
+- server/workers.ts      (startJobProcessor, startImportJobProcessor, etc.)
+- server/queue-workers.ts (BullMQ workers from Phase 1)
+- server/metrics.ts      (Prometheus metrics collection)
+- server/logger.ts       (logging setup)
+- server/db.ts           (DB pool — each process needs its own)
+- server/redis.ts        (Redis connection from Phase 1)
+- package.json           (look at the "scripts" section — do NOT modify it;
+                          use the existing "dev" script as-is)
+
+TARGET ARCHITECTURE
+Process 1: WEB SERVER    — Express HTTP + Vite dev server (existing server/index.ts)
+Process 2: WORKER        — BullMQ workers (campaign, import, flush) + tag queue
+Process 3: (Future)      — Reserved for a dedicated metrics exporter (do not build now)
+
+The two running processes (web + worker) communicate ONLY through:
+- PostgreSQL (shared database)
+- Redis (BullMQ job queue + pub/sub for SSE events)
+NO shared memory, NO IPC, NO forked child processes.
+
+IMPLEMENTATION STEPS
+
+1. CREATE server/worker-main.ts
+   This is the entry point for the worker process. It should:
+   - Initialize its own DB pool (import db from './db' — the pool reads env vars,
+     so it will use the same DATABASE_URL but as a separate pool instance)
+   - Initialize its own Redis connection
+   - Start all BullMQ workers: campaignWorker, importWorker, flushWorker
+   - Start the tag queue polling loop (the existing 2s interval loop)
+   - Start the metrics collector (so worker metrics are captured)
+   - Handle SIGTERM/SIGINT for graceful shutdown:
+     * Stop accepting new jobs: await worker.close()
+     * Drain in-flight jobs: allow up to 30s for active jobs to complete
+     * Close DB pool and Redis connection
+     * Exit 0
+   - Do NOT start Express, Vite, or any HTTP server
+   - Do NOT import anything from server/routes/ or server/vite.ts
+
+2. MODIFY server/index.ts (the web server)
+   Remove from index.ts (these move to worker-main.ts):
+   - The call to startJobProcessor()
+   - The call to startImportJobProcessor() 
+   - The call to startFlushJobProcessor()
+   - The BullMQ worker instantiation (campaignWorker, importWorker, flushWorker)
+   - The tag queue worker (startTagQueueWorker)
+   Keep in index.ts:
+   - Express setup, all route registration, Vite dev server
+   - Redis connection (needed for BullMQ job enqueuing — producing only, not consuming)
+   - The /api/health endpoint (add a check that Redis is reachable)
+   - The /metrics endpoint (web server metrics only)
+   - The SSE endpoint /api/jobs/stream (clients connect to the web server)
+   
+   IMPORTANT: The SSE stream (job-events.ts) currently uses an in-process 
+   EventEmitter. When workers are in a separate process, they cannot emit to 
+   the web server's EventEmitter. Fix this:
+   - Workers publish progress events to a Redis pub/sub channel: "job-progress"
+   - The web server subscribes to "job-progress" and re-emits to jobEvents
+   - Use the existing redisConnection.subscribe() / on('message') pattern
+   - Message format: JSON.stringify({ jobType, jobId, status, ...progressFields })
+   - The web server's subscriber connection must be a SEPARATE Redis connection
+     (Redis subscriptions block the connection for other commands)
+
+3. MODIFY server/job-events.ts
+   Add a Redis subscriber that bridges the pub/sub gap:
+   
+   export function startRedisProgressBridge(redisSubscriber: Redis): void {
+     redisSubscriber.subscribe('job-progress');
+     redisSubscriber.on('message', (channel, message) => {
+       if (channel === 'job-progress') {
+         try {
+           const data = JSON.parse(message);
+           emitProgress(data);  // the existing EventEmitter emit
+         } catch (e) { /* ignore malformed messages */ }
+       }
+     });
+   }
+   
+   Call startRedisProgressBridge() from server/index.ts on startup.
+
+4. MODIFY server/queue-workers.ts (worker process)
+   BullMQ workers should publish to Redis instead of calling jobEvents.emitProgress():
+   
+   // Instead of: jobEvents.emitProgress({ ... })
+   // Do:
+   await redisConnection.publish('job-progress', JSON.stringify({
+     jobType, jobId, status, processedRows, totalRows, phase, ...rest
+   }));
+
+5. CONNECTION POOL SIZING
+   With two separate processes, the total connection budget must be respected.
+   The Neon plan allows 50 connections total.
+   Update server/connection-budget.ts to use these defaults when running as worker:
+   - Worker process: WORKER_PG_POOL_MAX=8 (campaigns + imports + tag queue)
+   - Web server:     WEB_PG_POOL_MAX=20 (HTTP requests)
+   - LISTEN/NOTIFY:  1 connection each process = 2 total
+   - Reserve:        ~19 connections for Neon's own overhead + future scale
+   Total: 8 + 20 + 2 = 30 (well within 50 limit)
+   
+   Use the PROCESS_TYPE environment variable ('web' | 'worker') to select 
+   the right pool size in server/db.ts:
+   const maxPool = process.env.PROCESS_TYPE === 'worker' 
+     ? parseInt(process.env.WORKER_PG_POOL_MAX || '8')
+     : parseInt(process.env.WEB_PG_POOL_MAX || '20');
+
+6. DEVELOPMENT STARTUP (Replit workflow)
+   The existing workflow runs: npm run dev
+   npm run dev runs: NODE_ENV=development tsx server/index.ts
+   
+   For development, we want BOTH processes running. The cleanest approach 
+   for Replit is to launch both from a single entry point using child_process.spawn 
+   (not fork — these are fully separate processes):
+   
+   CREATE server/dev-launcher.ts:
+   import { spawn } from 'child_process';
+   
+   const web = spawn('tsx', ['server/index.ts'], { 
+     env: { ...process.env, PROCESS_TYPE: 'web' },
+     stdio: 'inherit'
+   });
+   const worker = spawn('tsx', ['server/worker-main.ts'], {
+     env: { ...process.env, PROCESS_TYPE: 'worker' },
+     stdio: 'inherit'
+   });
+   
+   ['SIGTERM', 'SIGINT'].forEach(sig => process.on(sig, () => {
+     web.kill(sig); worker.kill(sig); process.exit(0);
+   }));
+   
+   Then ask the user (or check if possible) to update the Replit workflow command 
+   to: tsx server/dev-launcher.ts
+   If the workflow cannot be changed, modify the existing server/index.ts to 
+   spawn the worker as a child process automatically when PROCESS_TYPE is not set.
+
+7. VERIFY MEMORY ISOLATION
+   After both processes are running, send a large import (100k+ rows) and 
+   simultaneously monitor:
+   - The web server process memory (should stay stable — under 512MB)
+   - API response times during the import (should not degrade)
+   - Campaign sends in flight (should not be paused by import memory pressure)
+
+ACCEPTANCE CRITERIA
+- Two separate processes appear in: ps aux | grep tsx
+- Web server starts and serves the React app correctly
+- Worker process starts and picks up BullMQ jobs
+- Uploading a CSV triggers an import job that the worker processes
+- SSE progress events arrive in the browser during import 
+  (via Redis pub/sub → web server → SSE client)
+- Sending a campaign works end-to-end
+- /api/health returns ok for both DB and Redis
+- Killing the worker process does NOT kill the web server (and vice versa)
+- Restarting the worker while an import is in progress: import resumes from 
+  last checkpoint when worker restarts (BullMQ + checkpoint in DB)
+- Total PostgreSQL connections stays below 35 under normal load
+  (verify with: SELECT count(*) FROM pg_stat_activity)
+
+DO NOT
+- Change any frontend code
+- Change any route files
+- Change the Drizzle schema
+- Add any new API endpoints
+- Change the authentication or session middleware
+- Modify the SMTP sending logic or email service

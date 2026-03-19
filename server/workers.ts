@@ -8,6 +8,7 @@ import { messageQueue } from "./message-queue";
 import { logger } from "./logger";
 import { workerRestartsTotal, flushJobsTotal } from "./metrics";
 import { jobEvents, type JobProgressEvent } from "./job-events";
+import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
@@ -49,6 +50,23 @@ export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boo
     flushProcessor: !!flushJobPollingInterval,
     maintenanceWorker: !!maintenanceInterval,
   };
+}
+
+/**
+ * Publishes a job progress event.
+ * When Redis is available (worker process), publishes to the "job-progress" channel
+ * so the web server's SSE bridge can forward it to connected clients.
+ * Falls back to direct in-process emit when Redis is not configured (monolith mode).
+ */
+function publishJobProgress(event: JobProgressEvent): void {
+  if (isRedisConfigured && redisConnection) {
+    redisConnection.publish("job-progress", JSON.stringify(event)).catch((err: any) => {
+      logger.warn("[JOB_EVENTS] Redis publish failed, falling back to direct emit", { error: err.message });
+      jobEvents.emitProgress(event);
+    });
+  } else {
+    jobEvents.emitProgress(event);
+  }
 }
 
 async function processTagQueue() {
@@ -209,7 +227,7 @@ async function pollForFlushJobs() {
       flushJobsTotal.inc({ status: 'completed' });
       storage.invalidateSegmentCountCache();
       logger.info(`Flush job ${job.id} completed successfully (${actualProcessed} rows deleted)`);
-      jobEvents.emitProgress({
+      publishJobProgress({
         jobType: "flush",
         jobId: job.id,
         status: "completed",
@@ -221,7 +239,7 @@ async function pollForFlushJobs() {
       logger.error(`Error processing flush job ${job.id}:`, error);
       await storage.completeFlushJob(job.id, "failed", error.message || "Unknown error");
       flushJobsTotal.inc({ status: 'failed' });
-      jobEvents.emitProgress({
+      publishJobProgress({
         jobType: "flush",
         jobId: job.id,
         status: "failed",
@@ -267,7 +285,7 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
 
   let processedRows = 0;
 
-  jobEvents.emitProgress({
+  publishJobProgress({
     jobType: "flush",
     jobId,
     status: "processing",
@@ -281,7 +299,7 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
     () => storage.clearSubscriberDependencies((deletedInBatch) => {
       processedRows += deletedInBatch;
       storage.updateFlushJobProgress(jobId, processedRows);
-      jobEvents.emitProgress({
+      publishJobProgress({
         jobType: "flush",
         jobId,
         status: "processing",
@@ -303,7 +321,7 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
     logger.info(`[FLUSH] Job ${jobId}: TRUNCATE succeeded — all ${subscriberCount} subscribers deleted instantly`);
 
     await storage.updateFlushJobProgress(jobId, processedRows);
-    jobEvents.emitProgress({
+    publishJobProgress({
       jobType: "flush",
       jobId,
       status: "processing",
@@ -352,7 +370,7 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
           if (retryCount > 0) {
             processedRows += retryCount;
             await storage.updateFlushJobProgress(jobId, processedRows);
-            jobEvents.emitProgress({
+            publishJobProgress({
               jobType: "flush",
               jobId,
               status: "processing",
@@ -393,7 +411,7 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
       processedRows += deletedCount;
       await storage.updateFlushJobProgress(jobId, processedRows);
 
-      jobEvents.emitProgress({
+      publishJobProgress({
         jobType: "flush",
         jobId,
         status: "processing",
@@ -896,7 +914,7 @@ async function pollForImportJobs() {
 
     processImportJob(queueId, importJobId, (progress) => {
       if (progress.status) lastProgressStatus = progress.status;
-      jobEvents.emitProgress({
+      publishJobProgress({
         jobType: "import",
         jobId: importJobId,
         status: (progress.status as JobProgressEvent["status"]) || "processing",
@@ -948,7 +966,7 @@ async function pollForImportJobs() {
               importJobId,
               details: err.stack || String(err.message),
             }).catch(() => {});
-            jobEvents.emitProgress({
+            publishJobProgress({
               jobType: "import",
               jobId: importJobId,
               status: "failed",

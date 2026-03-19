@@ -17,14 +17,27 @@ export const IMPORT_POOL_MAX = Number(
 );
 export const IMPORT_CONCURRENCY = IMPORT_POOL_MAX;
 
-export const MAIN_POOL_MAX = Number(
-  process.env.PG_POOL_MAX || Math.max(2, PG_CONNECTION_LIMIT - NOTIFY_CONNECTIONS - IMPORT_POOL_MAX)
-);
+// PROCESS_TYPE-aware pool sizing.
+// web:    20 connections — HTTP request handlers
+// worker:  8 connections — campaign sends, imports, tag queue, flush, maintenance
+// unset: legacy monolith mode keeps the original calculated budget
+const processType = process.env.PROCESS_TYPE;
+
+export const MAIN_POOL_MAX = (() => {
+  if (processType === 'worker') {
+    return parseInt(process.env.WORKER_PG_POOL_MAX || '8', 10);
+  }
+  if (processType === 'web') {
+    return parseInt(process.env.WEB_PG_POOL_MAX || '20', 10);
+  }
+  // Monolith fallback — keep historical behaviour
+  return Number(process.env.PG_POOL_MAX || Math.max(2, PG_CONNECTION_LIMIT - NOTIFY_CONNECTIONS - IMPORT_POOL_MAX));
+})();
 
 const TOTAL_ALLOCATED = MAIN_POOL_MAX + IMPORT_POOL_MAX + NOTIFY_CONNECTIONS;
 
 export function validateConnectionBudget(): void {
-  logger.info(`[CONNECTION BUDGET] Limit: ${PG_CONNECTION_LIMIT} | Main pool: ${MAIN_POOL_MAX} | Import worker: ${IMPORT_POOL_MAX} (concurrency: ${IMPORT_CONCURRENCY}) | LISTEN/NOTIFY: ${NOTIFY_CONNECTIONS} | Total allocated: ${TOTAL_ALLOCATED} | External: ${isExternalDb}`);
+  logger.info(`[CONNECTION BUDGET] Limit: ${PG_CONNECTION_LIMIT} | Process: ${processType || 'monolith'} | Main pool: ${MAIN_POOL_MAX} | Import worker: ${IMPORT_POOL_MAX} (concurrency: ${IMPORT_CONCURRENCY}) | LISTEN/NOTIFY: ${NOTIFY_CONNECTIONS} | Total allocated: ${TOTAL_ALLOCATED} | External: ${isExternalDb}`);
 
   if (TOTAL_ALLOCATED > PG_CONNECTION_LIMIT) {
     logger.error(`[CONNECTION BUDGET] OVER BUDGET! Allocated ${TOTAL_ALLOCATED} connections but limit is ${PG_CONNECTION_LIMIT}. Reduce PG_POOL_MAX or PG_IMPORT_POOL_MAX, or increase PG_CONNECTION_LIMIT.`);

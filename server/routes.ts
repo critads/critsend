@@ -1,6 +1,5 @@
 import express, { type Express } from "express";
 import { createServer, type Server } from "http";
-import { startAllWorkers } from "./workers";
 import rateLimit from "express-rate-limit";
 import {
   IMAGES_DIR,
@@ -75,8 +74,6 @@ export async function registerRoutes(
   app.use("/api/webhooks/", webhookLimiter);
 
   app.use("/images", express.static(IMAGES_DIR));
-  
-  startAllWorkers();
   
   cleanupOrphanedTempSessions();
   setInterval(cleanupOrphanedTempSessions, 60 * 60 * 1000);

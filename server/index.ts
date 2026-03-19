@@ -6,7 +6,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
-import { startTagQueueWorker, stopAllBackgroundWorkers } from "./workers";
+import { stopAllBackgroundWorkers } from "./workers";
 import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMetricsCollector } from "./metrics";
 import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
@@ -17,8 +17,9 @@ import { pool } from "./db";
 import { logger } from "./logger";
 import { validateConnectionBudget } from "./connection-budget";
 import { initQueues, closeQueues } from "./queues";
-import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
-import { closeRedisConnections } from "./redis";
+import { closeBullMQWorkers } from "./queue-workers";
+import { closeRedisConnections, createRedisConnection, isRedisConfigured } from "./redis";
+import { startRedisProgressBridge } from "./job-events";
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Promise Rejection', { reason: String(reason) });
@@ -42,6 +43,7 @@ import('v8').then((v8) => {
 }).catch(() => {});
 
 let isShuttingDown = false;
+let redisSubscriber: ReturnType<typeof createRedisConnection> = null;
 
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
@@ -80,6 +82,7 @@ async function gracefulShutdown(signal: string) {
       messageQueue.shutdown(),
       closeBullMQWorkers(),
       closeQueues(),
+      redisSubscriber?.quit(),
     ]);
 
     await closeRedisConnections();
@@ -420,13 +423,22 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   validateConnectionBudget();
 
   initQueues();
-  startBullMQWorkers();
+
+  // Subscribe to worker-process progress events and forward them to SSE clients.
+  // A dedicated subscriber connection is required because Redis subscriptions block
+  // the connection for all other commands.
+  if (isRedisConfigured) {
+    redisSubscriber = createRedisConnection("sse-subscriber");
+    if (redisSubscriber) {
+      startRedisProgressBridge(redisSubscriber);
+      logger.info("[SSE] Redis progress bridge started");
+    }
+  } else {
+    logger.info("[SSE] Redis not configured — progress events via in-process EventEmitter (monolith mode)");
+  }
 
   startMetricsCollector();
   messageQueue.initialize().catch(err => logger.error('Message queue init failed', { error: String(err) }));
-  
-  // Start the tag queue worker for reliable tracking tag additions
-  startTagQueueWorker();
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

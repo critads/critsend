@@ -5,7 +5,7 @@ const REDIS_URL = process.env.REDIS_URL;
 
 export const isRedisConfigured = !!REDIS_URL;
 
-function createConnection(name: string): Redis | null {
+export function createRedisConnection(name: string): Redis | null {
   if (!REDIS_URL) return null;
   const client = new Redis(REDIS_URL, {
     maxRetriesPerRequest: null,
@@ -22,8 +22,8 @@ function createConnection(name: string): Redis | null {
   return client;
 }
 
-export const redisConnection = createConnection("main");
-export const redisBullMQ = createConnection("bullmq");
+export const redisConnection = createRedisConnection("main");
+export const redisBullMQ = createRedisConnection("bullmq");
 
 export async function closeRedisConnections(): Promise<void> {
   await Promise.allSettled([
