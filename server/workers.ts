@@ -713,6 +713,20 @@ async function startJobProcessor() {
     logger.info(`[JOB_POLL] Startup: cleaned up ${startupStaleCount} orphaned processing jobs`);
   }
 
+  db.execute(sql`
+    UPDATE campaign_sends
+    SET status = 'failed'
+    WHERE status = 'attempting'
+      AND sent_at < NOW() - INTERVAL '1 hour'
+  `).then((r: any) => {
+    const count = Number(r.rowCount ?? 0);
+    if (count > 0) {
+      logger.warn(`[JOB_POLL] Startup: marked ${count} stale 'attempting' campaign_sends as 'failed' (process crash during send)`);
+    }
+  }).catch((err: any) => {
+    logger.error(`[JOB_POLL] Startup: failed to clean up stale attempting sends: ${err.message}`);
+  });
+
   pollForJobs();
 
   resumeInterruptedCampaigns();

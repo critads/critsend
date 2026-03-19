@@ -1,0 +1,128 @@
+You are implementing Phase 3 of a reliability refactor for Critsend. Phases 1 
+(BullMQ) and 2 (import worker rewrite) are complete. You are now fixing a 
+fundamental data integrity issue in the campaign sending engine.
+
+OBJECTIVE
+The campaign sender currently uses a write-behind buffer: emails are sent to SMTP 
+first, then subscriber IDs are accumulated in memory arrays (pendingSuccessIds, 
+pendingFailedIds) and flushed to the database asynchronously. If the process 
+crashes between sending an email and flushing the buffer, the email was delivered 
+but the database shows it as pending — the subscriber will be sent the email again 
+on the next campaign. Fix this by implementing a transactional outbox: the DB 
+record is written (or at minimum marked as "attempting") before SMTP delivery, 
+so a crash always leaves the DB in a state that reflects reality.
+
+READ THESE FILES FIRST
+- server/services/campaign-sender.ts   (~800+ lines — the entire sending engine)
+- server/storage.ts                    (createCampaignSend, updateCampaignSendStatus,
+                                        bulkUpdateCampaignSends, getCampaignSendCounts)
+- shared/schema.ts                     (campaign_sends table definition)
+- server/metrics.ts                    (email send metrics)
+
+UNDERSTAND THE CURRENT FLOW
+In campaign-sender.ts, find the section that:
+1. Fetches a chunk of subscribers from the cursor
+2. Calls sendEmail() for each subscriber concurrently (Promise.allSettled)
+3. Accumulates IDs in pendingSuccessIds / pendingFailedIds arrays
+4. Every N sends (FLUSH_THRESHOLD) or on timeout, calls flushBufferAsync()
+5. flushBufferAsync() bulk-updates the DB with the accumulated IDs
+
+THE BUG: Step 4 can accumulate hundreds of sent emails before step 5 runs.
+A crash between steps 4 and 5 means those emails were sent but never recorded.
+
+THE FIX: Transactional Outbox Pattern
+Before sending any chunk, insert all subscriber IDs in that chunk into 
+campaign_sends with status='attempting'. After sending, update to 
+'sent' or 'failed'. If the process crashes, the 'attempting' records exist 
+and the reconciliation step (added in a previous audit) can detect the gap.
+
+IMPLEMENTATION STEPS
+
+1. ADD new campaign_sends status value
+   In shared/schema.ts, find the statusEnum or status column definition for 
+   campaign_sends. Add 'attempting' as a valid status value.
+   Run: DATABASE_URL="$NEON_DATABASE_URL" npx drizzle-kit push --force
+   to apply the schema change.
+
+2. ADD storage method: bulkInsertCampaignSendAttempts
+   In server/storage.ts, add:
+   
+   async bulkInsertCampaignSendAttempts(
+     campaignId: string, 
+     subscriberIds: string[]
+   ): Promise<void>
+   
+   Implementation: INSERT INTO campaign_sends (campaign_id, subscriber_id, status)
+   VALUES ... ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
+   This is a bulk insert with status='attempting'. ON CONFLICT DO NOTHING handles 
+   cases where a subscriber was already processed (retries, crash recovery).
+   Use parameterized SQL with chunks of 1000 rows per INSERT for performance.
+
+3. MODIFY campaign-sender.ts — pre-register chunk before sending
+   Before the Promise.allSettled() call for each chunk of subscribers:
+   
+   // Pre-register all subscribers in this chunk as 'attempting'
+   await storage.bulkInsertCampaignSendAttempts(
+     campaignId, 
+     chunk.map(s => s.id)
+   );
+   // Now send
+   const results = await Promise.allSettled(chunk.map(s => sendEmail(s, ...)));
+   
+   This ensures that even if the process crashes during sending, the DB has a 
+   record for every subscriber that was being attempted.
+
+4. MODIFY campaign-sender.ts — shrink the flush buffer
+   Reduce FLUSH_THRESHOLD (or equivalent constant) from its current value to 
+   a maximum of 500. The write-behind buffer should never hold more than 500 
+   IDs. This reduces the data-loss window from potentially thousands of sends 
+   to at most 500.
+
+5. MODIFY campaign-sender.ts — fix the retry phase (pre-existing bug)
+   In the retry phase (find where failed subscribers are retried), verify that 
+   chunk.map(async ...) is wrapped with await Promise.all(). If it is not, 
+   fix it. The retry phase must not fire-and-forget.
+
+6. ADD reconciliation hardening to storage.ts
+   The existing getCampaignSendCounts() method (added in a previous audit) 
+   compares segment count vs campaign_sends records. Extend it to also count 
+   'attempting' status records and include them in the warning:
+   If attempting > 0 after campaign completion, log a warning: 
+   "Campaign {id} completed with {n} sends stuck in 'attempting' state — 
+   possible crash during send. Manual review recommended."
+
+7. ADD a startup cleanup job in server/workers.ts
+   On server startup, run once:
+   UPDATE campaign_sends SET status='failed', error='Process crash during send'
+   WHERE status='attempting' AND created_at < NOW() - INTERVAL '1 hour'
+   This cleans up any 'attempting' records left by a previous crash. 
+   Only touch records older than 1 hour (fresh 'attempting' records may belong 
+   to an active send on another worker in future multi-instance setups).
+
+PERFORMANCE CONSIDERATIONS
+The bulk pre-insert adds one extra DB round trip per chunk. For a campaign 
+sending 1M emails in chunks of 500, this is 2000 extra queries — acceptable 
+given the data integrity benefit. Use connection from the main pool, not a 
+dedicated connection.
+
+If benchmarking shows unacceptable throughput degradation (>15% slower), add 
+a feature flag: TRANSACTIONAL_OUTBOX=true|false. Default true in production.
+
+ACCEPTANCE CRITERIA
+- Send a test campaign to a small segment (100 subscribers) and verify all 
+  100 appear in campaign_sends with status='sent' after completion
+- Check that campaign_sends has NO records with status='attempting' after 
+  a successful campaign completes
+- Manually kill the server process mid-send, restart, and verify:
+  a) 'attempting' records exist for the chunk being sent at time of crash
+  b) The startup cleanup does NOT immediately mark them as failed (they're < 1hr old)
+  c) Sent count in the UI is accurate after cleanup runs (1hr later)
+- Retry phase sends complete before the campaign is marked done
+- No regression in send throughput > 15% (compare emails/min before and after)
+
+DO NOT
+- Change the SMTP connection pooling or Nodemailer configuration
+- Change the campaign status state machine (pending→processing→completed/failed)
+- Change the nullsink SMTP testing path
+- Modify any A/B testing variant logic
+- Change the frontend campaign monitoring UI

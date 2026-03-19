@@ -160,7 +160,8 @@ export interface IStorage {
   getFailedSendsForRetry(campaignId: string, limit: number): Promise<Array<{subscriberId: string, email: string, retryCount: number}>>;
   markSendForRetry(campaignId: string, subscriberId: string): Promise<void>;
   bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number>;
-  getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number}>;
+  bulkInsertCampaignSendAttempts(campaignId: string, subscriberIds: string[]): Promise<void>;
+  getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number, attempting: number}>;
 
   // ═══════════════════════════════════════════════════════════════
   // IMPORT JOB MANAGEMENT
@@ -948,6 +949,24 @@ export class DatabaseStorage implements IStorage {
     return allReserved;
   }
 
+  async bulkInsertCampaignSendAttempts(campaignId: string, subscriberIds: string[]): Promise<void> {
+    if (subscriberIds.length === 0) return;
+
+    const CHUNK_SIZE = 1000;
+    for (let i = 0; i < subscriberIds.length; i += CHUNK_SIZE) {
+      const chunk = subscriberIds.slice(i, i + CHUNK_SIZE);
+      const arrayLiteral = `{${chunk.map(id => `"${id}"`).join(',')}}`;
+      await db.execute(sql`
+        INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
+        SELECT gen_random_uuid(), ${campaignId}, unnest_id, 'attempting', NOW()
+        FROM unnest(${arrayLiteral}::text[]) AS unnest_id
+        ON CONFLICT (campaign_id, subscriber_id) DO UPDATE
+          SET status = 'attempting'
+          WHERE campaign_sends.status = 'pending'
+      `);
+    }
+  }
+
   async bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void> {
     const sentCount = successIds.length;
     const failCount = failedIds.length;
@@ -964,7 +983,7 @@ export class DatabaseStorage implements IStorage {
           const arrayLiteral = `{${chunk.map(id => `"${id}"`).join(',')}}`;
           await tx.execute(sql`
             UPDATE campaign_sends SET status = 'sent'
-            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arrayLiteral}::text[]) AND status = 'pending'
+            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arrayLiteral}::text[]) AND status IN ('pending', 'attempting')
           `);
         }
       }
@@ -974,7 +993,7 @@ export class DatabaseStorage implements IStorage {
           const arrayLiteral = `{${chunk.map(id => `"${id}"`).join(',')}}`;
           await tx.execute(sql`
             UPDATE campaign_sends SET status = 'failed'
-            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arrayLiteral}::text[]) AND status = 'pending'
+            WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arrayLiteral}::text[]) AND status IN ('pending', 'attempting')
           `);
         }
       }
@@ -1046,13 +1065,14 @@ export class DatabaseStorage implements IStorage {
     return Number((result.rows[0] as any)?.count || 0);
   }
 
-  async getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number}> {
+  async getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number, attempting: number}> {
     const result = await db.execute(sql`
       SELECT 
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE status = 'sent') as sent,
         COUNT(*) FILTER (WHERE status = 'failed') as failed,
-        COUNT(*) FILTER (WHERE status = 'pending' OR status = 'reserved') as pending
+        COUNT(*) FILTER (WHERE status = 'pending' OR status = 'reserved') as pending,
+        COUNT(*) FILTER (WHERE status = 'attempting') as attempting
       FROM campaign_sends 
       WHERE campaign_id = ${campaignId}
     `);
@@ -1062,6 +1082,7 @@ export class DatabaseStorage implements IStorage {
       sent: Number(row?.sent || 0),
       failed: Number(row?.failed || 0),
       pending: Number(row?.pending || 0),
+      attempting: Number(row?.attempting || 0),
     };
   }
 

@@ -119,7 +119,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   const isNullsink = mta && (mta as any).mode === "nullsink";
 
   const BATCH_SIZE = isNullsink ? 15000 : 10000;
-  const FLUSH_THRESHOLD = isNullsink ? 5000 : 2500;
+  const FLUSH_THRESHOLD = 500;
   const FLUSH_INTERVAL_MS = isNullsink ? 5000 : 3000;
   const HEARTBEAT_INTERVAL = 30000;
   const STATUS_CHECK_INTERVAL = 10000;
@@ -387,6 +387,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
           const chunk = subscribersToSend.slice(i, i + concurrency);
 
+          await retryDbOp(
+            () => storage.bulkInsertCampaignSendAttempts(campaignId, chunk.map(s => s.id)),
+            `${logPrefix} markAttempting`
+          );
+
           const results = await Promise.allSettled(
             chunk.map(subscriber => {
               return (async () => {
@@ -583,6 +588,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
             }
           }
         } else if (mta) {
+          await retryDbOp(
+            () => storage.bulkInsertCampaignSendAttempts(campaignId, chunk.map(s => s.subscriberId)),
+            `${logPrefix} retryMarkAttempting`
+          );
+
           const results = await Promise.allSettled(
             chunk.map(async (s) => {
               const sub = await storage.getSubscriber(s.subscriberId);
@@ -644,7 +654,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const discrepancy = expectedTotal - actualTotal;
       const discrepancyPct = expectedTotal > 0 ? Math.abs(discrepancy) / expectedTotal * 100 : 0;
 
-      logger.info(`${logPrefix} RECONCILIATION: expected=${expectedTotal}, actual=${actualTotal} (sent=${sendCounts.sent}, failed=${sendCounts.failed}, pending=${sendCounts.pending}), discrepancy=${discrepancy} (${discrepancyPct.toFixed(2)}%)`);
+      logger.info(`${logPrefix} RECONCILIATION: expected=${expectedTotal}, actual=${actualTotal} (sent=${sendCounts.sent}, failed=${sendCounts.failed}, pending=${sendCounts.pending}, attempting=${sendCounts.attempting}), discrepancy=${discrepancy} (${discrepancyPct.toFixed(2)}%)`);
       campaignReconciliationDiscrepancy.set({ campaign_id: campaignId }, discrepancyPct);
 
       if (discrepancyPct > 1 && Math.abs(discrepancy) > 10) {
@@ -652,6 +662,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       }
       if (sendCounts.pending > 0) {
         logger.warn(`${logPrefix} RECONCILIATION: ${sendCounts.pending} sends still in pending/reserved status after completion`);
+      }
+      if (sendCounts.attempting > 0) {
+        logger.warn(`${logPrefix} RECONCILIATION: Campaign ${campaignId} completed with ${sendCounts.attempting} sends stuck in 'attempting' state — possible crash during send. Manual review recommended.`);
       }
     } catch (err: any) {
       logger.warn(`${logPrefix} Reconciliation check failed: ${err.message}`);

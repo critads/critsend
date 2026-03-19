@@ -152,7 +152,7 @@ export const campaignSends = pgTable("campaign_sends", {
   campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
   subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id),
   sentAt: timestamp("sent_at").notNull().defaultNow(),
-  status: text("status").notNull().default("sent"), // sent, failed, bounced, pending
+  status: text("status").notNull().default("sent"), // sent, failed, bounced, pending, attempting
   retryCount: integer("retry_count").notNull().default(0),
   lastRetryAt: timestamp("last_retry_at"),
   firstOpenAt: timestamp("first_open_at"),
