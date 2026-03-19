@@ -6,7 +6,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
-import { stopAllBackgroundWorkers } from "./workers";
+import { startAllWorkers, stopAllBackgroundWorkers } from "./workers";
 import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMetricsCollector } from "./metrics";
 import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
@@ -17,7 +17,7 @@ import { pool } from "./db";
 import { logger } from "./logger";
 import { validateConnectionBudget } from "./connection-budget";
 import { initQueues, closeQueues } from "./queues";
-import { closeBullMQWorkers } from "./queue-workers";
+import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
 import { closeRedisConnections, createRedisConnection, isRedisConfigured } from "./redis";
 import { startRedisProgressBridge } from "./job-events";
 
@@ -439,6 +439,17 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   startMetricsCollector();
   messageQueue.initialize().catch(err => logger.error('Message queue init failed', { error: String(err) }));
+
+  // Monolith mode: when PROCESS_TYPE is not explicitly 'web' (i.e. the deployed
+  // production environment running a single process), start all background workers
+  // here so that campaign sends, imports, flushes, and tag operations continue to work.
+  // In split-process mode (dev-launcher), PROCESS_TYPE=web and the dedicated
+  // worker process (worker-main.ts) handles all of this instead.
+  if (process.env.PROCESS_TYPE !== 'web') {
+    logger.info("[MONOLITH] PROCESS_TYPE is not 'web' — starting background workers in-process");
+    await startAllWorkers();
+    startBullMQWorkers();
+  }
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
