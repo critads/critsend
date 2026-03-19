@@ -218,6 +218,10 @@ function stopFlushJobProcessor() {
   }
 }
 
+export async function triggerFlushJobPoll(): Promise<void> {
+  return pollForFlushJobs();
+}
+
 async function pollForFlushJobs() {
   if (isMemoryPressure) {
     logger.warn('Skipping flush job poll - memory pressure active');
@@ -568,6 +572,10 @@ async function runCampaignJob(job: CampaignJob) {
   }
 }
 
+export async function triggerCampaignJobPoll(): Promise<void> {
+  return pollForJobs();
+}
+
 async function pollForJobs() {
   if (isPolling) return;
   isPolling = true;
@@ -865,6 +873,10 @@ function stopImportJobProcessor() {
     activeImportWorker = null;
     activeImportJobInfo = null;
   }
+}
+
+export async function triggerImportJobPoll(): Promise<void> {
+  return pollForImportJobs();
 }
 
 async function pollForImportJobs() {

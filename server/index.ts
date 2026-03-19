@@ -16,6 +16,9 @@ import fs from "fs";
 import { pool } from "./db";
 import { logger } from "./logger";
 import { validateConnectionBudget } from "./connection-budget";
+import { initQueues, closeQueues } from "./queues";
+import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
+import { closeRedisConnections } from "./redis";
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Promise Rejection', { reason: String(reason) });
@@ -72,8 +75,14 @@ async function gracefulShutdown(signal: string) {
     stopAllBackgroundWorkers();
     stopMetricsCollector();
     logger.info('Background workers stopped');
-    
-    await messageQueue.shutdown();
+
+    await Promise.allSettled([
+      messageQueue.shutdown(),
+      closeBullMQWorkers(),
+      closeQueues(),
+    ]);
+
+    await closeRedisConnections();
     
     await new Promise(resolve => setTimeout(resolve, 2000));
     
@@ -409,6 +418,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   await registerRoutes(httpServer, app);
   
   validateConnectionBudget();
+
+  initQueues();
+  startBullMQWorkers();
+
   startMetricsCollector();
   messageQueue.initialize().catch(err => logger.error('Message queue init failed', { error: String(err) }));
   

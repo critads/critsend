@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { getWorkerHealth } from "../workers";
+import { redisConnection, isRedisConfigured } from "../redis";
 
 export function registerHealthRoutes(app: Express) {
   app.get("/api/health", async (_req: Request, res: Response) => {
@@ -45,6 +46,13 @@ export function registerHealthRoutes(app: Express) {
       const workerHealth = getWorkerHealth();
       const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor;
 
+      let redisStatus: "ok" | "degraded" | "disabled" = "disabled";
+      if (isRedisConfigured && redisConnection) {
+        redisStatus = redisConnection.status === "ready" ? "ok" : "degraded";
+      }
+
+      const useBullMQ = process.env.USE_BULLMQ === "true";
+
       res.json({
         status: (dbHealthy && allWorkersRunning) ? 'healthy' : 'degraded',
         timestamp: new Date().toISOString(),
@@ -54,6 +62,13 @@ export function registerHealthRoutes(app: Express) {
           status: dbHealthy ? "connected" : "disconnected",
           latencyMs: dbLatency,
           pool: poolStats,
+        },
+        redis: {
+          configured: isRedisConfigured,
+          status: redisStatus,
+        },
+        bullmq: {
+          enabled: useBullMQ,
         },
         memory: {
           heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),

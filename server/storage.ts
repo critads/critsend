@@ -55,6 +55,9 @@ import { logger } from "./logger";
 import { compileSegmentRules } from "./services/segment-compiler";
 import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
 import bcrypt from "bcrypt";
+import { campaignQueue, importQueue, flushQueue } from "./queues";
+
+const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
 export interface IStorage {
   // ═══════════════════════════════════════════════════════════════
@@ -1098,12 +1101,22 @@ export class DatabaseStorage implements IStorage {
     if (existing.rows.length > 0) {
       const row = existing.rows[0] as any;
       const existingJob = await db.select().from(campaignJobs).where(eq(campaignJobs.id, row.id)).limit(1);
+      if (USE_BULLMQ && campaignQueue) {
+        await campaignQueue.add("campaign", { campaignId }, { jobId: `campaign-${campaignId}` }).catch((err: any) =>
+          logger.warn("[BullMQ] Failed to re-enqueue existing campaign job:", err.message)
+        );
+      }
       return existingJob[0];
     }
     const [job] = await db.insert(campaignJobs).values({
       campaignId,
       status: "pending",
     }).returning();
+    if (USE_BULLMQ && campaignQueue) {
+      await campaignQueue.add("campaign", { campaignId, pgJobId: job.id }, { jobId: `campaign-${campaignId}` }).catch((err: any) =>
+        logger.warn("[BullMQ] Failed to enqueue campaign job:", err.message)
+      );
+    }
     return job;
   }
 
@@ -1308,6 +1321,11 @@ export class DatabaseStorage implements IStorage {
       lastCheckpointLine: 0,
       status: "pending",
     }).returning();
+    if (USE_BULLMQ && importQueue) {
+      await importQueue.add("import", { jobId: job.id, importJobId }, { jobId: `import-${job.id}` }).catch((err: any) =>
+        logger.warn("[BullMQ] Failed to enqueue import job:", err.message)
+      );
+    }
     return job;
   }
 
@@ -2018,8 +2036,15 @@ export class DatabaseStorage implements IStorage {
       totalRows,
       status: "pending",
     }).returning();
-    await db.execute(sql`NOTIFY flush_jobs`);
-    return result[0];
+    const job = result[0];
+    if (USE_BULLMQ && flushQueue) {
+      await flushQueue.add("flush", { jobId: job.id, totalRows }, { jobId: `flush-${job.id}` }).catch((err: any) =>
+        logger.warn("[BullMQ] Failed to enqueue flush job:", err.message)
+      );
+    } else {
+      await db.execute(sql`NOTIFY flush_jobs`);
+    }
+    return job;
   }
 
   async getFlushJob(id: string): Promise<FlushJob | undefined> {

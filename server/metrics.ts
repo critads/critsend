@@ -2,6 +2,7 @@ import client from "prom-client";
 import { type Request, type Response, type NextFunction } from "express";
 import { pool } from "./db";
 import { logger } from "./logger";
+import { campaignQueue, importQueue, flushQueue } from "./queues";
 
 const register = new client.Registry();
 
@@ -177,6 +178,34 @@ export const dbPoolSaturationTotal = new client.Counter({
   registers: [register],
 });
 
+export const bullmqWaiting = new client.Gauge({
+  name: 'critsend_bullmq_waiting',
+  help: 'BullMQ jobs waiting to be processed',
+  labelNames: ['queue'] as const,
+  registers: [register],
+});
+
+export const bullmqActive = new client.Gauge({
+  name: 'critsend_bullmq_active',
+  help: 'BullMQ jobs currently being processed',
+  labelNames: ['queue'] as const,
+  registers: [register],
+});
+
+export const bullmqFailed = new client.Gauge({
+  name: 'critsend_bullmq_failed',
+  help: 'BullMQ jobs that have failed',
+  labelNames: ['queue'] as const,
+  registers: [register],
+});
+
+export const bullmqDelayed = new client.Gauge({
+  name: 'critsend_bullmq_delayed',
+  help: 'BullMQ jobs that are delayed',
+  labelNames: ['queue'] as const,
+  registers: [register],
+});
+
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   res.on('finish', () => {
@@ -232,6 +261,32 @@ export function startMetricsCollector(): void {
 
       if (pool.waitingCount > 0) {
         dbPoolSaturationTotal.inc();
+      }
+
+      if (campaignQueue && importQueue && flushQueue) {
+        try {
+          const [cCounts, iCounts, fCounts] = await Promise.all([
+            campaignQueue.getJobCounts(),
+            importQueue.getJobCounts(),
+            flushQueue.getJobCounts(),
+          ]);
+          bullmqWaiting.set({ queue: 'campaigns' }, cCounts.waiting ?? 0);
+          bullmqActive.set({ queue: 'campaigns' }, cCounts.active ?? 0);
+          bullmqFailed.set({ queue: 'campaigns' }, cCounts.failed ?? 0);
+          bullmqDelayed.set({ queue: 'campaigns' }, cCounts.delayed ?? 0);
+
+          bullmqWaiting.set({ queue: 'imports' }, iCounts.waiting ?? 0);
+          bullmqActive.set({ queue: 'imports' }, iCounts.active ?? 0);
+          bullmqFailed.set({ queue: 'imports' }, iCounts.failed ?? 0);
+          bullmqDelayed.set({ queue: 'imports' }, iCounts.delayed ?? 0);
+
+          bullmqWaiting.set({ queue: 'flushes' }, fCounts.waiting ?? 0);
+          bullmqActive.set({ queue: 'flushes' }, fCounts.active ?? 0);
+          bullmqFailed.set({ queue: 'flushes' }, fCounts.failed ?? 0);
+          bullmqDelayed.set({ queue: 'flushes' }, fCounts.delayed ?? 0);
+        } catch (bullErr) {
+          logger.warn('BullMQ metrics collection error', { error: String(bullErr) });
+        }
       }
     } catch (err) {
       logger.error('Metrics collection error', { error: String(err) });
