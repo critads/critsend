@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool, isPoolHealthy } from "./db";
 import { sql } from "drizzle-orm";
 import type { CampaignJob } from "@shared/schema";
 import { processCampaignInternal } from "./services/campaign-sender";
@@ -7,14 +7,10 @@ import { verifyTransporter, closeNullsinkTransporter } from "./email-service";
 import { messageQueue } from "./message-queue";
 import { logger } from "./logger";
 import { workerRestartsTotal, flushJobsTotal } from "./metrics";
-import { fork, ChildProcess } from "child_process";
-import * as path from "path";
-import * as fs from "fs";
-import { jobEvents } from "./job-events";
+import { jobEvents, type JobProgressEvent } from "./job-events";
+import { processImportJob } from "./services/import-processor";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
-
-import { pool, isPoolHealthy } from "./db";
 
 let tagQueueInterval: NodeJS.Timeout | null = null;
 let tagCleanupInterval: NodeJS.Timeout | null = null;
@@ -25,40 +21,7 @@ let mtaRecoveryInterval: NodeJS.Timeout | null = null;
 let memoryCheckInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
 
-let activeImportWorker: ChildProcess | null = null;
-let activeImportJobInfo: { queueId: string; importJobId: string } | null = null;
-let importWorkerWatchdog: ReturnType<typeof setTimeout> | null = null;
-const IMPORT_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
-
-function resetImportWorkerWatchdog() {
-  if (importWorkerWatchdog) clearTimeout(importWorkerWatchdog);
-  importWorkerWatchdog = setTimeout(() => {
-    if (!activeImportWorker || !activeImportJobInfo) return;
-    logger.error(`[IMPORT] Watchdog: Worker process unresponsive for ${IMPORT_WORKER_TIMEOUT_MS / 1000}s, killing`);
-    const jobInfo = activeImportJobInfo;
-    try {
-      activeImportWorker.kill("SIGKILL");
-    } catch (_) {}
-    activeImportWorker = null;
-    activeImportJobInfo = null;
-    importWorkerWatchdog = null;
-    if (jobInfo) {
-      storage.completeImportQueueJob(jobInfo.queueId, "failed", "Worker process timed out (no response for 10 minutes)")
-        .catch((err) => logger.error("Failed to mark timed-out import as failed:", err));
-      storage.updateImportJob(jobInfo.importJobId, {
-        status: "failed",
-        errorMessage: "Import worker process stopped responding and was terminated",
-      }).catch((err) => logger.error("Failed to update timed-out import job:", err));
-    }
-  }, IMPORT_WORKER_TIMEOUT_MS);
-}
-
-function clearImportWorkerWatchdog() {
-  if (importWorkerWatchdog) {
-    clearTimeout(importWorkerWatchdog);
-    importWorkerWatchdog = null;
-  }
-}
+let isActiveImportJob = false;
 let activeFlushJob = false;
 let lastRecoveryCheck = 0;
 
@@ -866,12 +829,8 @@ function stopImportJobProcessor() {
     importJobPollingInterval = null;
     logger.info("Import job processor stopped");
   }
-  clearImportWorkerWatchdog();
-  if (activeImportWorker) {
-    logger.info("Killing active import worker process");
-    activeImportWorker.kill("SIGTERM");
-    activeImportWorker = null;
-    activeImportJobInfo = null;
+  if (isActiveImportJob) {
+    logger.info("[IMPORT] Active in-process import job will complete naturally during shutdown");
   }
 }
 
@@ -880,7 +839,7 @@ export async function triggerImportJobPoll(): Promise<void> {
 }
 
 async function pollForImportJobs() {
-  if (activeImportWorker) {
+  if (isActiveImportJob) {
     return;
   }
   if (activeFlushJob) {
@@ -912,231 +871,89 @@ async function pollForImportJobs() {
       return;
     }
 
-    logger.info(`Worker ${WORKER_ID} claimed import job queue item ${queueItem.id} for import ${queueItem.importJobId} - forking child process`);
+    const queueId = queueItem.id;
+    const importJobId = queueItem.importJobId;
 
-    const isDev = process.env.NODE_ENV !== "production";
-    let workerPath: string;
-    if (isDev) {
-      const currentDir = path.dirname(new URL(import.meta.url).pathname);
-      workerPath = path.resolve(currentDir, "import-worker.ts");
-    } else {
-      workerPath = path.resolve(process.cwd(), "dist", "import-worker.cjs");
-    }
-
-    if (!fs.existsSync(workerPath)) {
-      logger.error(`Import worker file not found at: ${workerPath}`);
-      await storage.completeImportQueueJob(queueItem.id, "failed", "Import worker file not found - server build may be incomplete");
-      await storage.updateImportJob(queueItem.importJobId, {
-        status: "failed",
-        errorMessage: "Import worker file not found - server build may be incomplete",
-      });
-      activeImportWorker = null;
-      activeImportJobInfo = null;
-      return;
-    }
-
-    const { IMPORT_POOL_MAX, IMPORT_CONCURRENCY } = await import("./connection-budget");
-    const forkOptions: any = {
-      env: {
-        ...process.env,
-        NODE_OPTIONS: "--max-old-space-size=4096",
-        PG_IMPORT_POOL_MAX: String(IMPORT_POOL_MAX),
-        PG_IMPORT_CONCURRENCY: String(IMPORT_CONCURRENCY),
-      },
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-    };
-
-    if (isDev) {
-      const tsxPath = path.resolve(process.cwd(), "node_modules", ".bin", "tsx");
-      forkOptions.execPath = tsxPath;
-    }
-
-    const child = fork(workerPath, [], forkOptions);
+    logger.info(`Worker ${WORKER_ID} claimed import job queue item ${queueId} for import ${importJobId} - running in-process`);
     workerRestartsTotal.inc({ worker_type: 'import' });
 
-    activeImportWorker = child;
-    activeImportJobInfo = { queueId: queueItem.id, importJobId: queueItem.importJobId };
-    resetImportWorkerWatchdog();
+    isActiveImportJob = true;
+    let lastProgressStatus = "processing";
 
-    let cachedTotalRows: number | null = null;
-
-    child.on("message", async (msg: any) => {
-      if (!msg || !msg.type) return;
-      resetImportWorkerWatchdog();
-
-      switch (msg.type) {
-        case "progress": {
-          const d = msg.data;
-          if (cachedTotalRows === null || cachedTotalRows === 0) {
-            const importJob = await storage.getImportJob(queueItem.importJobId).catch(() => null);
-            if (importJob?.totalRows) cachedTotalRows = importJob.totalRows;
+    processImportJob(queueId, importJobId, (progress) => {
+      if (progress.status) lastProgressStatus = progress.status;
+      jobEvents.emitProgress({
+        jobType: "import",
+        jobId: importJobId,
+        status: (progress.status as JobProgressEvent["status"]) || "processing",
+        processedRows: progress.processedRows ?? 0,
+        totalRows: progress.totalRows ?? 0,
+        newSubscribers: progress.newSubscribers ?? 0,
+        updatedSubscribers: progress.updatedSubscribers ?? 0,
+        failedRows: progress.failedRows ?? 0,
+        duplicatesInFile: progress.duplicatesInFile ?? 0,
+        errorMessage: progress.errorMessage,
+      });
+    })
+      .then(async () => {
+        if (lastProgressStatus === "awaiting_confirmation") {
+          logger.info(`[IMPORT] Queue item ${queueId} completed (phase 1 staging done, awaiting confirmation)`);
+          await storage.completeImportQueueJob(queueId, "completed")
+            .catch((err: any) => logger.error(`[IMPORT] Failed to complete phase-1 queue item: ${err.message}`));
+        } else {
+          const finalJob = await storage.getImportJob(importJobId).catch(() => null);
+          if (finalJob?.status === "cancelled") {
+            logger.info(`[IMPORT] Job ${importJobId} was cancelled during processing`);
+            await storage.completeImportQueueJob(queueId, "failed", "Job cancelled")
+              .catch(() => {});
+          } else {
+            await storage.completeImportQueueJob(queueId, "completed")
+              .catch((err: any) => logger.error(`[IMPORT] Failed to complete queue item: ${err.message}`));
+            storage.invalidateSegmentCountCache();
+            logger.info(`[IMPORT] Job ${importJobId} completed successfully (status: ${lastProgressStatus})`);
           }
-          jobEvents.emitProgress({
-            jobType: "import",
-            jobId: queueItem.importJobId,
-            status: "processing",
-            processedRows: d.committedRows || 0,
-            totalRows: cachedTotalRows,
-            newSubscribers: d.newSubscribers || 0,
-            updatedSubscribers: d.updatedSubscribers || 0,
-            failedRows: d.failedRows || 0,
-            duplicatesInFile: d.duplicatesInFile || 0,
-          });
-          break;
         }
-        case "complete": {
-          const d = msg.data;
-          logger.info(`[IMPORT] Worker completed: committed=${d.committedRows}, new=${d.newSubscribers}, updated=${d.updatedSubscribers}, dups=${d.duplicatesInFile || 0}, failed=${d.failedRows}, duration=${d.duration}s`);
-          try {
-            const finalJob = await storage.getImportJob(queueItem.importJobId);
-            if (finalJob?.status === "cancelled") {
-              logger.info(`Import job ${queueItem.id} was cancelled during processing`);
-            } else {
-              await storage.completeImportQueueJob(queueItem.id, "completed");
-              storage.invalidateSegmentCountCache();
-              logger.info(`Import job ${queueItem.id} completed successfully`);
-            }
-
-            if (!d.dbWriteSuccess) {
-              try {
-                await storage.updateImportJob(queueItem.importJobId, {
-                  status: "completed",
-                  completedAt: new Date(),
-                  processedRows: d.committedRows || 0,
-                  newSubscribers: d.newSubscribers || 0,
-                  updatedSubscribers: d.updatedSubscribers || 0,
-                  failedRows: d.failedRows || 0,
-                });
-                logger.info(`[IMPORT] Parent wrote final IPC values to import_jobs for ${queueItem.importJobId} (worker DB write had failed)`);
-              } catch (writeErr: any) {
-                logger.warn(`[IMPORT] Parent failed to write final IPC values: ${writeErr.message}`);
-              }
-            } else {
-              logger.info(`[IMPORT] Worker already wrote final values to DB for ${queueItem.importJobId}, skipping parent write`);
-            }
-
-            jobEvents.emitProgress({
-              jobType: "import",
-              jobId: queueItem.importJobId,
-              status: "completed",
-              processedRows: d.committedRows || 0,
-              totalRows: finalJob?.totalRows || d.committedRows || 0,
-              newSubscribers: d.newSubscribers || 0,
-              updatedSubscribers: d.updatedSubscribers || 0,
-              failedRows: d.failedRows || 0,
-              duplicatesInFile: d.duplicatesInFile || 0,
-            });
-          } catch (err: any) {
-            logger.error(`Failed to finalize import job ${queueItem.id}:`, err);
-          }
-          break;
-        }
-        case "error": {
-          const d = msg.data;
-          logger.error(`[IMPORT] Worker error: ${d.message}`);
-          try {
-            const jobAfterError = await storage.getImportJob(queueItem.importJobId);
-            if (jobAfterError?.status === "cancelled") {
-              logger.info(`Import job ${queueItem.id} was cancelled, not marking as failed`);
-            } else {
-              await storage.completeImportQueueJob(queueItem.id, "failed", d.message || "Unknown error");
-              await storage.updateImportJob(queueItem.importJobId, {
-                status: "failed",
-                errorMessage: d.message || "Unknown error",
-              });
-            }
+      })
+      .catch(async (err: any) => {
+        logger.error(`[IMPORT] In-process job ${importJobId} failed: ${err.message}`, { stack: err.stack });
+        try {
+          const jobAfterError = await storage.getImportJob(importJobId).catch(() => null);
+          if (jobAfterError?.status === "cancelled") {
+            logger.info(`[IMPORT] Job ${importJobId} was cancelled, marking queue item failed`);
+            await storage.completeImportQueueJob(queueId, "failed", "Job cancelled").catch(() => {});
+          } else {
+            await storage.completeImportQueueJob(queueId, "failed", err.message || "Unknown error").catch(() => {});
+            await storage.updateImportJob(importJobId, {
+              status: "failed",
+              errorMessage: err.message || "Unknown error",
+            }).catch(() => {});
             await storage.logError({
               type: "import_failed",
               severity: "error",
-              message: `Import job failed: ${d.message || "Unknown error"}`,
-              importJobId: queueItem.importJobId,
-              details: d.stack || String(d.message),
-            });
+              message: `Import job failed: ${err.message || "Unknown error"}`,
+              importJobId,
+              details: err.stack || String(err.message),
+            }).catch(() => {});
             jobEvents.emitProgress({
               jobType: "import",
-              jobId: queueItem.importJobId,
+              jobId: importJobId,
               status: "failed",
               processedRows: 0,
               totalRows: 0,
-              errorMessage: d.message || "Unknown error",
+              errorMessage: err.message || "Unknown error",
             });
-          } catch (logErr) {
-            logger.error("Failed to log import error:", logErr);
           }
-          break;
+        } catch (finalizeErr: any) {
+          logger.error(`[IMPORT] Failed to finalize failed import job ${importJobId}: ${finalizeErr.message}`);
         }
-        case "awaiting_confirmation": {
-          const d = msg.data;
-          logger.info(`[IMPORT] Worker paused for confirmation: job=${d.importJobId}, detectedRefs=${(d.detectedRefs || []).join(",")}`);
-          try {
-            await storage.completeImportQueueJob(queueItem.id, "completed");
-            logger.info(`[IMPORT] Queue item ${queueItem.id} completed (phase 1 staging done)`);
-          } catch (err: any) {
-            logger.error(`Failed to finalize phase 1 queue item:`, err);
-          }
-          jobEvents.emitProgress({
-            jobType: "import",
-            jobId: queueItem.importJobId,
-            status: "awaiting_confirmation",
-            processedRows: 0,
-            totalRows: 0,
-          });
-          break;
-        }
-        case "log": {
-          const d = msg.data;
-          const level = d.level as "info" | "warn" | "error" | "debug";
-          if (logger[level]) {
-            logger[level](`[IMPORT-WORKER] ${d.message}`, d.extra);
-          }
-          break;
-        }
-      }
-    });
-
-    child.on("exit", (code, signal) => {
-      clearImportWorkerWatchdog();
-      const jobInfo = activeImportJobInfo;
-      activeImportWorker = null;
-      activeImportJobInfo = null;
-
-      if (code !== 0 && code !== null) {
-        logger.error(`[IMPORT] Worker process exited with code ${code}, signal ${signal}`);
-        if (jobInfo) {
-          storage.completeImportQueueJob(jobInfo.queueId, "failed", `Worker crashed with exit code ${code}`)
-            .catch((err) => logger.error("Failed to mark crashed import as failed:", err));
-          storage.updateImportJob(jobInfo.importJobId, {
-            status: "failed",
-            errorMessage: `Worker process crashed (exit code ${code})`,
-          }).catch((err) => logger.error("Failed to update crashed import job:", err));
-        }
-      } else {
-        logger.info(`[IMPORT] Worker process exited cleanly (code=${code})`);
-      }
-    });
-
-    child.on("error", (err) => {
-      clearImportWorkerWatchdog();
-      logger.error(`[IMPORT] Worker process error:`, err);
-      activeImportWorker = null;
-      activeImportJobInfo = null;
-    });
-
-    const isPhase2Merge = queueItem.csvFilePath === "phase2_merge";
-    child.send({
-      type: "start",
-      data: {
-        queueId: queueItem.id,
-        importJobId: queueItem.importJobId,
-        csvFilePath: queueItem.csvFilePath,
-        phase: isPhase2Merge ? "refs_merge" : undefined,
-      },
-    });
+      })
+      .finally(() => {
+        isActiveImportJob = false;
+      });
 
   } catch (error: any) {
     logger.error(`Error in import job polling: ${error?.message || String(error)}`, { stack: error?.stack });
-    activeImportWorker = null;
-    activeImportJobInfo = null;
+    isActiveImportJob = false;
   }
 }
 

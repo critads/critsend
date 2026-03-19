@@ -1,3 +1,13 @@
+/**
+ * DEPRECATED — This file is no longer the active import execution path.
+ *
+ * Phase 2 refactor (2026-03): The fork/IPC-based import worker has been replaced
+ * by `server/services/import-processor.ts`, which runs in-process and is invoked
+ * directly by `server/workers.ts` (PG polling path) and `server/queue-workers.ts`
+ * (BullMQ path).  This file is retained for reference and as a fallback if the
+ * in-process path ever needs to be disabled, but it is NOT loaded or forked at
+ * runtime.
+ */
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
