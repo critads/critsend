@@ -1,0 +1,153 @@
+You are implementing Phase 4 of a reliability refactor for Critsend. Phases 1-3 
+are complete (BullMQ, import worker rewrite, transactional outbox). You are now 
+improving the database schema and decomposing the god-object storage layer.
+
+OBJECTIVE
+Two goals: (1) Fix critical missing indexes and schema constraints that cause 
+performance degradation and data integrity risks at scale. (2) Decompose 
+server/storage.ts (2,488 lines, touches everything) into focused repository 
+files, each under 500 lines, each responsible for one domain.
+
+READ THESE FILES FIRST
+- shared/schema.ts         (full Drizzle schema)
+- server/storage.ts        (the 2488-line god object)
+- server/db.ts             (pool and db instance)
+
+PART A — Schema Fixes (do this first, then migrate)
+
+1. ADD composite index on campaign_sends(campaign_id, status)
+   In shared/schema.ts, find the campaign_sends table indexes and add:
+   index('campaign_sends_campaign_status_idx')
+     .on(campaignSends.campaignId, campaignSends.status)
+   Remove the now-redundant separate index on status alone 
+   (keep the index on campaign_id alone — still useful for joins).
+
+2. ADD functional index on lower(email)
+   In shared/schema.ts, add to subscribers table:
+   index('subscribers_email_lower_idx').on(sql`lower(email)`)
+   This enables case-insensitive email lookups to use an index instead of seq scan.
+
+3. ADD partial index on job queues for pending status
+   For campaign_jobs and import_job_queue tables, add:
+   index('campaign_jobs_pending_idx')
+     .on(campaignJobs.status)
+     .where(sql`status = 'pending'`)
+   This makes job claiming queries fast even when most records are completed.
+
+4. ADD cascading deletes on foreign keys
+   In shared/schema.ts, update these foreign key references to include 
+   .onDelete('cascade'):
+   - campaign_sends.campaignId → campaigns.id
+   - campaign_sends.subscriberId → subscribers.id  
+   - campaign_stats.campaignId → campaigns.id
+   - campaign_stats.subscriberId → subscribers.id
+   - automation_enrollments.subscriberId → subscribers.id
+   - automation_enrollments.automationId → automations.id
+   
+   IMPORTANT: After adding these, simplify the corresponding manual cascade 
+   logic in storage.ts (the clearSubscriberDependencies method). You can remove 
+   the manual DELETE loops for tables that now have DB-level cascades. 
+   Keep the manual loop ONLY for tables without cascade (if any remain).
+
+5. RUN MIGRATION
+   DATABASE_URL="$NEON_DATABASE_URL" npx drizzle-kit push --force
+   Verify in the Neon console that the indexes and cascade rules exist.
+
+PART B — Storage Layer Decomposition
+
+Decompose server/storage.ts into these repository files. 
+Each file exports a class and a singleton instance.
+The existing IStorage interface moves to server/storage-interface.ts.
+
+CREATE server/repositories/subscriber-repository.ts
+Methods to move here (all subscriber CRUD):
+- getSubscriber, getSubscriberByEmail, getSubscribersByEmails
+- createSubscriber, updateSubscriber, deleteSubscriber, deleteSubscribers
+- getSubscribers (paginated list with search)
+- getSubscribersForSegmentCursor (the high-performance cursor for sending)
+- bulkAddTags, bulkRemoveTags
+- enqueueTagOperation, processTagQueue
+- getSubscriberCount, getSegmentCount, invalidateSegmentCountCache
+- getSubscriberGrowthData, getSubscriberEngagementData
+
+CREATE server/repositories/campaign-repository.ts
+Methods to move here:
+- getCampaign, getCampaigns, createCampaign, updateCampaign, deleteCampaign
+- createCampaignSend, updateCampaignSend, updateCampaignSendStatus
+- bulkUpdateCampaignSends, bulkInsertCampaignSendAttempts (from Phase 3)
+- getCampaignSendCounts, getCampaignStats
+- claimNextCampaignJob, completeCampaignJob, updateCampaignStatusAtomic
+- getCampaignPerformanceData, getCampaignEngagementTrend
+- getTopCampaigns, getDeliverabilityMetrics
+
+CREATE server/repositories/import-repository.ts
+Methods to move here:
+- createImportJob, getImportJob, updateImportJob, completeImportJob
+- getImportJobQueue, claimNextImportJob
+- All import_staging table operations (insertImportStaging, etc.)
+- copyBatch, directBatch — the PostgreSQL COPY operations
+- cleanOrphanedImportData
+
+CREATE server/repositories/mta-repository.ts
+Methods to move here:
+- getMta, getMtas, createMta, updateMta, deleteMta
+- encryptPassword, decryptPassword (AES-256-GCM for SMTP creds)
+
+CREATE server/repositories/job-repository.ts
+Methods to move here:
+- createFlushJob, getFlushJob, completeFlushJob, claimNextFlushJob
+- Flush-related DB operations
+- Maintenance job operations (dbCleanup, getMaintenanceRules, etc.)
+- enqueueImportJob, enqueueCampaignJob, enqueueFlushJob (BullMQ wrappers)
+
+CREATE server/storage.ts (NEW — thin aggregator, replaces the god object)
+The new storage.ts should only:
+- Import all repository singletons
+- Re-export them as a single `storage` object that satisfies IStorage
+- Example:
+  import { subscriberRepo } from './repositories/subscriber-repository';
+  import { campaignRepo }   from './repositories/campaign-repository';
+  // ...
+  export const storage = {
+    ...subscriberRepo,
+    ...campaignRepo,
+    ...importRepo,
+    ...mtaRepo,
+    ...jobRepo,
+  };
+
+This preserves the existing API (all routes call storage.xyz()) with zero 
+changes to route files.
+
+ORDERING — do Part B in this order to avoid breaking the running app:
+1. Create the new repository files with copied methods
+2. Verify TypeScript compiles (npx tsc --noEmit)
+3. Update storage.ts to use aggregation pattern
+4. Verify the app still starts and passes a smoke test
+5. Delete the original method bodies from the old file sections
+
+ACCEPTANCE CRITERIA
+Schema:
+- EXPLAIN ANALYZE on: SELECT * FROM campaign_sends WHERE campaign_id='x' AND status='sent'
+  shows "Index Scan using campaign_sends_campaign_status_idx" not "Seq Scan"
+- EXPLAIN ANALYZE on: SELECT * FROM subscribers WHERE lower(email) = 'test@test.com'  
+  shows "Index Scan using subscribers_email_lower_idx"
+- Deleting a campaign via the UI (or API) automatically removes its campaign_sends 
+  and campaign_stats (verify no orphan rows remain in DB)
+
+Storage Decomposition:
+- No repository file exceeds 600 lines
+- server/storage.ts (aggregator) is under 80 lines
+- npx tsc --noEmit passes with zero errors
+- The full app starts and smoke tests pass:
+  - Create subscriber → works
+  - Create and send campaign → works  
+  - Upload CSV import → works
+  - Flush subscribers → works
+
+DO NOT
+- Change any route files (routes/*.ts)
+- Change any frontend code
+- Change method signatures (same parameters, same return types)
+- Remove any existing methods (even deprecated ones — mark them @deprecated)
+- Change how AES-256-GCM encryption works for SMTP passwords

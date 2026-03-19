@@ -13,6 +13,7 @@ export const subscribers = pgTable("subscribers", {
   importDate: timestamp("import_date").notNull().defaultNow(),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
+  emailLowerIdx: index("subscribers_email_lower_idx").on(sql`lower(email)`),
   tagsGinIdx: index("tags_gin_idx").using("gin", table.tags),
   refsGinIdx: index("refs_gin_idx").using("gin", table.refs),
 }));
@@ -125,8 +126,8 @@ export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
 // Campaign statistics (opens, clicks)
 export const campaignStats = pgTable("campaign_stats", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
-  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: 'cascade' }),
+  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id, { onDelete: 'cascade' }),
   type: text("type").notNull(),
   link: text("link"),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
@@ -149,8 +150,8 @@ export const campaignStatsRelations = relations(campaignStats, ({ one }) => ({
 // Campaign sends - tracks which subscribers received which campaigns to prevent duplicates
 export const campaignSends = pgTable("campaign_sends", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id),
-  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: 'cascade' }),
+  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id, { onDelete: 'cascade' }),
   sentAt: timestamp("sent_at").notNull().defaultNow(),
   status: text("status").notNull().default("sent"), // sent, failed, bounced, pending, attempting
   retryCount: integer("retry_count").notNull().default(0),
@@ -161,7 +162,8 @@ export const campaignSends = pgTable("campaign_sends", {
   // UNIQUE constraint ensures no email is sent twice per campaign per subscriber
   uniqueSend: uniqueIndex("campaign_sends_unique_idx").on(table.campaignId, table.subscriberId),
   campaignIdx: index("campaign_sends_campaign_idx").on(table.campaignId),
-  statusIdx: index("campaign_sends_status_idx").on(table.status),
+  // Composite index replaces status-only index — covers (campaign_id, status) lookup pattern
+  campaignStatusIdx: index("campaign_sends_campaign_status_idx").on(table.campaignId, table.status),
 }));
 
 export const campaignSendsRelations = relations(campaignSends, ({ one }) => ({
@@ -232,6 +234,7 @@ export const campaignJobs = pgTable("campaign_jobs", {
   statusIdx: index("campaign_jobs_status_idx").on(table.status),
   createdAtIdx: index("campaign_jobs_created_at_idx").on(table.createdAt),
   statusCreatedIdx: index("campaign_jobs_status_created_idx").on(table.status, table.createdAt),
+  pendingStatusIdx: index("campaign_jobs_pending_idx").on(table.status).where(sql`status = 'pending'`),
 }));
 
 export const campaignJobsRelations = relations(campaignJobs, ({ one }) => ({
