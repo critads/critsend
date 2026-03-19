@@ -1,0 +1,126 @@
+You are implementing Phase 1 of a reliability refactor for Critsend, an email 
+marketing platform built on Node.js (Express + TypeScript), React (Vite), and 
+PostgreSQL (Neon, via Drizzle ORM). The codebase is a monorepo at the root with
+server/, client/, shared/ directories.
+
+OBJECTIVE
+Replace the hand-rolled PostgreSQL job queue (campaign_jobs, import_job_queue, 
+flush_jobs tables using FOR UPDATE SKIP LOCKED + LISTEN/NOTIFY) with BullMQ 
+backed by Redis. This is a foundational change that enables proper job retries, 
+dead-letter queues, priority lanes, and removes the PostgreSQL serialization 
+bottleneck under high concurrency.
+
+INSTALL THESE PACKAGES
+- bullmq
+- ioredis
+
+EXISTING ARCHITECTURE TO UNDERSTAND FIRST
+Read these files before writing any code:
+- server/workers.ts         (the current job polling loop, ~1293 lines)
+- server/storage.ts         (claimNextCampaignJob, completeFlushJob, etc.)
+- server/job-events.ts      (SSE EventEmitter hub)
+- shared/schema.ts          (campaign_jobs, import_job_queue, flush_jobs tables)
+- server/db.ts              (PostgreSQL pool setup)
+- server/index.ts           (server startup, worker initialization)
+
+IMPLEMENTATION STEPS
+
+1. CREATE server/redis.ts
+   - Export a singleton ioredis connection using the REDIS_URL environment 
+     variable (which you must add via the secrets manager — never hardcode).
+   - Export a second connection for BullMQ's subscriber (BullMQ requires two 
+     separate connections: one for producing, one for consuming).
+   - Add a graceful shutdown handler.
+   - Example pattern:
+     import Redis from 'ioredis';
+     export const redisConnection = new Redis(process.env.REDIS_URL!, {
+       maxRetriesPerRequest: null,  // Required by BullMQ
+       enableReadyCheck: false,
+     });
+
+2. CREATE server/queues.ts
+   Define three BullMQ Queues (one per job type):
+   - campaignQueue: Queue name "campaigns"
+   - importQueue:   Queue name "imports"  
+   - flushQueue:    Queue name "flushes"
+   
+   Each queue should have defaultJobOptions:
+   - attempts: 3
+   - backoff: { type: 'exponential', delay: 5000 }
+   - removeOnComplete: { age: 86400, count: 1000 }  // keep 24h of completed jobs
+   - removeOnFail: { age: 604800 }                   // keep 7 days of failed jobs
+
+3. CREATE server/queue-workers.ts
+   Define BullMQ Workers for each queue. These workers call the SAME internal
+   processing functions that currently exist — do NOT rewrite the processing 
+   logic yet (that happens in Phase 2 and 3). The workers are thin wrappers:
+
+   campaignWorker: calls processCampaignInternal() from campaign-sender.ts
+   importWorker:   calls the existing import job claim/process logic
+   flushWorker:    calls processFlushJob() from workers.ts
+
+   Each worker should:
+   - Set concurrency: 1 for flushWorker (only one flush at a time)
+   - Set concurrency: 5 for campaignWorker (matches current MAX_CONCURRENT_CAMPAIGNS)
+   - Set concurrency: 1 for importWorker
+   - Emit job events to jobEvents (server/job-events.ts) on progress/complete/fail
+   - Log all failures with the existing logger (server/logger.ts)
+
+4. MODIFY server/storage.ts
+   Add new methods alongside existing ones (do NOT remove existing PG queue 
+   methods yet — they serve as fallback during migration):
+   - enqueueCampaignJob(campaignId: string): Promise<void>
+     → Adds job to BullMQ campaignQueue instead of inserting into campaign_jobs
+   - enqueueImportJob(jobId: string): Promise<void>
+     → Adds job to BullMQ importQueue
+   - enqueueFlushJob(jobId: string): Promise<void>  
+     → Adds job to BullMQ flushQueue
+   
+   The job payload should be minimal: { jobId } or { campaignId }.
+   The workers look up full job details from PostgreSQL using the ID.
+
+5. MODIFY server/index.ts
+   - Import and start the BullMQ workers after DB initialization
+   - Add Redis health check to the existing /api/health endpoint:
+     redis: redisConnection.status === 'ready' ? 'ok' : 'degraded'
+   - Ensure graceful shutdown closes all BullMQ workers and the Redis connection
+     before process exit (use worker.close() and redisConnection.quit())
+
+6. MODIFY server/metrics.ts
+   Add these new Prometheus gauges (read from BullMQ Queue.getJobCounts()):
+   - critsend_bullmq_waiting{queue}
+   - critsend_bullmq_active{queue}
+   - critsend_bullmq_failed{queue}
+   - critsend_bullmq_delayed{queue}
+   Collect every 15s alongside existing metrics.
+
+7. ENVIRONMENT VARIABLE
+   Add REDIS_URL to the project secrets. If the user is on Replit and has not 
+   configured Redis, use Replit's built-in Redis integration if available, 
+   otherwise prompt the user to provide a Redis connection string 
+   (Upstash Redis free tier works: https://upstash.com).
+
+FEATURE FLAGS (CRITICAL — do not break existing behavior)
+Wrap the new BullMQ enqueue calls with a feature flag:
+  const USE_BULLMQ = process.env.USE_BULLMQ === 'true';
+If USE_BULLMQ is false, fall back to the existing PostgreSQL job insertion.
+This lets you test without affecting production until you're confident.
+Set USE_BULLMQ=true only after verifying the workers receive and process jobs.
+
+ACCEPTANCE CRITERIA
+- Server starts without errors when REDIS_URL is set and USE_BULLMQ=true
+- Creating a campaign and clicking "Send" enqueues a job in BullMQ (verify 
+  via BullMQ's built-in bull-board or by checking queue.getJobCounts())
+- The campaign processes correctly end-to-end (even if via the existing 
+  processing functions)
+- /api/health returns redis: "ok"
+- /metrics includes BullMQ queue depth gauges
+- Graceful shutdown closes all connections cleanly (no hanging processes)
+- When USE_BULLMQ=false, behavior is identical to before this change
+
+DO NOT
+- Remove any existing PostgreSQL job queue tables or methods yet
+- Rewrite processCampaignInternal or processFlushJob logic (Phase 3)
+- Change the import worker fork architecture yet (Phase 2)
+- Change any frontend code
+- Change the shared/schema.ts Drizzle schema (no migrations needed this phase)

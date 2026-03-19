@@ -1,0 +1,134 @@
+You are implementing Phase 2 of a reliability refactor for Critsend. Phase 1 
+(BullMQ + Redis) has already been completed and is working. You are now 
+rewriting the CSV import pipeline to eliminate the forked child process + IPC 
+architecture and replace it with a BullMQ worker that communicates exclusively 
+through PostgreSQL and Redis.
+
+OBJECTIVE
+The current import pipeline forks a child process (server/import-worker.ts), 
+communicates progress via IPC (process.send / process.on('message')), and 
+re-assembles state in the parent process. This causes state divergence, watchdog 
+kills of healthy slow jobs, and untestable code paths. The new architecture 
+eliminates IPC entirely.
+
+READ THESE FILES FIRST (understand before touching anything)
+- server/import-worker.ts      (~2000 lines — the forked child process)
+- server/workers.ts            (the forkImportWorker() function, watchdog logic)
+- server/storage.ts            (import job CRUD methods, all ~40 import methods)
+- server/routes/subscribers.ts (the upload endpoint that triggers imports)
+- server/job-events.ts         (SSE EventEmitter hub for progress)
+- server/queues.ts             (BullMQ queues from Phase 1)
+- server/queue-workers.ts      (BullMQ workers from Phase 1)
+
+CURRENT FLOW (what you're replacing)
+1. POST /api/subscribers/import → creates DB record → forks child process
+2. Child process reads CSV from object storage → processes in batches → 
+   sends IPC messages to parent with progress
+3. Parent receives IPC → emits SSE events → writes progress to DB
+4. On crash: watchdog (10min timeout) kills stuck workers + cleans up orphans
+
+NEW FLOW (what you're building)
+1. POST /api/subscribers/import → creates DB record → enqueues BullMQ import job
+2. BullMQ worker (same process, not forked) picks up job → runs import logic → 
+   writes progress directly to DB → emits jobEvents directly (no IPC)
+3. SSE clients receive updates as before (jobEvents unchanged)
+4. On crash: BullMQ retries the job from the last checkpoint (stored in DB)
+
+IMPLEMENTATION STEPS
+
+1. CREATE server/services/import-processor.ts
+   Extract the core CSV processing logic from server/import-worker.ts into a 
+   plain async function that can be called directly (not as a child process):
+   
+   export async function processImportJob(jobId: string, 
+     onProgress: (data: ProgressData) => void): Promise<ImportResult>
+   
+   This function should contain ALL the existing batch processing, COPY operations,
+   deduplication, and error handling logic from import-worker.ts.
+   
+   Key rules while extracting:
+   - Replace all process.send() IPC calls with onProgress(data) callback calls
+   - Replace all require('../db') with the shared db pool from server/db.ts
+   - Remove all process.exit() calls — throw errors instead
+   - Replace the worker's local log() function with the shared logger
+   - Keep ALL existing business logic unchanged: batch sizes, COPY path, 
+     deduplication, two-phase confirmation, GIN index management, 
+     clean refs, delete subscribers pre-import operations
+   - Keep ALL existing checkpoint/resume logic (last_checkpoint_line, 
+     processed_bytes) — this is how crash recovery works
+
+2. MODIFY server/queue-workers.ts
+   Update the importWorker BullMQ worker to call processImportJob():
+   
+   importWorker = new Worker('imports', async (job) => {
+     const { jobId } = job.data;
+     await processImportJob(jobId, (progress) => {
+       job.updateProgress(progress.percentage ?? 0);
+       jobEvents.emitProgress({ jobType: 'import', jobId, ...progress });
+     });
+   }, { connection: redisConnection, concurrency: 1 });
+
+3. MODIFY server/workers.ts
+   - Remove the forkImportWorker() function entirely
+   - Remove the importWorkerWatchdog (10-minute kill timer)
+   - Remove the 'message' IPC handler on the child process
+   - Remove the import child process variable and all associated cleanup
+   - Keep the startImportJobProcessor() function but have it do nothing 
+     (BullMQ worker handles it now) — or remove it and clean up the call sites
+
+4. MODIFY server/storage.ts
+   Update enqueueImportJob() (added in Phase 1) to:
+   - Insert the import_job_queue record as before
+   - Enqueue to BullMQ importQueue with jobId payload
+   The BullMQ job ID should match the DB job ID for traceability.
+
+5. PROGRESS REPORTING (critical — SSE must still work)
+   The frontend expects SSE events with this shape (from job-events.ts):
+   {
+     jobType: "import",
+     jobId: string,
+     status: "processing" | "completed" | "failed",
+     processedRows: number,
+     totalRows: number,
+     phase: string,
+     newSubscribers?: number,
+     updatedSubscribers?: number,
+     duplicateInFile?: number,
+     failedRows?: number,
+   }
+   The onProgress callback must emit exactly this shape via jobEvents.emitProgress().
+   Throttle progress emissions (emit only when processedRows changes or 2s elapsed)
+   to avoid SSE flooding — this throttling currently exists in the IPC path, 
+   preserve it in the callback.
+
+6. CRASH RECOVERY
+   BullMQ handles retries. On retry, the job is re-enqueued with the same jobId.
+   processImportJob() must check the DB for last_checkpoint_line on startup and 
+   resume from there (this logic already exists in import-worker.ts — preserve it).
+   The BullMQ job should NOT be marked failed until all retry attempts are exhausted.
+
+7. CLEANUP
+   After confirming the new architecture works end-to-end:
+   - Keep server/import-worker.ts but add a top comment: 
+     "DEPRECATED: This file is replaced by server/services/import-processor.ts 
+      and will be removed after one full release cycle."
+   - Do NOT delete it yet (provides a safety net)
+
+ACCEPTANCE CRITERIA
+- Upload a CSV file through the UI; import starts and processes correctly
+- SSE progress events arrive in the browser during processing 
+  (new/updated/total counts update in real time)
+- Import completes with correct new/updated/failed/duplicate counts
+  (these counts have had bugs in the past — verify carefully against a test CSV
+   with known content)
+- If you kill the server mid-import and restart, the import resumes from the 
+  last checkpoint (verify last_checkpoint_line in the DB before and after restart)
+- No child process is forked (verify with: ps aux | grep import-worker)
+- Errors in the import are logged via server/logger.ts, not swallowed silently
+
+DO NOT
+- Change any CSV parsing logic or batch processing logic
+- Change the existing import_job_queue DB schema
+- Change any frontend import UI components
+- Remove the object storage (S3/Replit) integration — CSV files still upload there
+- Change how the two-phase refs confirmation flow works
