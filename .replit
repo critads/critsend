@@ -53,3 +53,5 @@ integrations = ["javascript_database:1.0.0", "resend:1.0.0", "javascript_object_
 
 [userenv.shared]
 NODE_OPTIONS = "--max-old-space-size=8192 --expose-gc"
+USE_BULLMQ = "true"
+REDIS_URL = "rediss://default:AZSLAAIncDE1M2M1NDVmNzE3Nzg0Y2IyYWJkYzFlMjYyZWI0MzYyY3AxMzgwMjc@mature-antelope-38027.upstash.io:6379"
