@@ -1,9 +1,10 @@
 /**
- * Generates a one-time password reset link for the admin account.
- * The link is valid for 1 hour.
+ * Generates a one-time password reset link.
  *
  * Usage:
- *   npx tsx scripts/generate-reset-link.ts
+ *   npx tsx scripts/generate-reset-link.ts [username]
+ *
+ * If no username is given, picks the first user in the database.
  *
  * Optional env vars:
  *   BASE_URL  — e.g. https://your-app.replit.app  (defaults to http://localhost:5000)
@@ -12,6 +13,7 @@
 import crypto from "crypto";
 import { db } from "../server/db";
 import { users } from "../shared/schema";
+import { eq } from "drizzle-orm";
 
 async function main() {
   const secret = process.env.SESSION_SECRET;
@@ -20,14 +22,29 @@ async function main() {
     process.exit(1);
   }
 
-  const allUsers = await db.select({ id: users.id, username: users.username }).from(users);
+  const targetUsername = process.argv[2];
+  let user: { id: string; username: string } | undefined;
 
-  if (allUsers.length === 0) {
-    console.error("ERROR: No users found in the database.");
-    process.exit(1);
+  if (targetUsername) {
+    const rows = await db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .where(eq(users.username, targetUsername))
+      .limit(1);
+    user = rows[0];
+    if (!user) {
+      console.error(`ERROR: No user found with username "${targetUsername}".`);
+      process.exit(1);
+    }
+  } else {
+    const rows = await db.select({ id: users.id, username: users.username }).from(users).limit(1);
+    user = rows[0];
+    if (!user) {
+      console.error("ERROR: No users found in the database.");
+      process.exit(1);
+    }
   }
 
-  const user = allUsers[0];
   const expiresAt = Date.now() + 60 * 60 * 1000;
   const payload = `${user.id}|${expiresAt}`;
   const hmac = crypto.createHmac("sha256", secret).update(payload).digest("hex");
@@ -48,6 +65,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Error generating reset link:", err.message);
+  console.error("Error:", err.message);
   process.exit(1);
 });
