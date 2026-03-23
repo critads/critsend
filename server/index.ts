@@ -317,6 +317,71 @@ app.post('/api/auth/login', authRateLimiter, async (req: Request, res: Response)
   }
 });
 
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Token and new password required' });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128) {
+      return res.status(400).json({ error: 'Password must be 8-128 characters' });
+    }
+
+    const secret = process.env.SESSION_SECRET;
+    if (!secret) {
+      logger.error('SESSION_SECRET not configured for password reset');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    const parts = String(token).split('.');
+    if (parts.length !== 2) {
+      return res.status(400).json({ error: 'Invalid reset token format' });
+    }
+    const [encodedPayload, providedHmac] = parts;
+
+    let payload: string;
+    try {
+      payload = Buffer.from(encodedPayload, 'base64url').toString('utf8');
+    } catch {
+      return res.status(400).json({ error: 'Invalid reset token' });
+    }
+
+    const expectedHmac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    const hmacBuf = Buffer.from(providedHmac.padEnd(expectedHmac.length, '0'), 'hex');
+    const expectedBuf = Buffer.from(expectedHmac, 'hex');
+    const valid = hmacBuf.length === expectedBuf.length && crypto.timingSafeEqual(hmacBuf, expectedBuf);
+    if (!valid) {
+      logger.warn('Password reset attempt with invalid token signature', { ip });
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    const [userId, expiresAtStr] = payload.split('|');
+    const expiresAt = parseInt(expiresAtStr, 10);
+    if (!userId || isNaN(expiresAt) || Date.now() > expiresAt) {
+      logger.warn('Password reset attempt with expired token', { ip, userId });
+      return res.status(400).json({ error: 'Reset token has expired' });
+    }
+
+    const bcrypt = await import('bcrypt');
+    const { storage } = await import('./storage');
+
+    const user = await storage.getUserById(userId);
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid reset token' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await storage.updateUserPassword(userId, hashedPassword);
+
+    logger.info('Password reset successful', { ip, username: user.username, userId });
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error('Password reset error', { ip, error: error.message });
+    res.status(500).json({ error: 'Password reset failed' });
+  }
+});
+
 app.post('/api/auth/logout', (req: Request, res: Response) => {
   req.session.destroy((err) => {
     if (err) {

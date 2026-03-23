@@ -38,6 +38,10 @@ export async function getUserByUsername(username: string): Promise<any | null> {
   return user || null;
 }
 
+export async function updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
+  await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
+}
+
 export async function getUserById(id: string): Promise<any | null> {
   const [user] = await db.select({
     id: users.id,

@@ -227,6 +227,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<any | null>;
   getUserById(id: string): Promise<any | null>;
   getUserCount(): Promise<number>;
+  updateUserPassword(userId: string, hashedPassword: string): Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════
   // DATABASE MAINTENANCE
