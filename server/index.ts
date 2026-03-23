@@ -234,6 +234,9 @@ app.get('/api/csrf-token', (req: Request, res: Response) => {
 });
 
 app.post('/api/auth/register', async (req: Request, res: Response) => {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+  logger.warn('Registration attempt blocked (registration disabled)', { ip, username: req.body?.username });
+  return res.status(403).json({ error: 'Registration is disabled. Contact the administrator.' });
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -276,6 +279,7 @@ const authRateLimiter = rateLimit({
 });
 
 app.post('/api/auth/login', authRateLimiter, async (req: Request, res: Response) => {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -287,14 +291,17 @@ app.post('/api/auth/login', authRateLimiter, async (req: Request, res: Response)
     
     const user = await storage.getUserByUsername(username);
     if (!user) {
+      logger.warn('Login failed: unknown username', { ip, username });
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
+      logger.warn('Login failed: wrong password', { ip, username });
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
+    logger.info('Login successful', { ip, username, userId: user.id });
     req.session.userId = user.id;
     req.session.csrfToken = crypto.randomUUID();
     req.session.save((err) => {
@@ -305,7 +312,7 @@ app.post('/api/auth/login', authRateLimiter, async (req: Request, res: Response)
       res.json({ user: { id: user.id, username: user.username }, csrfToken: req.session.csrfToken });
     });
   } catch (error: any) {
-    logger.error('Login error', { error: error.message });
+    logger.error('Login error', { ip, error: error.message });
     res.status(500).json({ error: 'Login failed' });
   }
 });
@@ -380,7 +387,8 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms [${ip}]`;
       const sensitivePatterns = ['subscribers', 'mtas', 'auth'];
       const isSensitive = sensitivePatterns.some(p => path.includes(p));
       if (capturedJsonResponse && !isSensitive) {

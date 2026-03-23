@@ -11,7 +11,6 @@ import { Mail, Lock, User, ArrowRight } from "lucide-react";
 export default function AuthPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -21,8 +20,7 @@ export default function AuthPage() {
     setIsLoading(true);
 
     try {
-      const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
-      const res = await fetch(endpoint, {
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -37,7 +35,7 @@ export default function AuthPage() {
       }
 
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: isLogin ? "Welcome back" : "Account created", description: `Signed in as ${data.user.username}` });
+      toast({ title: "Welcome back", description: `Signed in as ${data.user.username}` });
       setLocation("/");
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Something went wrong", variant: "destructive" });
@@ -54,9 +52,7 @@ export default function AuthPage() {
             <Mail className="h-8 w-8 text-primary" />
             <CardTitle className="text-2xl">Critsend</CardTitle>
           </div>
-          <CardDescription>
-            {isLogin ? "Sign in to your account" : "Create your admin account"}
-          </CardDescription>
+          <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -86,7 +82,7 @@ export default function AuthPage() {
                   id="password"
                   data-testid="input-password"
                   type="password"
-                  placeholder="Min 8 characters"
+                  placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"
@@ -97,25 +93,10 @@ export default function AuthPage() {
               </div>
             </div>
             <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-auth-submit">
-              {isLoading ? "Please wait..." : (isLogin ? "Sign In" : "Create Account")}
+              {isLoading ? "Please wait..." : "Sign In"}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </form>
-          {!isLogin && (
-            <p className="text-center text-sm text-muted-foreground mt-4">
-              Registration is only available for the first admin account.
-            </p>
-          )}
-          <div className="text-center mt-4">
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-sm text-primary hover:underline"
-              data-testid="button-toggle-auth-mode"
-            >
-              {isLogin ? "Need to create an account?" : "Already have an account?"}
-            </button>
-          </div>
         </CardContent>
       </Card>
     </div>
