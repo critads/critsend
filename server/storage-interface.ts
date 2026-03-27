@@ -91,7 +91,7 @@ export interface IStorage {
   // ═══════════════════════════════════════════════════════════════
   // CAMPAIGN SENDING & TRACKING
   // ═══════════════════════════════════════════════════════════════
-  addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string): Promise<void>;
+  addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string, ctx?: import('./repositories/campaign-repository').TrackingContext): Promise<void>;
   getCampaignStats(campaignId: string): Promise<CampaignStat[]>;
   recordCampaignSend(campaignId: string, subscriberId: string, status?: string): Promise<boolean>;
   wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean>;

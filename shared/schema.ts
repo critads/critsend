@@ -131,6 +131,14 @@ export const campaignStats = pgTable("campaign_stats", {
   type: text("type").notNull(),
   link: text("link"),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
+  // Enriched tracking fields
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  country: text("country"),
+  city: text("city"),
+  deviceType: text("device_type"),
+  browser: text("browser"),
+  os: text("os"),
 }, (table) => ({
   campaignIdx: index("campaign_stats_campaign_idx").on(table.campaignId),
   subscriberIdx: index("campaign_stats_subscriber_idx").on(table.subscriberId),

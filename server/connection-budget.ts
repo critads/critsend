@@ -23,6 +23,10 @@ export const IMPORT_CONCURRENCY = IMPORT_POOL_MAX;
 // unset: legacy monolith mode keeps the original calculated budget
 const processType = process.env.PROCESS_TYPE;
 
+// Reserve headroom so background spikes never push us to the hard Neon limit.
+// With HEADROOM_RESERVE=12: monolith main pool = 50-1-4-12 = 33, total allocated = 38/50.
+const HEADROOM_RESERVE = Number(process.env.PG_HEADROOM_RESERVE || 12);
+
 export const MAIN_POOL_MAX = (() => {
   if (processType === 'worker') {
     return parseInt(process.env.WORKER_PG_POOL_MAX || '8', 10);
@@ -30,8 +34,8 @@ export const MAIN_POOL_MAX = (() => {
   if (processType === 'web') {
     return parseInt(process.env.WEB_PG_POOL_MAX || '20', 10);
   }
-  // Monolith fallback — keep historical behaviour
-  return Number(process.env.PG_POOL_MAX || Math.max(2, PG_CONNECTION_LIMIT - NOTIFY_CONNECTIONS - IMPORT_POOL_MAX));
+  // Monolith fallback — leave HEADROOM_RESERVE connections free at all times
+  return Number(process.env.PG_POOL_MAX || Math.max(2, PG_CONNECTION_LIMIT - NOTIFY_CONNECTIONS - IMPORT_POOL_MAX - HEADROOM_RESERVE));
 })();
 
 const TOTAL_ALLOCATED = MAIN_POOL_MAX + IMPORT_POOL_MAX + NOTIFY_CONNECTIONS;

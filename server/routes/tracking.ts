@@ -2,6 +2,46 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { verifyTrackingSignature } from "../tracking";
+import { UAParser } from "ua-parser-js";
+import geoip from "geoip-lite";
+import type { TrackingContext } from "../repositories/campaign-repository";
+
+function extractTrackingContext(req: Request): TrackingContext {
+  const rawIp =
+    (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+    req.headers["x-real-ip"] as string ||
+    req.socket.remoteAddress ||
+    "";
+  const ip = rawIp.replace(/^::ffff:/, "");
+
+  const ua = req.headers["user-agent"] || "";
+  const parsed = new UAParser(ua);
+  const browser = parsed.getBrowser();
+  const os = parsed.getOS();
+  const device = parsed.getDevice();
+
+  const deviceType = device.type ?? (ua.toLowerCase().includes("mobile") ? "mobile" : "desktop");
+
+  let country: string | undefined;
+  let city: string | undefined;
+  if (ip && ip !== "::1" && ip !== "127.0.0.1") {
+    const geo = geoip.lookup(ip);
+    if (geo) {
+      country = geo.country || undefined;
+      city = geo.city || undefined;
+    }
+  }
+
+  return {
+    ipAddress: ip || undefined,
+    userAgent: ua || undefined,
+    browser: browser.name || undefined,
+    os: os.name || undefined,
+    deviceType: deviceType || undefined,
+    country,
+    city,
+  };
+}
 
 const campaignTagCache = new Map<string, { openTag: string | null; clickTag: string | null; fetchedAt: number }>();
 const CAMPAIGN_CACHE_TTL = 60000;
@@ -46,9 +86,10 @@ export function registerTrackingRoutes(app: Express) {
     }
     
     try {
+      const ctx = extractTrackingContext(req);
       const isFirstOpen = await storage.recordFirstOpen(campaignId, subscriberId);
       
-      await storage.addCampaignStat(campaignId, subscriberId, "open");
+      await storage.addCampaignStat(campaignId, subscriberId, "open", undefined, ctx);
       
       returnPixel();
       
@@ -92,9 +133,10 @@ export function registerTrackingRoutes(app: Express) {
     }
     
     try {
+      const ctx = extractTrackingContext(req);
       const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
       
-      await storage.addCampaignStat(campaignId, subscriberId, "click", url);
+      await storage.addCampaignStat(campaignId, subscriberId, "click", url, ctx);
       
       res.redirect(url);
       

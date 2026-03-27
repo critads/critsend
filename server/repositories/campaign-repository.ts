@@ -80,8 +80,24 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
 // CAMPAIGN SENDING & TRACKING
 // ═══════════════════════════════════════════════════════════════
 
-export async function addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string): Promise<void> {
-  await db.insert(campaignStats).values({ campaignId, subscriberId, type, link });
+export interface TrackingContext {
+  ipAddress?: string;
+  userAgent?: string;
+  country?: string;
+  city?: string;
+  deviceType?: string;
+  browser?: string;
+  os?: string;
+}
+
+export async function addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string, ctx?: TrackingContext): Promise<void> {
+  await db.insert(campaignStats).values({
+    campaignId,
+    subscriberId,
+    type,
+    link,
+    ...(ctx ?? {}),
+  });
 }
 
 export async function getCampaignStats(campaignId: string): Promise<CampaignStat[]> {
