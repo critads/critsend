@@ -92,6 +92,16 @@ export function registerHealthRoutes(app: Express) {
     }
   });
 
+  app.get("/api/health/ip", async (_req: Request, res: Response) => {
+    try {
+      const response = await fetch("https://api.ipify.org?format=json");
+      const data = await response.json() as { ip: string };
+      res.json({ outboundIp: data.ip, timestamp: new Date().toISOString() });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to resolve outbound IP" });
+    }
+  });
+
   app.get("/api/health/ready", async (_req: Request, res: Response) => {
     try {
       await storage.healthCheck();
