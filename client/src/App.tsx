@@ -16,6 +16,8 @@ import Dashboard from "@/pages/dashboard";
 import Subscribers from "@/pages/subscribers";
 import Segments from "@/pages/segments";
 import MTAs from "@/pages/mtas";
+import MtaNew from "@/pages/mta-new";
+import MtaEdit from "@/pages/mta-edit";
 import Campaigns from "@/pages/campaigns";
 import CampaignNew from "@/pages/campaign-new";
 import CampaignEdit from "@/pages/campaign-edit";
@@ -40,6 +42,8 @@ function Router() {
       <Route path="/subscribers" component={Subscribers} />
       <Route path="/segments" component={Segments} />
       <Route path="/mtas" component={MTAs} />
+      <Route path="/mtas/new" component={MtaNew} />
+      <Route path="/mtas/:id/edit" component={MtaEdit} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/campaigns/new" component={CampaignNew} />
       <Route path="/campaigns/:id/edit" component={CampaignEdit} />
