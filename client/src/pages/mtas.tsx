@@ -60,8 +60,11 @@ export default function MTAs() {
       setDeleteConfirm(null);
       toast({ title: "MTA deleted", description: "Sending server removed." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete MTA.", variant: "destructive" });
+    onError: (error: any) => {
+      const msg = error?.message?.includes("409")
+        ? "This MTA is still used by active records. Remove any campaign references first."
+        : "Failed to delete MTA. Please try again.";
+      toast({ title: "Delete failed", description: msg, variant: "destructive" });
     },
   });
 

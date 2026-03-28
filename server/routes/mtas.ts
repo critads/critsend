@@ -265,9 +265,16 @@ export function registerMtaRoutes(app: Express, helpers: {
       await storage.deleteMta(req.params.id);
       closeTransporter(req.params.id);
       res.status(204).send();
-    } catch (error) {
-      logger.error("Error deleting MTA:", error);
-      res.status(500).json({ error: "Failed to delete MTA" });
+    } catch (error: any) {
+      const detail = error?.message || String(error);
+      const pgCode = error?.code;
+      logger.error("Error deleting MTA:", { id: req.params.id, pgCode, detail });
+      if (pgCode === "23503") {
+        return res.status(409).json({
+          error: "This MTA is still referenced by other records. Please remove those references first.",
+        });
+      }
+      res.status(500).json({ error: "Failed to delete MTA", detail });
     }
   });
 
