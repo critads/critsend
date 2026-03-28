@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -22,17 +23,36 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Server, Plus, MoreVertical, Trash2, Edit2, Eye, EyeOff, CheckCircle2, XCircle, FlaskConical } from "lucide-react";
+import {
+  Server, Plus, MoreVertical, Trash2, Edit2, Eye, EyeOff,
+  CheckCircle2, XCircle, FlaskConical, Wifi, WifiOff, Loader2,
+  Lightbulb, ChevronDown, ChevronRight, Clock,
+} from "lucide-react";
 import type { Mta, InsertMta } from "@shared/schema";
+
+interface SmtpTestResult {
+  success: boolean;
+  connectionTimeMs: number;
+  stage?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  smtpCode?: number;
+  suggestions?: string[];
+  serverBanner?: string;
+}
 
 export default function MTAs() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingMta, setEditingMta] = useState<Mta | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Mta | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [testingMta, setTestingMta] = useState<Mta | null>(null);
+  const [testResult, setTestResult] = useState<SmtpTestResult | null>(null);
+  const [showRawError, setShowRawError] = useState(false);
   const [formData, setFormData] = useState<Partial<InsertMta>>({
     name: "",
     fromName: "",
@@ -114,6 +134,30 @@ export default function MTAs() {
       });
     },
   });
+
+  const testMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/mtas/${id}/test`),
+    onSuccess: (data: SmtpTestResult) => {
+      setTestResult(data);
+      setShowRawError(false);
+    },
+    onError: () => {
+      setTestResult({
+        success: false,
+        connectionTimeMs: 0,
+        stage: "Request Error",
+        errorMessage: "Could not reach the server to run the test.",
+        suggestions: ["Check that the application server is running."],
+      });
+    },
+  });
+
+  const handleTestConnection = (mta: Mta) => {
+    setTestingMta(mta);
+    setTestResult(null);
+    setShowRawError(false);
+    testMutation.mutate(mta.id);
+  };
 
   const resetForm = () => {
     setFormData({
@@ -492,6 +536,14 @@ export default function MTAs() {
                       Edit
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      onClick={() => handleTestConnection(mta)}
+                      data-testid={`button-test-mta-${mta.id}`}
+                    >
+                      <Wifi className="h-4 w-4 mr-2" />
+                      Test Connection
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
                       className="text-destructive"
                       onClick={() => setDeleteConfirm(mta)}
                     >
@@ -589,6 +641,174 @@ export default function MTAs() {
               data-testid="button-confirm-delete-mta"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test Connection Dialog */}
+      <Dialog
+        open={!!testingMta}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTestingMta(null);
+            setTestResult(null);
+            setShowRawError(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-test-mta">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wifi className="h-5 w-5" />
+              Test Connection
+            </DialogTitle>
+            <DialogDescription>
+              Testing SMTP connectivity for <span className="font-medium text-foreground">{testingMta?.name}</span>
+              <span className="font-mono text-xs ml-1 text-muted-foreground">
+                ({testingMta?.hostname}:{testingMta?.port})
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Loading state */}
+            {testMutation.isPending && (
+              <div className="flex flex-col items-center justify-center py-8 gap-3" data-testid="test-loading">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Connecting to SMTP server…</p>
+                <p className="text-xs text-muted-foreground">This may take up to 15 seconds</p>
+              </div>
+            )}
+
+            {/* Success state */}
+            {testResult?.success && (
+              <div className="space-y-4" data-testid="test-success">
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
+                  <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400 shrink-0" />
+                  <div>
+                    <p className="font-semibold text-green-800 dark:text-green-300">Connection successful</p>
+                    <p className="text-sm text-green-700 dark:text-green-400">
+                      SMTP server accepted the connection and credentials.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span>Connection established in <strong>{testResult.connectionTimeMs} ms</strong></span>
+                </div>
+                {testResult.serverBanner && (
+                  <div className="p-3 rounded-md bg-muted text-xs font-mono break-all">
+                    {testResult.serverBanner}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Failure state */}
+            {testResult && !testResult.success && (
+              <div className="space-y-4" data-testid="test-failure">
+                {/* Header */}
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                  <WifiOff className="h-8 w-8 text-red-600 dark:text-red-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-red-800 dark:text-red-300">Connection failed</p>
+                    {testResult.stage && (
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-red-700 dark:text-red-400">Failed at:</span>
+                        <Badge variant="outline" className="text-xs border-red-400 text-red-700 dark:text-red-400">
+                          {testResult.stage}
+                        </Badge>
+                        {testResult.smtpCode && (
+                          <Badge variant="outline" className="text-xs border-red-400 text-red-700 dark:text-red-400">
+                            SMTP {testResult.smtpCode}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Timing */}
+                {testResult.connectionTimeMs > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    <span>Failed after <strong>{testResult.connectionTimeMs} ms</strong></span>
+                  </div>
+                )}
+
+                <Separator />
+
+                {/* Suggestions */}
+                {testResult.suggestions && testResult.suggestions.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <Lightbulb className="h-4 w-4 text-amber-500" />
+                      What to check
+                    </div>
+                    <ul className="space-y-1.5 pl-1">
+                      {testResult.suggestions.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                          <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Raw error */}
+                {testResult.errorMessage && (
+                  <div className="space-y-1.5">
+                    <button
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowRawError(!showRawError)}
+                      data-testid="button-toggle-raw-error"
+                    >
+                      {showRawError
+                        ? <ChevronDown className="h-3.5 w-3.5" />
+                        : <ChevronRight className="h-3.5 w-3.5" />
+                      }
+                      Raw error details
+                    </button>
+                    {showRawError && (
+                      <div className="p-3 rounded-md bg-muted text-xs font-mono break-all leading-relaxed" data-testid="raw-error-details">
+                        {testResult.errorCode && (
+                          <div><span className="text-muted-foreground">Code: </span>{testResult.errorCode}</div>
+                        )}
+                        <div><span className="text-muted-foreground">Message: </span>{testResult.errorMessage}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            {testResult && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setTestResult(null);
+                  setShowRawError(false);
+                  testMutation.mutate(testingMta!.id);
+                }}
+                disabled={testMutation.isPending}
+                data-testid="button-retest-mta"
+              >
+                Test Again
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                setTestingMta(null);
+                setTestResult(null);
+                setShowRawError(false);
+              }}
+              data-testid="button-close-test-dialog"
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
