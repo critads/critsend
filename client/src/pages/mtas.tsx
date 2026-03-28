@@ -136,7 +136,10 @@ export default function MTAs() {
   });
 
   const testMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/mtas/${id}/test`),
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/mtas/${id}/test`);
+      return res.json() as Promise<SmtpTestResult>;
+    },
     onSuccess: (data: SmtpTestResult) => {
       setTestResult(data);
       setShowRawError(false);
