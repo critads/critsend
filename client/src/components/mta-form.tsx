@@ -22,21 +22,16 @@ interface MtaFormProps {
   setShowPassword: (v: boolean) => void;
 }
 
-const DEFAULT_PORTS: Record<string, number> = {
+const STANDARD_PORTS: Record<string, number> = {
   SSL: 465,
   TLS: 465,
   STARTTLS: 587,
   NONE: 25,
 };
 
-const STANDARD_PORTS = [25, 465, 587, 2525];
-
 export function MtaForm({ formData, onChange, showPassword, setShowPassword }: MtaFormProps) {
   const handleProtocolChange = (protocol: string) => {
-    const currentPort = formData.port ?? 587;
-    const suggestedPort = DEFAULT_PORTS[protocol] ?? 587;
-    const autoUpdatePort = STANDARD_PORTS.includes(currentPort);
-    onChange({ ...formData, protocol, port: autoUpdatePort ? suggestedPort : currentPort });
+    onChange({ ...formData, protocol });
   };
 
   return (
@@ -125,16 +120,25 @@ export function MtaForm({ formData, onChange, showPassword, setShowPassword }: M
               </SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground">Changing protocol auto-updates the port</p>
+          <p className="text-xs text-muted-foreground">
+            Protocol selection does not change your port.
+          </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="mta-port">Port</Label>
+          <Label htmlFor="mta-port">
+            Port{" "}
+            {formData.protocol && STANDARD_PORTS[formData.protocol] && (
+              <span className="text-xs font-normal text-muted-foreground ml-1">
+                (standard for {formData.protocol}: {STANDARD_PORTS[formData.protocol]})
+              </span>
+            )}
+          </Label>
           <Input
             id="mta-port"
             type="number"
-            placeholder="587"
-            value={formData.port ?? 587}
+            placeholder={String(STANDARD_PORTS[formData.protocol ?? "STARTTLS"] ?? 587)}
+            value={formData.port ?? ""}
             onChange={(e) => onChange({ ...formData, port: parseInt(e.target.value) || 587 })}
             data-testid="input-mta-port"
           />
