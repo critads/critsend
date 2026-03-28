@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, FileCode, Key, BookOpen } from "lucide-react";
+import { Copy, Check, FileCode, Key, BookOpen, Server, RefreshCw } from "lucide-react";
 
 const endpoints = [
   {
@@ -266,6 +267,59 @@ function CodeBlock({ code, language = "json" }: { code: string; language?: strin
   );
 }
 
+function ServerIpCard() {
+  const { toast } = useToast();
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<{ outboundIp: string; timestamp: string }>({
+    queryKey: ["/api/health/ip"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const handleCopy = () => {
+    if (data?.outboundIp) {
+      navigator.clipboard.writeText(data.outboundIp);
+      toast({ title: "IP copied to clipboard" });
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Server className="h-5 w-5" />
+          Server Outbound IP
+        </CardTitle>
+        <CardDescription>
+          Whitelist this IP on your SMTP servers and firewalls to allow Critsend to connect.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-3">
+          {isLoading || isFetching ? (
+            <span className="text-muted-foreground text-sm animate-pulse">Resolving IP…</span>
+          ) : isError ? (
+            <span className="text-destructive text-sm">Failed to resolve IP</span>
+          ) : (
+            <code className="text-lg font-mono font-semibold tracking-wider bg-muted px-3 py-1.5 rounded-md" data-testid="text-server-ip">
+              {data?.outboundIp}
+            </code>
+          )}
+          <Button variant="outline" size="icon" onClick={handleCopy} disabled={!data?.outboundIp} data-testid="button-copy-ip">
+            <Copy className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => refetch()} data-testid="button-refresh-ip">
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+        {data?.timestamp && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Last checked: {new Date(data.timestamp).toLocaleTimeString()}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ApiDocs() {
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -308,6 +362,8 @@ export default function ApiDocs() {
           <CodeBlock code={`${window.location.origin}/api`} />
         </CardContent>
       </Card>
+
+      <ServerIpCard />
 
       <Card>
         <CardHeader>
