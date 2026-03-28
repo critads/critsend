@@ -45,6 +45,26 @@ export function closeNullsinkTransporter(): void {
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+/**
+ * Maps a user-facing protocol label to Nodemailer transport security options.
+ *   SSL     → implicit TLS from the start  (secure: true,  port 465)
+ *   TLS     → same as SSL (alternate label used by some providers)
+ *   STARTTLS → opportunistic upgrade after greeting (secure: false, port 587)
+ *   NONE    → no encryption at all  (secure: false, ignoreTLS: true, port 25)
+ */
+export function resolveSmtpSecurity(protocol: string): { secure: boolean; ignoreTLS: boolean } {
+  switch ((protocol || "STARTTLS").toUpperCase()) {
+    case "SSL":
+    case "TLS":
+      return { secure: true,  ignoreTLS: false };
+    case "NONE":
+      return { secure: false, ignoreTLS: true };
+    case "STARTTLS":
+    default:
+      return { secure: false, ignoreTLS: false };
+  }
+}
+
 export function createTransporter(mta: Mta): Transporter {
   const existingTransporter = transporterPool.get(mta.id);
   if (existingTransporter) {
@@ -52,11 +72,13 @@ export function createTransporter(mta: Mta): Transporter {
   }
 
   const port = mta.port || 587;
-  const isSecurePort = port === 465 || port === 2465;
+  const protocol = (mta as any).protocol || "STARTTLS";
+  const { secure, ignoreTLS } = resolveSmtpSecurity(protocol);
   const transporter = nodemailer.createTransport({
     host: mta.hostname || "localhost",
     port: port,
-    secure: isSecurePort,
+    secure,
+    ignoreTLS,
     auth: mta.username && mta.password ? {
       user: mta.username,
       pass: mta.password,

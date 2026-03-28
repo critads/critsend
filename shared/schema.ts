@@ -46,6 +46,7 @@ export const mtas = pgTable("mtas", {
   fromEmail: text("from_email").notNull().default(""),
   isActive: boolean("is_active").notNull().default(true),
   mode: text("mode").notNull().default("real"), // "real" or "nullsink"
+  protocol: text("protocol").notNull().default("STARTTLS"), // SSL | TLS | STARTTLS | NONE
   simulatedLatencyMs: integer("simulated_latency_ms").default(0), // Latency to simulate for nullsink
   failureRate: integer("failure_rate").default(0), // Percentage of simulated failures (0-100)
   createdAt: timestamp("created_at").notNull().defaultNow(),

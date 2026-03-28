@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { logger } from "../logger";
 import { insertMtaSchema, insertEmailHeaderSchema } from "@shared/schema";
 import { z } from "zod";
-import { closeTransporter } from "../email-service";
+import { closeTransporter, resolveSmtpSecurity } from "../email-service";
 import nodemailer from "nodemailer";
 import type { Mta } from "@shared/schema";
 
@@ -134,12 +134,14 @@ async function testSmtpConnection(mta: Mta): Promise<SmtpTestResult> {
   }
 
   const port = mta.port || 587;
-  const isSecurePort = port === 465 || port === 2465;
+  const protocol = (mta as any).protocol || "STARTTLS";
+  const { secure, ignoreTLS } = resolveSmtpSecurity(protocol);
 
   const transporter = nodemailer.createTransport({
     host: mta.hostname || "localhost",
     port,
-    secure: isSecurePort,
+    secure,
+    ignoreTLS,
     auth: mta.username && mta.password
       ? { user: mta.username, pass: mta.password }
       : undefined,

@@ -11,6 +11,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -66,6 +73,7 @@ export default function MTAs() {
     imageHostingDomain: "",
     isActive: true,
     mode: "real",
+    protocol: "STARTTLS",
     simulatedLatencyMs: 0,
     failureRate: 0,
   });
@@ -162,6 +170,25 @@ export default function MTAs() {
     testMutation.mutate(mta.id);
   };
 
+  const DEFAULT_PORTS: Record<string, number> = {
+    SSL: 465,
+    TLS: 465,
+    STARTTLS: 587,
+    NONE: 25,
+  };
+
+  const handleProtocolChange = (protocol: string) => {
+    const standardPorts = [25, 465, 587, 2525];
+    const currentPort = formData.port ?? 587;
+    const suggestedPort = DEFAULT_PORTS[protocol] ?? 587;
+    const autoUpdatePort = standardPorts.includes(currentPort);
+    setFormData((prev) => ({
+      ...prev,
+      protocol,
+      port: autoUpdatePort ? suggestedPort : currentPort,
+    }));
+  };
+
   const resetForm = () => {
     setFormData({
       name: "",
@@ -176,6 +203,7 @@ export default function MTAs() {
       imageHostingDomain: "",
       isActive: true,
       mode: "real",
+      protocol: "STARTTLS",
       simulatedLatencyMs: 0,
       failureRate: 0,
     });
@@ -197,6 +225,7 @@ export default function MTAs() {
       imageHostingDomain: mta.imageHostingDomain || "",
       isActive: mta.isActive,
       mode: mta.mode || "real",
+      protocol: (mta as any).protocol || "STARTTLS",
       simulatedLatencyMs: mta.simulatedLatencyMs ?? 0,
       failureRate: mta.failureRate ?? 0,
     });
@@ -269,7 +298,7 @@ export default function MTAs() {
             data-testid="input-mta-from-email"
           />
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="mta-hostname">Hostname</Label>
           <Input
             id="mta-hostname"
@@ -281,7 +310,47 @@ export default function MTAs() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="mta-port">Port *</Label>
+          <Label htmlFor="mta-protocol">Protocol</Label>
+          <Select
+            value={(formData as any).protocol ?? "STARTTLS"}
+            onValueChange={handleProtocolChange}
+          >
+            <SelectTrigger id="mta-protocol" data-testid="select-mta-protocol">
+              <SelectValue placeholder="Select protocol" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="STARTTLS">
+                <div className="flex flex-col">
+                  <span>STARTTLS</span>
+                  <span className="text-xs text-muted-foreground">Upgrades to TLS after greeting · port 587</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="SSL">
+                <div className="flex flex-col">
+                  <span>SSL</span>
+                  <span className="text-xs text-muted-foreground">Implicit TLS from start · port 465</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="TLS">
+                <div className="flex flex-col">
+                  <span>TLS</span>
+                  <span className="text-xs text-muted-foreground">Implicit TLS (alt. label) · port 465</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="NONE">
+                <div className="flex flex-col">
+                  <span>NONE</span>
+                  <span className="text-xs text-muted-foreground">No encryption · port 25</span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Changing protocol auto-updates the port
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="mta-port">Port</Label>
           <Input
             id="mta-port"
             type="number"
@@ -557,6 +626,12 @@ export default function MTAs() {
                 </DropdownMenu>
               </CardHeader>
               <CardContent className="space-y-2">
+                <div className="text-sm flex items-center gap-2">
+                  <span className="text-muted-foreground">Protocol:</span>
+                  <Badge variant="outline" className="text-xs font-mono">
+                    {(mta as any).protocol || "STARTTLS"}
+                  </Badge>
+                </div>
                 <div className="text-sm">
                   <span className="text-muted-foreground">User:</span>{" "}
                   <span className="font-mono">{mta.username}</span>
