@@ -119,6 +119,8 @@ STORAGE_BACKEND=local
 
 ## 6. Configure Nginx
 
+The Nginx config ships as HTTP-only — this ensures `nginx -t` passes without errors on a fresh server (before any SSL certs exist). Certbot will add the HTTPS block automatically in the next step.
+
 ```bash
 # Copy and customize the Nginx config
 sudo cp ~/critsend/deploy/nginx.conf /etc/nginx/sites-available/critsend
@@ -126,25 +128,36 @@ sudo cp ~/critsend/deploy/nginx.conf /etc/nginx/sites-available/critsend
 # Replace the placeholder domain
 sudo sed -i 's/yourdomain.com/YOUR_ACTUAL_DOMAIN/g' /etc/nginx/sites-available/critsend
 
-# Enable the site
+# Enable the site and remove the default
 sudo ln -sf /etc/nginx/sites-available/critsend /etc/nginx/sites-enabled/critsend
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Test and reload
+# Test and reload (HTTP-only at this point — no cert needed)
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+Your app is now accessible over HTTP. Continue to step 7 to add SSL.
 
 ---
 
 ## 7. Obtain an SSL certificate
 
-Make sure your domain's DNS A record points to the server's IP, then:
+Make sure your domain's DNS A record points to the server's IP before running this.
 
 ```bash
 sudo certbot --nginx -d yourdomain.com
 ```
 
-Certbot automatically updates the Nginx config with the certificate paths and sets up auto-renewal.
+Certbot will:
+1. Complete the ACME challenge over HTTP
+2. Rewrite `/etc/nginx/sites-available/critsend` to add the HTTPS server block and 301 redirect
+3. Set up auto-renewal via a systemd timer
+
+Reload Nginx to apply the new config:
+
+```bash
+sudo systemctl reload nginx
+```
 
 Verify auto-renewal works:
 
