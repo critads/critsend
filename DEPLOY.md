@@ -61,11 +61,12 @@ ssh-copy-id -i ~/.ssh/critsend_deploy.pub ubuntu@YOUR_SERVER_IP
 
 In your GitHub repo, go to **Settings → Secrets → Actions** and add:
 
-| Secret | Value |
-|--------|-------|
-| `SSH_HOST` | Your server's public IP or hostname |
-| `SSH_USER` | `ubuntu` (or your login user) |
-| `SSH_KEY`  | Contents of `~/.ssh/critsend_deploy` (the **private** key) |
+| Secret | Required | Value |
+|--------|----------|-------|
+| `SSH_HOST` | Yes | Your server's public IP or hostname |
+| `SSH_USER` | Yes | `ubuntu` (or your login user) |
+| `SSH_KEY`  | Yes | Contents of `~/.ssh/critsend_deploy` (the **private** key) |
+| `APP_URL`  | Optional | Full HTTPS URL, e.g. `https://yourdomain.com` — enables post-deploy health check |
 
 ---
 

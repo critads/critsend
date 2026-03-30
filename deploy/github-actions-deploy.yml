@@ -9,6 +9,12 @@
 #   SSH_KEY   — Full contents of the private SSH key (~/.ssh/id_ed25519)
 #               The matching public key must be in ~/.ssh/authorized_keys on the server.
 #
+# Optional secret:
+#   APP_URL   — Full HTTPS URL of the app (e.g. https://yourdomain.com).
+#               Required for the post-deploy health check step.
+#               If not set, the health check step is skipped.
+#               Do NOT use SSH_HOST here — bare IPs fail TLS validation.
+#
 # To add the public key on the server:
 #   ssh-keygen -t ed25519 -C "github-actions-deploy"
 #   cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
@@ -47,11 +53,15 @@ jobs:
             bash deploy/deploy.sh
 
       - name: Health check
+        # Requires APP_URL secret (e.g. https://yourdomain.com).
+        # Using SSH_HOST directly would fail TLS validation if it is a bare IP.
+        # If APP_URL is not set, this step is skipped gracefully.
+        if: ${{ secrets.APP_URL != '' }}
         run: |
           # Wait up to 30 seconds for the app to become healthy after reload
           for i in $(seq 1 6); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              "https://${{ secrets.SSH_HOST }}/api/health" 2>/dev/null || echo "000")
+              "${{ secrets.APP_URL }}/api/health" 2>/dev/null || echo "000")
             if [[ "$STATUS" == "200" ]]; then
               echo "Health check passed (attempt $i)"
               exit 0

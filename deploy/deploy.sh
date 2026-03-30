@@ -58,14 +58,16 @@ ok "Build complete"
 
 # ─── Step 4: Database schema push ─────────────────────────────────────────────
 step "Pushing database schema changes (drizzle-kit push)..."
-# drizzle.config.ts uses NEON_DATABASE_URL || DATABASE_URL
-# Source .env so the variable is available to drizzle-kit
+# drizzle.config.ts uses NEON_DATABASE_URL || DATABASE_URL.
+# Source .env with set -a so every variable is exported to child processes.
+# This handles values with spaces, special characters, and quotes safely.
 if [[ -f ".env" ]]; then
-    # shellcheck disable=SC2046
-    env $(grep -v '^#' .env | grep -v '^[[:space:]]*$' | xargs) npx drizzle-kit push --yes
-else
-    npx drizzle-kit push --yes
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
 fi
+npx drizzle-kit push --yes
 ok "Database schema up to date"
 
 # ─── Step 5: PM2 reload ───────────────────────────────────────────────────────
