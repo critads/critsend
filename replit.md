@@ -53,10 +53,10 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 ## Self-Hosted Deployment
 
 The `deploy/` directory contains all files needed to run Critsend on a dedicated Linux server:
-- **`deploy/ecosystem.config.cjs`** — PM2 config that starts `critsend-web` (PROCESS_TYPE=web) and `critsend-worker` (PROCESS_TYPE=worker) using `node_modules/.bin/tsx`.
+- **`deploy/ecosystem.config.cjs`** — PM2 config that starts `critsend-web` (`dist/index.cjs`, PROCESS_TYPE=web) and `critsend-worker` (`dist/worker-main.cjs`, PROCESS_TYPE=worker) from compiled production artifacts. Both use `env_file: ".env"` for secret loading.
 - **`deploy/nginx.conf`** — Nginx reverse proxy: HTTP→HTTPS redirect, proxy to port 5000, SSE/WebSocket headers, gzip, 1.1 GB upload limit.
 - **`deploy/setup.sh`** — Idempotent bootstrap: installs nvm, Node.js 20, PM2, Nginx, Certbot on Ubuntu 22.04.
-- **`deploy/deploy.sh`** — Everyday deploy sequence: `git pull → npm ci → drizzle-kit push → pm2 reload`.
+- **`deploy/deploy.sh`** — Everyday deploy sequence: `git pull → npm ci → npm run build → drizzle-kit push → pm2 reload`.
 - **`deploy/github-actions-deploy.yml`** — GitHub Actions workflow to auto-deploy on push to `main` via SSH. Requires `SSH_HOST`, `SSH_USER`, `SSH_KEY` secrets.
 - **`DEPLOY.md`** — Full step-by-step migration guide covering VPS provisioning, first deploy, and troubleshooting.
 - **`.env.example`** — Documents all 31 env vars with [REQUIRED]/[OPTIONAL] labels and defaults.
