@@ -48,7 +48,10 @@ ok "Code updated: $(git log -1 --oneline)"
 
 # ─── Step 2: npm ci ───────────────────────────────────────────────────────────
 step "Installing dependencies (npm ci)..."
-npm ci --prefer-offline
+# Run in a subshell with NODE_ENV unset so npm does not skip devDependencies.
+# devDependencies (vite, esbuild, @vitejs/plugin-react, etc.) are required at
+# build time even though the runtime is production.
+(unset NODE_ENV; npm ci --prefer-offline)
 ok "Dependencies installed"
 
 # ─── Step 3: Build ────────────────────────────────────────────────────────────

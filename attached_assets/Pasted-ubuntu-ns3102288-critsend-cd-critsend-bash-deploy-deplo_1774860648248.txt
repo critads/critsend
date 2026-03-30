@@ -1,0 +1,76 @@
+ubuntu@ns3102288:~/critsend$ cd ~/critsend
+bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+remote: Enumerating objects: 25, done.
+remote: Counting objects: 100% (25/25), done.
+remote: Compressing objects: 100% (7/7), done.
+remote: Total 18 (delta 11), reused 18 (delta 11), pack-reused 0 (from 0)
+Unpacking objects: 100% (18/18), 70.56 KiB | 2.02 MiB/s, done.
+From https://github.com/critads/critsend
+   d23ba5e..19d5a9e  main       -> origin/main
+Updating d23ba5e..19d5a9e
+Fast-forward
+ .env.example                                           |   5 +-
+ ...end-cd-critsend-bash-deploy-deplo_1774858942590.txt |  67 ++++
+ ...end-pm2-delete-all-set-a-source-e_1774859558543.txt |  30 ++
+ ...end-pm2-logs-critsend-web-lines-3_1774859464435.txt |  34 ++
+ ...end-pm2-logs-critsend-web-lines-5_1774859286550.txt |  66 ++++
+ ...end-sudo-cp-critsend-deploy-nginx_1774857719837.txt |  42 ++
+ ...lone-https-github-com-critads-cri_1774854714155.txt | 484 +++++++++++++++++++++++
+ ...eenshot_2026-03-30_at_12.46.58_PM_1774860421812.png | Bin 0 -> 67804 bytes
+ deploy/deploy.sh                                       |  17 +-
+ server/utils.ts                                        |   2 +-
+ 10 files changed, 736 insertions(+), 11 deletions(-)
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-critsend-cd-critsend-bash-deploy-deplo_1774858942590.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-critsend-pm2-delete-all-set-a-source-e_1774859558543.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-critsend-pm2-logs-critsend-web-lines-3_1774859464435.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-critsend-pm2-logs-critsend-web-lines-5_1774859286550.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-critsend-sudo-cp-critsend-deploy-nginx_1774857719837.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-git-clone-https-github-com-critads-cri_1774854714155.txt
+ create mode 100644 attached_assets/Screenshot_2026-03-30_at_12.46.58_PM_1774860421812.png
+[deploy] ✓ Code updated: 19d5a9e Fix image processing errors for campaign uploads
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 756 packages, and audited 757 packages in 3s
+
+126 packages are looking for funding
+  run `npm fund` for details
+
+40 vulnerabilities (8 low, 4 moderate, 27 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+failed to load config from /home/ubuntu/critsend/vite.config.ts
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@vitejs/plugin-react' imported from /home/ubuntu/critsend/node_modules/.vite-temp/vite.config.ts.timestamp-1774860594746-c4841a2a2fe1b.mjs
+    at packageResolve (node:internal/modules/esm/resolve:873:9)
+    at moduleResolve (node:internal/modules/esm/resolve:946:18)
+    at defaultResolve (node:internal/modules/esm/resolve:1188:11)
+    at nextResolve (node:internal/modules/esm/hooks:864:28)
+    at resolveBase (file:///home/ubuntu/critsend/node_modules/tsx/dist/esm/index.mjs?1774860593967:2:3744)
+    at resolveDirectory (file:///home/ubuntu/critsend/node_modules/tsx/dist/esm/index.mjs?1774860593967:2:4243)
+    at resolveTsPaths (file:///home/ubuntu/critsend/node_modules/tsx/dist/esm/index.mjs?1774860593967:2:4984)
+    at resolve (file:///home/ubuntu/critsend/node_modules/tsx/dist/esm/index.mjs?1774860593967:2:5361)
+    at nextResolve (node:internal/modules/esm/hooks:864:28)
+    at Hooks.resolve (node:internal/modules/esm/hooks:306:30) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+ubuntu@ns3102288:~/critsend$ 
