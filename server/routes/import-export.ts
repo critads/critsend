@@ -114,21 +114,27 @@ export function registerImportExportRoutes(app: Express, helpers: {
       });
       logger.info(`[IMPORT] Created import job: ${job.id}`);
 
-      const objectStoragePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
-      logger.info(`[IMPORT] Uploaded to object storage: ${objectStoragePath}`);
-      
-      const objectExists = await objectStorageService.objectExists(objectStoragePath);
-      if (!objectExists) {
-        throw new Error(`Object storage verification failed: ${objectStoragePath} does not exist after upload`);
+      const useReplitStorage = process.env.STORAGE_BACKEND === "replit";
+      let storagePath: string;
+
+      if (useReplitStorage) {
+        storagePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
+        logger.info(`[IMPORT] Uploaded to object storage: ${storagePath}`);
+        const objectExists = await objectStorageService.objectExists(storagePath);
+        if (!objectExists) {
+          throw new Error(`Object storage verification failed: ${storagePath} does not exist after upload`);
+        }
+        try { fs.unlinkSync(csvFilePath); } catch {}
+      } else {
+        storagePath = csvFilePath;
+        logger.info(`[IMPORT] Using local disk storage: ${storagePath}`);
       }
-      
-      try { fs.unlinkSync(csvFilePath); } catch {}
 
       const queueItem = await db.transaction(async (tx) => {
         await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
         const [queued] = await tx.insert(importJobQueue).values({
           importJobId: job.id,
-          csvFilePath: objectStoragePath,
+          csvFilePath: storagePath,
           totalLines: lineCount,
           processedLines: 0,
           fileSizeBytes,
@@ -138,7 +144,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         }).returning();
         return queued;
       });
-      logger.info(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, object storage path: ${objectStoragePath}`);
+      logger.info(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, path: ${storagePath}`);
 
       res.status(202).json(job);
     } catch (error) {
@@ -443,22 +449,29 @@ export function registerImportExportRoutes(app: Express, helpers: {
       });
       logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       
-      const objectStoragePath = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
-      logger.info(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${objectStoragePath}`);
-      
-      const objectExists = await objectStorageService.objectExists(objectStoragePath);
-      if (!objectExists) {
-        throw new Error(`Object storage verification failed: ${objectStoragePath} does not exist after upload`);
-      }
-      
+      const useReplitStorageChunked = process.env.STORAGE_BACKEND === "replit";
+      let storagePathChunked: string;
       const verifiedSize = fs.statSync(tempCsvPath).size;
-      logger.info(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
-      
+
+      if (useReplitStorageChunked) {
+        storagePathChunked = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
+        logger.info(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${storagePathChunked}`);
+        const objectExists = await objectStorageService.objectExists(storagePathChunked);
+        if (!objectExists) {
+          throw new Error(`Object storage verification failed: ${storagePathChunked} does not exist after upload`);
+        }
+        logger.info(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
+        try { fs.unlinkSync(tempCsvPath); } catch {}
+      } else {
+        storagePathChunked = tempCsvPath;
+        logger.info(`[CHUNKED] ${uploadId}: Using local disk storage: ${storagePathChunked}, size: ${verifiedSize} bytes`);
+      }
+
       const queueItem = await db.transaction(async (tx) => {
         await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
         const [queued] = await tx.insert(importJobQueue).values({
           importJobId: job.id,
-          csvFilePath: objectStoragePath,
+          csvFilePath: storagePathChunked,
           totalLines: lineCount,
           processedLines: 0,
           fileSizeBytes: verifiedSize,
@@ -468,9 +481,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         }).returning();
         return queued;
       });
-      logger.info(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued with object storage path`);
-      
-      try { fs.unlinkSync(tempCsvPath); } catch {}
+      logger.info(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued, path: ${storagePathChunked}`);
       
       chunkedUploads.delete(uploadId);
       
