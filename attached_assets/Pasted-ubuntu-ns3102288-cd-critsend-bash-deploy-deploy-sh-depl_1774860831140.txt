@@ -1,0 +1,83 @@
+ubuntu@ns3102288:~$ cd ~/critsend
+bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: fa3ff1d Fix image processing errors for campaign uploads
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 832 packages, and audited 833 packages in 3s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+40 vulnerabilities (8 low, 4 moderate, 27 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (8) src/components/ui/toaster.tsx
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2489 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-BbPL0Yod.css     83.91 kB │ gzip:  13.54 kB
+../dist/public/assets/index-DTLWJoPT.js   1,186.38 kB │ gzip: 319.84 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.74s
+building server...
+
+  dist/index.cjs  1.7mb ⚠️
+
+⚡ Done in 58ms
+building import worker...
+
+  dist/import-worker.cjs  192.9kb
+
+⚡ Done in 21ms
+building background worker...
+
+  dist/worker-main.cjs  609.8kb
+
+⚡ Done in 26ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Pushing database schema changes (drizzle-kit push)...
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/home/ubuntu/critsend/drizzle.config.ts'
+Using 'pg' driver for database querying
+[✓] Pulling schema from database...
+[✓] Changes applied
+[deploy] ✓ Database schema up to date
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-worker](1) ✓
+[PM2] [critsend-web](0) ✓
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ✓ Deploy complete!
+[deploy]   Logs:   pm2 logs critsend-web
+[deploy]   Health: curl http://localhost:5000/api/health
