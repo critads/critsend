@@ -1,0 +1,66 @@
+ubuntu@ns3102288:~/critsend$ pm2 logs critsend-web --lines 50
+[TAILING] Tailing last 50 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-out.log last 50 lines:
+/var/log/critsend/web-err.log last 50 lines:
+0|critsend | 2026-03-30 08:27:13 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:405:2024
+0|critsend | 2026-03-30 08:27:13 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:13 +00:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:463:86307)
+0|critsend | 2026-03-30 08:27:13 +00:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-03-30 08:27:13 +00:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-03-30 08:27:13 +00:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+0|critsend | 2026-03-30 08:27:21 +00:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend | 2026-03-30 08:27:21 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:76:135400
+0|critsend | 2026-03-30 08:27:21 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:21 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:118:142
+0|critsend | 2026-03-30 08:27:21 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:21 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:405:2024
+0|critsend | 2026-03-30 08:27:21 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:21 +00:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:463:86307)
+0|critsend | 2026-03-30 08:27:21 +00:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-03-30 08:27:21 +00:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-03-30 08:27:21 +00:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+0|critsend | 2026-03-30 08:27:29 +00:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend | 2026-03-30 08:27:29 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:76:135400
+0|critsend | 2026-03-30 08:27:29 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:29 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:118:142
+0|critsend | 2026-03-30 08:27:29 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:29 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:405:2024
+0|critsend | 2026-03-30 08:27:29 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:29 +00:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:463:86307)
+0|critsend | 2026-03-30 08:27:29 +00:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-03-30 08:27:29 +00:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-03-30 08:27:29 +00:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+0|critsend | 2026-03-30 08:27:37 +00:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend | 2026-03-30 08:27:37 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:76:135400
+0|critsend | 2026-03-30 08:27:37 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:37 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:118:142
+0|critsend | 2026-03-30 08:27:37 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:37 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:405:2024
+0|critsend | 2026-03-30 08:27:37 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:37 +00:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:463:86307)
+0|critsend | 2026-03-30 08:27:37 +00:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-03-30 08:27:37 +00:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-03-30 08:27:37 +00:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+0|critsend | 2026-03-30 08:27:45 +00:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend | 2026-03-30 08:27:45 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:76:135400
+0|critsend | 2026-03-30 08:27:45 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:45 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:118:142
+0|critsend | 2026-03-30 08:27:45 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:45 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:405:2024
+0|critsend | 2026-03-30 08:27:45 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-03-30 08:27:45 +00:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:463:86307)
+0|critsend | 2026-03-30 08:27:45 +00:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-03-30 08:27:45 +00:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-03-30 08:27:45 +00:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+
+0|critsend-web  | 2026-03-30 08:27:53 +00:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:76:135400
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:118:142
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:405:2024
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:463:86307)
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend-web  | 2026-03-30 08:27:53 +00:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)

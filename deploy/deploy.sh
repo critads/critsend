@@ -59,15 +59,15 @@ ok "Build complete"
 # ─── Step 4: Database schema push ─────────────────────────────────────────────
 step "Pushing database schema changes (drizzle-kit push)..."
 # drizzle.config.ts uses NEON_DATABASE_URL || DATABASE_URL.
-# Source .env with set -a so every variable is exported to child processes.
-# This handles values with spaces, special characters, and quotes safely.
+# We extract the value directly rather than sourcing .env, because shell's
+# `source` misinterprets `&` in URL query strings as a background-job operator.
 if [[ -f ".env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source .env
-    set +a
+    _db_url=$(grep -E "^NEON_DATABASE_URL=" .env | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+    if [[ -n "$_db_url" ]]; then
+        export NEON_DATABASE_URL="$_db_url"
+    fi
 fi
-npx drizzle-kit push --yes
+npx drizzle-kit push
 ok "Database schema up to date"
 
 # ─── Step 5: PM2 reload ───────────────────────────────────────────────────────
@@ -85,7 +85,6 @@ fi
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "[deploy] ✓ Deploy complete!"
-echo "[deploy]   App:    https://yourdomain.com"
-echo "[deploy]   Health: https://yourdomain.com/api/health"
 echo "[deploy]   Logs:   pm2 logs critsend-web"
+echo "[deploy]   Health: curl http://localhost:5000/api/health"
 echo ""

@@ -1,0 +1,30 @@
+ubuntu@ns3102288:~/critsend$ pm2 delete all
+set -a; source .env; set +a
+pm2 start deploy/ecosystem.config.cjs --env production
+pm2 save
+[PM2] Applying action deleteProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [all](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2][WARN] Applications critsend-web, critsend-worker not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 16.9mb   │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 13.9mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+ubuntu@ns3102288:~/critsend$ pm2 status
+curl https://server.critsender.com/api/health
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 269.9mb  │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 120.2mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+{"status":"degraded","timestamp":"2026-03-30T08:32:29.374Z","uptime":5,"database":{"healthy":true,"status":"connected","latencyMs":23,"pool":{"totalCount":1,"idleCount":1,"waitingCount":0}},"redis":{"configured":true,"status":"ok"},"bullmq":{"enabled":false},"memory":{"heapUsedMB":36,"heapTotalMB":63,"rssMB":270},"workers":{"jobProcessor":false,"importProcessor":false,"tagQueueWorker":false,"flushProcessor":false,"maintenanceWorker":false},"queues":{"campaignJobs":0,"importJobs":0,"pendingTags":0},"version":"1.0.0"}ubuntu@ns3102288:~/critsend$ 

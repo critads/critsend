@@ -1,0 +1,42 @@
+ubuntu@ns3102288:~/critsend$ sudo cp ~/critsend/deploy/nginx.conf /etc/nginx/sites-available/critsend
+sudo sed -i 's/yourdomain.com/server.critsender.com/g' /etc/nginx/sites-available/critsend
+sudo ln -sf /etc/nginx/sites-available/critsend /etc/nginx/sites-enabled/critsend
+sudo nginx -t && sudo systemctl reload nginx
+nginx: [emerg] cannot load certificate "/etc/ssl/certs/ssl-cert-snakeoil.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/ssl/certs/ssl-cert-snakeoil.pem, r) error:10000080:BIO routines::no such file)
+nginx: configuration file /etc/nginx/nginx.conf test failed
+ubuntu@ns3102288:~/critsend$ sudo apt-get install -y ssl-cert
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following NEW packages will be installed:
+  ssl-cert
+0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Need to get 17.4 kB of archives.
+After this operation, 65.5 kB of additional disk space will be used.
+Get:1 http://nova.clouds.archive.ubuntu.com/ubuntu jammy/main amd64 ssl-cert all 1.1.2 [17.4 kB]
+Fetched 17.4 kB in 0s (79.4 kB/s)
+Preconfiguring packages ...
+Selecting previously unselected package ssl-cert.
+(Reading database ... 81442 files and directories currently installed.)
+Preparing to unpack .../ssl-cert_1.1.2_all.deb ...
+Unpacking ssl-cert (1.1.2) ...
+Setting up ssl-cert (1.1.2) ...
+Processing triggers for man-db (2.10.2-1) ...
+Scanning processes...                                                           
+Scanning processor microcode...                                                 
+Scanning linux images...                                                        
+
+Running kernel seems to be up-to-date.
+
+The processor microcode seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+ubuntu@ns3102288:~/critsend$ sudo nginx -t && sudo systemctl reload nginx
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
