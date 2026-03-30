@@ -1,9 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as https from "https";
-import * as http from "http";
 import * as dns from "dns";
 import { promisify } from "util";
+import { Readable } from "stream";
 import sanitizeHtml from "sanitize-html";
 import { logger } from "./logger";
 
@@ -80,144 +79,114 @@ export async function downloadImage(url: string, destPath: string, redirectCount
     logger.info(`[Image download] Failed: ${url} - too many redirects`);
     return false;
   }
-  
-  let urlObj: URL;
-  let resolvedIP: string;
-  
+
   try {
-    urlObj = new URL(url);
-    
+    const urlObj = new URL(url);
+
     if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
       logger.info(`[Image download] Failed: ${url} - invalid protocol`);
       return false;
     }
-    
+
     if (isBlockedHost(urlObj.hostname)) {
       logger.info(`[Image download] Failed: ${url} - blocked host`);
       return false;
     }
-    
+
     const result = await dnsLookup(urlObj.hostname);
-    resolvedIP = result.address;
-    
-    if (isBlockedIP(resolvedIP)) {
-      logger.info(`[Image download] Failed: ${url} - blocked IP ${resolvedIP}`);
+    if (isBlockedIP(result.address)) {
+      logger.info(`[Image download] Failed: ${url} - blocked IP ${result.address}`);
       return false;
     }
   } catch (error) {
     logger.info(`[Image download] Failed: ${url} - DNS/URL error: ${error}`);
     return false;
   }
-  
-  return new Promise((resolve) => {
-    const protocol = url.startsWith("https") ? https : http;
-    const timeout = 15000;
-    const maxSize = 10 * 1024 * 1024;
-    
-    const safetyLookup = (hostname: string, options: any, callback: any) => {
-      if (typeof options === 'function') {
-        callback = options;
-        options = {};
-      }
-      if (options && options.all) {
-        callback(null, [{ address: resolvedIP, family: 4 }]);
-      } else {
-        callback(null, resolvedIP, 4);
-      }
-    };
-    
-    const requestOptions: https.RequestOptions = {
-      hostname: urlObj.hostname,
-      port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
-      path: urlObj.pathname + urlObj.search,
+
+  const maxSize = 10 * 1024 * 1024;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+    logger.info(`[Image download] Failed: ${url} - timeout`);
+  }, 15000);
+
+  try {
+    const response = await fetch(url, {
       method: "GET",
-      timeout,
-      lookup: safetyLookup as any,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)",
-      },
-      ...(urlObj.protocol === "https:" ? { servername: urlObj.hostname } : {}),
-    };
-    
-    const request = protocol.get(requestOptions, (response) => {
-      const socket = response.socket as any;
-      if (socket && socket.remoteAddress && isBlockedIP(socket.remoteAddress)) {
-        request.destroy();
-        resolve(false);
-        return;
+      signal: controller.signal,
+      redirect: "manual",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)" },
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return false;
+      try {
+        const redirectObj = new URL(location, url);
+        if (redirectObj.protocol !== "http:" && redirectObj.protocol !== "https:") return false;
+        if (isBlockedHost(redirectObj.hostname)) return false;
+        return downloadImage(redirectObj.href, destPath, redirectCount + 1);
+      } catch {
+        return false;
       }
-      
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        const redirectUrl = response.headers.location;
-        if (redirectUrl) {
-          try {
-            const redirectObj = new URL(redirectUrl, url);
-            if (redirectObj.protocol !== "http:" && redirectObj.protocol !== "https:") {
-              resolve(false);
-              return;
-            }
-            if (isBlockedHost(redirectObj.hostname)) {
-              resolve(false);
-              return;
-            }
-            downloadImage(redirectObj.href, destPath, redirectCount + 1).then(resolve);
-            return;
-          } catch {
-            resolve(false);
-            return;
-          }
-        }
-      }
-      
-      if (response.statusCode !== 200) {
-        logger.info(`[Image download] Failed: ${url} - HTTP ${response.statusCode}`);
-        resolve(false);
-        return;
-      }
-      
-      const contentLength = parseInt(response.headers["content-length"] || "0", 10);
-      if (contentLength > maxSize) {
-        resolve(false);
-        return;
-      }
-      
-      let downloadedSize = 0;
-      const fileStream = fs.createWriteStream(destPath);
-      
-      response.on("data", (chunk: Buffer) => {
+    }
+
+    if (response.status !== 200) {
+      logger.info(`[Image download] Failed: ${url} - HTTP ${response.status}`);
+      return false;
+    }
+
+    const contentLength = parseInt(response.headers.get("content-length") || "0", 10);
+    if (contentLength > maxSize) {
+      logger.info(`[Image download] Failed: ${url} - content-length exceeds 10MB`);
+      return false;
+    }
+
+    if (!response.body) return false;
+
+    const nodeStream = Readable.fromWeb(response.body as any);
+    const fileStream = fs.createWriteStream(destPath);
+    let downloadedSize = 0;
+
+    return new Promise((resolve) => {
+      nodeStream.on("data", (chunk: Buffer) => {
         downloadedSize += chunk.length;
         if (downloadedSize > maxSize) {
-          request.destroy();
-          fileStream.close();
+          nodeStream.destroy();
+          fileStream.destroy();
           fs.unlink(destPath, () => {});
           resolve(false);
         }
       });
-      
-      response.pipe(fileStream);
-      
-      fileStream.on("finish", () => {
-        fileStream.close();
-        resolve(true);
+
+      nodeStream.pipe(fileStream);
+
+      fileStream.on("finish", () => resolve(true));
+
+      fileStream.on("error", (err) => {
+        logger.info(`[Image download] Failed: ${url} - write error: ${err.message}`);
+        fs.unlink(destPath, () => {});
+        resolve(false);
       });
-      
-      fileStream.on("error", () => {
+
+      nodeStream.on("error", (err) => {
+        logger.info(`[Image download] Failed: ${url} - stream error: ${err.message}`);
+        fileStream.destroy();
         fs.unlink(destPath, () => {});
         resolve(false);
       });
     });
-    
-    request.on("error", (err) => {
-      logger.info(`[Image download] Failed: ${url} - network error: ${err.message}`);
-      resolve(false);
-    });
-    
-    request.on("timeout", () => {
-      logger.info(`[Image download] Failed: ${url} - timeout`);
-      request.destroy();
-      resolve(false);
-    });
-  });
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      logger.info(`[Image download] Failed: ${url} - request timed out`);
+    } else {
+      logger.info(`[Image download] Failed: ${url} - fetch error: ${error?.message}`);
+    }
+    fs.unlink(destPath, () => {});
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function getExtensionFromUrl(url: string): string {
