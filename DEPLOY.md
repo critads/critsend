@@ -163,8 +163,9 @@ bash deploy/deploy.sh
 This runs:
 1. `git pull` — get latest code
 2. `npm ci` — install dependencies
-3. `npx drizzle-kit push` — apply schema changes
-4. `pm2 start deploy/ecosystem.config.cjs --env production` — start processes
+3. `npm run build` — build Vite frontend + server bundles
+4. `npx drizzle-kit push` — apply schema changes
+5. `pm2 start deploy/ecosystem.config.cjs --env production` — start processes
 
 Save the PM2 process list so it survives reboots:
 

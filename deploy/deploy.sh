@@ -2,10 +2,11 @@
 # deploy/deploy.sh — Critsend deploy script
 #
 # Runs the full update sequence on the server:
-#   1. Pull latest code from git
-#   2. Install/update npm dependencies
-#   3. Push any pending database schema changes
-#   4. Reload PM2 processes (zero-downtime)
+#   1. git pull    — pull latest code
+#   2. npm ci      — install/update dependencies
+#   3. npm run build — build Vite frontend + esbuild server bundles
+#   4. drizzle-kit push — apply pending schema changes
+#   5. pm2 reload  — zero-downtime process reload
 #
 # Usage (on the server, from the repo root):
 #   bash deploy/deploy.sh
@@ -50,13 +51,16 @@ step "Installing dependencies (npm ci)..."
 npm ci --prefer-offline
 ok "Dependencies installed"
 
-# ─── Step 3: Database schema push ─────────────────────────────────────────────
+# ─── Step 3: Build ────────────────────────────────────────────────────────────
+step "Building frontend and server bundles (npm run build)..."
+npm run build
+ok "Build complete"
+
+# ─── Step 4: Database schema push ─────────────────────────────────────────────
 step "Pushing database schema changes (drizzle-kit push)..."
 # drizzle.config.ts uses NEON_DATABASE_URL || DATABASE_URL
-# Load .env if dotenv-cli is not available so the var is set
-if command -v dotenv &>/dev/null; then
-    dotenv -e .env -- npx drizzle-kit push --yes
-elif [[ -f ".env" ]]; then
+# Source .env so the variable is available to drizzle-kit
+if [[ -f ".env" ]]; then
     # shellcheck disable=SC2046
     env $(grep -v '^#' .env | grep -v '^[[:space:]]*$' | xargs) npx drizzle-kit push --yes
 else
@@ -64,7 +68,7 @@ else
 fi
 ok "Database schema up to date"
 
-# ─── Step 4: PM2 reload ───────────────────────────────────────────────────────
+# ─── Step 5: PM2 reload ───────────────────────────────────────────────────────
 step "Reloading PM2 processes (zero-downtime)..."
 if pm2 list | grep -q "critsend-web"; then
     pm2 reload deploy/ecosystem.config.cjs --env production
