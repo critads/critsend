@@ -1,9 +1,11 @@
 /**
  * PM2 Ecosystem Config — Critsend
  *
- * Starts two isolated processes:
- *   critsend-web    — HTTP server, SSE, API  (PROCESS_TYPE=web)
- *   critsend-worker — Background job engine  (PROCESS_TYPE=worker)
+ * Starts two isolated processes from compiled production artifacts (dist/):
+ *   critsend-web    — HTTP server, SSE, API        (dist/index.cjs)
+ *   critsend-worker — Background job engine         (dist/worker-main.cjs)
+ *
+ * Prerequisites: run `npm run build` before starting PM2 (deploy.sh does this).
  *
  * Usage:
  *   pm2 start deploy/ecosystem.config.cjs --env production
@@ -21,8 +23,7 @@ module.exports = {
   apps: [
     {
       name: "critsend-web",
-      script: "node_modules/.bin/tsx",
-      args: "server/index.ts",
+      script: "dist/index.cjs",
 
       // Load secrets and runtime config from the .env file at the repo root
       env_file: ".env",
@@ -50,8 +51,7 @@ module.exports = {
     },
     {
       name: "critsend-worker",
-      script: "node_modules/.bin/tsx",
-      args: "server/worker-main.ts",
+      script: "dist/worker-main.cjs",
 
       // Load secrets and runtime config from the .env file at the repo root
       env_file: ".env",

@@ -119,7 +119,7 @@ STORAGE_BACKEND=local
 
 ## 6. Configure Nginx
 
-The Nginx config ships as HTTP-only — this ensures `nginx -t` passes without errors on a fresh server (before any SSL certs exist). Certbot will add the HTTPS block automatically in the next step.
+The config ships with Ubuntu's built-in snakeoil certificate as a bootstrap placeholder for the HTTPS block. This means `nginx -t` passes immediately — even before you have a real TLS cert. Certbot replaces the snakeoil paths with real Let's Encrypt paths in the next step.
 
 ```bash
 # Copy and customize the Nginx config
@@ -132,11 +132,11 @@ sudo sed -i 's/yourdomain.com/YOUR_ACTUAL_DOMAIN/g' /etc/nginx/sites-available/c
 sudo ln -sf /etc/nginx/sites-available/critsend /etc/nginx/sites-enabled/critsend
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Test and reload (HTTP-only at this point — no cert needed)
+# Test config and reload (passes right away — snakeoil cert is already on Ubuntu 22.04)
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-Your app is now accessible over HTTP. Continue to step 7 to add SSL.
+The app is now proxied on both port 80 and port 443 (with a browser security warning until you get a real cert). Continue to step 7 to replace the snakeoil cert with Let's Encrypt.
 
 ---
 
@@ -149,11 +149,11 @@ sudo certbot --nginx -d yourdomain.com
 ```
 
 Certbot will:
-1. Complete the ACME challenge over HTTP
-2. Rewrite `/etc/nginx/sites-available/critsend` to add the HTTPS server block and 301 redirect
+1. Complete the ACME challenge over HTTP (port 80)
+2. Rewrite `/etc/nginx/sites-available/critsend` — replacing the snakeoil paths with the real Let's Encrypt cert paths
 3. Set up auto-renewal via a systemd timer
 
-Reload Nginx to apply the new config:
+Reload Nginx to apply the updated config:
 
 ```bash
 sudo systemctl reload nginx
