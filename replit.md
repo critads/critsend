@@ -50,6 +50,19 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 - **Process Separation (Phase 5):** `server/dev-launcher.ts` spawns two isolated processes — the web server (`PROCESS_TYPE=web`, pool max=20) and the worker (`PROCESS_TYPE=worker`, pool max=8). `server/worker-main.ts` is the worker entry point. `server/connection-budget.ts` applies PROCESS_TYPE-aware pool sizing. A `HEADROOM_RESERVE=12` constant ensures the monolith fallback pool is capped at 33 (total 38/50), leaving 12 connections of headroom to prevent cascade timeouts under load. The "Start application" workflow runs `tsx server/dev-launcher.ts`.
 - **Nullsink SMTP Testing:** An internal SMTP server allows for testing campaigns without sending real emails.
 
+## Self-Hosted Deployment
+
+The `deploy/` directory contains all files needed to run Critsend on a dedicated Linux server:
+- **`deploy/ecosystem.config.cjs`** — PM2 config that starts `critsend-web` (PROCESS_TYPE=web) and `critsend-worker` (PROCESS_TYPE=worker) using `node_modules/.bin/tsx`.
+- **`deploy/nginx.conf`** — Nginx reverse proxy: HTTP→HTTPS redirect, proxy to port 5000, SSE/WebSocket headers, gzip, 1.1 GB upload limit.
+- **`deploy/setup.sh`** — Idempotent bootstrap: installs nvm, Node.js 20, PM2, Nginx, Certbot on Ubuntu 22.04.
+- **`deploy/deploy.sh`** — Everyday deploy sequence: `git pull → npm ci → drizzle-kit push → pm2 reload`.
+- **`deploy/github-actions-deploy.yml`** — GitHub Actions workflow to auto-deploy on push to `main` via SSH. Requires `SSH_HOST`, `SSH_USER`, `SSH_KEY` secrets.
+- **`DEPLOY.md`** — Full step-by-step migration guide covering VPS provisioning, first deploy, and troubleshooting.
+- **`.env.example`** — Documents all 31 env vars with [REQUIRED]/[OPTIONAL] labels and defaults.
+
+The development workflow remains on Replit: edit → commit → `git push` → server auto-deploys via GitHub Actions.
+
 ## External Dependencies
 
 - **PostgreSQL (Neon):** Primary database, hosted on Neon Launch plan, configured for SSL. Managed connection pooling and resilience.
@@ -59,4 +72,4 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 - **`bcrypt`:** For secure password hashing.
 - **`helmet`:** For HTTP security headers.
 - **`prom-client`:** Prometheus metrics client for Node.js.
-- **Replit App Storage:** Utilized for persistent object storage of CSV files.
+- **Replit App Storage:** Utilized for persistent object storage of CSV files (when `STORAGE_BACKEND=replit`; default is local disk).
