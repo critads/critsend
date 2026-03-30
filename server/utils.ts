@@ -136,7 +136,7 @@ export async function downloadImage(url: string, destPath: string, redirectCount
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)",
       },
-      servername: urlObj.hostname,
+      ...(urlObj.protocol === "https:" ? { servername: urlObj.hostname } : {}),
     };
     
     const request = protocol.get(requestOptions, (response) => {
