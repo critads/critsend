@@ -174,6 +174,16 @@ export function registerCampaignRoutes(app: Express, helpers: {
       } else {
         fs.mkdirSync(campaignImagesDir, { recursive: true });
       }
+
+      // Resolve image hosting domain from the campaign's attached MTA
+      let imageHostingDomain: string | null = null;
+      const campaign = await storage.getCampaign(campaignId);
+      if (campaign?.mtaId) {
+        const mta = await storage.getMta(campaign.mtaId);
+        if (mta?.imageHostingDomain) {
+          imageHostingDomain = mta.imageHostingDomain.replace(/\/$/, "");
+        }
+      }
       
       const $ = cheerio.load(html);
       const imgElements = $("img");
@@ -195,7 +205,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
         const ext = getExtensionFromUrl(task.src);
         const filename = `img_${task.currentIndex}.${ext}`;
         const destPath = path.join(campaignImagesDir, filename);
-        const localUrl = `/images/${campaignId}/${filename}`;
+        const relativePath = `/images/${campaignId}/${filename}`;
+        const localUrl = imageHostingDomain
+          ? `${imageHostingDomain}${relativePath}`
+          : relativePath;
         const success = await downloadImage(task.src, destPath);
         if (success) {
           $(task.el).attr("src", localUrl);
