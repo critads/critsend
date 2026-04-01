@@ -172,9 +172,19 @@ export default function Headers() {
             <Link2 className="h-4 w-4 mr-1.5" />
             Unsubscribe
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setFormData((prev) => ({ ...prev, value: "{DATE+7}" }))}
+            data-testid="button-insert-date7"
+          >
+            Date +7d
+          </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Use <code className="px-1 py-0.5 rounded bg-muted font-mono">{"{UNSUBSCRIBE}"}</code> to auto-insert the campaign unsubscribe link
+          Use <code className="px-1 py-0.5 rounded bg-muted font-mono">{"{UNSUBSCRIBE}"}</code> for the unsubscribe link,{" "}
+          <code className="px-1 py-0.5 rounded bg-muted font-mono">{"{DATE+7}"}</code> for send date +7 days (e.g. <em>Wed, 8 Apr 2026 05:28:25 +0000</em>)
         </p>
       </div>
       <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">

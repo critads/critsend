@@ -9,6 +9,18 @@ import {
 import { getNullsinkServer } from "./nullsink-smtp";
 import { logger } from "./logger";
 
+/**
+ * Returns the current date + `days` in RFC 2822 format.
+ * Example: "Wed, 8 Apr 2026 05:28:25 +0000"
+ */
+function rfc2822DatePlusDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  // toUTCString() → "Wed, 08 Apr 2026 05:28:25 GMT"
+  // Normalise: strip leading zero from day, replace "GMT" with "+0000"
+  return d.toUTCString().replace(/ 0(\d) /, " $1 ").replace("GMT", "+0000");
+}
+
 const transporterPool: Map<string, Transporter> = new Map();
 
 let nullsinkPooledTransporter: Transporter | null = null;
@@ -278,17 +290,19 @@ export async function sendEmail(
     mailOptions.headers["X-Click-Tag"] = campaign.clickTag;
   }
   
-  // Apply custom headers with {UNSUBSCRIBE} placeholder replacement
+  // Apply custom headers with placeholder replacement
   if (customHeaders) {
     const unsubscribeUrl = baseUrl ? generateSignedUnsubscribeUrl(
       baseUrl,
       campaign.id,
       subscriber.id
     ) : "";
+    const date7 = rfc2822DatePlusDays(7);
     
     for (const [headerName, headerValue] of Object.entries(customHeaders)) {
-      // Replace {UNSUBSCRIBE} placeholder with actual unsubscribe URL
-      const resolvedValue = headerValue.replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl);
+      const resolvedValue = headerValue
+        .replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl)
+        .replace(/\{DATE\+7\}/gi, date7);
       mailOptions.headers[headerName] = resolvedValue;
     }
   }
@@ -452,16 +466,19 @@ export async function sendEmailWithNullsink(
     "X-Subscriber-ID": subscriber.id,
   };
   
-  // Apply custom headers with {UNSUBSCRIBE} placeholder replacement
+  // Apply custom headers with placeholder replacement
   if (customHeaders) {
     const unsubscribeUrl = baseUrl ? generateSignedUnsubscribeUrl(
       baseUrl,
       campaign.id,
       subscriber.id
     ) : "";
+    const date7 = rfc2822DatePlusDays(7);
     
     for (const [headerName, headerValue] of Object.entries(customHeaders)) {
-      const resolvedValue = headerValue.replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl);
+      const resolvedValue = headerValue
+        .replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl)
+        .replace(/\{DATE\+7\}/gi, date7);
       headers[headerName] = resolvedValue;
     }
   }
