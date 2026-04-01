@@ -221,7 +221,20 @@ export function registerCampaignRoutes(app: Express, helpers: {
           failedImages.push(task.src);
         }
       });
-      
+
+      // Normalize any protocol-less image hosting domain URLs left in the HTML
+      // (e.g. from campaigns processed before the https:// fix was applied).
+      // These are already on disk — no re-download needed, just prepend https://.
+      if (imageHostingDomain) {
+        const rawDomain = imageHostingDomain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+        $("img").each((_, el) => {
+          const src = $(el).attr("src");
+          if (src && src.startsWith(rawDomain + "/")) {
+            $(el).attr("src", `https://${src}`);
+          }
+        });
+      }
+
       const processedHtml = $.html();
       
       res.json({
