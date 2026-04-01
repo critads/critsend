@@ -46,8 +46,6 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
       
       const headers: Record<string, string> = {
-        "X-Campaign-ID": "test-campaign",
-        "X-Subscriber-ID": "test-subscriber",
         "X-Test-Email": "true",
       };
       

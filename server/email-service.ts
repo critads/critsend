@@ -335,8 +335,6 @@ export async function sendEmail(
     mailOptions.html = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${campaign.preheader}</span>` + mailOptions.html;
   }
 
-  mailOptions.headers["X-Campaign-ID"] = campaign.id;
-  mailOptions.headers["X-Subscriber-ID"] = subscriber.id;
   if (campaign.openTag) {
     mailOptions.headers["X-Open-Tag"] = campaign.openTag;
   }
@@ -527,10 +525,7 @@ export async function sendEmailWithNullsink(
 
   const nullsinkTransporter = getNullsinkTransporter();
 
-  const headers: Record<string, string> = {
-    "X-Campaign-ID": campaign.id,
-    "X-Subscriber-ID": subscriber.id,
-  };
+  const headers: Record<string, string> = {};
   
   // Apply custom headers with placeholder replacement
   if (customHeaders) {
