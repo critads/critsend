@@ -34,7 +34,7 @@ export default function AuthPage() {
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
       toast({ title: "Welcome back", description: `Signed in as ${data.user.username}` });
       setLocation("/");
     } catch (error: any) {

@@ -1,0 +1,247 @@
+ubuntu@ns3102288:~$ # Show current live nginx config (certbot may have modified it)
+cat /etc/nginx/sites-available/critsend
+
+# Follow ALL redirects to see where the loop actually is
+curl -L -I https://critsender.rndamailing.com/ 2>&1 | head -40
+# Nginx configuration for Critsend
+#
+# SETUP INSTRUCTIONS (run in order):
+#   1. Copy and customize this file:
+#        sudo cp /home/ubuntu/critsend/deploy/nginx.conf /etc/nginx/sites-available/critsend
+#        sudo sed -i 's/server.critsender.com/YOUR_ACTUAL_DOMAIN/g' /etc/nginx/sites-available/critsend
+#   2. Enable the site:
+#        sudo ln -sf /etc/nginx/sites-available/critsend /etc/nginx/sites-enabled/critsend
+#        sudo rm -f /etc/nginx/sites-enabled/default
+#   3. Test config — passes immediately (uses Ubuntu's built-in snakeoil cert as placeholder):
+#        sudo nginx -t && sudo systemctl reload nginx
+#   4. Obtain a real SSL cert — certbot replaces the snakeoil paths automatically:
+#        sudo certbot --nginx -d server.critsender.com
+#   5. Reload Nginx with final config:
+#        sudo systemctl reload nginx
+
+# ─── Upstream ────────────────────────────────────────────────────────────────
+upstream critsend_app {
+    server 127.0.0.1:5000;
+    keepalive 32;
+}
+
+# ─── WebSocket upgrade map ────────────────────────────────────────────────────
+# Must live in the http {} block. If /etc/nginx/nginx.conf already defines a
+# $connection_upgrade map, remove this block to avoid duplicate-map errors.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+# ─── HTTP → HTTPS redirect ───────────────────────────────────────────────────
+server {
+    if ($host = server.critsender.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+    server_name server.critsender.com www.server.critsender.com critsender.rndaserver.com www.critsender.rndaserver.com critsender.mahlesoldes.com www.critsender.mahlesoldes.com critsender.mayesale.com www.critsender.mayesale.com critsender.rndamailing.com www.critsender.rndamailing.com critsender.mayasoldes.com www.critsender.mayasoldes.com critsender.verysent.com www.critsender.verysent.com;
+
+    # Let's Encrypt ACME challenge — certbot needs this during cert issuance
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+
+
+
+    listen [::]:443 ssl ipv6only=on; # managed by Certbot
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/server.critsender.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/server.critsender.com/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+
+
+
+
+
+
+
+
+
+
+}
+
+# ─── HTTPS ───────────────────────────────────────────────────────────────────
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name server.critsender.com www.server.critsender.com;
+
+    # SSL certificate paths.
+    # Bootstrap placeholder: Ubuntu's built-in snakeoil cert lets nginx -t pass
+    # immediately before running certbot. Run certbot --nginx to replace these
+    # with real Let's Encrypt paths automatically.
+    ssl_certificate /etc/letsencrypt/live/server.critsender.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/server.critsender.com/privkey.pem; # managed by Certbot
+
+    # Modern SSL settings (certbot may update these too)
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # ─── Gzip ─────────────────────────────────────────────────────────────────
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+    gzip_min_length 256;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/json
+        application/xml
+        image/svg+xml
+        font/woff
+        font/woff2;
+
+    # ─── Client upload limit (CSV imports up to 1 GB) ─────────────────────────
+    client_max_body_size 1100m;
+    client_body_timeout 600s;
+
+    # ─── SSE endpoint — disable buffering so events stream in real-time ───────
+    location ~ ^/api/jobs/stream {
+        proxy_pass http://critsend_app;
+        proxy_http_version 1.1;
+
+        # SSE requires streaming — no buffering
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        add_header X-Accel-Buffering no;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ─── Main proxy ───────────────────────────────────────────────────────────
+    location / {
+        proxy_pass http://critsend_app;
+        proxy_http_version 1.1;
+
+        # $connection_upgrade resolves to "upgrade" when an Upgrade header is
+        # present (WebSocket), or "" (empty = keepalive) for regular requests.
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeout for long-running requests (import, campaign send)
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_connect_timeout 10s;
+    }
+
+
+}
+
+server {
+    if ($host = critsender.mayesale.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.mahlesoldes.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.verysent.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.mayasoldes.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.rndamailing.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = server.critsender.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+
+
+    listen 80;
+    listen [::]:80;
+    server_name server.critsender.com www.server.critsender.com critsender.rndaserver.com www.critsender.rndaserver.com critsender.mahlesoldes.com www.critsender.mahlesoldes.com critsender.mayesale.com www.critsender.mayesale.com critsender.rndamailing.com www.critsender.rndamailing.com critsender.mayasoldes.com www.critsender.mayasoldes.com critsender.verysent.com www.critsender.verysent.com;
+    return 404; # managed by Certbot
+
+
+
+
+
+
+
+
+
+
+
+
+}  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0   178    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+HTTP/2 301 
+server: nginx/1.18.0 (Ubuntu)
+date: Wed, 01 Apr 2026 05:20:33 GMT
+content-type: text/html
+content-length: 178
+location: https://critsender.rndamailing.com/
+
+HTTP/2 301 
+server: nginx/1.18.0 (Ubuntu)
+date: Wed, 01 Apr 2026 05:20:33 GMT
+content-type: text/html
+content-length: 178
+location: https://critsender.rndamailing.com/
