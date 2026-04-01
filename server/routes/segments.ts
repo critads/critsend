@@ -34,7 +34,9 @@ export function registerSegmentRoutes(app: Express, helpers: {
       const counts: Record<string, number> = {};
       const { mapWithConcurrency } = await import("../utils");
       await mapWithConcurrency(segmentsList, 3, async (segment) => {
-        counts[segment.id] = await storage.getSegmentSubscriberCountCached(segment.id);
+        // Always use a live count — the in-memory cache is per-process and becomes
+        // stale when subscribers are imported by the worker process.
+        counts[segment.id] = await storage.countSubscribersForSegment(segment.id);
       });
       res.json(counts);
     } catch (error) {
