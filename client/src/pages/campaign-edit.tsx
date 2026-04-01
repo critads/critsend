@@ -35,6 +35,7 @@ import {
   X,
   AlertCircle,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 
@@ -761,17 +762,37 @@ export default function CampaignEdit() {
                         Code
                       </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearHtml}
-                      className="text-destructive"
-                      data-testid="button-clear-html"
-                    >
-                      <X className="h-4 w-4 mr-1" />
-                      Clear
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          const processed = await processHtmlImages(formData.htmlContent, formData.mtaId || undefined);
+                          updateField("htmlContent", processed);
+                        }}
+                        disabled={processingImages}
+                        data-testid="button-reprocess-images"
+                      >
+                        {processingImages ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                        )}
+                        Re-process images
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearHtml}
+                        className="text-destructive"
+                        data-testid="button-clear-html"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Clear
+                      </Button>
+                    </div>
                   </div>
                   {showPreview ? (
                     <div className="border rounded-md bg-white overflow-hidden">
