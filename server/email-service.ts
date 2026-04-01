@@ -223,6 +223,52 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Ensures a tracking domain always has an https:// scheme.
+ * Accepts "example.com", "https://example.com/", or empty/null.
+ */
+function normalizeBaseUrl(domain: string | null | undefined): string {
+  const url = (domain || "").replace(/\/$/, "");
+  if (!url) return "";
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+}
+
+/**
+ * Builds the HTML footer block containing the unsubscribe link and company address.
+ * Returns an empty string when no content is available.
+ */
+function buildEmailFooter(options: {
+  unsubscribeText?: string | null;
+  companyAddress?: string | null;
+  unsubscribeUrl?: string;
+}): string {
+  const parts: string[] = [];
+  if (options.unsubscribeUrl && options.unsubscribeText) {
+    parts.push(
+      `<a href="${options.unsubscribeUrl}" style="color:#666;text-decoration:underline;">${options.unsubscribeText}</a>`
+    );
+  }
+  if (options.companyAddress) {
+    parts.push(`<span style="color:#888;">${options.companyAddress}</span>`);
+  }
+  if (parts.length === 0) return "";
+  return (
+    `\n<div style="margin-top:30px;padding-top:20px;border-top:1px solid #eee;` +
+    `text-align:center;font-size:12px;color:#666;">` +
+    parts.join(" | ") +
+    `</div>`
+  );
+}
+
+/** Appends a footer block just before </body>, or at the end if no </body> tag. */
+function appendFooterToHtml(html: string, footer: string): string {
+  if (!footer) return html;
+  if (html.includes("</body>")) {
+    return html.replace("</body>", footer + "</body>");
+  }
+  return html + footer;
+}
+
 export interface SendEmailResult {
   success: boolean;
   messageId?: string;
@@ -244,17 +290,15 @@ export async function sendEmail(
   // Rewrite local image URLs to use the MTA's image hosting domain
   htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain);
   
-  // Add signed unsubscribe URL placeholder replacement
-  const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
-  if (baseUrl && htmlContent.includes("{{unsubscribe_url}}")) {
-    const unsubscribeUrl = generateSignedUnsubscribeUrl(
-      baseUrl,
-      campaign.id,
-      subscriber.id
-    );
+  // Resolve unsubscribe URL and replace placeholder in HTML body
+  const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
+  const unsubscribeUrl = baseUrl
+    ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id)
+    : "";
+  if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
     htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
   }
-  
+
   htmlContent = addTrackingToHtml(htmlContent, {
     campaignId: campaign.id,
     subscriberId: subscriber.id,
@@ -265,6 +309,16 @@ export async function sendEmail(
     openTag: trackingOptions.openTag,
     clickTag: trackingOptions.clickTag,
   });
+
+  // Append footer (unsubscribe link + company address) after tracking
+  htmlContent = appendFooterToHtml(
+    htmlContent,
+    buildEmailFooter({
+      unsubscribeText: campaign.unsubscribeText,
+      companyAddress: campaign.companyAddress,
+      unsubscribeUrl: unsubscribeUrl || undefined,
+    })
+  );
 
   const subject = personalizeContent(campaign.subject, subscriber);
 
@@ -440,12 +494,14 @@ export async function sendEmailWithNullsink(
   
   // Rewrite local image URLs to use the MTA's image hosting domain
   htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain);
-  const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
-  if (baseUrl && htmlContent.includes("{{unsubscribe_url}}")) {
-    const unsubscribeUrl = generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id);
+  const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
+  const unsubscribeUrl = baseUrl
+    ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id)
+    : "";
+  if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
     htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
   }
-  
+
   htmlContent = addTrackingToHtml(htmlContent, {
     campaignId: campaign.id,
     subscriberId: subscriber.id,
@@ -456,6 +512,16 @@ export async function sendEmailWithNullsink(
     openTag: trackingOptions.openTag,
     clickTag: trackingOptions.clickTag,
   });
+
+  // Append footer after tracking
+  htmlContent = appendFooterToHtml(
+    htmlContent,
+    buildEmailFooter({
+      unsubscribeText: campaign.unsubscribeText,
+      companyAddress: campaign.companyAddress,
+      unsubscribeUrl: unsubscribeUrl || undefined,
+    })
+  );
 
   const subject = personalizeContent(campaign.subject, subscriber);
 
@@ -468,11 +534,6 @@ export async function sendEmailWithNullsink(
   
   // Apply custom headers with placeholder replacement
   if (customHeaders) {
-    const unsubscribeUrl = baseUrl ? generateSignedUnsubscribeUrl(
-      baseUrl,
-      campaign.id,
-      subscriber.id
-    ) : "";
     const date7 = rfc2822DatePlusDays(7);
     
     for (const [headerName, headerValue] of Object.entries(customHeaders)) {
@@ -605,7 +666,21 @@ export async function sendTestEmailViaSMTP(
   if (imageHostingDomain) {
     htmlContent = rewriteImageUrls(htmlContent, imageHostingDomain);
   }
-  
+
+  // Append footer preview (uses a placeholder URL since this is a test send)
+  const testBaseUrl = normalizeBaseUrl(options.trackingDomain);
+  const testUnsubscribeUrl = testBaseUrl
+    ? `${testBaseUrl}/api/unsubscribe/test/test`
+    : "";
+  htmlContent = appendFooterToHtml(
+    htmlContent,
+    buildEmailFooter({
+      unsubscribeText: options.unsubscribeText,
+      companyAddress: options.companyAddress,
+      unsubscribeUrl: testUnsubscribeUrl || undefined,
+    })
+  );
+
   // Build mail options
   const mailOptions: nodemailer.SendMailOptions = {
     from: `${options.fromName} <${options.fromEmail}>`,
@@ -681,7 +756,7 @@ export function sendEmailBatchNullsink(
   precomputedBaseHtml?: string
 ): BatchNullsinkResult[] {
   const failureRate = (mta as any).failureRate || 0;
-  const baseUrl = (trackingOptions.trackingDomain || "").replace(/\/$/, "");
+  const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
 
   const baseHtml = precomputedBaseHtml ?? precomputeBaseHtml(campaign, mta);
 
@@ -700,8 +775,10 @@ export function sendEmailBatchNullsink(
 
       let htmlContent = personalizeContent(baseHtml, subscriber);
 
-      if (baseUrl && htmlContent.includes("{{unsubscribe_url}}")) {
-        const unsubscribeUrl = generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id);
+      const unsubscribeUrl = baseUrl
+        ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id)
+        : "";
+      if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
         htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
       }
 
@@ -715,6 +792,16 @@ export function sendEmailBatchNullsink(
         openTag: trackingOptions.openTag,
         clickTag: trackingOptions.clickTag,
       });
+
+      // Append footer (unsubscribe link + company address) after tracking
+      htmlContent = appendFooterToHtml(
+        htmlContent,
+        buildEmailFooter({
+          unsubscribeText: campaign.unsubscribeText,
+          companyAddress: campaign.companyAddress,
+          unsubscribeUrl: unsubscribeUrl || undefined,
+        })
+      );
 
       const subject = personalizeContent(campaign.subject, subscriber);
       const messageSize = Buffer.byteLength(htmlContent, 'utf8');

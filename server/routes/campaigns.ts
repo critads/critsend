@@ -52,9 +52,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
       };
       
       const defaultHeaders = await storage.getDefaultHeaders();
-      const trackingDomain = mta?.trackingDomain || undefined;
-      const testUnsubscribeUrl = trackingDomain 
-        ? `${trackingDomain.replace(/\/$/, "")}/api/unsubscribe/test-campaign/test-subscriber`
+      const rawTrackingDomain = mta?.trackingDomain || "";
+      const normalizedDomain = rawTrackingDomain
+        ? (/^https?:\/\//i.test(rawTrackingDomain) ? rawTrackingDomain : `https://${rawTrackingDomain}`).replace(/\/$/, "")
+        : "";
+      const testUnsubscribeUrl = normalizedDomain
+        ? `${normalizedDomain}/api/unsubscribe/test-campaign/test-subscriber`
         : "#unsubscribe-placeholder";
       
       for (const header of defaultHeaders) {
