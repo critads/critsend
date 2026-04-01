@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,6 +79,7 @@ function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; 
 
 export default function Campaigns() {
   useJobStream();
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -170,13 +171,17 @@ export default function Campaigns() {
   };
 
   const copyMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/campaigns/${id}/copy`),
-    onSuccess: () => {
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/copy`);
+      return res.json() as Promise<Campaign>;
+    },
+    onSuccess: (newCampaign) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       toast({
         title: "Campaign copied",
-        description: "A copy of the campaign has been created.",
+        description: "Redirecting you to edit the copy now.",
       });
+      navigate(`/campaigns/${newCampaign.id}/edit`);
     },
     onError: () => {
       toast({

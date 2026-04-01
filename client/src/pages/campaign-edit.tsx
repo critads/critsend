@@ -123,7 +123,7 @@ export default function CampaignEdit() {
     }
   };
 
-  const { data: campaign, isLoading: loadingCampaign } = useQuery<Campaign>({
+  const { data: campaign, isLoading: loadingCampaign, error: campaignError } = useQuery<Campaign>({
     queryKey: ["/api/campaigns", campaignId],
     enabled: !!campaignId,
     staleTime: 0,
@@ -452,6 +452,27 @@ export default function CampaignEdit() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (campaignError) {
+    return (
+      <div className="p-6 lg:p-8">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <AlertCircle className="h-16 w-16 mx-auto mb-4 text-destructive" />
+            <h2 className="text-2xl font-bold mb-2">Campaign Not Found</h2>
+            <p className="text-muted-foreground mb-6">
+              This campaign no longer exists or could not be loaded.
+            </p>
+            <Button asChild>
+              <Link href="/campaigns" data-testid="link-back-campaigns-error">
+                Back to Campaigns
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
