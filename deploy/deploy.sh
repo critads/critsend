@@ -6,7 +6,8 @@
 #   2. npm ci      — install/update dependencies
 #   3. npm run build — build Vite frontend + esbuild server bundles
 #   4. drizzle-kit push — apply pending schema changes
-#   5. pm2 reload  — zero-downtime process reload
+#   5. mkdir -p images — ensure campaign images directory exists
+#   6. pm2 reload  — zero-downtime process reload
 #
 # Usage (on the server, from the repo root):
 #   bash deploy/deploy.sh
@@ -73,7 +74,12 @@ fi
 npx drizzle-kit push
 ok "Database schema up to date"
 
-# ─── Step 5: PM2 reload ───────────────────────────────────────────────────────
+# ─── Step 5: Ensure images directory exists ───────────────────────────────────
+step "Ensuring images directory exists..."
+mkdir -p images
+ok "Images directory ready"
+
+# ─── Step 6: PM2 reload ───────────────────────────────────────────────────────
 step "Reloading PM2 processes (zero-downtime)..."
 if pm2 list | grep -q "critsend-web"; then
     pm2 reload deploy/ecosystem.config.cjs --env production
