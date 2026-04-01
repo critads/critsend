@@ -103,7 +103,7 @@ export default function CampaignNew() {
   const [savedIndicator, setSavedIndicator] = useState(false);
   const { toast } = useToast();
 
-  const processHtmlImages = async (html: string): Promise<string> => {
+  const processHtmlImages = async (html: string, mtaId?: string): Promise<string> => {
     try {
       let sessionId = assetSessionId;
       if (!sessionId) {
@@ -114,7 +114,10 @@ export default function CampaignNew() {
       }
 
       setProcessingImages(true);
-      const res = await apiRequest("POST", `/api/campaigns/${sessionId}/process-html`, { html });
+      const res = await apiRequest("POST", `/api/campaigns/${sessionId}/process-html`, {
+        html,
+        ...(mtaId ? { mtaId } : {}),
+      });
       const data = await res.json();
 
       if (data.downloaded > 0) {
@@ -169,7 +172,7 @@ export default function CampaignNew() {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const content = event.target?.result as string;
-        const processedHtml = await processHtmlImages(content);
+        const processedHtml = await processHtmlImages(content, formData.mtaId || undefined);
         updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };
@@ -189,7 +192,7 @@ export default function CampaignNew() {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const content = event.target?.result as string;
-        const processedHtml = await processHtmlImages(content);
+        const processedHtml = await processHtmlImages(content, formData.mtaId || undefined);
         updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };

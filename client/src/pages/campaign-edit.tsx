@@ -90,12 +90,15 @@ export default function CampaignEdit() {
   const [processingImages, setProcessingImages] = useState(false);
   const { toast } = useToast();
 
-  const processHtmlImages = async (html: string): Promise<string> => {
+  const processHtmlImages = async (html: string, mtaId?: string): Promise<string> => {
     if (!campaignId) return html;
     
     try {
       setProcessingImages(true);
-      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/process-html`, { html });
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/process-html`, {
+        html,
+        ...(mtaId ? { mtaId } : {}),
+      });
       const data = await res.json();
       
       if (data.downloaded > 0) {
@@ -187,7 +190,7 @@ export default function CampaignEdit() {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const content = event.target?.result as string;
-        const processedHtml = await processHtmlImages(content);
+        const processedHtml = await processHtmlImages(content, formData.mtaId || undefined);
         updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };
@@ -207,7 +210,7 @@ export default function CampaignEdit() {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const content = event.target?.result as string;
-        const processedHtml = await processHtmlImages(content);
+        const processedHtml = await processHtmlImages(content, formData.mtaId || undefined);
         updateField("htmlContent", processedHtml);
         setHtmlLoaded(true);
       };

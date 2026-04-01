@@ -151,7 +151,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Invalid ID format" });
       }
       const campaignId = req.params.id;
-      const { html } = req.body;
+      const { html, mtaId: bodyMtaId } = req.body;
       
       if (!html || typeof html !== "string") {
         return res.status(400).json({ error: "HTML content is required" });
@@ -175,11 +175,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
         fs.mkdirSync(campaignImagesDir, { recursive: true });
       }
 
-      // Resolve image hosting domain from the campaign's attached MTA
+      // Resolve image hosting domain: prefer mtaId from request body (current form selection),
+      // fall back to the saved campaign's MTA for backward compatibility
       let imageHostingDomain: string | null = null;
-      const campaign = await storage.getCampaign(campaignId);
-      if (campaign?.mtaId) {
-        const mta = await storage.getMta(campaign.mtaId);
+      const effectiveMtaId = bodyMtaId || (await storage.getCampaign(campaignId))?.mtaId;
+      if (effectiveMtaId) {
+        const mta = await storage.getMta(effectiveMtaId);
         if (mta?.imageHostingDomain) {
           imageHostingDomain = mta.imageHostingDomain.replace(/\/$/, "");
         }
