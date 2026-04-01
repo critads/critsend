@@ -80,6 +80,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const verifyResult = await verifyTransporter(mta);
       if (!verifyResult.success) {
         logger.error(`${logPrefix} SMTP verification failed: ${verifyResult.error} - pausing campaign`);
+        closeTransporter(mta.id); // Evict stale pool entry so recovery checker uses a fresh connection
         await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "mta_down" });
         return;
       }

@@ -48,7 +48,7 @@ export async function registerRoutes(
 
   const campaignLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 20,
+    max: 200,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many campaign requests, please try again later" },
