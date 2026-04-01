@@ -208,10 +208,11 @@ export function rewriteImageUrls(html: string, imageHostingDomain: string | null
     return html;
   }
   
-  // Normalize the domain - remove trailing slash if present
-  const domain = imageHostingDomain.replace(/\/$/, "");
+  // Normalize: remove trailing slash, ensure https:// scheme
+  const raw = imageHostingDomain.replace(/\/$/, "");
+  const domain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   
-  // Match src="/images/..." patterns and replace with full URL
+  // Match src="/images/..." patterns and replace with full absolute URL
   // Also handles src='/images/...' (single quotes)
   return html.replace(
     /src=(["'])\/images\//g,

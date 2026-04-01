@@ -184,7 +184,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (effectiveMtaId) {
         const mta = await storage.getMta(effectiveMtaId);
         if (mta?.imageHostingDomain) {
-          imageHostingDomain = mta.imageHostingDomain.replace(/\/$/, "");
+          const raw = mta.imageHostingDomain.replace(/\/$/, "");
+          imageHostingDomain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
         }
       }
       
