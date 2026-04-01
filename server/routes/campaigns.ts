@@ -52,7 +52,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       };
       
       const defaultHeaders = await storage.getDefaultHeaders();
-      const rawTrackingDomain = mta?.trackingDomain || "";
+      const trackingDomain = mta?.trackingDomain || undefined;
+      const rawTrackingDomain = trackingDomain || "";
       const normalizedDomain = rawTrackingDomain
         ? (/^https?:\/\//i.test(rawTrackingDomain) ? rawTrackingDomain : `https://${rawTrackingDomain}`).replace(/\/$/, "")
         : "";
