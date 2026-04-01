@@ -49,6 +49,8 @@ export const mtas = pgTable("mtas", {
   protocol: text("protocol").notNull().default("STARTTLS"), // SSL | TLS | STARTTLS | NONE
   simulatedLatencyMs: integer("simulated_latency_ms").default(0), // Latency to simulate for nullsink
   failureRate: integer("failure_rate").default(0), // Percentage of simulated failures (0-100)
+  unsubscribeText: text("unsubscribe_text").default("Unsubscribe"), // Default footer unsubscribe link text
+  companyAddress: text("company_address"), // Default footer company address (CAN-SPAM)
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

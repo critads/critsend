@@ -262,6 +262,38 @@ export function MtaForm({ formData, onChange, showPassword, setShowPassword }: M
           </RadioGroup>
         </div>
 
+        <div className="space-y-4 pt-4 border-t">
+          <div>
+            <h3 className="text-sm font-semibold">Email Footer</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Default footer text for campaigns using this server. Can be overridden per campaign.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="mta-unsubscribe-text">Unsubscribe Link Text</Label>
+            <Input
+              id="mta-unsubscribe-text"
+              placeholder="Unsubscribe"
+              value={formData.unsubscribeText ?? "Unsubscribe"}
+              onChange={(e) => onChange({ ...formData, unsubscribeText: e.target.value })}
+              data-testid="input-mta-unsubscribe-text"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="mta-company-address">Company Address</Label>
+            <Input
+              id="mta-company-address"
+              placeholder="e.g., 123 Main St, City, Country"
+              value={formData.companyAddress ?? ""}
+              onChange={(e) => onChange({ ...formData, companyAddress: e.target.value })}
+              data-testid="input-mta-company-address"
+            />
+            <p className="text-xs text-muted-foreground">
+              Physical address shown in the email footer (required for CAN-SPAM compliance)
+            </p>
+          </div>
+        </div>
+
         {formData.mode === "nullsink" && (
           <>
             <div className="space-y-2">

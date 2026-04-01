@@ -384,6 +384,8 @@ export default function CampaignEdit() {
       mtaId,
       ...(selectedMta?.fromName ? { fromName: selectedMta.fromName } : {}),
       ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail } : {}),
+      ...(selectedMta?.unsubscribeText ? { unsubscribeText: selectedMta.unsubscribeText } : {}),
+      ...(selectedMta?.companyAddress ? { companyAddress: selectedMta.companyAddress } : {}),
     }));
   };
 
