@@ -87,7 +87,7 @@ export default function Campaigns() {
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
   const { toast } = useToast();
 
-  const { data: campaigns, isLoading } = useQuery<Campaign[]>({
+  const { data: campaigns, isLoading, isError, error } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
     refetchInterval: (query) => {
       if (isSSEConnected()) return false;
@@ -293,6 +293,27 @@ export default function Campaigns() {
               {[1, 2, 3, 4, 5].map((i) => (
                 <Skeleton key={i} className="h-16 w-full" />
               ))}
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center gap-4" data-testid="campaigns-error-state">
+              <div className="rounded-full bg-destructive/10 p-4">
+                <AlertCircle className="h-10 w-10 text-destructive" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold mb-1">Failed to load campaigns</h3>
+                <p className="text-muted-foreground text-sm max-w-sm">
+                  {(error as any)?.message || "The server returned an error. Check the Error Logs page for details."}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] })}
+                data-testid="button-retry-campaigns"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
             </div>
           ) : filteredCampaigns && filteredCampaigns.length > 0 ? (
             <div className="rounded-md border overflow-x-auto">

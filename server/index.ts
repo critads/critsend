@@ -21,12 +21,34 @@ import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
 import { closeRedisConnections, createRedisConnection, isRedisConfigured } from "./redis";
 import { startRedisProgressBridge } from "./job-events";
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Promise Rejection', { reason: String(reason) });
+/**
+ * Silently attempt to persist a system-level error to the error_logs DB table.
+ * Failures are swallowed so this never crashes the process — DB may itself be down.
+ */
+async function tryLogSystemError(message: string, details?: Record<string, unknown>): Promise<void> {
+  try {
+    const { logError } = await import('./repositories/job-repository');
+    await logError({
+      type: 'system_error',
+      severity: 'error',
+      message: message.slice(0, 500),
+      details: details ? JSON.stringify(details).slice(0, 5000) : undefined,
+    });
+  } catch {
+    // Cannot reach DB — error stays in PM2 logs only
+  }
+}
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : undefined;
+  logger.error('Unhandled Promise Rejection', { reason: msg });
+  tryLogSystemError('Unhandled Promise Rejection', { reason: msg, stack });
 });
 
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception (non-fatal)', { error: error.message, stack: error.stack });
+  tryLogSystemError('Uncaught Exception', { error: error.message, stack: error.stack });
 });
 
 import('v8').then((v8) => {
@@ -535,9 +557,21 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       message = "Server is temporarily overloaded. Please try again shortly.";
     }
     logger.error('Unhandled route error', { status, error: err.message, stack: err.stack, path: req.path, method: req.method });
+    if (status >= 500) {
+      tryLogSystemError(`HTTP ${status} — ${req.method} ${req.path}`, {
+        error: err.message,
+        stack: err.stack,
+        code: err.code,
+      });
+    }
     if (!res.headersSent) {
       res.status(status).json({ error: message });
     }
+  });
+
+  // Second pool error listener — db.ts has the first (logger only); this one persists to DB.
+  pool.on('error', (err: Error) => {
+    tryLogSystemError('DB pool error on idle client', { error: err.message });
   });
 
   // importantly only setup vite in development and after

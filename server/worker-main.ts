@@ -18,12 +18,30 @@ import { initQueues, closeQueues } from "./queues";
 import { closeRedisConnections } from "./redis";
 import { pool } from "./db";
 
+async function tryLogSystemError(message: string, details?: Record<string, unknown>): Promise<void> {
+  try {
+    const { logError } = await import('./repositories/job-repository');
+    await logError({
+      type: 'system_error',
+      severity: 'error',
+      message: message.slice(0, 500),
+      details: details ? JSON.stringify(details).slice(0, 5000) : undefined,
+    });
+  } catch {
+    // Cannot reach DB — error stays in PM2 logs only
+  }
+}
+
 process.on("unhandledRejection", (reason) => {
-  logger.error("[WORKER] Unhandled Promise Rejection", { reason: String(reason) });
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : undefined;
+  logger.error("[WORKER] Unhandled Promise Rejection", { reason: msg });
+  tryLogSystemError('[WORKER] Unhandled Promise Rejection', { reason: msg, stack });
 });
 
 process.on("uncaughtException", (error) => {
   logger.error("[WORKER] Uncaught Exception", { error: error.message, stack: error.stack });
+  tryLogSystemError('[WORKER] Uncaught Exception', { error: error.message, stack: error.stack });
 });
 
 import("v8").then((v8) => {
