@@ -352,6 +352,25 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
 
+  app.delete("/api/campaigns/bulk", async (req: Request, res: Response) => {
+    try {
+      const schema = z.object({ ids: z.array(z.string()).min(1).max(200) });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "ids must be a non-empty array (max 200)" });
+      }
+      const { ids } = parsed.data;
+      if (ids.some((id) => !validateId(id))) {
+        return res.status(400).json({ error: "One or more invalid ID formats" });
+      }
+      await Promise.all(ids.map((id) => storage.deleteCampaign(id)));
+      res.status(204).send();
+    } catch (error) {
+      logger.error("Error bulk-deleting campaigns:", error);
+      res.status(500).json({ error: "Failed to delete campaigns" });
+    }
+  });
+
   app.delete("/api/campaigns/:id", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -80,6 +81,8 @@ export default function Campaigns() {
   useJobStream();
   const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
   const { toast } = useToast();
 
@@ -128,6 +131,43 @@ export default function Campaigns() {
       });
     },
   });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => apiRequest("DELETE", "/api/campaigns/bulk", { ids }),
+    onSuccess: (_, ids) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+      toast({
+        title: `${ids.length} campaign${ids.length > 1 ? "s" : ""} deleted`,
+        description: "The selected campaigns have been removed.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete campaigns. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!filteredCampaigns) return;
+    if (selectedIds.size === filteredCampaigns.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredCampaigns.map((c) => c.id)));
+    }
+  };
 
   const copyMutation = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/campaigns/${id}/copy`),
@@ -218,15 +258,28 @@ export default function Campaigns() {
             <Mail className="h-5 w-5" />
             All Campaigns
           </CardTitle>
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search campaigns..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-              data-testid="input-search-campaigns"
-            />
+          <div className="flex items-center gap-3 flex-wrap">
+            {selectedIds.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBulkDeleteConfirm(true)}
+                data-testid="button-bulk-delete"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete {selectedIds.size} selected
+              </Button>
+            )}
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search campaigns..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+                data-testid="input-search-campaigns"
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -241,6 +294,14 @@ export default function Campaigns() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[40px]">
+                      <Checkbox
+                        checked={filteredCampaigns.length > 0 && selectedIds.size === filteredCampaigns.length}
+                        onCheckedChange={toggleSelectAll}
+                        data-testid="checkbox-select-all"
+                        aria-label="Select all campaigns"
+                      />
+                    </TableHead>
                     <TableHead>Campaign</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Sent</TableHead>
@@ -250,7 +311,19 @@ export default function Campaigns() {
                 </TableHeader>
                 <TableBody>
                   {filteredCampaigns.map((campaign) => (
-                    <TableRow key={campaign.id} data-testid={`campaign-row-${campaign.id}`}>
+                    <TableRow
+                      key={campaign.id}
+                      data-testid={`campaign-row-${campaign.id}`}
+                      className={selectedIds.has(campaign.id) ? "bg-muted/50" : ""}
+                    >
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(campaign.id)}
+                          onCheckedChange={() => toggleSelect(campaign.id)}
+                          data-testid={`checkbox-campaign-${campaign.id}`}
+                          aria-label={`Select ${campaign.name}`}
+                        />
+                      </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           <span className="font-medium">{campaign.name}</span>
@@ -400,6 +473,30 @@ export default function Campaigns() {
               data-testid="button-confirm-delete-campaign"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteConfirm} onOpenChange={() => setBulkDeleteConfirm(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} Campaign{selectedIds.size > 1 ? "s" : ""}</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedIds.size} selected campaign{selectedIds.size > 1 ? "s" : ""}? This will also delete all associated statistics and cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+              disabled={bulkDeleteMutation.isPending}
+              data-testid="button-confirm-bulk-delete"
+            >
+              {bulkDeleteMutation.isPending ? "Deleting..." : `Delete ${selectedIds.size} Campaign${selectedIds.size > 1 ? "s" : ""}`}
             </Button>
           </DialogFooter>
         </DialogContent>
