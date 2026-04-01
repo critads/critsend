@@ -255,7 +255,7 @@ function buildEmailFooter(options: {
   return (
     `\n<div style="margin-top:30px;padding-top:20px;border-top:1px solid #eee;` +
     `text-align:center;font-size:12px;color:#666;">` +
-    parts.join(" | ") +
+    parts.map(p => `<div style="margin-top:4px;">${p}</div>`).join("") +
     `</div>`
   );
 }
