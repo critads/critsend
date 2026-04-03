@@ -141,10 +141,32 @@ export async function getCampaignAnalytics(campaignId: string) {
   const campaign = await getCampaign(campaignId);
   if (!campaign) return undefined;
 
-  const [uniqueOpeners, uniqueClickers] = await Promise.all([
+  const [uniqueOpeners, uniqueClickers, topIpsResult, unsubscribeResult] = await Promise.all([
     getUniqueOpenCount(campaignId),
     getUniqueClickCount(campaignId),
+    db.execute(sql`
+      SELECT ip_address, COUNT(*)::int AS cnt
+      FROM campaign_stats
+      WHERE campaign_id = ${campaignId}
+        AND type = 'open'
+        AND ip_address IS NOT NULL
+        AND ip_address <> ''
+      GROUP BY ip_address
+      ORDER BY cnt DESC
+      LIMIT 30
+    `),
+    db.execute(sql`
+      SELECT COUNT(DISTINCT subscriber_id)::int AS cnt
+      FROM campaign_stats
+      WHERE campaign_id = ${campaignId} AND type = 'unsubscribe'
+    `),
   ]);
+
+  const topOpenerIps = (topIpsResult.rows as any[]).map(r => ({
+    ip: r.ip_address as string,
+    count: Number(r.cnt),
+  }));
+  const unsubscribeCount = Number((unsubscribeResult.rows[0] as any)?.cnt ?? 0);
 
   const stats = await getCampaignStats(campaignId);
   const clicks = stats.filter(s => s.type === "click");
@@ -169,16 +191,17 @@ export async function getCampaignAnalytics(campaignId: string) {
     };
   });
 
-  const opens = stats.filter(s => s.type === "open");
   return {
     campaign,
-    totalOpens: opens.length,
+    totalOpens: uniqueOpeners,
     uniqueOpens: uniqueOpeners,
-    totalClicks: clicks.length,
+    totalClicks: uniqueClickers,
     uniqueClicks: uniqueClickers,
+    unsubscribeCount,
     openRate: campaign.sentCount > 0 ? (uniqueOpeners / campaign.sentCount) * 100 : 0,
     clickRate: campaign.sentCount > 0 ? (uniqueClickers / campaign.sentCount) * 100 : 0,
     topLinks,
+    topOpenerIps,
     recentActivity,
   };
 }

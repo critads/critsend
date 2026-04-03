@@ -21,6 +21,8 @@ import {
   TrendingUp,
   Mail,
   Link as LinkIcon,
+  Globe,
+  UserMinus,
 } from "lucide-react";
 import type { Campaign } from "@shared/schema";
 
@@ -30,9 +32,11 @@ interface CampaignAnalytics {
   uniqueOpens: number;
   totalClicks: number;
   uniqueClicks: number;
+  unsubscribeCount: number;
   openRate: number;
   clickRate: number;
   topLinks: Array<{ url: string; clicks: number }>;
+  topOpenerIps: Array<{ ip: string; count: number }>;
   recentActivity: Array<{
     email: string;
     type: string;
@@ -121,29 +125,34 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
-          title="Total Opens"
-          value={data?.totalOpens.toLocaleString() || 0}
-          subValue={`${data?.uniqueOpens.toLocaleString() || 0} unique`}
+          title="Unique Openers"
+          value={data?.uniqueOpens.toLocaleString() ?? 0}
+          subValue={data ? `${data.openRate.toFixed(1)}% open rate` : undefined}
           icon={Eye}
           isLoading={isLoading}
         />
         <StatCard
-          title="Open Rate"
-          value={`${(data?.openRate || 0).toFixed(1)}%`}
-          icon={TrendingUp}
-          isLoading={isLoading}
-        />
-        <StatCard
-          title="Total Clicks"
-          value={data?.totalClicks.toLocaleString() || 0}
-          subValue={`${data?.uniqueClicks.toLocaleString() || 0} unique`}
+          title="Unique Clickers"
+          value={data?.uniqueClicks.toLocaleString() ?? 0}
+          subValue={data ? `${data.clickRate.toFixed(1)}% click rate` : undefined}
           icon={MousePointer2}
           isLoading={isLoading}
         />
         <StatCard
-          title="Click Rate"
-          value={`${(data?.clickRate || 0).toFixed(1)}%`}
-          icon={TrendingUp}
+          title="Unsubscribes"
+          value={data?.unsubscribeCount.toLocaleString() ?? 0}
+          subValue={
+            data && data.campaign.sentCount > 0
+              ? `${((data.unsubscribeCount / data.campaign.sentCount) * 100).toFixed(2)}% unsub rate`
+              : undefined
+          }
+          icon={UserMinus}
+          isLoading={isLoading}
+        />
+        <StatCard
+          title="Emails Sent"
+          value={data?.campaign.sentCount?.toLocaleString() ?? 0}
+          icon={Mail}
           isLoading={isLoading}
         />
       </div>
@@ -208,6 +217,8 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
                     <div className="flex items-center gap-2">
                       {activity.type === "open" ? (
                         <Eye className="h-4 w-4 text-blue-500" />
+                      ) : activity.type === "unsubscribe" ? (
+                        <UserMinus className="h-4 w-4 text-red-500" />
                       ) : (
                         <MousePointer2 className="h-4 w-4 text-green-500" />
                       )}
@@ -229,6 +240,54 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            Top Opener IPs
+          </CardTitle>
+          <CardDescription>
+            Top 30 IP addresses that opened this campaign (all open events, one row per IP)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-10" />
+              ))}
+            </div>
+          ) : data?.topOpenerIps && data.topOpenerIps.length > 0 ? (
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8">#</TableHead>
+                    <TableHead>IP Address</TableHead>
+                    <TableHead className="text-right">Open Events</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.topOpenerIps.map((row, index) => (
+                    <TableRow key={row.ip} data-testid={`row-ip-${index}`}>
+                      <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                      <TableCell className="font-mono text-sm">{row.ip}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="secondary">{row.count}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-center py-8 text-muted-foreground">
+              No opener IP data yet
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -255,13 +314,13 @@ function OverallAnalyticsView() {
           isLoading={isLoading}
         />
         <StatCard
-          title="Total Opens"
+          title="Total Unique Openers"
           value={data?.totalOpens.toLocaleString() || 0}
           icon={Eye}
           isLoading={isLoading}
         />
         <StatCard
-          title="Total Clicks"
+          title="Total Unique Clickers"
           value={data?.totalClicks.toLocaleString() || 0}
           icon={MousePointer2}
           isLoading={isLoading}
