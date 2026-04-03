@@ -24,6 +24,7 @@ module.exports = {
     {
       name: "critsend-web",
       script: "dist/index.cjs",
+      cwd: "/home/ubuntu/critsend",
 
       // Load secrets and runtime config from the .env file at the repo root
       env_file: ".env",
@@ -52,6 +53,7 @@ module.exports = {
     {
       name: "critsend-worker",
       script: "dist/worker-main.cjs",
+      cwd: "/home/ubuntu/critsend",
 
       // Load secrets and runtime config from the .env file at the repo root
       env_file: ".env",

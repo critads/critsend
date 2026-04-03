@@ -75,9 +75,10 @@ npx drizzle-kit push
 ok "Database schema up to date"
 
 # ─── Step 5: Ensure images directory exists ───────────────────────────────────
-step "Ensuring images directory exists..."
+step "Ensuring required directories exist..."
 mkdir -p images
-ok "Images directory ready"
+mkdir -p uploads/imports
+ok "Directories ready (images, uploads/imports)"
 
 # ─── Step 6: PM2 reload ───────────────────────────────────────────────────────
 step "Reloading PM2 processes (zero-downtime)..."
