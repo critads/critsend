@@ -158,7 +158,7 @@ export function registerTrackingRoutes(app: Express) {
     const sig = req.query.sig as string;
     
     if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "unsubscribe", sig)) {
-      logger.warn(`Invalid tracking signature for unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
+      logger.warn(`Invalid tracking signature for unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}, sig=${sig?.slice(0, 8)}...`);
       return res.status(403).send(`
         <!DOCTYPE html>
         <html>
@@ -180,6 +180,8 @@ export function registerTrackingRoutes(app: Express) {
         </html>
       `);
     }
+
+    logger.info(`Unsubscribe request: campaign=${campaignId}, subscriber=${subscriberId}`);
     
     try {
       const campaign = await storage.getCampaign(campaignId);
@@ -207,13 +209,22 @@ export function registerTrackingRoutes(app: Express) {
       `);
       
       if (subscriber) {
+        const ctx = extractTrackingContext(req);
+
+        storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
+          .catch(err => logger.error("Failed to record unsubscribe stat:", err));
+
         storage.enqueueTagOperation(subscriberId, "BCK", "unsubscribe", campaignId)
+          .then(() => logger.info(`BCK tag enqueued for subscriber=${subscriberId}`))
           .catch(err => logger.error("Failed to enqueue BCK tag:", err));
         
         if (campaign?.unsubscribeTag) {
           storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
+            .then(() => logger.info(`Unsubscribe tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
             .catch(err => logger.error("Failed to enqueue unsubscribe tag:", err));
         }
+      } else {
+        logger.warn(`Unsubscribe: subscriber not found: ${subscriberId}`);
       }
     } catch (error) {
       logger.error("Error unsubscribing:", error);

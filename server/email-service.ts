@@ -142,8 +142,9 @@ export function addTrackingToHtml(
 ): string {
   let processedHtml = htmlContent;
   
-  // Get the base URL for tracking (remove trailing slash if present)
-  const baseUrl = (options.trackingDomain || "").replace(/\/$/, "");
+  // Get the base URL for tracking — normalize scheme and trailing slash
+  const rawDomain = (options.trackingDomain || "").replace(/\/$/, "");
+  const baseUrl = rawDomain && !/^https?:\/\//i.test(rawDomain) ? `https://${rawDomain}` : rawDomain;
 
   // Rewrite all links with signed click tracking URLs
   if (options.trackClicks && baseUrl) {
@@ -164,8 +165,9 @@ export function addTrackingToHtml(
 
   // Insert open tracking pixel before </body>
   if (options.trackOpens) {
-    const openTrackingBase = options.openTrackingDomain 
-      ? options.openTrackingDomain.replace(/\/$/, "")
+    const rawOpenDomain = (options.openTrackingDomain || "").replace(/\/$/, "");
+    const openTrackingBase = rawOpenDomain
+      ? (!/^https?:\/\//i.test(rawOpenDomain) ? `https://${rawOpenDomain}` : rawOpenDomain)
       : baseUrl;
     
     if (openTrackingBase) {
