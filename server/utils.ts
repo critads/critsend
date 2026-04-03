@@ -145,7 +145,7 @@ export async function downloadImage(url: string, destPath: string, redirectCount
     if (!response.body) return false;
 
     const nodeStream = Readable.fromWeb(response.body as any);
-    const fileStream = fs.createWriteStream(destPath);
+    const fileStream = fs.createWriteStream(destPath, { mode: 0o644 });
     let downloadedSize = 0;
 
     return new Promise((resolve) => {

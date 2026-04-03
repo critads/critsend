@@ -2,12 +2,13 @@
 # deploy/deploy.sh — Critsend deploy script
 #
 # Runs the full update sequence on the server:
-#   1. git pull    — pull latest code
-#   2. npm ci      — install/update dependencies
-#   3. npm run build — build Vite frontend + esbuild server bundles
+#   1. git pull       — pull latest code
+#   2. npm ci         — install/update dependencies
+#   3. npm run build  — build Vite frontend + esbuild server bundles
 #   4. drizzle-kit push — apply pending schema changes
-#   5. mkdir -p images — ensure campaign images directory exists
-#   6. pm2 reload  — zero-downtime process reload
+#   5. mkdir -p       — ensure required directories exist (images, uploads/imports)
+#   6. nginx update   — apply nginx.conf from repo; rolls back automatically on failure
+#   7. pm2 reload     — zero-downtime process reload
 #
 # Usage (on the server, from the repo root):
 #   bash deploy/deploy.sh
@@ -74,13 +75,40 @@ fi
 npx drizzle-kit push
 ok "Database schema up to date"
 
-# ─── Step 5: Ensure images directory exists ───────────────────────────────────
+# ─── Step 5: Ensure directories exist with correct permissions ───────────────
 step "Ensuring required directories exist..."
-mkdir -p images
-mkdir -p uploads/imports
+mkdir -p images uploads/imports
+chmod 755 images uploads/imports
 ok "Directories ready (images, uploads/imports)"
 
-# ─── Step 6: PM2 reload ───────────────────────────────────────────────────────
+# ─── Step 6: Update Nginx config (safe — rolls back on failure) ───────────────
+step "Updating Nginx configuration..."
+NGINX_LIVE="/etc/nginx/sites-available/critsend"
+NGINX_BACKUP="${NGINX_LIVE}.bak.$(date +%s)"
+
+if command -v sudo &>/dev/null && sudo -n nginx -v &>/dev/null 2>&1; then
+    # Back up current live config
+    sudo cp "$NGINX_LIVE" "$NGINX_BACKUP" 2>/dev/null || true
+    # Apply updated config from repo
+    sudo cp deploy/nginx.conf "$NGINX_LIVE"
+    # Test — if it fails, restore backup and abort
+    if sudo nginx -t 2>/dev/null; then
+        sudo systemctl reload nginx
+        # Remove backup once we know the new config is good
+        sudo rm -f "$NGINX_BACKUP"
+        ok "Nginx config updated and reloaded"
+    else
+        echo "[deploy]   Nginx config test failed — restoring backup..."
+        [[ -f "$NGINX_BACKUP" ]] && sudo cp "$NGINX_BACKUP" "$NGINX_LIVE"
+        sudo systemctl reload nginx
+        fail "Nginx config rejected — rolled back to previous version. Fix deploy/nginx.conf and redeploy."
+    fi
+else
+    echo "[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)"
+    echo "[deploy]   Run manually: sudo cp deploy/nginx.conf $NGINX_LIVE && sudo nginx -t && sudo systemctl reload nginx"
+fi
+
+# ─── Step 7: PM2 reload ───────────────────────────────────────────────────────
 step "Reloading PM2 processes (zero-downtime)..."
 if pm2 list | grep -q "critsend-web"; then
     pm2 reload deploy/ecosystem.config.cjs --env production

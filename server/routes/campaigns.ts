@@ -166,7 +166,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       
       const campaignImagesDir = path.join(IMAGES_DIR, campaignId);
       if (!fs.existsSync(IMAGES_DIR)) {
-        fs.mkdirSync(IMAGES_DIR, { recursive: true });
+        fs.mkdirSync(IMAGES_DIR, { recursive: true, mode: 0o755 });
       }
       if (fs.existsSync(campaignImagesDir)) {
         const files = fs.readdirSync(campaignImagesDir);
@@ -174,7 +174,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           fs.unlinkSync(path.join(campaignImagesDir, file));
         }
       } else {
-        fs.mkdirSync(campaignImagesDir, { recursive: true });
+        fs.mkdirSync(campaignImagesDir, { recursive: true, mode: 0o755 });
       }
 
       // Resolve image hosting domain: prefer mtaId from request body (current form selection),
