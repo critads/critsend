@@ -214,10 +214,6 @@ export function registerTrackingRoutes(app: Express) {
         storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
           .catch(err => logger.error("Failed to record unsubscribe stat:", err));
 
-        storage.enqueueTagOperation(subscriberId, "BCK", "unsubscribe", campaignId)
-          .then(() => logger.info(`BCK tag enqueued for subscriber=${subscriberId}`))
-          .catch(err => logger.error("Failed to enqueue BCK tag:", err));
-        
         if (campaign?.unsubscribeTag) {
           storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
             .then(() => logger.info(`Unsubscribe tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
