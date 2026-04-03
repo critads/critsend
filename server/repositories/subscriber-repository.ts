@@ -7,8 +7,8 @@ import {
   type Segment,
   type InsertSegment,
 } from "@shared/schema";
-import { db } from "../db";
-import { eq, like, or, sql, desc, and, not } from "drizzle-orm";
+import { db, pool } from "../db";
+import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { logger } from "../logger";
 import { compileSegmentRules } from "../services/segment-compiler";
 import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
@@ -74,7 +74,7 @@ export async function getSubscribersByEmails(emails: string[]): Promise<Map<stri
   const result = new Map<string, Subscriber>();
   if (emails.length === 0) return result;
   const lowerEmails = emails.map(e => e.toLowerCase());
-  const rows = await db.select().from(subscribers).where(sql`${subscribers.email} = ANY(${lowerEmails})`);
+  const rows = await db.select().from(subscribers).where(inArray(subscribers.email, lowerEmails));
   for (const row of rows) {
     result.set(row.email.toLowerCase(), row);
   }
@@ -390,11 +390,12 @@ export async function addTagToSubscriber(subscriberId: string, tagValue: string)
 
 export async function bulkAddTagToSubscribers(subscriberIds: string[], tagValue: string): Promise<number> {
   if (subscriberIds.length === 0) return 0;
-  const result = await db.execute(sql`
-    UPDATE subscribers
-    SET tags = array_append(array_remove(tags, ${tagValue}), ${tagValue})
-    WHERE id = ANY(${subscriberIds}) AND NOT (${tagValue} = ANY(tags))
-  `);
+  const result = await pool.query(
+    `UPDATE subscribers
+     SET tags = array_append(array_remove(tags, $1), $1)
+     WHERE id = ANY($2::text[]) AND NOT ($1 = ANY(tags))`,
+    [tagValue, subscriberIds]
+  );
   return result.rowCount || 0;
 }
 

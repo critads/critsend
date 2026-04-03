@@ -1,0 +1,129 @@
+ubuntu@ns3102288:~/critsend$ # 1. Check PM2 process status
+pm2 list
+
+# 2. Check if tag operations were enqueued (and their status)
+export NEON_DATABASE_URL="$(grep -E '^NEON_DATABASE_URL=' .env | head -1 | cut -d'=' -f2- | tr -d '"')"
+npx tsx -e "
+import pkg from 'pg';
+const { Pool } = pkg;
+const p = new Pool({ connectionString: process.env.NEON_DATABASE_URL, ssl: { rejectUnauthorized: false } });
+const r = await p.query('SELECT id, subscriber_id, tag_value, status, retry_count, last_error FROM pending_tag_operations WHERE subscriber_id = \$1 ORDER BY created_at DESC LIMIT 10', ['095941fc-21ff-46f3-9747-d4e26b964e63']);
+console.log(JSON.stringify(r.rows, null, 2));
+await p.end();
+"
+
+# 3. Check last 30 lines of PM2 worker logs for errors
+pm2 logs critsend-worker --lines 30 --nostream
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ default     │ 1.0.0   │ fork    │ 65342    │ 8m     │ 26   │ online    │ 0%       │ 238.7mb  │ ubuntu   │ disabled │
+│ 1  │ critsend-worker    │ default     │ 1.0.0   │ fork    │ 65331    │ 8m     │ 26   │ online    │ 0%       │ 87.5mb   │ ubuntu   │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+node:internal/process/promises:391
+    triggerUncaughtException(err, true /* fromPromise */);
+    ^
+
+Error: Transform failed with 2 errors:
+/eval.ts:5:10: ERROR: Top-level await is currently not supported with the "cjs" output format
+/eval.ts:7:0: ERROR: Top-level await is currently not supported with the "cjs" output format
+    at failureErrorWithLog (/home/ubuntu/critsend/node_modules/esbuild/lib/main.js:1467:15)
+    at /home/ubuntu/critsend/node_modules/esbuild/lib/main.js:736:50
+    at responseCallbacks.<computed> (/home/ubuntu/critsend/node_modules/esbuild/lib/main.js:603:9)
+    at handleIncomingPacket (/home/ubuntu/critsend/node_modules/esbuild/lib/main.js:658:12)
+    at Socket.readFromStdout (/home/ubuntu/critsend/node_modules/esbuild/lib/main.js:581:7)
+    at Socket.emit (node:events:524:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:191:23) {
+  errors: [
+    {
+      detail: undefined,
+      id: '',
+      location: {
+        column: 10,
+        file: '/eval.ts',
+        length: 5,
+        line: 5,
+        lineText: "const r = await p.query('SELECT id, subscriber_id, tag_value, status, retry_count, last_error FROM pending_tag_operations WHERE subscriber_id = $1 ORDER BY created_at DESC LIMIT 10', ['095941fc-21ff-46f3-9747-d4e26b964e63']);",
+        namespace: '',
+        suggestion: ''
+      },
+      notes: [],
+      pluginName: '',
+      text: 'Top-level await is currently not supported with the "cjs" output format'
+    },
+    {
+      detail: undefined,
+      id: '',
+      location: {
+        column: 0,
+        file: '/eval.ts',
+        length: 5,
+        line: 7,
+        lineText: 'await p.end();',
+        namespace: '',
+        suggestion: ''
+      },
+      notes: [],
+      pluginName: '',
+      text: 'Top-level await is currently not supported with the "cjs" output format'
+    }
+  ],
+  warnings: []
+}
+
+Node.js v20.20.2
+[TAILING] Tailing last 30 lines for [critsend-worker] process (change the value with --lines option)
+/var/log/critsend/worker-err.log last 30 lines:
+1|critsend | utine":"array_in"}
+1|critsend | 2026-04-03 09:03:28 +00:00: 2026-04-03T09:03:28.731Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:03:32 +00:00: 2026-04-03T09:03:32.683Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:03:32 +00:00: 2026-04-03T09:03:32.732Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:03:36 +00:00: 2026-04-03T09:03:36.858Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:03:38 +00:00: 2026-04-03T09:03:38.685Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:03:46 +00:00: 2026-04-03T09:03:46.685Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:03:48 +00:00: 2026-04-03T09:03:48.686Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:27:55 +00:00: 2026-04-03T09:27:55.051Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:27:55 +00:00: 2026-04-03T09:27:55.100Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:27:57 +00:00: 2026-04-03T09:27:57.052Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:27:57 +00:00: 2026-04-03T09:27:57.268Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:28:01 +00:00: 2026-04-03T09:28:01.050Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:28:01 +00:00: 2026-04-03T09:28:01.098Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:28:07 +00:00: 2026-04-03T09:28:07.051Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:28:07 +00:00: 2026-04-03T09:28:07.100Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:28:17 +00:00: 2026-04-03T09:28:17.057Z [ERROR] Failed to bulk process tag operations for tag UNSUB_2BT: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+1|critsend | 2026-04-03 09:28:17 +00:00: 2026-04-03T09:28:17.106Z [ERROR] Failed to bulk process tag operations for tag BCK: {"length":216,"name":"error","severity":"ERROR","code":"22P02","detail":"Array value must start with \"{\" or dimension information.","where":"unnamed portal parameter $3 = '...'","file":"arrayfuncs.c","line":"262","routine":"array_in"}
+
+/var/log/critsend/worker-out.log last 30 lines:
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.000Z [INFO] Stuck campaign recovery checker started (60s interval)
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.000Z [INFO] Starting tag queue worker...
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.001Z [INFO] [MAINTENANCE] Starting maintenance worker (6h interval)
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.003Z [INFO] [BullMQ] Workers started: campaigns, imports, flushes
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.003Z [INFO] [WORKER] All workers running
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.021Z [INFO] [Redis/main] Connected
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.025Z [INFO] [Redis/bullmq] Connected
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.074Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.205Z [INFO] [IMPORT] GIN indexes integrity check passed
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.208Z [INFO] [IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.517Z [INFO] [MAINTENANCE] Default maintenance rules seeded
+1|critsend | 2026-04-03 09:26:33 +00:00: 2026-04-03T09:26:33.754Z [INFO] [IMPORT] Email trigram index verified
+1|critsend | 2026-04-03 09:27:12 +00:00: 2026-04-03T09:27:12.834Z [INFO] [JOB_POLL] Worker worker-65331-1775208392781 started job c68a5209-dcbd-48e6-bfb4-65c00cb0a54a for campaign a946a228-dce2-496c-837a-391c091c2b02 (1/5 active)
+1|critsend | 2026-04-03 09:27:12 +00:00: 2026-04-03T09:27:12.835Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] processCampaignInternal started
+1|critsend | 2026-04-03 09:27:12 +00:00: 2026-04-03T09:27:12.928Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] Verifying SMTP connection to MTA 'Rndamailing'...
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.004Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] SMTP verification OK
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.075Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] Segment 'e0d07c49-9245-46c0-af76-8b492f051a61' has 2 subscribers
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.144Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.245Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] Batch 1: 2 to send (0 skipped)
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.604Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] Progress 2/2 (261/min) - Sent: 2, Failed: 0
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.604Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] No more subscribers to process (batchNumber: 1)
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.628Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] RECONCILIATION: expected=2, actual=2 (sent=2, failed=0, pending=0, attempting=0), discrepancy=0 (0.00%)
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.768Z [INFO] [CAMPAIGN a946a228-dce2-496c-837a-391c091c2b02 job:c68a5209] COMPLETED: 2 sent, 0 failed
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.817Z [INFO] [JOB_POLL] Job c68a5209-dcbd-48e6-bfb4-65c00cb0a54a completed (campaign a946a228-dce2-496c-837a-391c091c2b02 status: completed)
+1|critsend | 2026-04-03 09:27:13 +00:00: 2026-04-03T09:27:13.817Z [INFO] [JOB_POLL] Campaign a946a228-dce2-496c-837a-391c091c2b02 finished (0/5 active)
+1|critsend | 2026-04-03 09:27:55 +00:00: 2026-04-03T09:27:55.125Z [INFO] Processed 2 tag operations in 2 bulk groups
+1|critsend | 2026-04-03 09:27:57 +00:00: 2026-04-03T09:27:57.458Z [INFO] Processed 2 tag operations in 2 bulk groups
+1|critsend | 2026-04-03 09:28:01 +00:00: 2026-04-03T09:28:01.292Z [INFO] Processed 2 tag operations in 2 bulk groups
+1|critsend | 2026-04-03 09:28:07 +00:00: 2026-04-03T09:28:07.124Z [INFO] Processed 2 tag operations in 2 bulk groups
+1|critsend | 2026-04-03 09:28:17 +00:00: 2026-04-03T09:28:17.139Z [INFO] Processed 2 tag operations in 2 bulk groups
