@@ -540,10 +540,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // here so that campaign sends, imports, flushes, and tag operations continue to work.
   // In split-process mode (dev-launcher), PROCESS_TYPE=web and the dedicated
   // worker process (worker-main.ts) handles all of this instead.
-  if (process.env.PROCESS_TYPE !== 'web') {
+  // DISABLE_WORKERS=true can be set to prevent this instance from running workers
+  // (e.g. a Replit-published app sharing a DB with a self-hosted PM2 deployment,
+  // where uploaded files only exist on the PM2 server's filesystem).
+  if (process.env.PROCESS_TYPE !== 'web' && process.env.DISABLE_WORKERS !== 'true') {
     logger.info("[MONOLITH] PROCESS_TYPE is not 'web' — starting background workers in-process");
     await startAllWorkers();
     startBullMQWorkers();
+  } else if (process.env.DISABLE_WORKERS === 'true') {
+    logger.info("[MONOLITH] DISABLE_WORKERS=true — background workers disabled on this instance");
   }
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
