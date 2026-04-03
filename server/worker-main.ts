@@ -99,6 +99,11 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 (async () => {
+  if (process.env.DISABLE_WORKERS === 'true') {
+    logger.info("[WORKER] DISABLE_WORKERS=true — worker process exiting immediately (this instance must not process jobs)");
+    process.exit(0);
+  }
+
   logger.info("[WORKER] Worker process starting...");
 
   validateConnectionBudget();

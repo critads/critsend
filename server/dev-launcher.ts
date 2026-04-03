@@ -34,6 +34,11 @@ function spawnProcess(name: string, script: string, extra: Record<string, string
 
   child.on("exit", (code, signal) => {
     if (!isShuttingDown) {
+      // Worker exits cleanly (code 0) when DISABLE_WORKERS=true — expected, do not shutdown.
+      if (code === 0 && process.env.DISABLE_WORKERS === 'true') {
+        console.log(`[LAUNCHER] ${name} exited cleanly (DISABLE_WORKERS=true). Web process continues.`);
+        return;
+      }
       console.error(`[LAUNCHER] ${name} exited unexpectedly (code=${code}, signal=${signal}). Shutting down all processes.`);
       shutdown();
     }
