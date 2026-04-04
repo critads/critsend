@@ -255,6 +255,11 @@ export interface IStorage {
     avgOpenRate: number; avgClickRate: number;
     recentCampaigns: Array<{ id: string; name: string; openRate: number; clickRate: number; sentCount: number }>;
   }>;
+  getCampaignClickHeatmap(campaignId: string): Promise<{
+    htmlContent: string;
+    links: Array<{ url: string; clicks: number; uniqueClickers: number; pct: number }>;
+    totalClicks: number;
+  } | null>;
   getCampaignDeviceStats(campaignId: string): Promise<{
     deviceTypes: Array<{ value: string; count: number }>;
     browsers: Array<{ value: string; count: number }>;

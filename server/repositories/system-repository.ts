@@ -137,6 +137,42 @@ export async function seedDefaultMaintenanceRules(): Promise<void> {
 // CAMPAIGN ANALYTICS (requires cross-repo access to campaign + subscriber data)
 // ═══════════════════════════════════════════════════════════════
 
+export async function getCampaignClickHeatmap(campaignId: string): Promise<{
+  htmlContent: string;
+  links: Array<{ url: string; clicks: number; uniqueClickers: number; pct: number }>;
+  totalClicks: number;
+} | null> {
+  const campaign = await getCampaign(campaignId);
+  if (!campaign) return null;
+
+  const result = await db.execute(sql`
+    SELECT
+      link                                    AS url,
+      COUNT(*)::int                           AS clicks,
+      COUNT(DISTINCT subscriber_id)::int      AS unique_clickers
+    FROM campaign_stats
+    WHERE campaign_id = ${campaignId}
+      AND type = 'click'
+      AND link IS NOT NULL AND link <> ''
+    GROUP BY link
+    ORDER BY clicks DESC
+  `);
+
+  const rows = result.rows as any[];
+  const totalClicks = rows.reduce((sum, r) => sum + Number(r.clicks), 0);
+
+  return {
+    htmlContent: campaign.htmlContent,
+    links: rows.map(r => ({
+      url: r.url as string,
+      clicks: Number(r.clicks),
+      uniqueClickers: Number(r.unique_clickers),
+      pct: totalClicks > 0 ? Math.round((Number(r.clicks) / totalClicks) * 10000) / 100 : 0,
+    })),
+    totalClicks,
+  };
+}
+
 export async function getCampaignDeviceStats(campaignId: string): Promise<{
   deviceTypes: Array<{ value: string; count: number }>;
   browsers: Array<{ value: string; count: number }>;

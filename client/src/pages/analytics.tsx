@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import {
   Monitor,
   Smartphone,
   Chrome,
+  Flame,
 } from "lucide-react";
 import type { Campaign } from "@shared/schema";
 
@@ -119,6 +121,11 @@ interface ProviderOpenRate {
   openRate: number;
 }
 
+interface HeatmapData {
+  links: Array<{ url: string; clicks: number; uniqueClickers: number; pct: number }>;
+  totalClicks: number;
+}
+
 function BreakdownCard({
   title,
   icon: Icon,
@@ -192,6 +199,27 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
       fetch(`/api/analytics/campaign/${campaignId}/device-stats`)
         .then(r => r.json()),
   });
+
+  const { data: heatmapData } = useQuery<HeatmapData>({
+    queryKey: ["/api/analytics/campaign", campaignId, "heatmap-data"],
+    queryFn: () =>
+      fetch(`/api/analytics/campaign/${campaignId}/heatmap-data`)
+        .then(r => r.json()),
+  });
+
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeHeight, setIframeHeight] = useState(600);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "hm-height" && typeof e.data.height === "number") {
+        setIframeHeight(Math.min(e.data.height + 40, 2400));
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -455,6 +483,112 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
           )}
         </CardContent>
       </Card>
+
+      {heatmapData && heatmapData.totalClicks > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Flame className="h-5 w-5" />
+              Click Heatmap
+            </CardTitle>
+            <CardDescription>
+              Visual overlay showing clicks per link in the campaign email
+            </CardDescription>
+            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-muted-foreground">
+              <span className="font-semibold">Legend:</span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-[#ef4444]" /> ≥30%
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-[#f97316]" /> ≥10%
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-[#eab308]" /> ≥3%
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-[#22c55e]" /> &gt;0%
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-[#9ca3af]" /> 0 clicks
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="relative rounded-md border overflow-hidden bg-white">
+              {!iframeLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center bg-muted/60 z-10 min-h-[400px]">
+                  <Skeleton className="w-full h-full min-h-[400px]" />
+                </div>
+              )}
+              <iframe
+                ref={iframeRef}
+                src={`/api/analytics/campaign/${campaignId}/heatmap`}
+                title="Click Heatmap"
+                width="100%"
+                height={iframeHeight}
+                style={{ border: "none", display: "block" }}
+                sandbox="allow-scripts allow-same-origin"
+                onLoad={() => setIframeLoaded(true)}
+                data-testid="iframe-click-heatmap"
+              />
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-3">
+                Link Summary — {heatmapData.totalClicks.toLocaleString()} total clicks
+              </h3>
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-8">#</TableHead>
+                      <TableHead>URL</TableHead>
+                      <TableHead className="text-right w-28">Clicks</TableHead>
+                      <TableHead className="text-right w-32">Unique</TableHead>
+                      <TableHead className="text-right w-24">Share</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {heatmapData.links.map((link, index) => {
+                      const color =
+                        link.pct >= 30 ? "bg-red-500" :
+                        link.pct >= 10 ? "bg-orange-500" :
+                        link.pct >= 3  ? "bg-yellow-500" :
+                        link.clicks > 0 ? "bg-green-500" : "bg-gray-400";
+                      return (
+                        <TableRow key={link.url} data-testid={`row-heatmap-${index}`}>
+                          <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                          <TableCell>
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-mono text-xs text-primary underline underline-offset-2 break-all line-clamp-2"
+                            >
+                              {link.url}
+                            </a>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {link.clicks.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground text-sm">
+                            {link.uniqueClickers.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Badge className={`${color} text-white border-0`}>
+                              {link.pct.toFixed(1)}%
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
