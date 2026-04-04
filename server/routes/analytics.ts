@@ -111,11 +111,7 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
 <script>
 (function() {
   function init() {
-    var seen = new Set();
     document.querySelectorAll('[data-hm-clicks]').forEach(function(el) {
-      var key = el.getAttribute('href') || el.getAttribute('data-hm-clicks');
-      if (seen.has(key)) return;
-      seen.add(key);
       var clicks = parseInt(el.getAttribute('data-hm-clicks') || '0', 10);
       var pct   = el.getAttribute('data-hm-pct') || '0';
       var color = el.getAttribute('data-hm-color') || '#9ca3af';

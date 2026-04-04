@@ -29,6 +29,8 @@ import {
   Smartphone,
   Chrome,
   Flame,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type { Campaign } from "@shared/schema";
 
@@ -178,6 +180,79 @@ function BreakdownCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function LinkSummaryTable({
+  links,
+  totalClicks,
+}: {
+  links: HeatmapData["links"];
+  totalClicks: number;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex w-full items-center justify-between rounded-md border px-4 py-2.5 text-sm font-semibold hover:bg-muted/50 transition-colors"
+        data-testid="button-toggle-link-summary"
+      >
+        <span>Link Summary — {totalClicks.toLocaleString()} total clicks · {links.length} link{links.length !== 1 ? "s" : ""}</span>
+        {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+      {open && (
+        <div className="mt-3 rounded-md border overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">#</TableHead>
+                <TableHead>URL</TableHead>
+                <TableHead className="text-right w-28">Clicks</TableHead>
+                <TableHead className="text-right w-32">Unique</TableHead>
+                <TableHead className="text-right w-24">Share</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {links.map((link, index) => {
+                const color =
+                  link.pct >= 30 ? "bg-red-500" :
+                  link.pct >= 10 ? "bg-orange-500" :
+                  link.pct >= 3  ? "bg-yellow-500" :
+                  link.clicks > 0 ? "bg-green-500" : "bg-gray-400";
+                return (
+                  <TableRow key={`${link.url}-${index}`} data-testid={`row-heatmap-${index}`}>
+                    <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                    <TableCell>
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-xs text-primary underline underline-offset-2 break-all line-clamp-2"
+                      >
+                        {link.url}
+                      </a>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {link.clicks.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground text-sm">
+                      {link.uniqueClickers.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Badge className={`${color} text-white border-0`}>
+                        {link.pct.toFixed(1)}%
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -533,59 +608,7 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
               />
             </div>
 
-            <div>
-              <h3 className="text-sm font-semibold mb-3">
-                Link Summary — {heatmapData.totalClicks.toLocaleString()} total clicks
-              </h3>
-              <div className="rounded-md border overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-8">#</TableHead>
-                      <TableHead>URL</TableHead>
-                      <TableHead className="text-right w-28">Clicks</TableHead>
-                      <TableHead className="text-right w-32">Unique</TableHead>
-                      <TableHead className="text-right w-24">Share</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {heatmapData.links.map((link, index) => {
-                      const color =
-                        link.pct >= 30 ? "bg-red-500" :
-                        link.pct >= 10 ? "bg-orange-500" :
-                        link.pct >= 3  ? "bg-yellow-500" :
-                        link.clicks > 0 ? "bg-green-500" : "bg-gray-400";
-                      return (
-                        <TableRow key={link.url} data-testid={`row-heatmap-${index}`}>
-                          <TableCell className="text-muted-foreground">{index + 1}</TableCell>
-                          <TableCell>
-                            <a
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-mono text-xs text-primary underline underline-offset-2 break-all line-clamp-2"
-                            >
-                              {link.url}
-                            </a>
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {link.clicks.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums text-muted-foreground text-sm">
-                            {link.uniqueClickers.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Badge className={`${color} text-white border-0`}>
-                              {link.pct.toFixed(1)}%
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
+            <LinkSummaryTable links={heatmapData.links} totalClicks={heatmapData.totalClicks} />
           </CardContent>
         </Card>
       )}
