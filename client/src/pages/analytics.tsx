@@ -24,6 +24,9 @@ import {
   Globe,
   UserMinus,
   AtSign,
+  Monitor,
+  Smartphone,
+  Chrome,
 } from "lucide-react";
 import type { Campaign } from "@shared/schema";
 
@@ -103,11 +106,72 @@ function StatCard({
   );
 }
 
+interface DeviceStats {
+  deviceTypes: Array<{ value: string; count: number }>;
+  browsers: Array<{ value: string; count: number }>;
+  operatingSystems: Array<{ value: string; count: number }>;
+}
+
 interface ProviderOpenRate {
   provider: string;
   recipients: number;
   uniqueOpeners: number;
   openRate: number;
+}
+
+function BreakdownCard({
+  title,
+  icon: Icon,
+  rows,
+  isLoading,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  rows: Array<{ value: string; count: number }> | undefined;
+  isLoading: boolean;
+}) {
+  const total = rows?.reduce((sum, r) => sum + r.count, 0) ?? 0;
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Icon className="h-4 w-4" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8" />)}
+          </div>
+        ) : rows && rows.length > 0 ? (
+          <div className="space-y-3">
+            {rows.map((row) => {
+              const pct = total > 0 ? (row.count / total) * 100 : 0;
+              return (
+                <div key={row.value}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="font-medium truncate max-w-[60%]">{row.value}</span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {row.count.toLocaleString()} <span className="text-xs">({pct.toFixed(1)}%)</span>
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-center py-6 text-sm text-muted-foreground">No data yet</p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
@@ -119,6 +183,13 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
     queryKey: ["/api/analytics/campaign", campaignId, "provider-open-rates"],
     queryFn: () =>
       fetch(`/api/analytics/campaign/${campaignId}/provider-open-rates`)
+        .then(r => r.json()),
+  });
+
+  const { data: deviceStats, isLoading: deviceLoading } = useQuery<DeviceStats>({
+    queryKey: ["/api/analytics/campaign", campaignId, "device-stats"],
+    queryFn: () =>
+      fetch(`/api/analytics/campaign/${campaignId}/device-stats`)
         .then(r => r.json()),
   });
 
@@ -303,6 +374,27 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
           )}
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <BreakdownCard
+          title="Device Type"
+          icon={Monitor}
+          rows={deviceStats?.deviceTypes}
+          isLoading={deviceLoading}
+        />
+        <BreakdownCard
+          title="Browser"
+          icon={Chrome}
+          rows={deviceStats?.browsers}
+          isLoading={deviceLoading}
+        />
+        <BreakdownCard
+          title="Operating System"
+          icon={Smartphone}
+          rows={deviceStats?.operatingSystems}
+          isLoading={deviceLoading}
+        />
+      </div>
 
       <Card>
         <CardHeader>

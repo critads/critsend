@@ -137,6 +137,42 @@ export async function seedDefaultMaintenanceRules(): Promise<void> {
 // CAMPAIGN ANALYTICS (requires cross-repo access to campaign + subscriber data)
 // ═══════════════════════════════════════════════════════════════
 
+export async function getCampaignDeviceStats(campaignId: string): Promise<{
+  deviceTypes: Array<{ value: string; count: number }>;
+  browsers: Array<{ value: string; count: number }>;
+  operatingSystems: Array<{ value: string; count: number }>;
+}> {
+  const [deviceResult, browserResult, osResult] = await Promise.all([
+    db.execute(sql`
+      SELECT device_type AS value, COUNT(DISTINCT subscriber_id)::int AS count
+      FROM campaign_stats
+      WHERE campaign_id = ${campaignId} AND type = 'open'
+        AND device_type IS NOT NULL AND device_type <> ''
+      GROUP BY device_type ORDER BY count DESC
+    `),
+    db.execute(sql`
+      SELECT browser AS value, COUNT(DISTINCT subscriber_id)::int AS count
+      FROM campaign_stats
+      WHERE campaign_id = ${campaignId} AND type = 'open'
+        AND browser IS NOT NULL AND browser <> ''
+      GROUP BY browser ORDER BY count DESC LIMIT 15
+    `),
+    db.execute(sql`
+      SELECT INITCAP(os) AS value, COUNT(DISTINCT subscriber_id)::int AS count
+      FROM campaign_stats
+      WHERE campaign_id = ${campaignId} AND type = 'open'
+        AND os IS NOT NULL AND os <> ''
+      GROUP BY INITCAP(os) ORDER BY count DESC LIMIT 15
+    `),
+  ]);
+  const toArr = (rows: any[]) => rows.map(r => ({ value: r.value as string, count: Number(r.count) }));
+  return {
+    deviceTypes: toArr(deviceResult.rows as any[]),
+    browsers: toArr(browserResult.rows as any[]),
+    operatingSystems: toArr(osResult.rows as any[]),
+  };
+}
+
 export async function getCampaignProviderOpenRates(campaignId: string): Promise<Array<{
   provider: string;
   recipients: number;

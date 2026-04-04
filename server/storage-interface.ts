@@ -255,6 +255,11 @@ export interface IStorage {
     avgOpenRate: number; avgClickRate: number;
     recentCampaigns: Array<{ id: string; name: string; openRate: number; clickRate: number; sentCount: number }>;
   }>;
+  getCampaignDeviceStats(campaignId: string): Promise<{
+    deviceTypes: Array<{ value: string; count: number }>;
+    browsers: Array<{ value: string; count: number }>;
+    operatingSystems: Array<{ value: string; count: number }>;
+  }>;
   getCampaignProviderOpenRates(campaignId: string): Promise<Array<{
     provider: string; recipients: number; uniqueOpeners: number; openRate: number;
   }>>;
