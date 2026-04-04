@@ -2,6 +2,7 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { verifyTrackingSignature } from "../tracking";
+import { getCampaignLinkDestination } from "../repositories/campaign-repository";
 import { UAParser } from "ua-parser-js";
 import geoip from "geoip-lite";
 import type { TrackingContext } from "../repositories/campaign-repository";
@@ -108,13 +109,67 @@ export function registerTrackingRoutes(app: Express) {
 
   app.get("/api/track/click/:campaignId/:subscriberId", async (req: Request, res: Response) => {
     const { campaignId, subscriberId } = req.params;
-    const url = req.query.url as string;
+    const lid = req.query.lid as string | undefined;
+    const legacyUrl = req.query.url as string | undefined;
     const sig = req.query.sig as string;
-    
+
+    // ── New format: ?lid=<linkId>&sig=<hmac> ──────────────────────────────
+    if (lid) {
+      if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "click", sig, lid)) {
+        logger.warn(`Invalid tracking signature for click (lid): campaign=${campaignId}, subscriber=${subscriberId}`);
+        return res.status(403).json({ error: "Invalid tracking signature" });
+      }
+
+      let destinationUrl: string | null;
+      try {
+        destinationUrl = await getCampaignLinkDestination(lid);
+      } catch (err: any) {
+        logger.error(`Error looking up link destination lid=${lid}: ${err.message}`);
+        return res.status(500).json({ error: "Tracking error" });
+      }
+
+      if (!destinationUrl) {
+        logger.warn(`Unknown link id: lid=${lid}, campaign=${campaignId}`);
+        return res.status(404).json({ error: "Link not found" });
+      }
+
+      // Validate resolved URL protocol (open-redirect prevention)
+      try {
+        const parsed = new URL(destinationUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          logger.warn(`Blocked non-http redirect from link registry: lid=${lid}`);
+          return res.status(400).json({ error: "Invalid URL protocol" });
+        }
+      } catch {
+        logger.warn(`Malformed destination URL in link registry: lid=${lid}`);
+        return res.status(400).json({ error: "Invalid URL" });
+      }
+
+      try {
+        const ctx = extractTrackingContext(req);
+        const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
+        await storage.addCampaignStat(campaignId, subscriberId, "click", destinationUrl, ctx);
+        res.redirect(destinationUrl);
+        if (isFirstClick) {
+          const tags = await getCampaignTagsCached(campaignId);
+          if (tags?.clickTag) {
+            storage.enqueueTagOperation(subscriberId, tags.clickTag, "click", campaignId)
+              .catch(err => logger.error("Failed to enqueue click tag:", err));
+          }
+        }
+      } catch (error) {
+        logger.error("Error tracking click (lid):", error);
+        return res.status(500).json({ error: "Tracking error" });
+      }
+      return;
+    }
+
+    // ── Legacy format: ?url=<encoded>&sig=<hmac> ──────────────────────────
+    const url = legacyUrl;
     if (!url) {
       return res.status(400).json({ error: "URL required" });
     }
-    
+
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);
@@ -126,20 +181,17 @@ export function registerTrackingRoutes(app: Express) {
       logger.warn(`Blocked malformed redirect URL: ${url}`);
       return res.status(400).json({ error: "Invalid URL" });
     }
-    
+
     if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "click", sig, url)) {
       logger.warn(`Invalid tracking signature for click: campaign=${campaignId}, subscriber=${subscriberId}`);
       return res.status(403).json({ error: "Invalid tracking signature" });
     }
-    
+
     try {
       const ctx = extractTrackingContext(req);
       const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
-      
       await storage.addCampaignStat(campaignId, subscriberId, "click", url, ctx);
-      
       res.redirect(url);
-      
       if (isFirstClick) {
         const tags = await getCampaignTagsCached(campaignId);
         if (tags?.clickTag) {

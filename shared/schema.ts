@@ -387,6 +387,18 @@ export const flushJobs = pgTable("flush_jobs", {
   createdAtIdx: index("flush_jobs_created_at_idx").on(table.createdAt),
 }));
 
+// Campaign links - opaque token registry for click tracking (hides destination URLs)
+export const campaignLinks = pgTable("campaign_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: 'cascade' }),
+  destinationUrl: text("destination_url").notNull(),
+}, (table) => ({
+  campaignIdx: index("campaign_links_campaign_idx").on(table.campaignId),
+  uniqueLink: uniqueIndex("campaign_links_unique_idx").on(table.campaignId, table.destinationUrl),
+}));
+
+export type CampaignLink = typeof campaignLinks.$inferSelect;
+
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true }).extend({
   email: z.string().email("Invalid email address").max(254, "Email too long").transform(v => v.toLowerCase().trim()),

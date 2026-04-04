@@ -116,6 +116,12 @@ export interface IStorage {
   getUniqueClickCount(campaignId: string): Promise<number>;
 
   // ═══════════════════════════════════════════════════════════════
+  // CAMPAIGN LINKS
+  // ═══════════════════════════════════════════════════════════════
+  batchGetOrCreateCampaignLinks(campaignId: string, urls: string[]): Promise<Map<string, string>>;
+  getCampaignLinkDestination(linkId: string): Promise<string | null>;
+
+  // ═══════════════════════════════════════════════════════════════
   // CAMPAIGN JOB QUEUE
   // ═══════════════════════════════════════════════════════════════
   enqueueCampaignJob(campaignId: string): Promise<CampaignJob>;

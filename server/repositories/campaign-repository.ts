@@ -13,7 +13,7 @@ import {
   type NullsinkCapture,
   type InsertNullsinkCapture,
 } from "@shared/schema";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { campaignQueue } from "../queues";
@@ -458,6 +458,57 @@ export async function clearNullsinkCaptures(campaignId?: string): Promise<number
   }
   const result = await db.delete(nullsinkCaptures);
   return result.rowCount || 0;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAMPAIGN LINKS (opaque token registry for click tracking)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Batch-insert missing links and return a Map<destinationUrl, linkId> for all provided URLs.
+ * Uses ON CONFLICT DO NOTHING so this is fully idempotent.
+ */
+export async function batchGetOrCreateCampaignLinks(
+  campaignId: string,
+  urls: string[]
+): Promise<Map<string, string>> {
+  if (urls.length === 0) return new Map();
+
+  // Deduplicate before hitting the DB
+  const uniqueUrls = [...new Set(urls)];
+
+  // Insert any new links; existing ones are silently skipped
+  await pool.query(
+    `INSERT INTO campaign_links (id, campaign_id, destination_url)
+     SELECT gen_random_uuid(), $1, unnest($2::text[])
+     ON CONFLICT (campaign_id, destination_url) DO NOTHING`,
+    [campaignId, uniqueUrls]
+  );
+
+  // Fetch all (existing + newly created) rows for this campaign + url set
+  const result = await pool.query(
+    `SELECT id, destination_url FROM campaign_links
+     WHERE campaign_id = $1 AND destination_url = ANY($2::text[])`,
+    [campaignId, uniqueUrls]
+  );
+
+  const map = new Map<string, string>();
+  for (const row of result.rows) {
+    map.set(row.destination_url, row.id);
+  }
+  return map;
+}
+
+/**
+ * Look up the destination URL for a given link ID.
+ * Returns null if the link does not exist (e.g. corrupted token).
+ */
+export async function getCampaignLinkDestination(linkId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT destination_url FROM campaign_links WHERE id = $1`,
+    [linkId]
+  );
+  return result.rows.length > 0 ? result.rows[0].destination_url : null;
 }
 
 // ═══════════════════════════════════════════════════════════════

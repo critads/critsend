@@ -4,6 +4,7 @@ import type { Mta, Campaign, Subscriber, InsertNullsinkCapture } from "@shared/s
 import {
   generateSignedOpenTrackingUrl,
   generateSignedClickTrackingUrl,
+  generateSignedClickTrackingUrlByLinkId,
   generateSignedUnsubscribeUrl,
 } from "./tracking";
 import { getNullsinkServer } from "./nullsink-smtp";
@@ -134,6 +135,8 @@ export interface TrackingOptions {
   openTrackingDomain?: string | null;
   openTag?: string | null;
   clickTag?: string | null;
+  /** Opaque link-ID map from preregisterCampaignLinks: Map<destinationUrl, linkId>. When set, click URLs use ?lid= instead of ?url=. */
+  linkMap?: Map<string, string>;
 }
 
 export function addTrackingToHtml(
@@ -151,7 +154,18 @@ export function addTrackingToHtml(
     processedHtml = processedHtml.replace(
       /href="(https?:\/\/[^"]+)"/gi,
       (match, url) => {
-        // Generate signed click tracking URL
+        // Use opaque lid= token when linkMap is available; fall back to legacy url= format
+        if (options.linkMap && options.linkMap.has(url)) {
+          const linkId = options.linkMap.get(url)!;
+          const trackingUrl = generateSignedClickTrackingUrlByLinkId(
+            baseUrl,
+            options.campaignId,
+            options.subscriberId,
+            linkId
+          );
+          return `href="${trackingUrl}"`;
+        }
+        // Legacy fallback: expose destination URL in query param
         const trackingUrl = generateSignedClickTrackingUrl(
           baseUrl,
           options.campaignId,
@@ -189,6 +203,27 @@ export function addTrackingToHtml(
   }
 
   return processedHtml;
+}
+
+/**
+ * Extracts all https?:// hrefs from the campaign HTML and pre-creates opaque link registry entries.
+ * Returns a Map<destinationUrl, linkId> ready to pass as `linkMap` in TrackingOptions.
+ * Call once per campaign before the subscriber send loop.
+ */
+export async function preregisterCampaignLinks(
+  html: string,
+  campaignId: string,
+  batchGetOrCreate: (campaignId: string, urls: string[]) => Promise<Map<string, string>>
+): Promise<Map<string, string>> {
+  const urls: string[] = [];
+  const re = /href="(https?:\/\/[^"]+)"/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    urls.push(m[1]);
+  }
+  if (urls.length === 0) return new Map();
+  const uniqueUrls = [...new Set(urls)];
+  return batchGetOrCreate(campaignId, uniqueUrls);
 }
 
 export function personalizeContent(
@@ -311,6 +346,7 @@ export async function sendEmail(
     openTrackingDomain: trackingOptions.openTrackingDomain,
     openTag: trackingOptions.openTag,
     clickTag: trackingOptions.clickTag,
+    linkMap: trackingOptions.linkMap,
   });
 
   // Append footer (unsubscribe link + company address) after tracking
@@ -789,6 +825,7 @@ export function sendEmailBatchNullsink(
         openTrackingDomain: trackingOptions.openTrackingDomain,
         openTag: trackingOptions.openTag,
         clickTag: trackingOptions.clickTag,
+        linkMap: trackingOptions.linkMap,
       });
 
       // Append footer (unsubscribe link + company address) after tracking

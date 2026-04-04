@@ -76,6 +76,20 @@ export function generateSignedClickTrackingUrl(
   return `${baseUrl}/api/track/click/${campaignId}/${subscriberId}?url=${encodedUrl}&sig=${sig}`;
 }
 
+/**
+ * Generates a click tracking URL using an opaque link ID instead of the raw destination URL.
+ * The HMAC payload uses the linkId so the destination URL is never exposed in the email source.
+ */
+export function generateSignedClickTrackingUrlByLinkId(
+  baseUrl: string,
+  campaignId: string,
+  subscriberId: string,
+  linkId: string
+): string {
+  const sig = signTrackingUrl(campaignId, subscriberId, "click", linkId);
+  return `${baseUrl}/api/track/click/${campaignId}/${subscriberId}?lid=${linkId}&sig=${sig}`;
+}
+
 export function generateSignedUnsubscribeUrl(
   baseUrl: string,
   campaignId: string,

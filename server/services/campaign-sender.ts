@@ -6,6 +6,7 @@ import {
   closeTransporter,
   closeNullsinkTransporter,
   verifyTransporter,
+  preregisterCampaignLinks,
 } from "../email-service";
 import { logger } from "../logger";
 import { campaignReconciliationDiscrepancy } from "../metrics";
@@ -149,7 +150,23 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     openTrackingDomain: mta?.openTrackingDomain,
     openTag: campaign.openTag,
     clickTag: campaign.clickTag,
+    linkMap: new Map<string, string>(),
   };
+
+  // Pre-register all unique destination URLs once per campaign so every subscriber
+  // gets an opaque ?lid= token in their click tracking links (no URL exposed).
+  if (campaign.trackClicks && mta?.trackingDomain) {
+    try {
+      trackingOpts.linkMap = await preregisterCampaignLinks(
+        campaign.htmlContent,
+        campaignId,
+        storage.batchGetOrCreateCampaignLinks.bind(storage)
+      );
+      logger.info(`${logPrefix} Pre-registered ${trackingOpts.linkMap.size} click tracking link(s)`);
+    } catch (err: any) {
+      logger.warn(`${logPrefix} preregisterCampaignLinks failed, falling back to legacy url= format: ${err.message}`);
+    }
+  }
 
   let precomputedHtml: string | undefined;
   if (isNullsink && mta) {
