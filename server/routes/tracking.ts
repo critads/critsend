@@ -2,7 +2,6 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { verifyTrackingSignature } from "../tracking";
-import { getCampaignLinkDestination } from "../repositories/campaign-repository";
 import { UAParser } from "ua-parser-js";
 import geoip from "geoip-lite";
 import type { TrackingContext } from "../repositories/campaign-repository";
@@ -122,7 +121,7 @@ export function registerTrackingRoutes(app: Express) {
 
       let destinationUrl: string | null;
       try {
-        destinationUrl = await getCampaignLinkDestination(lid);
+        destinationUrl = await storage.getCampaignLinkDestination(lid);
       } catch (err: any) {
         logger.error(`Error looking up link destination lid=${lid}: ${err.message}`);
         return res.status(500).json({ error: "Tracking error" });
