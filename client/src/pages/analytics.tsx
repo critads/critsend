@@ -288,6 +288,10 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
+      if (
+        e.origin !== window.location.origin ||
+        e.source !== iframeRef.current?.contentWindow
+      ) return;
       if (e.data?.type === "hm-height" && typeof e.data.height === "number") {
         setIframeHeight(Math.min(e.data.height + 40, 2400));
       }
