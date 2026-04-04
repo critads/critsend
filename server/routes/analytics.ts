@@ -44,6 +44,19 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
     }
   });
 
+  app.get("/api/analytics/campaign/:id/provider-open-rates", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const data = await storage.getCampaignProviderOpenRates(req.params.id);
+      res.json(data);
+    } catch (error) {
+      logger.error("Error fetching provider open rates:", error);
+      res.status(500).json({ error: "Failed to fetch provider open rates" });
+    }
+  });
+
   app.get("/api/error-logs", async (req: Request, res: Response) => {
     try {
       const { page, limit } = parsePagination(req.query);

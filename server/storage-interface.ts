@@ -255,6 +255,9 @@ export interface IStorage {
     avgOpenRate: number; avgClickRate: number;
     recentCampaigns: Array<{ id: string; name: string; openRate: number; clickRate: number; sentCount: number }>;
   }>;
+  getCampaignProviderOpenRates(campaignId: string): Promise<Array<{
+    provider: string; recipients: number; uniqueOpeners: number; openRate: number;
+  }>>;
   getCampaignAnalytics(campaignId: string): Promise<{
     campaign: Campaign; totalOpens: number; uniqueOpens: number; totalClicks: number; uniqueClicks: number;
     openRate: number; clickRate: number;

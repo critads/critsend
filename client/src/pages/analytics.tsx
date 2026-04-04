@@ -23,6 +23,7 @@ import {
   Link as LinkIcon,
   Globe,
   UserMinus,
+  AtSign,
 } from "lucide-react";
 import type { Campaign } from "@shared/schema";
 
@@ -102,9 +103,23 @@ function StatCard({
   );
 }
 
+interface ProviderOpenRate {
+  provider: string;
+  recipients: number;
+  uniqueOpeners: number;
+  openRate: number;
+}
+
 function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
   const { data, isLoading } = useQuery<CampaignAnalytics>({
     queryKey: ["/api/analytics/campaign", campaignId],
+  });
+
+  const { data: providerRates, isLoading: providerLoading } = useQuery<ProviderOpenRate[]>({
+    queryKey: ["/api/analytics/campaign", campaignId, "provider-open-rates"],
+    queryFn: () =>
+      fetch(`/api/analytics/campaign/${campaignId}/provider-open-rates`)
+        .then(r => r.json()),
   });
 
   return (
@@ -284,6 +299,66 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
           ) : (
             <p className="text-center py-8 text-muted-foreground">
               No opener IP data yet
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AtSign className="h-5 w-5" />
+            Open Rate by Email Provider
+          </CardTitle>
+          <CardDescription>
+            Unique openers vs. recipients per domain (top 50 providers by volume)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {providerLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-10" />
+              ))}
+            </div>
+          ) : providerRates && providerRates.length > 0 ? (
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8">#</TableHead>
+                    <TableHead>Provider</TableHead>
+                    <TableHead className="text-right">Recipients</TableHead>
+                    <TableHead className="text-right">Unique Openers</TableHead>
+                    <TableHead className="text-right">Open Rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {providerRates.map((row, index) => (
+                    <TableRow key={row.provider} data-testid={`row-provider-${index}`}>
+                      <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                      <TableCell className="font-mono text-sm">{row.provider}</TableCell>
+                      <TableCell className="text-right">
+                        {row.recipients.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {row.uniqueOpeners.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={row.openRate >= 10 ? "default" : row.openRate >= 3 ? "secondary" : "outline"}
+                        >
+                          {row.openRate.toFixed(2)}%
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-center py-8 text-muted-foreground">
+              No provider data yet
             </p>
           )}
         </CardContent>
