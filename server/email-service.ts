@@ -259,8 +259,37 @@ export function personalizeContent(
   return personalized;
 }
 
-// Rewrite local image URLs to use the image hosting domain
-export function rewriteImageUrls(html: string, imageHostingDomain: string | null | undefined): string {
+/** Optional campaign context for upgrading legacy /images/ paths to /campaigns/ format. */
+export interface ImageRewriteContext {
+  campaignId: string;
+  year: string;
+  month: string;
+}
+
+/** Build an ImageRewriteContext from a Campaign object. */
+function campaignContext(campaign: Campaign): ImageRewriteContext {
+  const d = campaign.createdAt ? new Date(campaign.createdAt) : new Date();
+  return {
+    campaignId: String(campaign.id),
+    year: d.getUTCFullYear().toString(),
+    month: String(d.getUTCMonth() + 1).padStart(2, '0'),
+  };
+}
+
+/**
+ * Rewrite local image URLs to absolute URLs using the image hosting domain.
+ *
+ * When `context` is provided the function also upgrades any legacy
+ * `/images/{campaignId}/` relative paths to the new
+ * `/campaigns/{year}/{month}/{campaignId}/` format before making them
+ * absolute, so emails sent after the migration consistently use branded URLs.
+ * Paths belonging to other campaigns are left with the legacy `/images/` prefix.
+ */
+export function rewriteImageUrls(
+  html: string,
+  imageHostingDomain: string | null | undefined,
+  context?: ImageRewriteContext
+): string {
   if (!imageHostingDomain) {
     return html;
   }
@@ -269,11 +298,25 @@ export function rewriteImageUrls(html: string, imageHostingDomain: string | null
   const raw = imageHostingDomain.replace(/\/$/, "");
   const domain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   
-  // Rewrite legacy relative /images/ paths and new-style /campaigns/ paths
-  // Also handles both single and double quotes
-  return html
-    .replace(/src=(["'])\/images\//g, `src=$1${domain}/images/`)
-    .replace(/src=(["'])\/campaigns\//g, `src=$1${domain}/campaigns/`);
+  let result = html;
+
+  // Upgrade legacy /images/{campaignId}/ paths to new branded /campaigns/ format
+  if (context) {
+    const { campaignId, year, month } = context;
+    // Escape campaignId for use in regex (UUIDs and integers are safe, but guard anyway)
+    const escapedId = campaignId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(
+      new RegExp(`src=(["'])/images/${escapedId}/`, 'g'),
+      `src=$1${domain}/campaigns/${year}/${month}/${campaignId}/`
+    );
+  }
+
+  // Rewrite any remaining relative /images/ paths (other campaigns / no context)
+  result = result.replace(/src=(["'])\/images\//g, `src=$1${domain}/images/`);
+  // Rewrite new-style /campaigns/ paths (both absolute domain and remaining relatives)
+  result = result.replace(/src=(["'])\/campaigns\//g, `src=$1${domain}/campaigns/`);
+
+  return result;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -345,7 +388,8 @@ export async function sendEmail(
   let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
   
   // Rewrite local image URLs to use the MTA's image hosting domain
-  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain);
+  // Pass campaign context so legacy /images/ paths are upgraded to /campaigns/ URLs
+  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain, campaignContext(campaign));
   
   // Resolve unsubscribe URL and replace placeholder in HTML body
   const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
@@ -548,7 +592,8 @@ export async function sendEmailWithNullsink(
   let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
   
   // Rewrite local image URLs to use the MTA's image hosting domain
-  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain);
+  // Pass campaign context so legacy /images/ paths are upgraded to /campaigns/ URLs
+  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain, campaignContext(campaign));
   const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
   // Prefer short /u/{token} when a batch token is available for this subscriber
   const unsubTokenNullsink = trackingOptions.batchUnsubTokens?.get(subscriber.id);
@@ -789,7 +834,7 @@ export async function sendTestEmailViaSMTP(
 
 export function precomputeBaseHtml(campaign: Campaign, mta: Mta): string {
   let baseHtml = campaign.htmlContent;
-  baseHtml = rewriteImageUrls(baseHtml, (mta as any).imageHostingDomain);
+  baseHtml = rewriteImageUrls(baseHtml, (mta as any).imageHostingDomain, campaignContext(campaign));
   if (campaign.preheader) {
     baseHtml = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${campaign.preheader}</span>` + baseHtml;
   }

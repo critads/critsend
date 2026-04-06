@@ -52,11 +52,21 @@ export function cleanupOrphanedTempSessions(): void {
 }
 
 /**
+ * Generic/non-descriptive single-segment names that should fall back to
+ * indexed naming rather than being used as-is.
+ */
+const GENERIC_IMAGE_NAMES = new Set([
+  'img', 'image', 'images', 'photo', 'photos', 'pic', 'pics',
+  'picture', 'pictures', 'thumbnail', 'thumb', 'banner', 'asset',
+  'file', 'upload', 'media', 'content', 'graphic', 'logo', 'icon',
+]);
+
+/**
  * Derives a clean, sanitized filename from a source image URL.
  * Extracts the pathname's last segment, strips the extension, sanitizes to
  * alphanumeric + hyphens + underscores, then re-appends the extension.
  * Falls back to `img-{fallbackIndex}.{ext}` when no meaningful name is found
- * (e.g. query-only URLs like /img?id=42).
+ * (e.g. query-only URLs like /img?id=42, or generic names like /image.jpg).
  */
 export function sanitizeImageFilename(sourceUrl: string, fallbackIndex: number, ext: string): string {
   try {
@@ -69,8 +79,13 @@ export function sanitizeImageFilename(sourceUrl: string, fallbackIndex: number, 
       .replace(/[^a-zA-Z0-9_-]/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-+|-+$/g, '');
-    // Must contain at least one letter, hyphen or underscore to be "meaningful"
-    if (sanitized.length > 0 && /[a-zA-Z_-]/.test(sanitized)) {
+    // Must be non-empty, contain at least one letter/hyphen/underscore,
+    // be longer than 1 char, and not be a generic/non-descriptive name
+    if (
+      sanitized.length > 1 &&
+      /[a-zA-Z_-]/.test(sanitized) &&
+      !GENERIC_IMAGE_NAMES.has(sanitized.toLowerCase())
+    ) {
       return `${sanitized}.${ext}`;
     }
   } catch {}
