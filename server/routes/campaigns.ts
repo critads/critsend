@@ -292,17 +292,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
       
       const campaignImagesDir = path.join(IMAGES_DIR, campaignId);
-      if (!fs.existsSync(IMAGES_DIR)) {
-        fs.mkdirSync(IMAGES_DIR, { recursive: true, mode: 0o755 });
-      }
-      if (fs.existsSync(campaignImagesDir)) {
-        const files = fs.readdirSync(campaignImagesDir);
-        for (const file of files) {
-          fs.unlinkSync(path.join(campaignImagesDir, file));
-        }
-      } else {
-        fs.mkdirSync(campaignImagesDir, { recursive: true, mode: 0o755 });
-      }
+      // Ensure directories exist — never wipe existing images upfront.
+      // Wiping here would destroy already-downloaded images when the campaign
+      // is edited and saved a second time (they have relative /campaigns/... src
+      // attributes that are not external URLs and would never be re-downloaded).
+      fs.mkdirSync(campaignImagesDir, { recursive: true, mode: 0o755 });
 
       // Resolve image hosting domain: prefer mtaId from request body (current form selection),
       // fall back to the saved campaign's MTA for backward compatibility
@@ -332,6 +326,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       
       imgElements.each((_, el) => {
         const src = $(el).attr("src");
+        // Only queue external URLs for download — images already stored locally
+        // (/campaigns/... or relative paths) are preserved as-is on disk.
         if (src && (src.startsWith("http://") || src.startsWith("https://"))) {
           imageTasks.push({ el, src, currentIndex: imageIndex++ });
         }
@@ -382,6 +378,29 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
 
       const processedHtml = $.html();
+
+      // Prune files from the campaign images folder that are no longer referenced
+      // by any <img> in the final HTML — avoids accumulating orphaned images over
+      // many edits while keeping all currently-used images safe.
+      try {
+        const referencedFilenames = new Set<string>();
+        $("img").each((_, el) => {
+          const src = $(el).attr("src") ?? "";
+          // Match both relative (/campaigns/.../file.jpg) and absolute (https://domain/campaigns/.../file.jpg)
+          const m = src.match(/\/campaigns\/[^/]+\/[^/]+\/[^/]+\/([^/?#]+)$/);
+          if (m) referencedFilenames.add(m[1]);
+        });
+        if (fs.existsSync(campaignImagesDir)) {
+          for (const file of fs.readdirSync(campaignImagesDir)) {
+            if (!referencedFilenames.has(file)) {
+              fs.unlinkSync(path.join(campaignImagesDir, file));
+              logger.info(`[process-html] Pruned orphaned image: ${campaignId}/${file}`);
+            }
+          }
+        }
+      } catch (pruneErr) {
+        logger.warn(`[process-html] Could not prune orphaned images for ${campaignId}: ${pruneErr}`);
+      }
       
       res.json({
         html: processedHtml,
