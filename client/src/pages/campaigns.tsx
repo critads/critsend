@@ -49,6 +49,8 @@ import {
   AlertCircle,
   Eye,
   RefreshCw,
+  MousePointerClick,
+  UserMinus,
 } from "lucide-react";
 import type { Campaign, ErrorLog } from "@shared/schema";
 
@@ -112,6 +114,11 @@ export default function Campaigns() {
         return newCampaign;
       });
     },
+  });
+
+  const { data: campaignStats } = useQuery<Record<string, { opens: number; clicks: number; unsubscribes: number }>>({
+    queryKey: ["/api/campaigns/stats"],
+    refetchInterval: 60000,
   });
 
   const deleteMutation = useMutation({
@@ -331,6 +338,9 @@ export default function Campaigns() {
                     <TableHead>Campaign</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Sent</TableHead>
+                    <TableHead><span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />Opens</span></TableHead>
+                    <TableHead><span className="flex items-center gap-1"><MousePointerClick className="h-3.5 w-3.5" />Clicks</span></TableHead>
+                    <TableHead><span className="flex items-center gap-1"><UserMinus className="h-3.5 w-3.5" />Unsubs</span></TableHead>
                     <TableHead>Scheduled</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
@@ -374,6 +384,21 @@ export default function Campaigns() {
                             </span>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell data-testid={`text-opens-${campaign.id}`}>
+                        <span className="font-medium tabular-nums">
+                          {(campaignStats?.[campaign.id]?.opens ?? 0).toLocaleString()}
+                        </span>
+                      </TableCell>
+                      <TableCell data-testid={`text-clicks-${campaign.id}`}>
+                        <span className="font-medium tabular-nums">
+                          {(campaignStats?.[campaign.id]?.clicks ?? 0).toLocaleString()}
+                        </span>
+                      </TableCell>
+                      <TableCell data-testid={`text-unsubs-${campaign.id}`}>
+                        <span className={`font-medium tabular-nums ${(campaignStats?.[campaign.id]?.unsubscribes ?? 0) > 0 ? "text-destructive" : ""}`}>
+                          {(campaignStats?.[campaign.id]?.unsubscribes ?? 0).toLocaleString()}
+                        </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {campaign.scheduledAt

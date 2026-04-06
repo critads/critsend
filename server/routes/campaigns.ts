@@ -1,6 +1,6 @@
 import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs } from "@shared/schema";
 import { z } from "zod";
@@ -222,6 +222,34 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error fetching campaigns:", error);
       res.status(500).json({ error: "Failed to fetch campaigns" });
+    }
+  });
+
+  app.get("/api/campaigns/stats", async (_req: Request, res: Response) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          campaign_id,
+          COUNT(*) FILTER (WHERE type = 'open')         AS total_opens,
+          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')  AS unique_opens,
+          COUNT(*) FILTER (WHERE type = 'click')        AS total_clicks,
+          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click') AS unique_clicks,
+          COUNT(*) FILTER (WHERE type = 'unsubscribe')  AS unsubscribes
+        FROM campaign_stats
+        GROUP BY campaign_id
+      `);
+      const statsMap: Record<string, { opens: number; clicks: number; unsubscribes: number }> = {};
+      for (const row of result.rows as any[]) {
+        statsMap[row.campaign_id] = {
+          opens: parseInt(row.unique_opens, 10) || 0,
+          clicks: parseInt(row.unique_clicks, 10) || 0,
+          unsubscribes: parseInt(row.unsubscribes, 10) || 0,
+        };
+      }
+      res.json(statsMap);
+    } catch (error) {
+      logger.error("Error fetching campaign stats:", error);
+      res.status(500).json({ error: "Failed to fetch campaign stats" });
     }
   });
 
