@@ -785,11 +785,11 @@ export default function Import() {
               </div>
 
               <div className="rounded-md border p-4 space-y-3">
-                <h4 className="font-medium mb-1">Force tags &amp; refs (optional)</h4>
+                <h4 className="font-medium mb-1">Tags &amp; refs to apply (optional)</h4>
                 <div className="space-y-1.5">
                   <Label htmlFor="forced-tags" className="text-sm flex items-center gap-1.5">
                     <Tag className="h-3.5 w-3.5" />
-                    Force tags
+                    Tags to apply
                   </Label>
                   <Input
                     id="forced-tags"
@@ -805,7 +805,7 @@ export default function Import() {
                 <div className="space-y-1.5">
                   <Label htmlFor="forced-refs" className="text-sm flex items-center gap-1.5">
                     <BookmarkCheck className="h-3.5 w-3.5" />
-                    Force refs
+                    Refs to apply
                   </Label>
                   <Input
                     id="forced-refs"
