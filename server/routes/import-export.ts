@@ -45,8 +45,8 @@ function countLines(filePath: string): Promise<number> {
   try {
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_tags text[] NOT NULL DEFAULT ARRAY[]::text[]`);
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_refs text[] NOT NULL DEFAULT ARRAY[]::text[]`);
-  } catch (_err) {
-    // columns already exist or DB not ready — safe to ignore
+  } catch (err: any) {
+    logger.warn(`[IMPORT] Bootstrap migration warning (forced_tags/forced_refs): ${err?.message || err}`);
   }
 })();
 
