@@ -453,7 +453,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   subject: z.string().min(1, "Subject required").max(998, "Subject too long"),
   preheader: z.string().max(500, "Preheader too long").nullable().optional(),
   htmlContent: z.string().min(1, "HTML content required").max(5000000, "Content too large"),
-  sendingSpeed: z.enum(["slow", "medium", "fast", "godzilla"]).optional(),
+  sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
 });
 
 export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
@@ -477,7 +477,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   htmlContent: z.string().max(5000000, "Content too large").optional().default(""),
   mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
-  sendingSpeed: z.enum(["slow", "medium", "fast", "godzilla"]).optional(),
+  sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   status: z.string().optional().default("draft"),
 });
 
@@ -504,7 +504,7 @@ export const updateCampaignDraftSchema = z.object({
     (v) => (v === "" ? null : v),
     z.string().nullable().optional()
   ),
-  sendingSpeed: z.enum(["slow", "medium", "fast", "godzilla"]).optional(),
+  sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   scheduledAt: z.preprocess(
     (v) => (v === "" || v === null ? null : v),
     z.union([z.string(), z.date()]).nullable().optional()
@@ -777,6 +777,8 @@ export const operatorLabels: Record<string, string> = {
 
 // Sending speed configuration
 export const sendingSpeedConfig = {
+  drip: { emailsPerMinute: 100, label: "Drip (100/min)" },
+  very_slow: { emailsPerMinute: 250, label: "Very Slow (250/min)" },
   slow: { emailsPerMinute: 500, label: "Slow (500/min)" },
   medium: { emailsPerMinute: 1000, label: "Medium (1,000/min)" },
   fast: { emailsPerMinute: 2000, label: "Fast (2,000/min)" },

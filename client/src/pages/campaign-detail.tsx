@@ -46,6 +46,8 @@ function CampaignStatusBadge({ status }: { status: string }) {
 }
 
 const sendingSpeedLabels: Record<string, string> = {
+  drip: "Drip (100 emails/min)",
+  very_slow: "Very Slow (250 emails/min)",
   slow: "Slow (500 emails/min)",
   medium: "Medium (1,000 emails/min)",
   fast: "Fast (2,000 emails/min)",

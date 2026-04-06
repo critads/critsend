@@ -73,7 +73,7 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     ...copyData,
     name: `${original.name} (Copy)`,
     status: "draft",
-    sendingSpeed: original.sendingSpeed as "slow" | "medium" | "fast" | "godzilla",
+    sendingSpeed: original.sendingSpeed as "drip" | "very_slow" | "slow" | "medium" | "fast" | "godzilla",
   });
 }
 

@@ -47,6 +47,8 @@ const steps = [
 ];
 
 const sendingSpeeds = [
+  { value: "drip", label: "Drip", description: "100 emails/min" },
+  { value: "very_slow", label: "Very Slow", description: "250 emails/min" },
   { value: "slow", label: "Slow", description: "500 emails/min" },
   { value: "medium", label: "Medium", description: "2,000 emails/min" },
   { value: "fast", label: "Fast", description: "5,000 emails/min" },

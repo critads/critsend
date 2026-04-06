@@ -32,6 +32,8 @@ async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxRetries = 3)
 }
 
 export const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: number }> = {
+  drip: { emailsPerMinute: 100, concurrency: 1 },
+  very_slow: { emailsPerMinute: 250, concurrency: 3 },
   slow: { emailsPerMinute: 500, concurrency: 5 },
   medium: { emailsPerMinute: 2000, concurrency: 30 },
   fast: { emailsPerMinute: 5000, concurrency: 80 },
