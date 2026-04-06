@@ -79,8 +79,9 @@ function consolidateSessionImages(
     if (!sessionFolderId || !filename) return;
     // Already in this campaign's folder — nothing to do
     if (sessionFolderId === campaignId) return;
-    // Numeric folder IDs belong to other real campaigns — leave them alone
-    if (/^\d+$/.test(sessionFolderId)) return;
+    // Only process explicit session-folder prefixes (temp_ legacy, draft- current).
+    // Campaign folders use UUIDs and must never be touched.
+    if (!/^(temp_|draft-)/.test(sessionFolderId)) return;
 
     const srcPath = path.join(IMAGES_DIR, sessionFolderId, filename);
     if (!fs.existsSync(srcPath)) return;
