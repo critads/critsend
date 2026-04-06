@@ -13,6 +13,104 @@ import * as fs from "fs";
 import * as path from "path";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 
+/**
+ * After a campaign is created with a real numeric ID, migrate any session-folder
+ * image references in the HTML (paths like /images/draft-abc123/ or
+ * /campaigns/2026/04/draft-abc123/) into the campaign's own image folder and
+ * rewrite the HTML accordingly.
+ *
+ * Session folders are identified by having a non-numeric folder ID (e.g. draft-abc123,
+ * temp_1234_xyz). Numeric IDs belong to other real campaigns and are left untouched.
+ *
+ * Returns the updated HTML string if any images were migrated, or null if nothing changed.
+ */
+function consolidateSessionImages(
+  html: string,
+  campaignId: string,
+  year: string,
+  month: string,
+  imageHostingDomain: string | null
+): string | null {
+  const $ = cheerio.load(html);
+  let changed = false;
+
+  const campaignImagesDir = path.join(IMAGES_DIR, campaignId);
+
+  // Match /images/{folderId}/{filename}
+  const legacyPattern = /^\/images\/([^/]+)\/([^/?#]+)$/;
+  // Match /campaigns/{year}/{month}/{folderId}/{filename}
+  const newPattern = /^\/campaigns\/[^/]+\/[^/]+\/([^/]+)\/([^/?#]+)$/;
+
+  const domainPrefix = imageHostingDomain ? imageHostingDomain.replace(/\/$/, '') : null;
+
+  // Track filenames already used in the campaign folder to avoid conflicts
+  const usedFilenames = new Set<string>();
+  if (fs.existsSync(campaignImagesDir)) {
+    for (const f of fs.readdirSync(campaignImagesDir)) {
+      usedFilenames.add(f);
+    }
+  }
+
+  $("img").each((_, el) => {
+    let src = $(el).attr("src");
+    if (!src) return;
+
+    // Strip absolute domain prefix to get a relative path for matching
+    let relativeSrc = src;
+    if (domainPrefix && src.startsWith(domainPrefix + '/')) {
+      relativeSrc = src.slice(domainPrefix.length);
+    }
+
+    let sessionFolderId: string | null = null;
+    let filename: string | null = null;
+
+    let match = relativeSrc.match(legacyPattern);
+    if (match) {
+      sessionFolderId = match[1];
+      filename = match[2];
+    } else {
+      match = relativeSrc.match(newPattern);
+      if (match) {
+        sessionFolderId = match[1];
+        filename = match[2];
+      }
+    }
+
+    if (!sessionFolderId || !filename) return;
+    // Already in this campaign's folder — nothing to do
+    if (sessionFolderId === campaignId) return;
+    // Numeric folder IDs belong to other real campaigns — leave them alone
+    if (/^\d+$/.test(sessionFolderId)) return;
+
+    const srcPath = path.join(IMAGES_DIR, sessionFolderId, filename);
+    if (!fs.existsSync(srcPath)) return;
+
+    // Resolve destination filename, handling same-name conflicts with a numeric suffix
+    let destFilename = filename;
+    if (usedFilenames.has(destFilename)) {
+      const ext = path.extname(destFilename);
+      const base = destFilename.slice(0, destFilename.length - ext.length);
+      let counter = 2;
+      while (usedFilenames.has(`${base}-${counter}${ext}`)) counter++;
+      destFilename = `${base}-${counter}${ext}`;
+    }
+    usedFilenames.add(destFilename);
+
+    // Ensure destination directory exists and copy the file
+    if (!fs.existsSync(campaignImagesDir)) {
+      fs.mkdirSync(campaignImagesDir, { recursive: true, mode: 0o755 });
+    }
+    fs.copyFileSync(srcPath, path.join(campaignImagesDir, destFilename));
+
+    const newRelativePath = `/campaigns/${year}/${month}/${campaignId}/${destFilename}`;
+    const newUrl = domainPrefix ? `${domainPrefix}${newRelativePath}` : newRelativePath;
+    $(el).attr("src", newUrl);
+    changed = true;
+  });
+
+  return changed ? $.html() : null;
+}
+
 export function registerCampaignRoutes(app: Express, helpers: {
   parsePagination: (query: any) => { page: number; limit: number };
   validateId: (id: string) => boolean;
@@ -308,6 +406,45 @@ export function registerCampaignRoutes(app: Express, helpers: {
       });
 
       logger.info("Campaign created successfully:", campaign.id);
+
+      // Consolidate any session-folder image references into the campaign's own folder.
+      // This fixes URLs like /campaigns/2026/04/draft-abc123/hero.jpg → /campaigns/2026/04/456/hero.jpg
+      // that arise when images were processed before the campaign had a real numeric ID.
+      if (campaign.htmlContent) {
+        try {
+          const campaignIdStr = String(campaign.id);
+          const campaignDate = campaign.createdAt ? new Date(campaign.createdAt) : new Date();
+          const year = campaignDate.getUTCFullYear().toString();
+          const month = String(campaignDate.getUTCMonth() + 1).padStart(2, '0');
+
+          let imageHostingDomain: string | null = null;
+          if (campaign.mtaId) {
+            const mta = await storage.getMta(String(campaign.mtaId));
+            if (mta && (mta as any).imageHostingDomain) {
+              const raw = (mta as any).imageHostingDomain.replace(/\/$/, "");
+              imageHostingDomain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+            }
+          }
+
+          const consolidatedHtml = consolidateSessionImages(
+            campaign.htmlContent,
+            campaignIdStr,
+            year,
+            month,
+            imageHostingDomain
+          );
+
+          if (consolidatedHtml !== null) {
+            await storage.updateCampaign(campaignIdStr, { htmlContent: consolidatedHtml });
+            (campaign as any).htmlContent = consolidatedHtml;
+            logger.info(`[consolidate] Migrated session images to campaign ${campaignIdStr}`);
+          }
+        } catch (consolidateError) {
+          // Non-fatal: log and continue — campaign is still created successfully
+          logger.error(`[consolidate] Failed to migrate session images for campaign ${campaign.id}:`, consolidateError);
+        }
+      }
+
       res.status(201).json(campaign);
     } catch (error) {
       if (error instanceof z.ZodError) {
