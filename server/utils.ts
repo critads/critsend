@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as dns from "dns";
+import crypto from "crypto";
 import { promisify } from "util";
 import { Readable } from "stream";
 import sanitizeHtml from "sanitize-html";
@@ -11,6 +12,14 @@ const dnsLookup = promisify(dns.lookup);
 export const IMAGES_DIR = path.join(process.cwd(), "images");
 export const TEMP_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/** Generate a random base62 string of the given length. */
+export function generateBase62(length: number): string {
+  const bytes = crypto.randomBytes(length);
+  return Array.from(bytes).map(b => BASE62[b % 62]).join('');
+}
+
 export function cleanupOrphanedTempSessions(): void {
   try {
     if (!fs.existsSync(IMAGES_DIR)) return;
@@ -19,7 +28,8 @@ export function cleanupOrphanedTempSessions(): void {
     const now = Date.now();
     
     for (const entry of entries) {
-      if (!entry.startsWith("temp_")) continue;
+      // Support both legacy "temp_" prefix and new "draft-" prefix
+      if (!entry.startsWith("temp_") && !entry.startsWith("draft-")) continue;
       
       const entryPath = path.join(IMAGES_DIR, entry);
       const stat = fs.statSync(entryPath);
@@ -33,12 +43,38 @@ export function cleanupOrphanedTempSessions(): void {
           fs.unlinkSync(path.join(entryPath, file));
         }
         fs.rmdirSync(entryPath);
-        logger.info(`Cleaned up orphaned temp session: ${entry}`);
+        logger.info(`Cleaned up orphaned draft session: ${entry}`);
       }
     }
   } catch (error) {
     logger.error("Error cleaning up temp sessions:", error);
   }
+}
+
+/**
+ * Derives a clean, sanitized filename from a source image URL.
+ * Extracts the pathname's last segment, strips the extension, sanitizes to
+ * alphanumeric + hyphens + underscores, then re-appends the extension.
+ * Falls back to `img-{fallbackIndex}.{ext}` when no meaningful name is found
+ * (e.g. query-only URLs like /img?id=42).
+ */
+export function sanitizeImageFilename(sourceUrl: string, fallbackIndex: number, ext: string): string {
+  try {
+    const urlObj = new URL(sourceUrl);
+    const rawName = urlObj.pathname.split('/').pop() || '';
+    // Strip extension from raw name
+    const withoutExt = rawName.replace(/\.[^.]+$/, '');
+    // Sanitize: replace disallowed chars with hyphen, collapse & trim
+    const sanitized = withoutExt
+      .replace(/[^a-zA-Z0-9_-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    // Must contain at least one letter, hyphen or underscore to be "meaningful"
+    if (sanitized.length > 0 && /[a-zA-Z_-]/.test(sanitized)) {
+      return `${sanitized}.${ext}`;
+    }
+  } catch {}
+  return `img-${fallbackIndex}.${ext}`;
 }
 
 export function isBlockedIP(ip: string): boolean {

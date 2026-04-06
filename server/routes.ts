@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import { createServer, type Server } from "http";
+import path from "path";
 import rateLimit from "express-rate-limit";
 import {
   IMAGES_DIR,
@@ -75,7 +76,27 @@ export async function registerRoutes(
   });
   app.use("/api/webhooks/", webhookLimiter);
 
+  // Legacy static serving — backward compat for old campaign image URLs
   app.use("/images", express.static(IMAGES_DIR));
+
+  // Stable branded image URLs: /campaigns/{year}/{month}/{campaignId}/{filename}
+  // Year/month are semantic only — files live at images/{campaignId}/{filename} on disk
+  app.get("/campaigns/:year/:month/:campaignId/:filename", (req, res) => {
+    const { year, month, campaignId, filename } = req.params;
+    // Validate all path segments to prevent directory traversal
+    const segmentPattern = /^[a-zA-Z0-9_-]+$/;
+    const filePattern = /^[a-zA-Z0-9._-]+$/;
+    if (
+      !segmentPattern.test(year) || !segmentPattern.test(month) ||
+      !segmentPattern.test(campaignId) || !filePattern.test(filename)
+    ) {
+      return res.status(400).end();
+    }
+    const filePath = path.resolve(IMAGES_DIR, campaignId, filename);
+    res.sendFile(filePath, (err) => {
+      if (err && !res.headersSent) res.status(404).end();
+    });
+  });
   
   cleanupOrphanedTempSessions();
   setInterval(cleanupOrphanedTempSessions, 60 * 60 * 1000);

@@ -269,12 +269,11 @@ export function rewriteImageUrls(html: string, imageHostingDomain: string | null
   const raw = imageHostingDomain.replace(/\/$/, "");
   const domain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   
-  // Match src="/images/..." patterns and replace with full absolute URL
-  // Also handles src='/images/...' (single quotes)
-  return html.replace(
-    /src=(["'])\/images\//g,
-    `src=$1${domain}/images/`
-  );
+  // Rewrite legacy relative /images/ paths and new-style /campaigns/ paths
+  // Also handles both single and double quotes
+  return html
+    .replace(/src=(["'])\/images\//g, `src=$1${domain}/images/`)
+    .replace(/src=(["'])\/campaigns\//g, `src=$1${domain}/campaigns/`);
 }
 
 async function sleep(ms: number): Promise<void> {

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isMemoryPressure } from "../workers";
 import { logger } from "../logger";
 import { messageQueue } from "../message-queue";
-import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml } from "../utils";
+import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62 } from "../utils";
 import * as cheerio from "cheerio";
 import * as fs from "fs";
 import * as path from "path";
@@ -143,7 +143,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
   });
 
   app.post("/api/campaign-assets/session", async (_req: Request, res: Response) => {
-    const sessionId = `temp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const sessionId = `draft-${generateBase62(12)}`;
     res.json({ sessionId });
   });
 
@@ -180,7 +180,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       // Resolve image hosting domain: prefer mtaId from request body (current form selection),
       // fall back to the saved campaign's MTA for backward compatibility
       let imageHostingDomain: string | null = null;
-      const effectiveMtaId = bodyMtaId || (await storage.getCampaign(campaignId))?.mtaId;
+      const campaign = await storage.getCampaign(campaignId);
+      const effectiveMtaId = bodyMtaId || campaign?.mtaId;
       if (effectiveMtaId) {
         const mta = await storage.getMta(effectiveMtaId);
         if (mta?.imageHostingDomain) {
@@ -188,6 +189,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
           imageHostingDomain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
         }
       }
+
+      // Derive year/month from campaign's created_at for stable URL paths
+      const campaignDate = campaign?.createdAt ? new Date(campaign.createdAt) : new Date();
+      const year = campaignDate.getUTCFullYear().toString();
+      const month = String(campaignDate.getUTCMonth() + 1).padStart(2, '0');
       
       const $ = cheerio.load(html);
       const imgElements = $("img");
@@ -204,12 +210,25 @@ export function registerCampaignRoutes(app: Express, helpers: {
         }
       });
 
+      // Track used filenames within this request to handle conflicts with a numeric suffix
+      const usedFilenames = new Set<string>();
+
       const { mapWithConcurrency } = await import("../utils");
       await mapWithConcurrency(imageTasks, 5, async (task) => {
         const ext = getExtensionFromUrl(task.src);
-        const filename = `img_${task.currentIndex}.${ext}`;
-        const destPath = path.join(campaignImagesDir, filename);
-        const relativePath = `/images/${campaignId}/${filename}`;
+        // Derive clean filename from the source URL
+        let baseFilename = sanitizeImageFilename(task.src, task.currentIndex, ext);
+        // Handle conflicts: append numeric suffix until unique
+        if (usedFilenames.has(baseFilename)) {
+          const base = baseFilename.replace(/\.[^.]+$/, '');
+          let counter = 2;
+          while (usedFilenames.has(`${base}-${counter}.${ext}`)) counter++;
+          baseFilename = `${base}-${counter}.${ext}`;
+        }
+        usedFilenames.add(baseFilename);
+
+        const destPath = path.join(campaignImagesDir, baseFilename);
+        const relativePath = `/campaigns/${year}/${month}/${campaignId}/${baseFilename}`;
         const localUrl = imageHostingDomain
           ? `${imageHostingDomain}${relativePath}`
           : relativePath;
