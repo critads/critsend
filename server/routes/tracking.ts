@@ -65,7 +65,135 @@ async function getCampaignTagsCached(campaignId: string): Promise<{ openTag: str
   return { openTag: campaign.openTag || null, clickTag: campaign.clickTag || null };
 }
 
+// ─── Shared HTML helpers ────────────────────────────────────────────────────
+
+function renderUnsubscribePage(status: "success" | "error" | "invalid", message?: string): string {
+  const isSuccess = status === "success";
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${isSuccess ? "Unsubscribed" : "Error"}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; display: flex; justify-content: center;
+           align-items: center; height: 100vh; margin: 0; background: #f9fafb; }
+    .card { background: #fff; border-radius: 12px; padding: 48px 40px; text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,.1); max-width: 420px; width: 100%; }
+    h1 { margin: 0 0 12px; font-size: 1.5rem; color: ${isSuccess ? "#111" : "#c00"}; }
+    p  { margin: 0; color: #666; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${isSuccess ? "Unsubscribed Successfully" : (status === "invalid" ? "Invalid Link" : "Something went wrong")}</h1>
+    <p>${message || (isSuccess ? "You have been removed from our mailing list." : "This unsubscribe link is invalid or has expired.")}</p>
+  </div>
+</body>
+</html>`;
+}
+
+// ─── Short branded tracking routes ─────────────────────────────────────────
+
 export function registerTrackingRoutes(app: Express) {
+  /**
+   * GET /c/:token  — Short click redirect (branded URL, no destination exposed).
+   * Token was generated per-subscriber per-link and stored in tracking_tokens.
+   */
+  app.get("/c/:token", async (req: Request, res: Response) => {
+    const { token } = req.params;
+    try {
+      const resolved = await storage.resolveTrackingToken(token);
+      if (!resolved || resolved.type !== "click" || !resolved.linkId) {
+        logger.warn(`Short click token not found or invalid: ${token}`);
+        return res.status(404).send("Link not found");
+      }
+      const { campaignId, subscriberId, linkId } = resolved;
+
+      const destinationUrl = await storage.getCampaignLinkDestination(linkId);
+      if (!destinationUrl) {
+        logger.warn(`Short click token ${token}: link destination missing for linkId=${linkId}`);
+        return res.status(404).send("Link not found");
+      }
+
+      // Open-redirect prevention
+      try {
+        const parsed = new URL(destinationUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          logger.warn(`Short click token ${token}: blocked non-http protocol`);
+          return res.status(400).send("Invalid URL");
+        }
+      } catch {
+        return res.status(400).send("Invalid URL");
+      }
+
+      // Record stat and redirect
+      const ctx = extractTrackingContext(req);
+      const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
+      await storage.addCampaignStat(campaignId, subscriberId, "click", destinationUrl, ctx);
+      res.redirect(destinationUrl);
+
+      if (isFirstClick) {
+        const tags = await getCampaignTagsCached(campaignId);
+        if (tags?.clickTag) {
+          storage.enqueueTagOperation(subscriberId, tags.clickTag, "click", campaignId)
+            .catch(err => logger.error("Failed to enqueue click tag (short):", err));
+        }
+      }
+    } catch (error) {
+      logger.error("Error in short click route:", error);
+      res.status(500).send("Tracking error");
+    }
+  });
+
+  /**
+   * GET /u/:token  — Short unsubscribe page (branded URL).
+   * Immediately processes the unsubscribe and returns a confirmation page.
+   */
+  app.get("/u/:token", async (req: Request, res: Response) => {
+    const { token } = req.params;
+    try {
+      const resolved = await storage.resolveTrackingToken(token);
+      if (!resolved || resolved.type !== "unsubscribe") {
+        logger.warn(`Short unsubscribe token not found or invalid: ${token}`);
+        return res.status(403).send(renderUnsubscribePage("invalid"));
+      }
+      const { campaignId, subscriberId } = resolved;
+
+      const subscriber = await storage.getSubscriber(subscriberId);
+      res.send(renderUnsubscribePage("success"));
+
+      if (subscriber) {
+        const ctx = extractTrackingContext(req);
+        const campaign = await storage.getCampaign(campaignId);
+
+        storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
+          .catch(err => logger.error("Failed to record unsubscribe stat (short):", err));
+
+        if (campaign?.unsubscribeTag) {
+          storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
+            .then(() => logger.info(`Short unsub: tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
+            .catch(err => logger.error("Failed to enqueue unsubscribe tag (short):", err));
+        }
+        logger.info(`Short unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
+      } else {
+        logger.warn(`Short unsubscribe: subscriber not found: ${subscriberId}`);
+      }
+    } catch (error) {
+      logger.error("Error in short unsubscribe route:", error);
+      res.status(500).send(renderUnsubscribePage("error", "An error occurred. Please try again."));
+    }
+  });
+
+  /**
+   * POST /u/:token  — Confirmation form submission (optional, for HTML forms that POST).
+   * Delegates to the same logic as GET.
+   */
+  app.post("/u/:token", async (req: Request, res: Response) => {
+    // Reuse the GET handler — redirect to self so the result page is the GET response
+    res.redirect(303, `/u/${req.params.token}`);
+  });
+
   app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {
     const { campaignId, subscriberId } = req.params;
     const sig = req.query.sig as string;

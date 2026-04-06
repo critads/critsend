@@ -143,7 +143,17 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     customHeadersMap[header.name] = header.value;
   }
 
-  const trackingOpts = {
+  const trackingOpts: {
+    trackOpens: boolean;
+    trackClicks: boolean;
+    trackingDomain?: string | null;
+    openTrackingDomain?: string | null;
+    openTag?: string | null;
+    clickTag?: string | null;
+    linkMap: Map<string, string>;
+    batchClickTokens?: Map<string, Map<string, string>>;
+    batchUnsubTokens?: Map<string, string>;
+  } = {
     trackOpens: campaign.trackOpens,
     trackClicks: campaign.trackClicks,
     trackingDomain: mta?.trackingDomain,
@@ -363,6 +373,26 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       }
 
       logger.info(`${logPrefix} Batch ${batchNumber}: ${subscribersToSend.length} to send (${skippedCount} skipped)`);
+
+      // ── Generate short tracking tokens for this batch ───────────────────
+      if (mta?.trackingDomain) {
+        const batchSubIds = subscribersToSend.map(s => s.id);
+        const linkIds = [...trackingOpts.linkMap.values()];
+        try {
+          const [clickTokens, unsubTokens] = await Promise.all([
+            linkIds.length > 0 && campaign.trackClicks
+              ? storage.batchCreateClickTokens(campaignId, batchSubIds, linkIds)
+              : Promise.resolve(new Map<string, Map<string, string>>()),
+            storage.batchCreateUnsubscribeTokens(campaignId, batchSubIds),
+          ]);
+          trackingOpts.batchClickTokens = clickTokens;
+          trackingOpts.batchUnsubTokens = unsubTokens;
+        } catch (err: any) {
+          logger.warn(`${logPrefix} Batch ${batchNumber}: token generation failed, falling back to HMAC links: ${err.message}`);
+          trackingOpts.batchClickTokens = undefined;
+          trackingOpts.batchUnsubTokens = undefined;
+        }
+      }
 
       if (isNullsink && mta) {
         const SUB_BATCH = 2500;

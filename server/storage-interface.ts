@@ -122,6 +122,13 @@ export interface IStorage {
   getCampaignLinkDestination(linkId: string): Promise<string | null>;
 
   // ═══════════════════════════════════════════════════════════════
+  // TRACKING TOKENS  (/c/ click tokens + /u/ unsubscribe tokens)
+  // ═══════════════════════════════════════════════════════════════
+  batchCreateClickTokens(campaignId: string, subscriberIds: string[], linkIds: string[]): Promise<Map<string, Map<string, string>>>;
+  batchCreateUnsubscribeTokens(campaignId: string, subscriberIds: string[]): Promise<Map<string, string>>;
+  resolveTrackingToken(token: string): Promise<{ type: string; campaignId: string; subscriberId: string; linkId: string | null } | null>;
+
+  // ═══════════════════════════════════════════════════════════════
   // CAMPAIGN JOB QUEUE
   // ═══════════════════════════════════════════════════════════════
   enqueueCampaignJob(campaignId: string): Promise<CampaignJob>;

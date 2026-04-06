@@ -137,6 +137,18 @@ export interface TrackingOptions {
   clickTag?: string | null;
   /** Opaque link-ID map from preregisterCampaignLinks: Map<destinationUrl, linkId>. When set, click URLs use ?lid= instead of ?url=. */
   linkMap?: Map<string, string>;
+  /**
+   * Batch click tokens pre-generated for a send batch.
+   * Map<subscriberId, Map<linkId, shortToken>> — looked up per subscriber in addTrackingToHtml.
+   * When present, click links emit /c/{token} instead of the HMAC-signed legacy URL.
+   */
+  batchClickTokens?: Map<string, Map<string, string>>;
+  /**
+   * Batch unsubscribe tokens pre-generated for a send batch.
+   * Map<subscriberId, shortToken> — looked up per subscriber in sendEmail/sendEmailBatchNullsink.
+   * When present, unsubscribe links emit /u/{token} instead of the HMAC-signed legacy URL.
+   */
+  batchUnsubTokens?: Map<string, string>;
 }
 
 export function addTrackingToHtml(
@@ -154,9 +166,17 @@ export function addTrackingToHtml(
     processedHtml = processedHtml.replace(
       /href="(https?:\/\/[^"]+)"/gi,
       (match, url) => {
-        // Use opaque lid= token when linkMap is available; fall back to legacy url= format
+        // Prefer short branded /c/{token} when batchClickTokens contains a token for this subscriber+link
         if (options.linkMap && options.linkMap.has(url)) {
           const linkId = options.linkMap.get(url)!;
+          if (options.batchClickTokens) {
+            const tokenMap = options.batchClickTokens.get(options.subscriberId);
+            const token = tokenMap?.get(linkId);
+            if (token) {
+              return `href="${baseUrl}/c/${token}"`;
+            }
+          }
+          // Fall back to HMAC-signed ?lid= URL
           const trackingUrl = generateSignedClickTrackingUrlByLinkId(
             baseUrl,
             options.campaignId,
@@ -330,9 +350,11 @@ export async function sendEmail(
   
   // Resolve unsubscribe URL and replace placeholder in HTML body
   const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
-  const unsubscribeUrl = baseUrl
-    ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id)
-    : "";
+  // Prefer short /u/{token} when a batch token is available for this subscriber
+  const unsubToken = trackingOptions.batchUnsubTokens?.get(subscriber.id);
+  const unsubscribeUrl = unsubToken && baseUrl
+    ? `${baseUrl}/u/${unsubToken}`
+    : (baseUrl ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id) : "");
   if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
     htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
   }
@@ -347,6 +369,8 @@ export async function sendEmail(
     openTag: trackingOptions.openTag,
     clickTag: trackingOptions.clickTag,
     linkMap: trackingOptions.linkMap,
+    batchClickTokens: trackingOptions.batchClickTokens,
+    batchUnsubTokens: trackingOptions.batchUnsubTokens,
   });
 
   // Append footer (unsubscribe link + company address) after tracking
@@ -383,11 +407,6 @@ export async function sendEmail(
   
   // Apply custom headers with placeholder replacement
   if (customHeaders) {
-    const unsubscribeUrl = baseUrl ? generateSignedUnsubscribeUrl(
-      baseUrl,
-      campaign.id,
-      subscriber.id
-    ) : "";
     const date7 = rfc2822DatePlusDays(7);
     
     for (const [headerName, headerValue] of Object.entries(customHeaders)) {
@@ -532,9 +551,11 @@ export async function sendEmailWithNullsink(
   // Rewrite local image URLs to use the MTA's image hosting domain
   htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain);
   const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
-  const unsubscribeUrl = baseUrl
-    ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id)
-    : "";
+  // Prefer short /u/{token} when a batch token is available for this subscriber
+  const unsubTokenNullsink = trackingOptions.batchUnsubTokens?.get(subscriber.id);
+  const unsubscribeUrl = unsubTokenNullsink && baseUrl
+    ? `${baseUrl}/u/${unsubTokenNullsink}`
+    : (baseUrl ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id) : "");
   if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
     htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
   }
@@ -548,6 +569,9 @@ export async function sendEmailWithNullsink(
     openTrackingDomain: trackingOptions.openTrackingDomain,
     openTag: trackingOptions.openTag,
     clickTag: trackingOptions.clickTag,
+    linkMap: trackingOptions.linkMap,
+    batchClickTokens: trackingOptions.batchClickTokens,
+    batchUnsubTokens: trackingOptions.batchUnsubTokens,
   });
 
   // Append footer after tracking
@@ -809,9 +833,11 @@ export function sendEmailBatchNullsink(
 
       let htmlContent = personalizeContent(baseHtml, subscriber);
 
-      const unsubscribeUrl = baseUrl
-        ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id)
-        : "";
+      // Prefer short /u/{token} when a batch token is available
+      const unsubTokenBatch = trackingOptions.batchUnsubTokens?.get(subscriber.id);
+      const unsubscribeUrl = unsubTokenBatch && baseUrl
+        ? `${baseUrl}/u/${unsubTokenBatch}`
+        : (baseUrl ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id) : "");
       if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
         htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
       }
@@ -826,6 +852,8 @@ export function sendEmailBatchNullsink(
         openTag: trackingOptions.openTag,
         clickTag: trackingOptions.clickTag,
         linkMap: trackingOptions.linkMap,
+        batchClickTokens: trackingOptions.batchClickTokens,
+        batchUnsubTokens: trackingOptions.batchUnsubTokens,
       });
 
       // Append footer (unsubscribe link + company address) after tracking

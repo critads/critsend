@@ -399,6 +399,22 @@ export const campaignLinks = pgTable("campaign_links", {
 
 export type CampaignLink = typeof campaignLinks.$inferSelect;
 
+// Tracking tokens - short branded tokens for click (/c/) and unsubscribe (/u/) URLs
+// Note: the UNIQUE expression index (COALESCE) is not expressible in Drizzle — created via raw SQL
+export const trackingTokens = pgTable("tracking_tokens", {
+  token: varchar("token", { length: 8 }).primaryKey(),
+  type: varchar("type", { length: 11 }).notNull(), // 'click' | 'unsubscribe'
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: 'cascade' }),
+  subscriberId: varchar("subscriber_id").notNull(),
+  linkId: varchar("link_id").references(() => campaignLinks.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  campaignIdx: index("tracking_tokens_campaign_idx").on(table.campaignId),
+  subscriberIdx: index("tracking_tokens_subscriber_idx").on(table.subscriberId),
+}));
+
+export type TrackingToken = typeof trackingTokens.$inferSelect;
+
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true }).extend({
   email: z.string().email("Invalid email address").max(254, "Email too long").transform(v => v.toLowerCase().trim()),

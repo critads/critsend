@@ -15,6 +15,7 @@ import {
 } from "@shared/schema";
 import { db, pool } from "../db";
 import { eq, desc, and, sql } from "drizzle-orm";
+import crypto from "crypto";
 import { logger } from "../logger";
 import { campaignQueue } from "../queues";
 import { mapWithConcurrency } from "../utils";
@@ -538,6 +539,148 @@ export async function getDashboardStats() {
     totalClicks: Number(clickCount),
     recentCampaigns,
     recentImports,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TRACKING TOKENS  (short branded /c/ and /u/ URLs)
+// ═══════════════════════════════════════════════════════════════
+
+const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+function generateToken(): string {
+  const bytes = crypto.randomBytes(8);
+  return Array.from(bytes).map(b => BASE62[b % 62]).join('');
+}
+
+const MAX_UNNEST_ROWS = 50000;
+
+/**
+ * Batch-create click tokens for all (subscriberId × linkId) pairs.
+ * Returns Map<subscriberId, Map<linkId, token>>.
+ * Idempotent: ON CONFLICT DO NOTHING, then re-fetch existing tokens.
+ */
+export async function batchCreateClickTokens(
+  campaignId: string,
+  subscriberIds: string[],
+  linkIds: string[]
+): Promise<Map<string, Map<string, string>>> {
+  if (subscriberIds.length === 0 || linkIds.length === 0) return new Map();
+
+  const allTokens: string[] = [];
+  const allTypes: string[] = [];
+  const allCampaigns: string[] = [];
+  const allSubscribers: string[] = [];
+  const allLinks: string[] = [];
+
+  for (const sid of subscriberIds) {
+    for (const lid of linkIds) {
+      allTokens.push(generateToken());
+      allTypes.push('click');
+      allCampaigns.push(campaignId);
+      allSubscribers.push(sid);
+      allLinks.push(lid);
+    }
+  }
+
+  // Chunk inserts to avoid huge unnest payloads
+  for (let i = 0; i < allTokens.length; i += MAX_UNNEST_ROWS) {
+    const chunk = allTokens.slice(i, i + MAX_UNNEST_ROWS);
+    const types = allTypes.slice(i, i + MAX_UNNEST_ROWS);
+    const camps = allCampaigns.slice(i, i + MAX_UNNEST_ROWS);
+    const subs = allSubscribers.slice(i, i + MAX_UNNEST_ROWS);
+    const links = allLinks.slice(i, i + MAX_UNNEST_ROWS);
+    await pool.query(
+      `INSERT INTO tracking_tokens (token, type, campaign_id, subscriber_id, link_id)
+       SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
+       ON CONFLICT (type, campaign_id, subscriber_id, COALESCE(link_id, '')) DO NOTHING`,
+      [chunk, types, camps, subs, links]
+    );
+  }
+
+  const result = await pool.query(
+    `SELECT token, subscriber_id, link_id
+     FROM tracking_tokens
+     WHERE type = 'click'
+       AND campaign_id = $1
+       AND subscriber_id = ANY($2::text[])
+       AND link_id = ANY($3::text[])`,
+    [campaignId, subscriberIds, linkIds]
+  );
+
+  const map = new Map<string, Map<string, string>>();
+  for (const row of result.rows) {
+    if (!map.has(row.subscriber_id)) map.set(row.subscriber_id, new Map());
+    map.get(row.subscriber_id)!.set(row.link_id, row.token);
+  }
+  return map;
+}
+
+/**
+ * Batch-create unsubscribe tokens for a list of subscribers.
+ * Returns Map<subscriberId, token>.
+ */
+export async function batchCreateUnsubscribeTokens(
+  campaignId: string,
+  subscriberIds: string[]
+): Promise<Map<string, string>> {
+  if (subscriberIds.length === 0) return new Map();
+
+  const tokens = subscriberIds.map(() => generateToken());
+  const types = subscriberIds.map(() => 'unsubscribe');
+  const camps = subscriberIds.map(() => campaignId);
+
+  for (let i = 0; i < tokens.length; i += MAX_UNNEST_ROWS) {
+    const chunk = tokens.slice(i, i + MAX_UNNEST_ROWS);
+    const typChunk = types.slice(i, i + MAX_UNNEST_ROWS);
+    const campChunk = camps.slice(i, i + MAX_UNNEST_ROWS);
+    const subChunk = subscriberIds.slice(i, i + MAX_UNNEST_ROWS);
+    await pool.query(
+      `INSERT INTO tracking_tokens (token, type, campaign_id, subscriber_id)
+       SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[])
+       ON CONFLICT (type, campaign_id, subscriber_id, COALESCE(link_id, '')) DO NOTHING`,
+      [chunk, typChunk, campChunk, subChunk]
+    );
+  }
+
+  const result = await pool.query(
+    `SELECT token, subscriber_id
+     FROM tracking_tokens
+     WHERE type = 'unsubscribe'
+       AND campaign_id = $1
+       AND subscriber_id = ANY($2::text[])`,
+    [campaignId, subscriberIds]
+  );
+
+  const map = new Map<string, string>();
+  for (const row of result.rows) {
+    map.set(row.subscriber_id, row.token);
+  }
+  return map;
+}
+
+/**
+ * Resolve a short token to its campaign/subscriber/link metadata.
+ * Returns null if the token does not exist.
+ */
+export async function resolveTrackingToken(token: string): Promise<{
+  type: string;
+  campaignId: string;
+  subscriberId: string;
+  linkId: string | null;
+} | null> {
+  const result = await pool.query(
+    `SELECT type, campaign_id, subscriber_id, link_id
+     FROM tracking_tokens WHERE token = $1`,
+    [token]
+  );
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    type: row.type,
+    campaignId: row.campaign_id,
+    subscriberId: row.subscriber_id,
+    linkId: row.link_id ?? null,
   };
 }
 

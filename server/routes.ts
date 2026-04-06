@@ -63,6 +63,8 @@ export async function registerRoutes(
   });
   app.use("/api/track/", trackingLimiter);
   app.use("/api/unsubscribe/", trackingLimiter);
+  app.use("/c/", trackingLimiter);
+  app.use("/u/", trackingLimiter);
 
   const webhookLimiter = rateLimit({
     windowMs: 60 * 1000,
