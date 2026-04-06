@@ -186,12 +186,44 @@ export function registerTrackingRoutes(app: Express) {
   });
 
   /**
-   * POST /u/:token  — Confirmation form submission (optional, for HTML forms that POST).
-   * Delegates to the same logic as GET.
+   * POST /u/:token  — RFC 8058 one-click unsubscribe.
+   * Processes the unsubscribe directly without redirect.
+   * Email clients (Gmail, Outlook) POST List-Unsubscribe-Post here.
    */
   app.post("/u/:token", async (req: Request, res: Response) => {
-    // Reuse the GET handler — redirect to self so the result page is the GET response
-    res.redirect(303, `/u/${req.params.token}`);
+    const { token } = req.params;
+    try {
+      const resolved = await storage.resolveTrackingToken(token);
+      if (!resolved || resolved.type !== "unsubscribe") {
+        logger.warn(`POST short unsubscribe token not found or invalid: ${token}`);
+        return res.status(404).json({ error: "Unsubscribe token not found" });
+      }
+      const { campaignId, subscriberId } = resolved;
+
+      const subscriber = await storage.getSubscriber(subscriberId);
+      // Respond immediately with 200 (RFC 8058 requires 200 on success)
+      res.status(200).json({ unsubscribed: true });
+
+      if (subscriber) {
+        const ctx = extractTrackingContext(req);
+        const campaign = await storage.getCampaign(campaignId);
+
+        storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
+          .catch(err => logger.error("Failed to record unsubscribe stat (POST short):", err));
+
+        if (campaign?.unsubscribeTag) {
+          storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
+            .then(() => logger.info(`POST short unsub: tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
+            .catch(err => logger.error("Failed to enqueue unsubscribe tag (POST short):", err));
+        }
+        logger.info(`POST short unsubscribe (RFC 8058): campaign=${campaignId}, subscriber=${subscriberId}`);
+      } else {
+        logger.warn(`POST short unsubscribe: subscriber not found: ${subscriberId}`);
+      }
+    } catch (error) {
+      logger.error("Error in POST short unsubscribe route:", error);
+      res.status(500).json({ error: "Unsubscribe failed" });
+    }
   });
 
   app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {

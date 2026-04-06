@@ -546,6 +546,33 @@ export async function getDashboardStats() {
 // TRACKING TOKENS  (short branded /c/ and /u/ URLs)
 // ═══════════════════════════════════════════════════════════════
 
+// ─── Ensure tracking_tokens table exists (idempotent bootstrap) ─────────────
+// Called once on module load.  drizzle-kit push silently no-ops on complex
+// expression indexes, so we manage this table entirely via raw SQL.
+(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tracking_tokens (
+        token       varchar(8)   PRIMARY KEY,
+        type        varchar(11)  NOT NULL CHECK (type IN ('click', 'unsubscribe')),
+        campaign_id varchar      NOT NULL REFERENCES campaigns(id)       ON DELETE CASCADE,
+        subscriber_id varchar    NOT NULL,
+        link_id     varchar      NULL     REFERENCES campaign_links(id)  ON DELETE CASCADE,
+        created_at  timestamptz  NOT NULL DEFAULT now()
+      )
+    `);
+    // Unique expression index required for ON CONFLICT … DO NOTHING below.
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS tracking_tokens_unique_idx
+        ON tracking_tokens (type, campaign_id, subscriber_id, COALESCE(link_id, ''))
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS tracking_tokens_campaign_idx   ON tracking_tokens (campaign_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS tracking_tokens_subscriber_idx ON tracking_tokens (subscriber_id)`);
+  } catch (err: any) {
+    logger.error('[tracking_tokens] Table bootstrap failed:', err.message);
+  }
+})();
+
 const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 function generateToken(): string {
