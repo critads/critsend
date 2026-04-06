@@ -1364,10 +1364,20 @@ export async function processImportJob(
   const csvFilePath = queueItem.csvFilePath;
   const isPhase2 = csvFilePath === "phase2_merge";
 
-  logger.info(`[IMPORT] ${importJobId}: Starting — queueId=${queueId}, csvFilePath=${csvFilePath}, phase2=${isPhase2}`);
+  // Check force mode: if either forced list is non-empty, bypass refs detection entirely
+  const importJob = await storage.getImportJob(importJobId);
+  const forcedTagsJob: string[] = importJob?.forcedTags ?? [];
+  const forcedRefsJob: string[] = importJob?.forcedRefs ?? [];
+  const isForceMode = forcedTagsJob.length > 0 || forcedRefsJob.length > 0;
+
+  logger.info(`[IMPORT] ${importJobId}: Starting — queueId=${queueId}, csvFilePath=${csvFilePath}, phase2=${isPhase2}, forceMode=${isForceMode}`);
 
   if (isPhase2) {
     await processRefsImportPhase2(queueId, importJobId, csvFilePath, onProgress);
+  } else if (isForceMode) {
+    // Force mode: skip refs auto-detection and confirmation flow; treat as email-only import
+    logger.info(`[IMPORT] ${importJobId}: Force mode active — bypassing refs-column detection, running direct import`);
+    await processImport(queueId, importJobId, csvFilePath, onProgress);
   } else {
     const hasRefsColumn = await peekCsvHasRefsColumn(csvFilePath);
     logger.info(`[IMPORT] ${importJobId}: Auto-detected CSV format: refs column ${hasRefsColumn ? "present" : "absent"}`);
