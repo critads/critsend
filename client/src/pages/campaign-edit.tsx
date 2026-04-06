@@ -39,6 +39,16 @@ import {
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 
+/** Inject a <base href> into preview HTML so relative image URLs (/campaigns/...)
+ *  resolve against the current server instead of about:srcdoc. */
+function withBaseHref(html: string): string {
+  const base = `<base href="${window.location.origin}/">`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (m) => `${m}${base}`);
+  }
+  return `${base}${html}`;
+}
+
 const steps = [
   { id: 1, title: "Basic Info", icon: Mail },
   { id: 2, title: "Audience", icon: Users },
@@ -799,7 +809,7 @@ export default function CampaignEdit() {
                   {showPreview ? (
                     <div className="border rounded-md bg-white overflow-hidden">
                       <iframe
-                        srcDoc={formData.htmlContent}
+                        srcDoc={withBaseHref(formData.htmlContent)}
                         className="w-full min-h-[400px] border-0"
                         title="Email Preview"
                         sandbox="allow-same-origin"

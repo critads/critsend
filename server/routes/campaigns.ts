@@ -299,7 +299,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       fs.mkdirSync(campaignImagesDir, { recursive: true, mode: 0o755 });
 
       // Resolve image hosting domain: prefer mtaId from request body (current form selection),
-      // fall back to the saved campaign's MTA for backward compatibility
+      // fall back to the saved campaign's MTA, then fall back to the request's own origin
+      // so images are always stored with absolute URLs even when no domain is configured on the MTA.
       let imageHostingDomain: string | null = null;
       const campaign = await storage.getCampaign(campaignId);
       const effectiveMtaId = bodyMtaId || campaign?.mtaId;
@@ -308,6 +309,15 @@ export function registerCampaignRoutes(app: Express, helpers: {
         if (mta?.imageHostingDomain) {
           const raw = mta.imageHostingDomain.replace(/\/$/, "");
           imageHostingDomain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+        }
+      }
+      // Fallback: derive absolute origin from the incoming request so images are never
+      // stored as relative paths — relative paths break email clients and iframe previews.
+      if (!imageHostingDomain) {
+        const proto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0].trim() || req.protocol || "https";
+        const host = req.headers["x-forwarded-host"] as string | undefined || req.headers.host;
+        if (host) {
+          imageHostingDomain = `${proto}://${host}`;
         }
       }
 
