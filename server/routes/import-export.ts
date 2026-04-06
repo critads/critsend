@@ -40,6 +40,21 @@ function countLines(filePath: string): Promise<number> {
   });
 }
 
+// Bootstrap: add forced_tags/forced_refs columns if upgrading from older schema
+;(async () => {
+  try {
+    await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_tags text[] NOT NULL DEFAULT ARRAY[]::text[]`);
+    await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_refs text[] NOT NULL DEFAULT ARRAY[]::text[]`);
+  } catch (_err) {
+    // columns already exist or DB not ready — safe to ignore
+  }
+})();
+
+function parseCommaSeparated(raw: unknown): string[] {
+  if (!raw || typeof raw !== "string") return [];
+  return raw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+
 export function registerImportExportRoutes(app: Express, helpers: {
   validateId: (id: string) => boolean;
 }) {
@@ -54,6 +69,8 @@ export function registerImportExportRoutes(app: Express, helpers: {
     filename: string;
     tagMode: "merge" | "override";
     importTarget: "auto" | "refs" | "tags";
+    forcedTags: string[];
+    forcedRefs: string[];
     totalChunks: number;
     totalSize: number;
     receivedChunks: Set<number>;
@@ -88,8 +105,10 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
       const tagMode = (req.body.tagMode === "override") ? "override" : "merge";
       const importTarget = "auto";
+      const forcedTags = parseCommaSeparated(req.body.forcedTags);
+      const forcedRefs = parseCommaSeparated(req.body.forcedRefs);
       const fileSizeBytes = req.file.size;
-      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}, importTarget: auto (worker will detect refs column)`);
+      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}, forcedTags: [${forcedTags.join(",")}], forcedRefs: [${forcedRefs.join(",")}]`);
       
       const csvFilePath = req.file.path;
       logger.info(`[IMPORT] File saved to disk: ${csvFilePath}`);
@@ -111,6 +130,8 @@ export function registerImportExportRoutes(app: Express, helpers: {
         totalRows: totalDataRows,
         tagMode: tagMode,
         importTarget: importTarget,
+        forcedTags,
+        forcedRefs,
       });
       logger.info(`[IMPORT] Created import job: ${job.id}`);
 
@@ -293,7 +314,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
   app.post("/api/import/chunked/start", async (req: Request, res: Response) => {
     try {
-      const { filename, tagMode, totalChunks, totalSize } = req.body;
+      const { filename, tagMode, totalChunks, totalSize, forcedTags: rawForcedTags, forcedRefs: rawForcedRefs } = req.body;
       
       if (!filename || !totalChunks || !totalSize) {
         return res.status(400).json({ error: "Missing required fields: filename, totalChunks, totalSize" });
@@ -309,6 +330,8 @@ export function registerImportExportRoutes(app: Express, helpers: {
         filename,
         tagMode: tagMode === "override" ? "override" : "merge",
         importTarget: "auto",
+        forcedTags: parseCommaSeparated(rawForcedTags),
+        forcedRefs: parseCommaSeparated(rawForcedRefs),
         totalChunks: parseInt(totalChunks),
         totalSize: parseInt(totalSize),
         receivedChunks: new Set(),
@@ -446,6 +469,8 @@ export function registerImportExportRoutes(app: Express, helpers: {
         totalRows: totalDataRows,
         tagMode: upload.tagMode,
         importTarget: upload.importTarget,
+        forcedTags: upload.forcedTags,
+        forcedRefs: upload.forcedRefs,
       });
       logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       

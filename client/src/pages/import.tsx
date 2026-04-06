@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import {
@@ -21,6 +22,8 @@ import {
   Ban,
   Trash2,
   ShieldAlert,
+  Tag,
+  BookmarkCheck,
 } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -280,6 +283,8 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
   const hasErrors = Object.keys(errorReasons).length > 0;
   const duration = formatDuration(job.startedAt, job.completedAt);
   const skippedRows = (job as any).skippedRows || 0;
+  const forcedTags: string[] = (job as any).forcedTags ?? [];
+  const forcedRefs: string[] = (job as any).forcedRefs ?? [];
 
   const durationSec = job.startedAt && job.completedAt
     ? Math.max((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000, 1)
@@ -352,6 +357,25 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
           </div>
         )}
       </div>
+
+      {(forcedTags.length > 0 || forcedRefs.length > 0) && (
+        <div className="flex flex-wrap gap-2 text-xs">
+          {forcedTags.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
+              <Tag className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">Forced tags:</span>
+              {forcedTags.map((t) => <Badge key={t} variant="secondary" className="text-xs py-0 h-4">{t}</Badge>)}
+            </div>
+          )}
+          {forcedRefs.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
+              <BookmarkCheck className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">Forced refs:</span>
+              {forcedRefs.map((r) => <Badge key={r} variant="outline" className="text-xs py-0 h-4">{r}</Badge>)}
+            </div>
+          )}
+        </div>
+      )}
 
       {hasErrors && (
         <details className="text-xs">
@@ -463,6 +487,8 @@ export default function Import() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [tagMode, setTagMode] = useState<"merge" | "override">("merge");
+  const [forcedTagsInput, setForcedTagsInput] = useState("");
+  const [forcedRefsInput, setForcedRefsInput] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isChunkedUpload, setIsChunkedUpload] = useState(false);
   const { toast } = useToast();
@@ -506,7 +532,7 @@ export default function Import() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ file, tagMode }: { file: File; tagMode: "merge" | "override" }) => {
+    mutationFn: async ({ file, tagMode, forcedTags, forcedRefs }: { file: File; tagMode: "merge" | "override"; forcedTags: string; forcedRefs: string }) => {
       const MAX_FILE_SIZE = 1024 * 1024 * 1024;
       const CHUNK_SIZE = 25 * 1024 * 1024;
       const USE_CHUNKED_THRESHOLD = 25 * 1024 * 1024;
@@ -529,6 +555,8 @@ export default function Import() {
             tagMode,
             totalChunks,
             totalSize: file.size,
+            forcedTags: forcedTags || undefined,
+            forcedRefs: forcedRefs || undefined,
           }),
         });
 
@@ -578,6 +606,8 @@ export default function Import() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("tagMode", tagMode);
+      if (forcedTags) formData.append("forcedTags", forcedTags);
+      if (forcedRefs) formData.append("forcedRefs", forcedRefs);
       const importCsrfToken = await fetchCsrfToken();
       const response = await fetch("/api/import", {
         method: "POST",
@@ -606,6 +636,8 @@ export default function Import() {
       setSelectedFile(null);
       setUploadProgress(0);
       setIsChunkedUpload(false);
+      setForcedTagsInput("");
+      setForcedRefsInput("");
       toast({
         title: "Import started",
         description: "Your CSV is being processed. If refs are detected, you will be asked to confirm before merging.",
@@ -668,7 +700,7 @@ export default function Import() {
   };
 
   const handleUpload = () => {
-    if (selectedFile) uploadMutation.mutate({ file: selectedFile, tagMode });
+    if (selectedFile) uploadMutation.mutate({ file: selectedFile, tagMode, forcedTags: forcedTagsInput, forcedRefs: forcedRefsInput });
   };
 
   return (
@@ -752,6 +784,42 @@ export default function Import() {
                 </p>
               </div>
 
+              <div className="rounded-md border p-4 space-y-3">
+                <h4 className="font-medium mb-1">Force tags &amp; refs (optional)</h4>
+                <div className="space-y-1.5">
+                  <Label htmlFor="forced-tags" className="text-sm flex items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5" />
+                    Force tags
+                  </Label>
+                  <Input
+                    id="forced-tags"
+                    placeholder="e.g. NEWSLETTER, VIP"
+                    value={forcedTagsInput}
+                    onChange={(e) => setForcedTagsInput(e.target.value)}
+                    data-testid="input-forced-tags"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Comma-separated. Overrides the tags column — every imported subscriber will receive exactly these tags.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="forced-refs" className="text-sm flex items-center gap-1.5">
+                    <BookmarkCheck className="h-3.5 w-3.5" />
+                    Force refs
+                  </Label>
+                  <Input
+                    id="forced-refs"
+                    placeholder="e.g. SEGMENT-A, CAMPAIGN-X"
+                    value={forcedRefsInput}
+                    onChange={(e) => setForcedRefsInput(e.target.value)}
+                    data-testid="input-forced-refs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Comma-separated. Overrides the refs column — every imported subscriber will be tagged with exactly these refs.
+                  </p>
+                </div>
+              </div>
+
               {isChunkedUpload && uploadMutation.isPending && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
@@ -785,7 +853,7 @@ export default function Import() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => setSelectedFile(null)}
+                  onClick={() => { setSelectedFile(null); setForcedTagsInput(""); setForcedRefsInput(""); }}
                   data-testid="button-clear-file"
                 >
                   Clear

@@ -206,6 +206,8 @@ export const importJobs = pgTable("import_jobs", {
   errorMessage: text("error_message"),
   failureReasons: jsonb("failure_reasons"),
   skippedRows: integer("skipped_rows").notNull().default(0),
+  forcedTags: text("forced_tags").array().notNull().default(sql`ARRAY[]::text[]`),
+  forcedRefs: text("forced_refs").array().notNull().default(sql`ARRAY[]::text[]`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
