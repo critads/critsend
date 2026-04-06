@@ -108,6 +108,11 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   validateConnectionBudget();
 
+  // Run bootstrap migrations so forced_tags/forced_refs columns are present
+  // even when the worker starts independently of the web server.
+  const { runImportBootstrapMigrations } = await import("./routes/import-export");
+  await runImportBootstrapMigrations();
+
   // Initialize BullMQ queues for job enqueueing and processing
   initQueues();
 
