@@ -1189,6 +1189,10 @@ async function processRefsImportPhase2(
   const cleanExisting = importJob.cleanExistingRefs;
   const deleteExisting = importJob.deleteExistingRefs;
   const tagMode = (importJob as any).tagMode || "merge";
+  const p2ForcedTags: string[] = importJob.forcedTags ?? [];
+  const p2ForcedRefs: string[] = importJob.forcedRefs ?? [];
+  const p2ForceMode = p2ForcedTags.length > 0 || p2ForcedRefs.length > 0;
+  logger.info(`[IMPORT] ${importJobId}: [REFS PHASE 2] forceMode: ${p2ForceMode}, forcedTags: [${p2ForcedTags.join(",")}], forcedRefs: [${p2ForcedRefs.join(",")}]`);
 
   await storage.updateImportJob(importJobId, {
     status: "processing",
@@ -1285,8 +1289,10 @@ async function processRefsImportPhase2(
         const email = cols[emailIdx]?.toLowerCase();
         if (!email || !email.includes("@")) { failedRows++; parsedRows++; return; }
 
-        const tags = tagsIdx >= 0 && cols[tagsIdx] ? cols[tagsIdx].split(",").map(t => t.trim().toUpperCase()).filter(Boolean) : [];
-        const refs = refsIdx >= 0 && cols[refsIdx] ? cols[refsIdx].split(",").map(r => r.trim().toUpperCase()).filter(Boolean) : [];
+        const p2CsvTags = tagsIdx >= 0 && cols[tagsIdx] ? cols[tagsIdx].split(",").map(t => t.trim().toUpperCase()).filter(Boolean) : [];
+        const p2CsvRefs = refsIdx >= 0 && cols[refsIdx] ? cols[refsIdx].split(",").map(r => r.trim().toUpperCase()).filter(Boolean) : [];
+        const tags = p2ForceMode ? p2ForcedTags : p2CsvTags;
+        const refs = p2ForceMode ? p2ForcedRefs : p2CsvRefs;
         const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
 
         batchRows.push({ email, tags, refs, ipAddress, lineNumber: currentLineNumber });
