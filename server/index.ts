@@ -513,6 +513,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 (async () => {
+  const { runImportBootstrapMigrations } = await import("./routes/import-export");
+  await runImportBootstrapMigrations();
+
   await registerRoutes(httpServer, app);
   
   validateConnectionBudget();

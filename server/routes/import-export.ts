@@ -40,15 +40,17 @@ function countLines(filePath: string): Promise<number> {
   });
 }
 
-// Bootstrap: add forced_tags/forced_refs columns if upgrading from older schema
-;(async () => {
+// Bootstrap: add forced_tags/forced_refs columns if upgrading from older schema.
+// Called explicitly from server startup and awaited before routes are registered.
+export async function runImportBootstrapMigrations(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_tags text[] NOT NULL DEFAULT ARRAY[]::text[]`);
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_refs text[] NOT NULL DEFAULT ARRAY[]::text[]`);
+    logger.info("[IMPORT] Bootstrap migration: forced_tags/forced_refs columns ready");
   } catch (err: any) {
     logger.warn(`[IMPORT] Bootstrap migration warning (forced_tags/forced_refs): ${err?.message || err}`);
   }
-})();
+}
 
 function parseCommaSeparated(raw: unknown): string[] {
   if (!raw || typeof raw !== "string") return [];
