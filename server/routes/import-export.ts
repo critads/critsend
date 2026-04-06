@@ -42,13 +42,16 @@ function countLines(filePath: string): Promise<number> {
 
 // Bootstrap: add forced_tags/forced_refs columns if upgrading from older schema.
 // Called explicitly from server startup and awaited before routes are registered.
+// Throws on genuine DB errors (no permissions, connection failure) to surface
+// misconfigurations immediately rather than allowing silent runtime breakage.
 export async function runImportBootstrapMigrations(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_tags text[] NOT NULL DEFAULT ARRAY[]::text[]`);
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_refs text[] NOT NULL DEFAULT ARRAY[]::text[]`);
     logger.info("[IMPORT] Bootstrap migration: forced_tags/forced_refs columns ready");
   } catch (err: any) {
-    logger.warn(`[IMPORT] Bootstrap migration warning (forced_tags/forced_refs): ${err?.message || err}`);
+    logger.error(`[IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): ${err?.message || err}`);
+    throw err;
   }
 }
 
