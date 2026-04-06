@@ -1329,20 +1329,14 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
             return;
           }
 
-          const tags =
-            tagsIdx >= 0 && cols[tagsIdx]
-              ? cols[tagsIdx]
-                  .split(",")
-                  .map((t) => t.trim().toUpperCase())
-                  .filter(Boolean)
+          const csvTagsOuter = tagsIdx >= 0 && cols[tagsIdx]
+              ? cols[tagsIdx].split(",").map((t) => t.trim().toUpperCase()).filter(Boolean)
               : [];
-          const refs =
-            refsIdx >= 0 && cols[refsIdx]
-              ? cols[refsIdx]
-                  .split(",")
-                  .map((r) => r.trim().toUpperCase())
-                  .filter(Boolean)
+          const csvRefsOuter = refsIdx >= 0 && cols[refsIdx]
+              ? cols[refsIdx].split(",").map((r) => r.trim().toUpperCase()).filter(Boolean)
               : [];
+          const tags = forceMode ? forcedTags : csvTagsOuter;
+          const refs = forceMode ? forcedRefs : csvRefsOuter;
           const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
 
           batchRows.push({ email, tags, refs, ipAddress, lineNumber: currentLineNumber });
@@ -1775,6 +1769,10 @@ async function processRefsImportPhase2(queueId: string, importJobId: string, csv
   const cleanExisting = importJob.cleanExistingRefs;
   const deleteExisting = importJob.deleteExistingRefs;
   const tagMode = (importJob as any).tagMode || "merge";
+  const p2ForcedTags: string[] = importJob.forcedTags ?? [];
+  const p2ForcedRefs: string[] = importJob.forcedRefs ?? [];
+  const p2ForceMode = p2ForcedTags.length > 0 || p2ForcedRefs.length > 0;
+  log("info", `[REFS PHASE 2] Job ${importJobId}: forceMode: ${p2ForceMode}, forcedTags: [${p2ForcedTags.join(",")}], forcedRefs: [${p2ForcedRefs.join(",")}]`);
 
   await updateImportJob(importJobId, {
     status: "processing",
@@ -1899,12 +1897,12 @@ async function processRefsImportPhase2(queueId: string, importJobId: string, csv
           return;
         }
 
-        const csvTags = tagsIdx >= 0 && cols[tagsIdx]
+        const p2CsvTags = tagsIdx >= 0 && cols[tagsIdx]
           ? cols[tagsIdx].split(",").map(t => t.trim().toUpperCase()).filter(Boolean) : [];
-        const csvRefs = refsIdx >= 0 && cols[refsIdx]
+        const p2CsvRefs = refsIdx >= 0 && cols[refsIdx]
           ? cols[refsIdx].split(",").map(r => r.trim().toUpperCase()).filter(Boolean) : [];
-        const tags = forceMode ? forcedTags : csvTags;
-        const refs = forceMode ? forcedRefs : csvRefs;
+        const tags = p2ForceMode ? p2ForcedTags : p2CsvTags;
+        const refs = p2ForceMode ? p2ForcedRefs : p2CsvRefs;
         const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
 
         batchRows.push({ email, tags, refs, ipAddress, lineNumber: currentLineNumber });
@@ -2014,13 +2012,24 @@ process.on("message", async (msg: any) => {
       if (phase === "refs_merge") {
         await processRefsImportPhase2(queueId, importJobId, csvFilePath);
       } else {
-        const hasRefsColumn = await peekCsvHasRefsColumn(csvFilePath);
-        log("info", `${importJobId}: Auto-detected CSV format: refs column ${hasRefsColumn ? "present" : "absent"}`);
+        // Check force mode: bypass refs detection if forced values are set
+        const routingJob = await getImportJob(importJobId);
+        const routingForcedTags: string[] = routingJob?.forcedTags ?? [];
+        const routingForcedRefs: string[] = routingJob?.forcedRefs ?? [];
+        const routingForceMode = routingForcedTags.length > 0 || routingForcedRefs.length > 0;
 
-        if (hasRefsColumn) {
-          await processRefsImportPhase1(queueId, importJobId, csvFilePath);
-        } else {
+        if (routingForceMode) {
+          log("info", `${importJobId}: Force mode active — bypassing refs-column detection, running direct import`);
           await processImport(queueId, importJobId, csvFilePath);
+        } else {
+          const hasRefsColumn = await peekCsvHasRefsColumn(csvFilePath);
+          log("info", `${importJobId}: Auto-detected CSV format: refs column ${hasRefsColumn ? "present" : "absent"}`);
+
+          if (hasRefsColumn) {
+            await processRefsImportPhase1(queueId, importJobId, csvFilePath);
+          } else {
+            await processImport(queueId, importJobId, csvFilePath);
+          }
         }
       }
     } catch (err: any) {
