@@ -283,8 +283,8 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
   const hasErrors = Object.keys(errorReasons).length > 0;
   const duration = formatDuration(job.startedAt, job.completedAt);
   const skippedRows = (job as any).skippedRows || 0;
-  const forcedTags: string[] = (job as any).forcedTags ?? [];
-  const forcedRefs: string[] = (job as any).forcedRefs ?? [];
+  const forcedTags: string[] = job.forcedTags ?? [];
+  const forcedRefs: string[] = job.forcedRefs ?? [];
 
   const durationSec = job.startedAt && job.completedAt
     ? Math.max((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000, 1)
@@ -799,7 +799,7 @@ export default function Import() {
                     data-testid="input-forced-tags"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Comma-separated. Overrides the tags column — every imported subscriber will receive exactly these tags.
+                    Comma-separated. When set, overrides the tags column for every imported row.
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -815,9 +815,17 @@ export default function Import() {
                     data-testid="input-forced-refs"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Comma-separated. Overrides the refs column — every imported subscriber will be tagged with exactly these refs.
+                    Comma-separated. When set, overrides the refs column for every imported row.
                   </p>
                 </div>
+                {(forcedTagsInput.trim() || forcedRefsInput.trim()) && (
+                  <div className="flex items-start gap-2 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300" data-testid="note-force-mode">
+                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      <strong>Email-only mode active.</strong> Only the email column from your CSV will be used — tags and refs columns will be ignored entirely. All subscribers will receive the forced values above.
+                    </span>
+                  </div>
+                )}
               </div>
 
               {isChunkedUpload && uploadMutation.isPending && (

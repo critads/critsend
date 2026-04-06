@@ -483,10 +483,11 @@ async function processImport(
   const resumeFromLine = queueItem?.lastCheckpointLine || 0;
   const importJob = await storage.getImportJob(importJobId);
   const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
-  const forcedTags: string[] = (importJob as any)?.forcedTags ?? [];
-  const forcedRefs: string[] = (importJob as any)?.forcedRefs ?? [];
+  const forcedTags: string[] = importJob?.forcedTags ?? [];
+  const forcedRefs: string[] = importJob?.forcedRefs ?? [];
+  const forceMode = forcedTags.length > 0 || forcedRefs.length > 0;
 
-  logger.info(`[IMPORT] ${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, forcedTags: [${forcedTags.join(",")}], forcedRefs: [${forcedRefs.join(",")}], resume from line: ${resumeFromLine}`);
+  logger.info(`[IMPORT] ${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, forceMode: ${forceMode}, forcedTags: [${forcedTags.join(",")}], forcedRefs: [${forcedRefs.join(",")}], resume from line: ${resumeFromLine}`);
 
   await storage.updateImportJob(importJobId, { status: "processing", startedAt: new Date() });
 
@@ -853,14 +854,12 @@ async function processImport(
             return;
           }
 
-          const tags = forcedTags.length > 0
-            ? forcedTags
-            : (tagsIdx >= 0 && cols[tagsIdx]
-                ? cols[tagsIdx].split(",").map((t) => t.trim().toUpperCase()).filter(Boolean) : []);
-          const refs = forcedRefs.length > 0
-            ? forcedRefs
-            : (refsIdx >= 0 && cols[refsIdx]
-                ? cols[refsIdx].split(",").map((r) => r.trim().toUpperCase()).filter(Boolean) : []);
+          const csvTags = tagsIdx >= 0 && cols[tagsIdx]
+            ? cols[tagsIdx].split(",").map((t) => t.trim().toUpperCase()).filter(Boolean) : [];
+          const csvRefs = refsIdx >= 0 && cols[refsIdx]
+            ? cols[refsIdx].split(",").map((r) => r.trim().toUpperCase()).filter(Boolean) : [];
+          const tags = forceMode ? forcedTags : csvTags;
+          const refs = forceMode ? forcedRefs : csvRefs;
           const ipAddress = ipIdx >= 0 ? cols[ipIdx] || null : null;
 
           batchRows.push({ email, tags, refs, ipAddress, lineNumber: currentLineNumber });
