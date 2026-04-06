@@ -52,7 +52,7 @@ function countLines(filePath: string): Promise<number> {
 
 function parseCommaSeparated(raw: unknown): string[] {
   if (!raw || typeof raw !== "string") return [];
-  return raw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return [...new Set(raw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean))];
 }
 
 export function registerImportExportRoutes(app: Express, helpers: {
