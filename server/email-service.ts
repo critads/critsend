@@ -290,12 +290,15 @@ export function rewriteImageUrls(
   imageHostingDomain: string | null | undefined,
   context?: ImageRewriteContext
 ): string {
-  if (!imageHostingDomain) {
+  // Fall back to PUBLIC_URL env var so campaigns with relative image paths
+  // still get absolute URLs in sent emails even when no MTA domain is configured.
+  const effectiveDomain = imageHostingDomain || process.env.PUBLIC_URL || null;
+  if (!effectiveDomain) {
     return html;
   }
   
   // Normalize: remove trailing slash, ensure https:// scheme
-  const raw = imageHostingDomain.replace(/\/$/, "");
+  const raw = effectiveDomain.replace(/\/$/, "");
   const domain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   
   let result = html;
