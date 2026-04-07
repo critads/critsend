@@ -124,9 +124,12 @@ export default function CampaignDetail() {
     enabled: !!campaignId && (campaign?.failedCount ?? 0) > 0,
   });
 
-  const retryFailedMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/campaigns/${campaignId}/retry-failed`),
-    onSuccess: (data: any) => {
+  const retryFailedMutation = useMutation<{ campaign: Campaign; resetCount: number }, Error>({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/retry-failed`);
+      return res.json() as Promise<{ campaign: Campaign; resetCount: number }>;
+    },
+    onSuccess: (data) => {
       toast({
         title: "Retry queued",
         description: `${data.resetCount ?? 0} failed send(s) have been re-queued.`,
@@ -134,10 +137,10 @@ export default function CampaignDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "errors"] });
     },
-    onError: (err: any) => {
+    onError: (err) => {
       toast({
         title: "Retry failed",
-        description: err?.message || "Could not queue retry.",
+        description: err.message || "Could not queue retry.",
         variant: "destructive",
       });
     },
