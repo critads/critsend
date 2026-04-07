@@ -741,13 +741,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!existingCampaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      if (existingCampaign.failedCount === 0) {
-        return res.status(400).json({ error: "No failed sends to retry" });
-      }
 
       // All three operations in one transaction for atomicity.
       const { campaign, resetCount } = await db.transaction(async (tx) => {
         // 1. Reset failed rows to pending.
+        //    Eligibility is derived from actual DB rows (not just failedCount counter)
+        //    to guard against counter drift.
         //    sent_at is refreshed so recoverOrphanedPendingSends (2-min threshold)
         //    at job start does NOT immediately revert them back to failed.
         //    retry_count/last_retry_at are incremented to preserve history.
@@ -761,6 +760,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           RETURNING id
         `);
         const resetCount = resetResult.rows.length;
+        if (resetCount === 0) return { campaign: null, resetCount: 0 };
 
         // 2. Reset campaign counters and status.
         const [updated] = await tx
@@ -770,12 +770,23 @@ export function registerCampaignRoutes(app: Express, helpers: {
           .returning();
         if (!updated) return { campaign: null, resetCount };
 
-        // 3. Enqueue a new campaign job.
-        await tx.insert(campaignJobs).values({ campaignId: updated.id, status: "pending" });
+        // 3. Enqueue a new campaign job (deduplicated: skip if one is already
+        //    pending/processing to avoid competing workers).
+        await tx.execute(sql`
+          INSERT INTO campaign_jobs (id, campaign_id, status)
+          SELECT gen_random_uuid(), ${updated.id}, 'pending'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM campaign_jobs
+            WHERE campaign_id = ${updated.id} AND status IN ('pending', 'processing')
+          )
+        `);
         return { campaign: updated, resetCount };
       });
 
       if (!campaign) {
+        if (resetCount === 0) {
+          return res.status(400).json({ error: "No failed sends to retry" });
+        }
         return res.status(404).json({ error: "Campaign not found" });
       }
 
