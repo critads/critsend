@@ -696,6 +696,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 100));
       const { logs, total } = await storage.getErrorLogs({
         campaignId: req.params.id,
+        type: "send_failed",
         limit,
         page,
       });
