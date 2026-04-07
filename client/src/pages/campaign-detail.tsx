@@ -1,10 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
   Mail,
@@ -22,8 +25,43 @@ import {
   Pencil,
   RefreshCw,
   Timer,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
 } from "lucide-react";
 import type { Campaign, Mta, Segment } from "@shared/schema";
+
+/** Inject <base href> so relative image URLs (/campaigns/...) resolve against
+ *  the current server instead of about:srcdoc when using srcDoc in an iframe. */
+function withBaseHref(html: string): string {
+  const base = `<base href="${window.location.origin}/">`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (m) => `${m}${base}`);
+  }
+  return `${base}${html}`;
+}
+
+interface ErrorSummaryItem {
+  message: string;
+  count: number;
+}
+
+interface ErrorLog {
+  id: string;
+  email: string | null;
+  message: string;
+  timestamp: string;
+  details?: string | null;
+}
+
+interface CampaignErrorsResponse {
+  pauseReason: string | null;
+  errors: ErrorLog[];
+  total: number;
+  page: number;
+  limit: number;
+  summary: ErrorSummaryItem[];
+}
 
 function CampaignStatusBadge({ status }: { status: string }) {
   const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }> = {
@@ -57,6 +95,9 @@ const sendingSpeedLabels: Record<string, string> = {
 export default function CampaignDetail() {
   const [, params] = useRoute("/campaigns/:id");
   const campaignId = params?.id;
+  const { toast } = useToast();
+  const [errorsPage, setErrorsPage] = useState(1);
+  const ERRORS_PER_PAGE = 50;
 
   const { data: campaign, isLoading: campaignLoading } = useQuery<Campaign>({
     queryKey: ["/api/campaigns", campaignId],
@@ -71,8 +112,41 @@ export default function CampaignDetail() {
     queryKey: ["/api/segments"],
   });
 
+  const { data: errorsData, isLoading: errorsLoading } = useQuery<CampaignErrorsResponse>({
+    queryKey: ["/api/campaigns", campaignId, "errors", errorsPage],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaignId}/errors?page=${errorsPage}&limit=${ERRORS_PER_PAGE}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch errors");
+      return res.json();
+    },
+    enabled: !!campaignId && (campaign?.failedCount ?? 0) > 0,
+  });
+
+  const retryFailedMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/campaigns/${campaignId}/retry-failed`),
+    onSuccess: (data: any) => {
+      toast({
+        title: "Retry queued",
+        description: `${data.resetCount ?? 0} failed send(s) have been re-queued.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "errors"] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Retry failed",
+        description: err?.message || "Could not queue retry.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const mta = mtas?.find(m => m.id === campaign?.mtaId);
   const segment = segments?.find(s => s.id === campaign?.segmentId);
+
+  const totalErrorPages = errorsData ? Math.ceil(errorsData.total / ERRORS_PER_PAGE) : 0;
 
   if (campaignLoading) {
     return (
@@ -215,7 +289,7 @@ export default function CampaignDetail() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Scheduled</span>
                 <span className="font-medium" data-testid="text-scheduled">
-                  {campaign.scheduledAt 
+                  {campaign.scheduledAt
                     ? new Date(campaign.scheduledAt).toLocaleString()
                     : "Not scheduled"}
                 </span>
@@ -346,6 +420,150 @@ export default function CampaignDetail() {
         </Card>
       </div>
 
+      {/* ── Failed Sends ──────────────────────────────────────────── */}
+      {campaign.failedCount > 0 && (
+        <Card data-testid="card-failed-sends">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                  Failed Sends
+                  <Badge variant="destructive" data-testid="badge-failed-count">
+                    {campaign.failedCount.toLocaleString()}
+                  </Badge>
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  These recipients did not receive the email. You can retry them without
+                  re-sending to subscribers who already received it.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => retryFailedMutation.mutate()}
+                disabled={retryFailedMutation.isPending}
+                data-testid="button-retry-failed"
+                className="shrink-0"
+              >
+                <RotateCcw className={`h-4 w-4 mr-2 ${retryFailedMutation.isPending ? "animate-spin" : ""}`} />
+                {retryFailedMutation.isPending ? "Queuing…" : "Retry Failed Sends"}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Error summary — grouped by reason */}
+            {errorsData && errorsData.summary.length > 0 && (
+              <div data-testid="table-error-summary">
+                <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+                  Failure Reasons
+                </h4>
+                <div className="rounded-md border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium">Error</th>
+                        <th className="text-right px-4 py-2 font-medium w-24">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {errorsData.summary.map((item, i) => (
+                        <tr key={i} className="border-t" data-testid={`row-error-summary-${i}`}>
+                          <td className="px-4 py-2 text-muted-foreground break-all">{item.message}</td>
+                          <td className="px-4 py-2 text-right font-mono">
+                            <Badge variant="secondary">{item.count.toLocaleString()}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Individual failed emails */}
+            <div data-testid="table-failed-emails">
+              <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+                Failed Emails
+                {errorsData && (
+                  <span className="ml-2 font-normal normal-case">
+                    ({errorsData.total.toLocaleString()} total)
+                  </span>
+                )}
+              </h4>
+
+              {errorsLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : errorsData && errorsData.errors.length > 0 ? (
+                <>
+                  <div className="rounded-md border overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium">Email</th>
+                          <th className="text-left px-4 py-2 font-medium">Error</th>
+                          <th className="text-right px-4 py-2 font-medium w-40">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {errorsData.errors.map((log) => (
+                          <tr key={log.id} className="border-t" data-testid={`row-failed-email-${log.id}`}>
+                            <td className="px-4 py-2 font-mono text-xs">{log.email || "—"}</td>
+                            <td className="px-4 py-2 text-muted-foreground text-xs break-all max-w-xs">
+                              {log.message}
+                            </td>
+                            <td className="px-4 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">
+                              {new Date(log.timestamp).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  {totalErrorPages > 1 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-xs text-muted-foreground">
+                        Page {errorsPage} of {totalErrorPages}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setErrorsPage(p => Math.max(1, p - 1))}
+                          disabled={errorsPage <= 1}
+                          data-testid="button-errors-prev"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setErrorsPage(p => Math.min(totalErrorPages, p + 1))}
+                          disabled={errorsPage >= totalErrorPages}
+                          data-testid="button-errors-next"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No detailed error logs found. Errors may have been cleared by the maintenance job.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Email Content Preview ───────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle>Email Content Preview</CardTitle>
@@ -355,7 +573,7 @@ export default function CampaignDetail() {
           {campaign.htmlContent ? (
             <div className="border rounded-lg overflow-hidden bg-white">
               <iframe
-                srcDoc={campaign.htmlContent}
+                srcDoc={withBaseHref(campaign.htmlContent)}
                 className="w-full min-h-[500px] border-0"
                 title="Email Preview"
                 sandbox="allow-same-origin"

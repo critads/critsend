@@ -2,7 +2,8 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
-import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs } from "@shared/schema";
+import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs, campaignSends, errorLogs } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
 import { logger } from "../logger";
@@ -691,15 +692,79 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      const { logs } = await storage.getErrorLogs({
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 100));
+      const { logs, total } = await storage.getErrorLogs({
         campaignId: req.params.id,
-        limit: 50,
-        page: 1,
+        limit,
+        page,
       });
-      res.json({ pauseReason: campaign.pauseReason, errors: logs });
+      // Grouped summary: top error messages with occurrence counts
+      const summaryRows = await db
+        .select({ message: errorLogs.message, count: sql<number>`count(*)::int` })
+        .from(errorLogs)
+        .where(and(eq(errorLogs.campaignId, req.params.id), eq(errorLogs.type, "send_failed")))
+        .groupBy(errorLogs.message)
+        .orderBy(sql`count(*) desc`)
+        .limit(20);
+      res.json({
+        pauseReason: campaign.pauseReason,
+        errors: logs,
+        total,
+        page,
+        limit,
+        summary: summaryRows.map(r => ({ message: r.message, count: Number(r.count) })),
+      });
     } catch (error) {
       logger.error("Error fetching campaign errors:", error);
       res.status(500).json({ error: "Failed to fetch campaign errors" });
+    }
+  });
+
+  // Retry only failed individual sends — already-sent recipients are never re-contacted.
+  // Works regardless of campaign status (completed, sending, paused, failed).
+  app.post("/api/campaigns/:id/retry-failed", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const existingCampaign = await storage.getCampaign(req.params.id);
+      if (!existingCampaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      if (existingCampaign.failedCount === 0) {
+        return res.status(400).json({ error: "No failed sends to retry" });
+      }
+
+      // Reset failed send records to pending so the worker will re-attempt them.
+      // The unique index on (campaign_id, subscriber_id) ensures each subscriber
+      // is only retried once even if the worker processes them in parallel.
+      const resetResult = await db
+        .update(campaignSends)
+        .set({ status: "pending" })
+        .where(and(eq(campaignSends.campaignId, req.params.id), eq(campaignSends.status, "failed")));
+      const resetCount = resetResult.rowCount ?? 0;
+
+      const campaign = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(campaigns)
+          .set({ status: "sending", failedCount: 0, pauseReason: null })
+          .where(sql`${campaigns.id} = ${req.params.id}`)
+          .returning();
+        if (!updated) return null;
+        await tx.insert(campaignJobs).values({ campaignId: updated.id, status: "pending" });
+        return updated;
+      });
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
+      logger.info(`[CAMPAIGN_RETRY_FAILED] Reset ${resetCount} failed sends, NOTIFY sent for campaign ${req.params.id}`);
+      res.json({ campaign, resetCount });
+    } catch (error) {
+      logger.error("Error retrying failed campaign sends:", error);
+      res.status(500).json({ error: "Failed to retry failed sends" });
     }
   });
 
