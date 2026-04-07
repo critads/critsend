@@ -2,7 +2,7 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
-import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs, campaignSends, errorLogs } from "@shared/schema";
+import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs, errorLogs } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
@@ -724,12 +724,13 @@ export function registerCampaignRoutes(app: Express, helpers: {
   // Retry only failed individual sends — already-sent recipients are never re-contacted.
   // Works regardless of current campaign status (completed, sending, paused, failed).
   //
-  // How it works with the send engine:
-  //   bulkReserveSendSlots does INSERT … ON CONFLICT DO NOTHING, so subscribers that
-  //   already have a campaign_sends row (status='sent') are permanently skipped.
-  //   Subscribers with status='failed' also have a row, so they would be skipped too.
-  //   To let the send engine retry them we DELETE their failed rows — the main send loop
-  //   then re-inserts fresh rows for those subscribers and delivers the email.
+  // Mechanism:
+  //   Failed rows are reset to 'pending' with a fresh sent_at timestamp. The main
+  //   send loop (bulkReserveSendSlots / INSERT ON CONFLICT DO NOTHING) will skip
+  //   them, but campaign-sender.ts calls recoverOrphanedPendingSends(campaignId, 0)
+  //   after flushBuffer() to collect these carry-over rows, adds their count to
+  //   totalFailed, and the retry phase then re-sends them via getFailedSendsForRetry.
+  //   Already-sent rows (status='sent') are never touched.
   app.post("/api/campaigns/:id/retry-failed", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {
@@ -743,25 +744,34 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "No failed sends to retry" });
       }
 
-      // Do everything in one transaction:
-      //   1. Delete failed campaign_sends rows (so send engine can re-insert + re-send them)
-      //   2. Reset campaign counters and status
-      //   3. Insert a new campaign_jobs row to trigger the worker
+      // All three operations in one transaction for atomicity.
       const { campaign, resetCount } = await db.transaction(async (tx) => {
-        const deleted = await tx
-          .delete(campaignSends)
-          .where(and(eq(campaignSends.campaignId, req.params.id), eq(campaignSends.status, "failed")));
-        const deletedCount = deleted.rowCount ?? 0;
+        // 1. Reset failed rows to pending.
+        //    sent_at is refreshed so recoverOrphanedPendingSends (2-min threshold)
+        //    at job start does NOT immediately revert them back to failed.
+        //    retry_count/last_retry_at are incremented to preserve history.
+        const resetResult = await tx.execute(sql`
+          UPDATE campaign_sends
+          SET status = 'pending',
+              retry_count = retry_count + 1,
+              last_retry_at = NOW(),
+              sent_at = NOW()
+          WHERE campaign_id = ${req.params.id} AND status = 'failed'
+          RETURNING id
+        `);
+        const resetCount = resetResult.rows.length;
 
+        // 2. Reset campaign counters and status.
         const [updated] = await tx
           .update(campaigns)
           .set({ status: "sending", failedCount: 0, pauseReason: null })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
-        if (!updated) return { campaign: null, resetCount: deletedCount };
+        if (!updated) return { campaign: null, resetCount };
 
+        // 3. Enqueue a new campaign job.
         await tx.insert(campaignJobs).values({ campaignId: updated.id, status: "pending" });
-        return { campaign: updated, resetCount: deletedCount };
+        return { campaign: updated, resetCount };
       });
 
       if (!campaign) {
@@ -769,7 +779,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
 
       await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
-      logger.info(`[CAMPAIGN_RETRY_FAILED] Deleted ${resetCount} failed sends, NOTIFY sent for campaign ${req.params.id}`);
+      logger.info(`[CAMPAIGN_RETRY_FAILED] Reset ${resetCount} failed sends to pending, NOTIFY sent for campaign ${req.params.id}`);
       res.json({ campaign, resetCount });
     } catch (error) {
       logger.error("Error retrying failed campaign sends:", error);

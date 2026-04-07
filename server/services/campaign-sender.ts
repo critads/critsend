@@ -581,6 +581,22 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   }
   closeNullsinkTransporter();
 
+  // After flushBuffer() all current-run sends are finalized (sent/failed).
+  // Any remaining 'pending' rows must be carry-overs from the retry-failed
+  // endpoint, which resets failed rows to 'pending' before re-queuing.
+  // We recover them here (threshold=0 → any age) and add them to totalFailed
+  // so the retry phase below will pick them up via getFailedSendsForRetry.
+  try {
+    const carryOverPending = await storage.recoverOrphanedPendingSends(campaignId, 0);
+    if (carryOverPending > 0) {
+      totalFailed += carryOverPending;
+      logger.info(`${logPrefix} Recovered ${carryOverPending} carry-over pending send(s) for retry phase`);
+    }
+  } catch (recoveryErr: unknown) {
+    const msg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
+    logger.warn(`${logPrefix} Carry-over pending recovery failed (non-fatal): ${msg}`);
+  }
+
   const RETRY_WINDOW_MS = 12 * 60 * 60 * 1000;
   const retryDeadline = campaign.retryUntil ? campaign.retryUntil.getTime() : Date.now() + RETRY_WINDOW_MS;
 
