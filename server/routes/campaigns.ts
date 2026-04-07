@@ -722,7 +722,14 @@ export function registerCampaignRoutes(app: Express, helpers: {
   });
 
   // Retry only failed individual sends — already-sent recipients are never re-contacted.
-  // Works regardless of campaign status (completed, sending, paused, failed).
+  // Works regardless of current campaign status (completed, sending, paused, failed).
+  //
+  // How it works with the send engine:
+  //   bulkReserveSendSlots does INSERT … ON CONFLICT DO NOTHING, so subscribers that
+  //   already have a campaign_sends row (status='sent') are permanently skipped.
+  //   Subscribers with status='failed' also have a row, so they would be skipped too.
+  //   To let the send engine retry them we DELETE their failed rows — the main send loop
+  //   then re-inserts fresh rows for those subscribers and delivers the email.
   app.post("/api/campaigns/:id/retry-failed", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {
@@ -736,31 +743,33 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "No failed sends to retry" });
       }
 
-      // Reset failed send records to pending so the worker will re-attempt them.
-      // The unique index on (campaign_id, subscriber_id) ensures each subscriber
-      // is only retried once even if the worker processes them in parallel.
-      const resetResult = await db
-        .update(campaignSends)
-        .set({ status: "pending" })
-        .where(and(eq(campaignSends.campaignId, req.params.id), eq(campaignSends.status, "failed")));
-      const resetCount = resetResult.rowCount ?? 0;
+      // Do everything in one transaction:
+      //   1. Delete failed campaign_sends rows (so send engine can re-insert + re-send them)
+      //   2. Reset campaign counters and status
+      //   3. Insert a new campaign_jobs row to trigger the worker
+      const { campaign, resetCount } = await db.transaction(async (tx) => {
+        const deleted = await tx
+          .delete(campaignSends)
+          .where(and(eq(campaignSends.campaignId, req.params.id), eq(campaignSends.status, "failed")));
+        const deletedCount = deleted.rowCount ?? 0;
 
-      const campaign = await db.transaction(async (tx) => {
         const [updated] = await tx
           .update(campaigns)
           .set({ status: "sending", failedCount: 0, pauseReason: null })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
-        if (!updated) return null;
+        if (!updated) return { campaign: null, resetCount: deletedCount };
+
         await tx.insert(campaignJobs).values({ campaignId: updated.id, status: "pending" });
-        return updated;
+        return { campaign: updated, resetCount: deletedCount };
       });
+
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
 
       await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
-      logger.info(`[CAMPAIGN_RETRY_FAILED] Reset ${resetCount} failed sends, NOTIFY sent for campaign ${req.params.id}`);
+      logger.info(`[CAMPAIGN_RETRY_FAILED] Deleted ${resetCount} failed sends, NOTIFY sent for campaign ${req.params.id}`);
       res.json({ campaign, resetCount });
     } catch (error) {
       logger.error("Error retrying failed campaign sends:", error);
