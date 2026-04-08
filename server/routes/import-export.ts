@@ -210,6 +210,52 @@ export function registerImportExportRoutes(app: Express, helpers: {
     }
   });
 
+  app.post("/api/import/:id/force-complete", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const { id } = req.params;
+      await db.execute(sql`
+        UPDATE import_job_queue SET status = 'completed', completed_at = NOW()
+        WHERE import_job_id = ${id} AND status IN ('pending', 'processing', 'queued')
+      `);
+      await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+        WHERE id = ${id} AND status NOT IN ('completed', 'cancelled')
+      `);
+      logger.info(`[IMPORT] Import job ${id} force-completed by user`);
+      res.json({ success: true, message: "Import marked as completed" });
+    } catch (error) {
+      logger.error("Error force-completing import:", error);
+      res.status(500).json({ error: "Failed to force-complete import" });
+    }
+  });
+
+  app.delete("/api/import/:id", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const { id } = req.params;
+      await db.execute(sql`
+        UPDATE import_job_queue SET status = 'cancelled', completed_at = NOW()
+        WHERE import_job_id = ${id} AND status IN ('pending', 'processing', 'queued')
+      `);
+      await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'cancelled', completed_at = COALESCE(completed_at, NOW())
+        WHERE id = ${id} AND status != 'cancelled'
+      `);
+      logger.info(`[IMPORT] Import job ${id} force-deleted by user`);
+      res.json({ success: true, message: "Import removed" });
+    } catch (error) {
+      logger.error("Error force-deleting import:", error);
+      res.status(500).json({ error: "Failed to remove import" });
+    }
+  });
+
   app.get("/api/import/:id/progress", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {

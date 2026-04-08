@@ -407,6 +407,42 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
 }
 
 function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: string) => void }) {
+  const { toast } = useToast();
+
+  const forceCompleteMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/import/${job.id}/force-complete`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      toast({ title: "Import marked as completed" });
+    },
+    onError: () => {
+      toast({ title: "Force complete failed", variant: "destructive" });
+    },
+  });
+
+  const forceDeleteMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/import/${job.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      toast({ title: "Import removed" });
+    },
+    onError: () => {
+      toast({ title: "Force delete failed", variant: "destructive" });
+    },
+  });
+
+  const handleForceComplete = () => {
+    if (window.confirm("Mark this import as completed? Only do this if all rows are already in the database.")) {
+      forceCompleteMutation.mutate();
+    }
+  };
+
+  const handleForceDelete = () => {
+    if (window.confirm("Remove this import job? This will not delete any subscribers already imported.")) {
+      forceDeleteMutation.mutate();
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "completed": return <CheckCircle2 className="h-5 w-5 text-green-600" />;
@@ -452,17 +488,41 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {canCancel && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onCancel(job.id)}
-              data-testid={`button-cancel-import-${job.id}`}
-            >
-              <Ban className="h-4 w-4 mr-1" />
-              Cancel
-            </Button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {isActive && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceComplete}
+                disabled={forceCompleteMutation.isPending}
+                data-testid={`button-force-complete-${job.id}`}
+                className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
+              >
+                <CheckCircle2 className="h-4 w-4 mr-1" />
+                Force Complete
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceDelete}
+                disabled={forceDeleteMutation.isPending}
+                data-testid={`button-force-delete-${job.id}`}
+                className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-950"
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Force Delete
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onCancel(job.id)}
+                data-testid={`button-cancel-import-${job.id}`}
+              >
+                <Ban className="h-4 w-4 mr-1" />
+                Cancel
+              </Button>
+            </>
           )}
           {getStatusBadge(job.status)}
         </div>
