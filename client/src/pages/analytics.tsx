@@ -293,13 +293,34 @@ const BATCH_SIZE_OPTIONS = [
 
 function batchBarColor(openRate: number): string {
   if (openRate >= 20) return "#22c55e";
-  if (openRate >= 10) return "#f97316";
-  if (openRate >= 3) return "#eab308";
+  if (openRate >= 10) return "#eab308";
   return "#ef4444";
 }
 
 function formatShortDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+interface BatchChartEntry {
+  name: string;
+  label: string;
+  dateRange: string;
+  openRate: number;
+  sent: number;
+  opened: number;
+}
+
+function BatchTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: BatchChartEntry; value: number }> }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md space-y-0.5">
+      <p className="font-semibold">{d.label}</p>
+      <p className="text-muted-foreground">{d.dateRange}</p>
+      <p>{d.openRate.toFixed(2)}% open rate</p>
+      <p>{d.opened.toLocaleString()} opened / {d.sent.toLocaleString()} sent</p>
+    </div>
+  );
 }
 
 function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
@@ -317,7 +338,8 @@ function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
   });
 
   const chartData = (data ?? []).map((b) => ({
-    name: `#${b.batchNum}`,
+    name: `Batch ${b.batchNum}\n${formatShortDate(b.batchStart)}–${formatShortDate(b.batchEnd)}`,
+    label: `Batch ${b.batchNum}`,
     dateRange: `${formatShortDate(b.batchStart)}–${formatShortDate(b.batchEnd)}`,
     openRate: b.openRate,
     sent: b.sent,
@@ -403,22 +425,7 @@ function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
                     axisLine={false}
                     width={42}
                   />
-                  <Tooltip
-                    formatter={(value: number, _name: string, props: any) => {
-                      const d = props.payload;
-                      return [
-                        <span key="v">
-                          {value.toFixed(2)}% open rate
-                          <br />
-                          {d.opened.toLocaleString()} opened / {d.sent.toLocaleString()} sent
-                          <br />
-                          {d.dateRange}
-                        </span>,
-                        "Batch",
-                      ];
-                    }}
-                    contentStyle={{ fontSize: 12 }}
-                  />
+                  <Tooltip content={<BatchTooltip />} />
                   <Bar dataKey="openRate" radius={[3, 3, 0, 0]}>
                     {chartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={batchBarColor(entry.openRate)} />
@@ -429,9 +436,8 @@ function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground justify-end">
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#22c55e]" /> ≥20%</span>
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#f97316]" /> ≥10%</span>
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#eab308]" /> ≥3%</span>
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#ef4444]" /> &lt;3%</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#eab308]" /> ≥10%</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#ef4444]" /> &lt;10%</span>
             </div>
             <div className="rounded-md border overflow-x-auto">
               <Table>

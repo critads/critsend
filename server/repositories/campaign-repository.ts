@@ -762,6 +762,14 @@ export async function getCampaignBatchOpenStats(
   batchStart: string;
   batchEnd: string;
 }>> {
+  type BatchRow = {
+    batch_num: string | number;
+    sent: string | number;
+    opened: string | number;
+    open_rate: string | number;
+    batch_start: Date | string;
+    batch_end: Date | string;
+  };
   const result = await db.execute(sql`
     SELECT
       batch_num,
@@ -782,7 +790,7 @@ export async function getCampaignBatchOpenStats(
     GROUP BY batch_num
     ORDER BY batch_num
   `);
-  return (result.rows as any[]).map((row) => ({
+  return (result.rows as BatchRow[]).map((row) => ({
     batchNum: Number(row.batch_num),
     sent: Number(row.sent),
     opened: Number(row.opened),
