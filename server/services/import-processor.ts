@@ -482,16 +482,6 @@ async function processImport(
   const queueItem = await storage.getImportQueueItem(queueId);
   const resumeFromLine = queueItem?.lastCheckpointLine || 0;
   const importJob = await storage.getImportJob(importJobId);
-
-  if (importJob?.status === 'completed' || importJob?.status === 'failed' || importJob?.status === 'cancelled') {
-    logger.info(`[IMPORT] ${importJobId}: already ${importJob.status}, skipping re-run and marking queue item done`);
-    await db.execute(sql`
-      UPDATE import_job_queue SET status = 'completed', completed_at = NOW()
-      WHERE import_job_id = ${importJobId} AND status IN ('pending', 'processing')
-    `);
-    return;
-  }
-
   const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
   const forcedTags: string[] = importJob?.forcedTags ?? [];
   const forcedRefs: string[] = importJob?.forcedRefs ?? [];
@@ -1391,6 +1381,21 @@ export async function processImportJob(
 
   const csvFilePath = queueItem.csvFilePath;
   const isPhase2 = csvFilePath === "phase2_merge";
+
+  // Early exit: if this import_job is already completed, close the queue item and return.
+  // This breaks the re-run cycle that occurs when recoverStuckImportJobs resets a finished
+  // import's queue item back to 'pending' (e.g. after a PM2 restart during GIN recreation).
+  // We ONLY skip for 'completed'; failed/cancelled are handled by the normal flow below so
+  // that workers.ts .then() sees the correct terminal state without triggering the safety-net.
+  const importJobCheck = await storage.getImportJob(importJobId);
+  if (importJobCheck?.status === 'completed') {
+    logger.info(`[IMPORT] ${importJobId}: already completed, closing re-queued queue item without re-processing`);
+    await db.execute(sql`
+      UPDATE import_job_queue SET status = 'completed', completed_at = NOW()
+      WHERE import_job_id = ${importJobId} AND status IN ('pending', 'processing')
+    `);
+    return;
+  }
 
   // Check force mode: if either forced list is non-empty, bypass refs detection entirely
   const importJob = await storage.getImportJob(importJobId);

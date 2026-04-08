@@ -846,18 +846,33 @@ function startImportJobProcessor() {
         logger.info(`[IMPORT] Startup recovery: failed ${orphanResult.rows.length} orphaned import_jobs with no active queue item`);
       }
 
-      const alreadyDoneResult = await db.execute(sql`
+      // Close queue items whose import_job is already 'completed' — these were orphaned
+      // by recoverStuckImportJobs resetting the queue row during GIN index recreation.
+      const alreadyCompletedResult = await db.execute(sql`
         UPDATE import_job_queue
         SET status = 'completed', completed_at = NOW()
         WHERE status IN ('pending', 'processing')
           AND import_job_id IN (
-            SELECT id FROM import_jobs
-            WHERE status IN ('completed', 'failed', 'cancelled')
+            SELECT id FROM import_jobs WHERE status = 'completed'
           )
         RETURNING import_job_id
       `);
-      if (alreadyDoneResult.rows.length > 0) {
-        logger.info(`[IMPORT] Startup recovery: closed ${alreadyDoneResult.rows.length} queue items whose import_jobs were already finished`);
+      if (alreadyCompletedResult.rows.length > 0) {
+        logger.info(`[IMPORT] Startup recovery: closed ${alreadyCompletedResult.rows.length} queue items whose import_jobs were already completed`);
+      }
+      // Likewise for failed import_jobs — close stray queue items as failed so they are not retried.
+      const alreadyFailedResult = await db.execute(sql`
+        UPDATE import_job_queue
+        SET status = 'failed', completed_at = NOW(),
+            error_message = 'Import job already failed before this queue item was processed'
+        WHERE status IN ('pending', 'processing')
+          AND import_job_id IN (
+            SELECT id FROM import_jobs WHERE status = 'failed'
+          )
+        RETURNING import_job_id
+      `);
+      if (alreadyFailedResult.rows.length > 0) {
+        logger.info(`[IMPORT] Startup recovery: closed ${alreadyFailedResult.rows.length} queue items whose import_jobs were already failed`);
       }
     } catch (err: any) {
       logger.error('[IMPORT] Startup recovery failed:', err.message);
