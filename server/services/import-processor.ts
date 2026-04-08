@@ -482,6 +482,16 @@ async function processImport(
   const queueItem = await storage.getImportQueueItem(queueId);
   const resumeFromLine = queueItem?.lastCheckpointLine || 0;
   const importJob = await storage.getImportJob(importJobId);
+
+  if (importJob?.status === 'completed' || importJob?.status === 'failed' || importJob?.status === 'cancelled') {
+    logger.info(`[IMPORT] ${importJobId}: already ${importJob.status}, skipping re-run and marking queue item done`);
+    await db.execute(sql`
+      UPDATE import_job_queue SET status = 'completed', completed_at = NOW()
+      WHERE import_job_id = ${importJobId} AND status IN ('pending', 'processing')
+    `);
+    return;
+  }
+
   const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
   const forcedTags: string[] = importJob?.forcedTags ?? [];
   const forcedRefs: string[] = importJob?.forcedRefs ?? [];

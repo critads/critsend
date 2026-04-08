@@ -845,6 +845,20 @@ function startImportJobProcessor() {
       if (orphanResult.rows.length > 0) {
         logger.info(`[IMPORT] Startup recovery: failed ${orphanResult.rows.length} orphaned import_jobs with no active queue item`);
       }
+
+      const alreadyDoneResult = await db.execute(sql`
+        UPDATE import_job_queue
+        SET status = 'completed', completed_at = NOW()
+        WHERE status IN ('pending', 'processing')
+          AND import_job_id IN (
+            SELECT id FROM import_jobs
+            WHERE status IN ('completed', 'failed', 'cancelled')
+          )
+        RETURNING import_job_id
+      `);
+      if (alreadyDoneResult.rows.length > 0) {
+        logger.info(`[IMPORT] Startup recovery: closed ${alreadyDoneResult.rows.length} queue items whose import_jobs were already finished`);
+      }
     } catch (err: any) {
       logger.error('[IMPORT] Startup recovery failed:', err.message);
     }

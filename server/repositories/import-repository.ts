@@ -186,7 +186,7 @@ export async function recoverStuckImportJobs(): Promise<number> {
     SET status = 'failed', completed_at = NOW(),
         error_message = 'Import failed after multiple retries - possible memory issue. Try importing a smaller file or splitting the CSV.'
     WHERE q.status = 'processing'
-      AND (q.heartbeat IS NULL OR q.heartbeat < NOW() - INTERVAL '2 minutes')
+      AND (q.heartbeat IS NULL OR q.heartbeat < NOW() - INTERVAL '10 minutes')
       AND q.retry_count >= 2
     RETURNING q.import_job_id
   `);
@@ -204,7 +204,7 @@ export async function recoverStuckImportJobs(): Promise<number> {
     UPDATE import_job_queue q
     SET status = 'pending', started_at = NULL, heartbeat = NULL, worker_id = NULL, retry_count = retry_count + 1
     WHERE q.status = 'processing'
-      AND (q.heartbeat IS NULL OR q.heartbeat < NOW() - INTERVAL '2 minutes')
+      AND (q.heartbeat IS NULL OR q.heartbeat < NOW() - INTERVAL '10 minutes')
       AND q.retry_count < 2
       AND NOT EXISTS (
         SELECT 1 FROM import_jobs j WHERE j.id = q.import_job_id AND j.status = 'cancelled'
