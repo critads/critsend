@@ -430,7 +430,7 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
   return processedRows;
 }
 
-const MAX_CONCURRENT_CAMPAIGNS = Number(process.env.MAX_CONCURRENT_CAMPAIGNS || 8);
+const MAX_CONCURRENT_CAMPAIGNS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CAMPAIGNS || '8', 10) || 8);
 const activeCampaigns = new Set<string>();
 let isPolling = false;
 let campaignJobWakeup: (() => void) | null = null;
@@ -717,7 +717,7 @@ async function startJobProcessor() {
     return;
   }
 
-  logger.info(`[JOB_POLL] Starting job processor with worker ID: ${WORKER_ID}`);
+  logger.info(`[JOB_POLL] Starting job processor with worker ID: ${WORKER_ID}, max concurrent campaigns: ${MAX_CONCURRENT_CAMPAIGNS}`);
 
   jobPollingInterval = setInterval(pollForJobs, 10000);
 
