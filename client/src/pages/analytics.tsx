@@ -444,7 +444,7 @@ function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Batch</TableHead>
-                    <TableHead>Period</TableHead>
+                    <TableHead>Sent from – to</TableHead>
                     <TableHead className="text-right">Sent</TableHead>
                     <TableHead className="text-right">Opened</TableHead>
                     <TableHead className="text-right">Open Rate</TableHead>

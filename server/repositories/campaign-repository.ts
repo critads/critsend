@@ -785,7 +785,7 @@ export async function getCampaignBatchOpenStats(
         CEIL(ROW_NUMBER() OVER (ORDER BY sent_at) / ${batchSize}::float)::int AS batch_num
       FROM campaign_sends
       WHERE campaign_id = ${campaignId}
-        AND status NOT IN ('pending', 'attempting')
+        AND status IN ('sent', 'bounced', 'failed')
     ) batched
     GROUP BY batch_num
     ORDER BY batch_num
