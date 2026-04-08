@@ -1,0 +1,56 @@
+ubuntu@ns3102288:~/critsend$ sudo apt-get install -y postgresql-client
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following additional packages will be installed:
+  libpq5 postgresql-client-14 postgresql-client-common
+Suggested packages:
+  postgresql-14 postgresql-doc-14
+The following NEW packages will be installed:
+  libpq5 postgresql-client postgresql-client-14 postgresql-client-common
+0 upgraded, 4 newly installed, 0 to remove and 5 not upgraded.
+Need to get 1437 kB of archives.
+After this operation, 4881 kB of additional disk space will be used.
+Get:1 http://nova.clouds.archive.ubuntu.com/ubuntu jammy-updates/main amd64 libpq5 amd64 14.22-0ubuntu0.22.04.1 [153 kB]
+Get:2 http://nova.clouds.archive.ubuntu.com/ubuntu jammy/main amd64 postgresql-client-common all 238 [29.6 kB]
+Get:3 http://nova.clouds.archive.ubuntu.com/ubuntu jammy-updates/main amd64 postgresql-client-14 amd64 14.22-0ubuntu0.22.04.1 [1251 kB]
+Get:4 http://nova.clouds.archive.ubuntu.com/ubuntu jammy/main amd64 postgresql-client all 14+238 [3292 B]
+Fetched 1437 kB in 2s (909 kB/s)            
+Selecting previously unselected package libpq5:amd64.
+(Reading database ... 104833 files and directories currently installed.)
+Preparing to unpack .../libpq5_14.22-0ubuntu0.22.04.1_amd64.deb ...
+Unpacking libpq5:amd64 (14.22-0ubuntu0.22.04.1) ...
+Selecting previously unselected package postgresql-client-common.
+Preparing to unpack .../postgresql-client-common_238_all.deb ...
+Unpacking postgresql-client-common (238) ...
+Selecting previously unselected package postgresql-client-14.
+Preparing to unpack .../postgresql-client-14_14.22-0ubuntu0.22.04.1_amd64.deb ...
+Unpacking postgresql-client-14 (14.22-0ubuntu0.22.04.1) ...
+Selecting previously unselected package postgresql-client.
+Preparing to unpack .../postgresql-client_14+238_all.deb ...
+Unpacking postgresql-client (14+238) ...
+Setting up postgresql-client-common (238) ...
+Setting up libpq5:amd64 (14.22-0ubuntu0.22.04.1) ...
+Setting up postgresql-client-14 (14.22-0ubuntu0.22.04.1) ...
+update-alternatives: using /usr/share/postgresql/14/man/man1/psql.1.gz to provide /usr/share/man/man1/psql.1.gz (psql.1.gz) in auto mode
+Setting up postgresql-client (14+238) ...
+Processing triggers for man-db (2.10.2-1) ...
+Processing triggers for libc-bin (2.35-0ubuntu3.13) ...
+Scanning processes...                                                           
+Scanning processor microcode...                                                 
+Scanning linux images...                                                        
+
+Running kernel seems to be up-to-date.
+
+The processor microcode seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+ubuntu@ns3102288:~/critsend$ psql $DATABASE_URL
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
