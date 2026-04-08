@@ -980,7 +980,14 @@ async function processImport(
 
         const finalProcessedRows = totalRows > 0 ? Math.min(committedRows, totalRows) : committedRows;
 
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        const totalDuration = (Date.now() - startTime) / 1000;
+        logger.info(`[IMPORT] ${importJobId}: All rows committed in ${Math.round(totalDuration)}s — committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, dups: ${duplicatesInFile}, failed: ${failedRows}`);
+
+        // Mark as "completed" and fire the SSE event IMMEDIATELY once all rows are in the DB.
+        // GIN index recreation and CSV cleanup happen after — they are background housekeeping
+        // and must not delay the status transition that the UI depends on.
+        let completedWritten = false;
+        for (let attempt = 1; attempt <= 5; attempt++) {
           try {
             await storage.updateImportJob(importJobId, {
               status: "completed",
@@ -992,15 +999,34 @@ async function processImport(
               failureReasons: Object.keys(finalReasons).length > 0 ? finalReasons : undefined,
               skippedRows,
             });
+            completedWritten = true;
             break;
           } catch (dbErr: any) {
-            logger.warn(`[IMPORT] ${importJobId}: Final DB write attempt ${attempt}/3 failed: ${dbErr.message}`);
-            if (attempt < 3) await new Promise(r => setTimeout(r, 500));
+            logger.warn(`[IMPORT] ${importJobId}: Final DB write attempt ${attempt}/5 failed: ${dbErr.message}`);
+            if (attempt < 5) await new Promise(r => setTimeout(r, 1000 * attempt));
           }
         }
 
-        await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber);
+        if (!completedWritten) {
+          // All 5 retries exhausted — surface as an error so workers.ts safety-net can handle it
+          throw new Error(`[IMPORT] ${importJobId}: Could not persist 'completed' status after 5 attempts — all rows are in the DB`);
+        }
 
+        await storage.updateImportQueueProgressWithCheckpoint(queueId, committedRows, processedBytes, currentLineNumber)
+          .catch((err: any) => logger.warn(`[IMPORT] ${importJobId}: Checkpoint update failed (non-fatal): ${err.message}`));
+
+        // Emit SSE "completed" event so the UI transitions immediately
+        onProgress({
+          status: "completed",
+          processedRows: finalProcessedRows,
+          totalRows,
+          newSubscribers,
+          updatedSubscribers,
+          failedRows,
+          duplicatesInFile,
+        });
+
+        // Background housekeeping: GIN index recreation (can take several minutes on large imports)
         if (isLargeImport) {
           try {
             const indexesPresent = await storage.areGinIndexesPresent();
@@ -1020,18 +1046,7 @@ async function processImport(
           logger.info(`[IMPORT] ${importJobId}: Cleaned up CSV file`);
         } catch (_) { logger.error(`[IMPORT] ${importJobId}: Failed to clean up CSV file: ${csvFilePath}`); }
 
-        const totalDuration = (Date.now() - startTime) / 1000;
-        logger.info(`[IMPORT] ${importJobId}: Complete in ${Math.round(totalDuration)}s — committed: ${committedRows}, new: ${newSubscribers}, updated: ${updatedSubscribers}, dups: ${duplicatesInFile}, failed: ${failedRows}`);
-
-        onProgress({
-          status: "completed",
-          processedRows: finalProcessedRows,
-          totalRows,
-          newSubscribers,
-          updatedSubscribers,
-          failedRows,
-          duplicatesInFile,
-        });
+        logger.info(`[IMPORT] ${importJobId}: Finalization complete in ${Math.round((Date.now() - startTime) / 1000)}s total`);
 
         clearInterval(finalizationHeartbeat);
         safeResolve();
