@@ -941,6 +941,13 @@ async function pollForImportJobs() {
           } else {
             await storage.completeImportQueueJob(queueId, "completed")
               .catch((err: any) => logger.error(`[IMPORT] Failed to complete queue item: ${err.message}`));
+            // Safety net: if the in-processor final DB write failed (all 3 retries), import_jobs.status
+            // may still be 'processing'. Fix it here so the UI reflects the actual outcome.
+            if (finalJob && finalJob.status !== "completed") {
+              logger.warn(`[IMPORT] Job ${importJobId} resolved but status is '${finalJob.status}' — forcing to 'completed'`);
+              await storage.updateImportJob(importJobId, { status: "completed", completedAt: new Date() })
+                .catch((err: any) => logger.error(`[IMPORT] Safety-net status update failed: ${err.message}`));
+            }
             storage.invalidateSegmentCountCache();
             logger.info(`[IMPORT] Job ${importJobId} completed successfully (status: ${lastProgressStatus})`);
           }

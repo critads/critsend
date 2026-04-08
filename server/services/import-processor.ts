@@ -898,6 +898,9 @@ async function processImport(
       clearInterval(progressUpdateTimer);
       const finalizationHeartbeat = setInterval(() => {
         logger.debug(`[IMPORT] ${importJobId}: Finalization in progress...`);
+        storage.updateImportQueueHeartbeat(queueId).catch((err: any) =>
+          logger.warn(`[IMPORT] ${importJobId}: Finalization heartbeat DB update failed: ${err.message}`)
+        );
       }, 30000);
 
       try {
