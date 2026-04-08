@@ -1385,8 +1385,13 @@ export async function processImportJob(
   // Early exit: if this import_job is already completed, close the queue item and return.
   // This breaks the re-run cycle that occurs when recoverStuckImportJobs resets a finished
   // import's queue item back to 'pending' (e.g. after a PM2 restart during GIN recreation).
-  // We ONLY skip for 'completed'; failed/cancelled are handled by the normal flow below so
-  // that workers.ts .then() sees the correct terminal state without triggering the safety-net.
+  //
+  // WHY only 'completed' and not 'failed'/'cancelled':
+  //   The workers.ts .then() finalization contains a safety-net that forces any non-cancelled
+  //   job with status !== 'completed' to 'completed'. If we returned early for 'failed' here,
+  //   that safety-net would overwrite the failure with 'completed', corrupting the audit trail.
+  //   'failed' and 'cancelled' stray queue items are instead closed by the startup recovery in
+  //   workers.ts (alreadyFailedResult query) so they are never re-claimed after a PM2 restart.
   const importJobCheck = await storage.getImportJob(importJobId);
   if (importJobCheck?.status === 'completed') {
     logger.info(`[IMPORT] ${importJobId}: already completed, closing re-queued queue item without re-processing`);
