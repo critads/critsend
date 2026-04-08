@@ -287,4 +287,12 @@ export interface IStorage {
     topLinks: Array<{ url: string; clicks: number }>;
     recentActivity: Array<{ email: string; type: string; timestamp: string; link?: string }>;
   } | undefined>;
+  getCampaignBatchOpenStats(campaignId: string, batchSize?: number): Promise<Array<{
+    batchNum: number;
+    sent: number;
+    opened: number;
+    openRate: number;
+    batchStart: string;
+    batchEnd: string;
+  }>>;
 }

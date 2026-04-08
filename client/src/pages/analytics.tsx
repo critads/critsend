@@ -14,6 +14,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   BarChart3,
   Eye,
   MousePointer2,
@@ -31,7 +38,18 @@ import {
   Flame,
   ChevronDown,
   ChevronUp,
+  Layers,
 } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  Cell,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
+} from "recharts";
 import type { Campaign } from "@shared/schema";
 
 interface CampaignAnalytics {
@@ -121,6 +139,15 @@ interface ProviderOpenRate {
   recipients: number;
   uniqueOpeners: number;
   openRate: number;
+}
+
+interface BatchOpenStat {
+  batchNum: number;
+  sent: number;
+  opened: number;
+  openRate: number;
+  batchStart: string;
+  batchEnd: string;
 }
 
 interface HeatmapData {
@@ -253,6 +280,195 @@ function LinkSummaryTable({
         </div>
       )}
     </div>
+  );
+}
+
+const BATCH_SIZE_OPTIONS = [
+  { label: "1,000", value: 1000 },
+  { label: "5,000", value: 5000 },
+  { label: "10,000", value: 10000 },
+  { label: "25,000", value: 25000 },
+  { label: "50,000", value: 50000 },
+];
+
+function batchBarColor(openRate: number): string {
+  if (openRate >= 20) return "#22c55e";
+  if (openRate >= 10) return "#f97316";
+  if (openRate >= 3) return "#eab308";
+  return "#ef4444";
+}
+
+function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
+  const [batchSize, setBatchSize] = useState(10000);
+
+  const { data, isLoading, isError } = useQuery<BatchOpenStat[]>({
+    queryKey: ["/api/analytics/campaign", campaignId, "batch-opens", batchSize],
+    queryFn: () =>
+      fetch(`/api/analytics/campaign/${campaignId}/batch-opens?batchSize=${batchSize}`)
+        .then((r) => {
+          if (!r.ok) throw new Error("not_found");
+          return r.json();
+        }),
+    retry: false,
+  });
+
+  const chartData = (data ?? []).map((b) => ({
+    name: `#${b.batchNum}`,
+    dateRange: `${formatShortDate(b.batchStart)}–${formatShortDate(b.batchEnd)}`,
+    openRate: b.openRate,
+    sent: b.sent,
+    opened: b.opened,
+  }));
+
+  return (
+    <Card data-testid="card-batch-open-rate">
+      <CardHeader>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5" />
+              Batch Open Rate Analysis
+            </CardTitle>
+            <CardDescription>
+              Open rate per chronological batch of sent emails — helps identify if early batches perform differently
+            </CardDescription>
+          </div>
+          <Select
+            value={String(batchSize)}
+            onValueChange={(v) => setBatchSize(Number(v))}
+          >
+            <SelectTrigger className="w-36" data-testid="select-batch-size">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BATCH_SIZE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={String(opt.value)}>
+                  {opt.label} / batch
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-48 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        ) : isError || !data ? (
+          <p className="text-center py-10 text-muted-foreground text-sm">
+            No send data available yet for this campaign.
+          </p>
+        ) : data.length === 1 ? (
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <p className="text-muted-foreground text-sm">
+              All {data[0].sent.toLocaleString()} emails were sent in a single batch.
+            </p>
+            <div className="flex gap-6 mt-2">
+              <div>
+                <p className="text-2xl font-bold">{data[0].openRate.toFixed(2)}%</p>
+                <p className="text-xs text-muted-foreground">Open rate</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{data[0].opened.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">Unique openers</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{data[0].sent.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">Sent</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={(v) => `${v}%`}
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={42}
+                  />
+                  <Tooltip
+                    formatter={(value: number, _name: string, props: any) => {
+                      const d = props.payload;
+                      return [
+                        <span key="v">
+                          {value.toFixed(2)}% open rate
+                          <br />
+                          {d.opened.toLocaleString()} opened / {d.sent.toLocaleString()} sent
+                          <br />
+                          {d.dateRange}
+                        </span>,
+                        "Batch",
+                      ];
+                    }}
+                    contentStyle={{ fontSize: 12 }}
+                  />
+                  <Bar dataKey="openRate" radius={[3, 3, 0, 0]}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={batchBarColor(entry.openRate)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground justify-end">
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#22c55e]" /> ≥20%</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#f97316]" /> ≥10%</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#eab308]" /> ≥3%</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#ef4444]" /> &lt;3%</span>
+            </div>
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Batch</TableHead>
+                    <TableHead>Period</TableHead>
+                    <TableHead className="text-right">Sent</TableHead>
+                    <TableHead className="text-right">Opened</TableHead>
+                    <TableHead className="text-right">Open Rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.map((b) => (
+                    <TableRow key={b.batchNum} data-testid={`row-batch-${b.batchNum}`}>
+                      <TableCell className="font-medium">#{b.batchNum}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        {formatShortDate(b.batchStart)} – {formatShortDate(b.batchEnd)}
+                      </TableCell>
+                      <TableCell className="text-right">{b.sent.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{b.opened.toLocaleString()}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={b.openRate >= 10 ? "default" : b.openRate >= 3 ? "secondary" : "outline"}
+                        >
+                          {b.openRate.toFixed(2)}%
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -615,6 +831,10 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
             <LinkSummaryTable links={heatmapData.links} totalClicks={heatmapData.totalClicks} />
           </CardContent>
         </Card>
+      )}
+
+      {data && data.campaign.sentCount > 0 && (
+        <BatchOpenRateCard campaignId={campaignId} />
       )}
     </div>
   );

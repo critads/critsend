@@ -176,6 +176,26 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
     }
   });
 
+  app.get("/api/analytics/campaign/:id/batch-opens", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const rawBatchSize = parseInt(req.query.batchSize as string, 10);
+      const batchSize = isNaN(rawBatchSize)
+        ? 10000
+        : Math.min(50000, Math.max(1000, rawBatchSize));
+      const data = await storage.getCampaignBatchOpenStats(req.params.id, batchSize);
+      if (data.length === 0) {
+        return res.status(404).json({ error: "No send data found for this campaign" });
+      }
+      res.json(data);
+    } catch (error) {
+      logger.error("Error fetching batch open stats:", error);
+      res.status(500).json({ error: "Failed to fetch batch open stats" });
+    }
+  });
+
   app.get("/api/error-logs", async (req: Request, res: Response) => {
     try {
       const { page, limit } = parsePagination(req.query);

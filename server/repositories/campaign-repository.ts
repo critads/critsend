@@ -750,3 +750,44 @@ export async function getOverallAnalytics() {
     recentCampaigns: campaignMetrics,
   };
 }
+
+export async function getCampaignBatchOpenStats(
+  campaignId: string,
+  batchSize: number = 10000
+): Promise<Array<{
+  batchNum: number;
+  sent: number;
+  opened: number;
+  openRate: number;
+  batchStart: string;
+  batchEnd: string;
+}>> {
+  const result = await db.execute(sql`
+    SELECT
+      batch_num,
+      COUNT(*)::int AS sent,
+      COUNT(first_open_at)::int AS opened,
+      ROUND(COUNT(first_open_at)::numeric / NULLIF(COUNT(*), 0) * 100, 2)::float AS open_rate,
+      MIN(sent_at) AS batch_start,
+      MAX(sent_at) AS batch_end
+    FROM (
+      SELECT
+        first_open_at,
+        sent_at,
+        CEIL(ROW_NUMBER() OVER (ORDER BY sent_at) / ${batchSize}::float)::int AS batch_num
+      FROM campaign_sends
+      WHERE campaign_id = ${campaignId}
+        AND status NOT IN ('pending', 'attempting')
+    ) batched
+    GROUP BY batch_num
+    ORDER BY batch_num
+  `);
+  return (result.rows as any[]).map((row) => ({
+    batchNum: Number(row.batch_num),
+    sent: Number(row.sent),
+    opened: Number(row.opened),
+    openRate: Number(row.open_rate),
+    batchStart: row.batch_start instanceof Date ? row.batch_start.toISOString() : String(row.batch_start),
+    batchEnd: row.batch_end instanceof Date ? row.batch_end.toISOString() : String(row.batch_end),
+  }));
+}
