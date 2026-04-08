@@ -63,6 +63,8 @@ module.exports = {
         NODE_ENV: "production",
         PROCESS_TYPE: "worker",
         NODE_OPTIONS: "--max-old-space-size=4096 --expose-gc",
+        WORKER_PG_POOL_MAX: "14",
+        MAX_CONCURRENT_CAMPAIGNS: "8",
       },
 
       max_restarts: 10,
