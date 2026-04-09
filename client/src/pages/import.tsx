@@ -443,6 +443,24 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
     }
   };
 
+  const forceRequeueMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/import/${job.id}/requeue`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      toast({ title: "Import requeued", description: "The import will begin processing shortly." });
+    },
+    onError: (err: any) => {
+      const msg = err?.message || "Could not requeue the import.";
+      toast({ title: "Requeue failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  const handleForceRequeue = () => {
+    if (window.confirm("Re-run this import? The original CSV will be processed again from the beginning.")) {
+      forceRequeueMutation.mutate();
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "completed": return <CheckCircle2 className="h-5 w-5 text-green-600" />;
@@ -523,6 +541,19 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
                 Cancel
               </Button>
             </>
+          )}
+          {(job.status === "queued" || job.status === "failed" || job.status === "cancelled") && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleForceRequeue}
+              disabled={forceRequeueMutation.isPending}
+              data-testid={`button-requeue-${job.id}`}
+              className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Requeue
+            </Button>
           )}
           {getStatusBadge(job.status)}
         </div>

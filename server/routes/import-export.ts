@@ -210,6 +210,62 @@ export function registerImportExportRoutes(app: Express, helpers: {
     }
   });
 
+  app.post("/api/import/:id/requeue", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const { id } = req.params;
+
+      const activeCheck = await db.execute(sql`
+        SELECT 1 FROM import_job_queue
+        WHERE import_job_id = ${id} AND status = 'processing'
+        LIMIT 1
+      `);
+      if (activeCheck.rows.length > 0) {
+        return res.status(400).json({ error: "Import is currently processing and cannot be requeued" });
+      }
+
+      const resetResult = await db.execute(sql`
+        UPDATE import_job_queue
+        SET status = 'pending',
+            retry_count = 0,
+            started_at = NULL,
+            heartbeat = NULL,
+            worker_id = NULL,
+            completed_at = NULL,
+            error_message = NULL
+        WHERE id = (
+          SELECT id FROM import_job_queue
+          WHERE import_job_id = ${id}
+          ORDER BY created_at DESC
+          LIMIT 1
+        )
+        RETURNING id
+      `);
+
+      if (resetResult.rows.length === 0) {
+        return res.status(400).json({ error: "No queue row found for this import — the original CSV path is unavailable" });
+      }
+
+      await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'queued', completed_at = NULL, error_message = NULL
+        WHERE id = ${id} AND status NOT IN ('processing', 'awaiting_confirmation')
+      `);
+
+      try {
+        await db.execute(sql`NOTIFY import_jobs`);
+      } catch {}
+
+      logger.info(`[IMPORT] Import job ${id} force-requeued by user`);
+      res.json({ success: true, message: "Import requeued successfully" });
+    } catch (error) {
+      logger.error("Error requeueing import:", error);
+      res.status(500).json({ error: "Failed to requeue import" });
+    }
+  });
+
   app.post("/api/import/:id/force-complete", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {
