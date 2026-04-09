@@ -113,6 +113,16 @@ function consolidateSessionImages(
   return changed ? $.html() : null;
 }
 
+// Bootstrap: add auto_retry_count column to campaigns if upgrading from older schema.
+(async () => {
+  try {
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS auto_retry_count integer NOT NULL DEFAULT 0`);
+    logger.info("[CAMPAIGNS] Bootstrap migration: auto_retry_count column ready");
+  } catch (err: any) {
+    logger.error(`[CAMPAIGNS] Bootstrap migration FAILED (auto_retry_count): ${err?.message || err}`);
+  }
+})();
+
 export function registerCampaignRoutes(app: Express, helpers: {
   parsePagination: (query: any) => { page: number; limit: number };
   validateId: (id: string) => boolean;
@@ -763,11 +773,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
         if (resetCount === 0) return { campaign: null, resetCount: 0 };
 
         // 2. Reset campaign counters and status.
-        //    retryUntil is cleared so campaign-sender sets a fresh 12-hour window;
-        //    without this an expired deadline causes the retry phase to be silently skipped.
+        //    retryUntil and autoRetryCount are cleared so campaign-sender sets a fresh
+        //    12-hour window and the auto-retry counter resets to 0 (giving 3 more attempts).
         const [updated] = await tx
           .update(campaigns)
-          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null })
+          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null, autoRetryCount: 0 })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
         if (!updated) return { campaign: null, resetCount };

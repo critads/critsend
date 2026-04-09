@@ -212,6 +212,48 @@ export async function recoverOrphanedPendingSends(campaignId: string, maxAgeMinu
   return recoveredCount;
 }
 
+/**
+ * Atomically reset all failed sends to pending, flip the campaign back to 'sending',
+ * clear retryUntil (so campaign-sender sets a fresh 12-hour window), increment
+ * autoRetryCount, and insert a new campaign_job (skipped if one is already queued).
+ * Returns true when the new job was enqueued, false when there were no failed rows.
+ */
+export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean> {
+  const result = await db.execute(sql`
+    WITH reset AS (
+      UPDATE campaign_sends
+      SET status = 'pending',
+          retry_count = retry_count + 1,
+          last_retry_at = NOW(),
+          sent_at = NOW()
+      WHERE campaign_id = ${campaignId} AND status = 'failed'
+      RETURNING id
+    ),
+    campaign_update AS (
+      UPDATE campaigns
+      SET status = 'sending',
+          failed_count = 0,
+          retry_until = NULL,
+          auto_retry_count = ${newAutoRetryCount}
+      WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM reset) > 0
+      RETURNING id
+    ),
+    job_insert AS (
+      INSERT INTO campaign_jobs (id, campaign_id, status)
+      SELECT gen_random_uuid(), ${campaignId}, 'pending'
+      WHERE EXISTS (SELECT 1 FROM campaign_update)
+        AND NOT EXISTS (
+          SELECT 1 FROM campaign_jobs
+          WHERE campaign_id = ${campaignId} AND status IN ('pending', 'processing')
+        )
+      RETURNING id
+    )
+    SELECT (SELECT COUNT(*) FROM reset) AS reset_count
+  `);
+  const resetCount = Number(result.rows[0]?.reset_count ?? 0);
+  return resetCount > 0;
+}
+
 export async function resetOrphanedFailedSends(campaignId: string): Promise<number> {
   const result = await db.execute(sql`
     WITH orphaned AS (

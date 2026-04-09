@@ -105,6 +105,7 @@ export interface IStorage {
   recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>;
   recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes?: number): Promise<number>;
   resetOrphanedFailedSends(campaignId: string): Promise<number>;
+  autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean>;
   forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
   bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]>;
   bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void>;

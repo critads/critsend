@@ -385,36 +385,57 @@ export default function CampaignDetail() {
                 <div className="text-sm text-muted-foreground">Failed</div>
               </div>
             </div>
-            {campaign.retryUntil && (
+            {(campaign.retryUntil || (campaign.autoRetryCount ?? 0) > 0) && (
               <div className="border rounded-lg p-3 space-y-2" data-testid="retry-status">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <RefreshCw className="h-4 w-4" />
                   Auto-Retry
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Timer className="h-3 w-3" />
-                    Retry Window
-                  </span>
-                  {new Date(campaign.retryUntil) > new Date() ? (
-                    <Badge variant="outline" className="gap-1 border-blue-500 text-blue-600">
-                      Active
+                {(campaign.autoRetryCount ?? 0) > 0 && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Auto-retry attempts</span>
+                    <Badge
+                      variant={(campaign.autoRetryCount ?? 0) >= 3 ? "destructive" : "outline"}
+                      className="gap-1"
+                      data-testid="badge-auto-retry-count"
+                    >
+                      {campaign.autoRetryCount ?? 0} / 3
                     </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="gap-1">
-                      Expired
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Retries Until</span>
-                  <span className="font-medium">
-                    {new Date(campaign.retryUntil).toLocaleString()}
-                  </span>
-                </div>
-                {campaign.failedCount > 0 && new Date(campaign.retryUntil) > new Date() && (
+                  </div>
+                )}
+                {campaign.retryUntil && (
+                  <>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <Timer className="h-3 w-3" />
+                        Retry Window
+                      </span>
+                      {new Date(campaign.retryUntil) > new Date() ? (
+                        <Badge variant="outline" className="gap-1 border-blue-500 text-blue-600">
+                          Active
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="gap-1">
+                          Expired
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Retries Until</span>
+                      <span className="font-medium">
+                        {new Date(campaign.retryUntil).toLocaleString()}
+                      </span>
+                    </div>
+                  </>
+                )}
+                {campaign.failedCount > 0 && (campaign.autoRetryCount ?? 0) < 3 && (
                   <p className="text-xs text-muted-foreground">
-                    Failed emails will be automatically retried until the window expires.
+                    Failed sends are retried automatically (up to 3 times) before requiring manual action.
+                  </p>
+                )}
+                {(campaign.autoRetryCount ?? 0) >= 3 && campaign.failedCount > 0 && (
+                  <p className="text-xs text-destructive">
+                    Auto-retry limit reached. Use "Retry Failed Sends" to try again manually.
                   </p>
                 )}
               </div>

@@ -12,6 +12,9 @@ import { logger } from "../logger";
 import { campaignReconciliationDiscrepancy } from "../metrics";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 import { jobEvents } from "../job-events";
+import { messageQueue } from "../message-queue";
+
+const MAX_AUTO_RETRIES = 3;
 
 async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxRetries = 3): Promise<T> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -709,6 +712,31 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
     if (Date.now() >= retryDeadline) {
       logger.info(`${logPrefix} Retry window expired after 12 hours`);
+    }
+  }
+
+  // ── Auto-requeue: if failed sends remain and the campaign wasn't manually
+  //    stopped, automatically re-enqueue up to MAX_AUTO_RETRIES times so the
+  //    operator doesn't have to click "Retry Failed Sends" by hand.
+  if (totalFailed > 0 && !shouldStop) {
+    try {
+      const freshCampaign = await storage.getCampaign(campaignId);
+      const currentAutoRetries = freshCampaign?.autoRetryCount ?? 0;
+      if (currentAutoRetries < MAX_AUTO_RETRIES) {
+        const newCount = currentAutoRetries + 1;
+        logger.info(`${logPrefix} Auto-retry ${newCount}/${MAX_AUTO_RETRIES}: requeueing ${totalFailed} failed send(s)`);
+        const requeued = await storage.autoRequeueCampaignFailed(campaignId, newCount);
+        if (requeued) {
+          await messageQueue.notify("campaign_jobs", { campaignId });
+          logger.info(`${logPrefix} Auto-retry job enqueued (attempt ${newCount}/${MAX_AUTO_RETRIES})`);
+          return;
+        }
+      } else {
+        logger.warn(`${logPrefix} Auto-retry limit reached (${MAX_AUTO_RETRIES}/${MAX_AUTO_RETRIES}). ${totalFailed} send(s) remain permanently failed.`);
+      }
+    } catch (autoRetryErr: unknown) {
+      const msg = autoRetryErr instanceof Error ? autoRetryErr.message : String(autoRetryErr);
+      logger.error(`${logPrefix} Auto-requeue failed (non-fatal, will mark completed): ${msg}`);
     }
   }
 
