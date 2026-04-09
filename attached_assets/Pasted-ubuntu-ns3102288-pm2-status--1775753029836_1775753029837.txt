@@ -1,0 +1,212 @@
+ubuntu@ns3102288:~$ pm2 status
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 8    │ online    │ 0%       │ 300.9mb  │
+│ 1  │ critsend-worker    │ fork     │ 8    │ online    │ 0%       │ 414.2mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@ns3102288:~$ pm2 logs critsend-worker --lines 100 --nostream
+[TAILING] Tailing last 100 lines for [critsend-worker] process (change the value with --lines option)
+/var/log/critsend/worker-err.log last 100 lines:
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.128Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.128Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.128Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.128Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.129Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 19:47:47 +00:00: 2026-04-08T19:47:47.130Z [WARN] [IMPORT] 5a4d18c9-37a1-4aec-b947-ea9c37573b5e: Cancellation check failed: timeout exceeded when trying to connect
+1|critsend | 2026-04-08 22:58:49 +00:00: 2026-04-08T22:58:49.608Z [ERROR] [MAINTENANCE] Error processing rule for campaign_jobs:
+1|critsend | 2026-04-08 22:58:52 +00:00: 2026-04-08T22:58:52.268Z [ERROR] [MAINTENANCE] Error processing rule for campaign_sends:
+1|critsend | 2026-04-08 22:58:52 +00:00: 2026-04-08T22:58:52.325Z [ERROR] [MAINTENANCE] Error processing rule for error_logs:
+1|critsend | 2026-04-08 22:58:52 +00:00: 2026-04-08T22:58:52.374Z [ERROR] [MAINTENANCE] Error processing rule for import_job_queue:
+1|critsend | 2026-04-08 22:58:52 +00:00: 2026-04-08T22:58:52.440Z [ERROR] [MAINTENANCE] Error processing rule for nullsink_captures:
+1|critsend | 2026-04-08 22:58:52 +00:00: 2026-04-08T22:58:52.491Z [ERROR] [MAINTENANCE] Error processing rule for pending_tag_operations:
+1|critsend | 2026-04-08 22:58:52 +00:00: 2026-04-08T22:58:52.632Z [ERROR] [MAINTENANCE] Error processing rule for session:
+1|critsend | 2026-04-09 01:47:49 +00:00: 2026-04-09T01:47:49.736Z [WARN] [Redis/main] Reconnecting...
+1|critsend | 2026-04-09 04:36:32 +00:00: 2026-04-09T04:36:32.956Z [WARN] [CAMPAIGN c10bfc00-2785-4cea-afb5-00269e075add job:d2f180f8] RECONCILIATION: Campaign c10bfc00-2785-4cea-afb5-00269e075add completed with 25 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-04-09 04:36:37 +00:00: 2026-04-09T04:36:37.095Z [WARN] [CAMPAIGN a56adf6a-053a-4a8d-bfab-23bab25bcd6b job:38a6db80] RECONCILIATION: Campaign a56adf6a-053a-4a8d-bfab-23bab25bcd6b completed with 10 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-04-09 04:54:07 +00:00: 2026-04-09T04:54:07.970Z [WARN] [IMPORT] GIN indexes missing on startup! Likely from a crash during large import. Recreating...
+1|critsend | 2026-04-09 04:54:10 +00:00: 2026-04-09T04:54:10.831Z [WARN] [JOB_POLL] Startup: marked 80 stale 'attempting' campaign_sends as 'failed' (process crash during send)
+1|critsend | 2026-04-09 04:55:14 +00:00: 2026-04-09T04:55:14.012Z [ERROR] [JOB_POLL] Error processing job 5f2dacc8-9be3-4299-baf4-962e661061e2 for campaign 5ba351db-8750-4b6a-9e37-9250653110fd: {"length":91,"name":"error","severity":"ERROR","code":"42601","position":"166","file":"scan.l","line":"1244","routine":"scanner_yyerror"}
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.413Z [ERROR] [JOB_POLL] Error processing job 5e23956b-fbf0-4a4a-9a0e-ffc06fad0fd5 for campaign 5ba351db-8750-4b6a-9e37-9250653110fd: {"length":91,"name":"error","severity":"ERROR","code":"42601","position":"166","file":"scan.l","line":"1244","routine":"scanner_yyerror"}
+1|critsend | 2026-04-09 09:49:50 +00:00: 2026-04-09T09:49:50.299Z [WARN] [CAMPAIGN 4c0014ab-274b-4483-8051-3c1e9f3ed7bf job:0f0eea15] Batch 4: token generation failed, falling back to HMAC links: duplicate key value violates unique constraint "tracking_tokens_pkey"
+1|critsend | 2026-04-09 10:18:14 +00:00: 2026-04-09T10:18:14.552Z [WARN] [CAMPAIGN 9b638a7a-3cf4-4cc5-8085-d464699f4bf3 job:ba476d16] Batch 5: token generation failed, falling back to HMAC links: duplicate key value violates unique constraint "tracking_tokens_pkey"
+1|critsend | 2026-04-09 10:28:32 +00:00: 2026-04-09T10:28:32.427Z [WARN] [CAMPAIGN 0bde27da-eaee-4b4a-a0dd-b0a578a97c63 job:c2196faa] Batch 4: token generation failed, falling back to HMAC links: duplicate key value violates unique constraint "tracking_tokens_pkey"
+1|critsend | 2026-04-09 11:12:52 +00:00: 2026-04-09T11:12:52.751Z [ERROR] [MAINTENANCE] Error processing rule for campaign_jobs:
+1|critsend | 2026-04-09 11:12:58 +00:00: 2026-04-09T11:12:58.380Z [ERROR] [MAINTENANCE] Error processing rule for campaign_sends:
+1|critsend | 2026-04-09 11:12:58 +00:00: 2026-04-09T11:12:58.457Z [ERROR] [MAINTENANCE] Error processing rule for error_logs:
+1|critsend | 2026-04-09 11:12:58 +00:00: 2026-04-09T11:12:58.510Z [ERROR] [MAINTENANCE] Error processing rule for import_job_queue:
+1|critsend | 2026-04-09 11:12:58 +00:00: 2026-04-09T11:12:58.575Z [ERROR] [MAINTENANCE] Error processing rule for nullsink_captures:
+1|critsend | 2026-04-09 11:12:58 +00:00: 2026-04-09T11:12:58.644Z [ERROR] [MAINTENANCE] Error processing rule for pending_tag_operations:
+1|critsend | 2026-04-09 11:12:58 +00:00: 2026-04-09T11:12:58.914Z [ERROR] [MAINTENANCE] Error processing rule for session:
+1|critsend | 2026-04-09 12:59:35 +00:00: 2026-04-09T12:59:35.853Z [WARN] [CAMPAIGN d819202f-7080-4c2a-af28-5be6b28004ce job:35f17c9d] Batch 13: token generation failed, falling back to HMAC links: duplicate key value violates unique constraint "tracking_tokens_pkey"
+1|critsend | 2026-04-09 13:48:54 +00:00: 2026-04-09T13:48:54.754Z [WARN] [CAMPAIGN 0e8c0c06-a701-49b5-86c4-b35efae33946 job:2134b678] Batch 16: token generation failed, falling back to HMAC links: duplicate key value violates unique constraint "tracking_tokens_pkey"
+1|critsend | 2026-04-09 15:11:27 +00:00: 2026-04-09T15:11:27.206Z [WARN] [CAMPAIGN b475fc3c-b311-4baf-8203-5c3e1c05c73d job:040bc5e9] Segment has 0 subscribers - marking as completed
+1|critsend | 2026-04-09 15:29:34 +00:00: 2026-04-09T15:29:34.436Z [WARN] [CAMPAIGN 4c0014ab-274b-4483-8051-3c1e9f3ed7bf job:0f0eea15] Batch 16: token generation failed, falling back to HMAC links: duplicate key value violates unique constraint "tracking_tokens_pkey"
+1|critsend | 2026-04-09 16:11:54 +00:00: 2026-04-09T16:11:54.685Z [WARN] [Redis/main] Reconnecting...
+
+/var/log/critsend/worker-out.log last 100 lines:
+1|critsend | 2026-04-09 16:40:19 +00:00: 2026-04-09T16:40:19.784Z [INFO] Processed 13 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:40:21 +00:00: 2026-04-09T16:40:21.941Z [INFO] Processed 17 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:40:24 +00:00: 2026-04-09T16:40:24.278Z [INFO] Processed 23 tag operations in 15 bulk groups
+1|critsend | 2026-04-09 16:40:25 +00:00: 2026-04-09T16:40:25.893Z [INFO] Processed 17 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:40:27 +00:00: 2026-04-09T16:40:27.913Z [INFO] Processed 16 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:40:29 +00:00: 2026-04-09T16:40:29.863Z [INFO] Processed 14 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:40:32 +00:00: 2026-04-09T16:40:32.218Z [INFO] Processed 23 tag operations in 13 bulk groups
+1|critsend | 2026-04-09 16:40:33 +00:00: 2026-04-09T16:40:33.737Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:40:35 +00:00: 2026-04-09T16:40:35.857Z [INFO] Processed 14 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:40:38 +00:00: 2026-04-09T16:40:38.112Z [INFO] Processed 19 tag operations in 12 bulk groups
+1|critsend | 2026-04-09 16:40:39 +00:00: 2026-04-09T16:40:39.595Z [INFO] Processed 7 tag operations in 5 bulk groups
+1|critsend | 2026-04-09 16:40:42 +00:00: 2026-04-09T16:40:42.083Z [INFO] Processed 19 tag operations in 12 bulk groups
+1|critsend | 2026-04-09 16:40:43 +00:00: 2026-04-09T16:40:43.943Z [INFO] Processed 17 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:40:46 +00:00: 2026-04-09T16:40:46.090Z [INFO] Processed 18 tag operations in 12 bulk groups
+1|critsend | 2026-04-09 16:40:47 +00:00: 2026-04-09T16:40:47.648Z [INFO] Processed 9 tag operations in 5 bulk groups
+1|critsend | 2026-04-09 16:40:50 +00:00: 2026-04-09T16:40:50.013Z [INFO] Processed 20 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:40:52 +00:00: 2026-04-09T16:40:52.318Z [INFO] Processed 27 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:40:54 +00:00: 2026-04-09T16:40:54.137Z [INFO] Processed 21 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:40:55 +00:00: 2026-04-09T16:40:55.621Z [INFO] Processed 8 tag operations in 5 bulk groups
+1|critsend | 2026-04-09 16:40:58 +00:00: 2026-04-09T16:40:58.193Z [INFO] Processed 23 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:40:59 +00:00: 2026-04-09T16:40:59.947Z [INFO] Processed 18 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:41:01 +00:00: 2026-04-09T16:41:01.854Z [INFO] Processed 14 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:03 +00:00: 2026-04-09T16:41:03.900Z [INFO] Processed 15 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:41:06 +00:00: 2026-04-09T16:41:06.050Z [INFO] Processed 18 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:41:07 +00:00: 2026-04-09T16:41:07.921Z [INFO] Processed 15 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:10 +00:00: 2026-04-09T16:41:10.022Z [INFO] Processed 17 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:41:11 +00:00: 2026-04-09T16:41:11.724Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:41:13 +00:00: 2026-04-09T16:41:13.920Z [INFO] Processed 13 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:41:16 +00:00: 2026-04-09T16:41:16.075Z [INFO] Processed 22 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:41:17 +00:00: 2026-04-09T16:41:17.727Z [INFO] Processed 9 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:41:19 +00:00: 2026-04-09T16:41:19.854Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:21 +00:00: 2026-04-09T16:41:21.934Z [INFO] Processed 14 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:41:24 +00:00: 2026-04-09T16:41:24.366Z [INFO] Processed 26 tag operations in 14 bulk groups
+1|critsend | 2026-04-09 16:41:26 +00:00: 2026-04-09T16:41:26.007Z [INFO] Processed 17 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:41:27 +00:00: 2026-04-09T16:41:27.817Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:29 +00:00: 2026-04-09T16:41:29.673Z [INFO] Processed 9 tag operations in 5 bulk groups
+1|critsend | 2026-04-09 16:41:31 +00:00: 2026-04-09T16:41:31.954Z [INFO] Processed 16 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:33 +00:00: 2026-04-09T16:41:33.810Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:41:35 +00:00: 2026-04-09T16:41:35.828Z [INFO] Processed 13 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:41:38 +00:00: 2026-04-09T16:41:38.028Z [INFO] Processed 18 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:40 +00:00: 2026-04-09T16:41:40.037Z [INFO] Processed 19 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:41 +00:00: 2026-04-09T16:41:41.613Z [INFO] Processed 6 tag operations in 5 bulk groups
+1|critsend | 2026-04-09 16:41:44 +00:00: 2026-04-09T16:41:44.129Z [INFO] Processed 21 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:41:45 +00:00: 2026-04-09T16:41:45.223Z [INFO] [CAMPAIGN f5a33af1-f694-47c1-bcb4-5771a8a8c9e0 job:7e1b6cd8] Progress 40000/80193 (346/min) - Sent: 40000, Failed: 0
+1|critsend | 2026-04-09 16:41:46 +00:00: 2026-04-09T16:41:46.109Z [INFO] Processed 17 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:41:48 +00:00: 2026-04-09T16:41:48.017Z [INFO] Processed 16 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:41:49 +00:00: 2026-04-09T16:41:49.665Z [INFO] Processed 7 tag operations in 6 bulk groups
+1|critsend | 2026-04-09 16:41:52 +00:00: 2026-04-09T16:41:52.023Z [INFO] Processed 15 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:41:53 +00:00: 2026-04-09T16:41:53.960Z [INFO] Processed 14 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:41:55 +00:00: 2026-04-09T16:41:55.154Z [INFO] [CAMPAIGN 92191d93-fafc-4899-877a-dc3b99adb553 job:62185830] Progress 160000/185389 (352/min) - Sent: 160000, Failed: 0
+1|critsend | 2026-04-09 16:41:55 +00:00: 2026-04-09T16:41:55.829Z [INFO] [CAMPAIGN f5a33af1-f694-47c1-bcb4-5771a8a8c9e0 job:7e1b6cd8] Batch 5: 10000 to send (0 skipped)
+1|critsend | 2026-04-09 16:41:56 +00:00: 2026-04-09T16:41:56.332Z [INFO] Processed 12 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:41:57 +00:00: 2026-04-09T16:41:57.888Z [INFO] Processed 13 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:42:00 +00:00: 2026-04-09T16:42:00.174Z [INFO] Processed 18 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:42:01 +00:00: 2026-04-09T16:42:01.979Z [INFO] Processed 15 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:42:03 +00:00: 2026-04-09T16:42:03.813Z [INFO] [CAMPAIGN 92191d93-fafc-4899-877a-dc3b99adb553 job:62185830] Batch 17: 10000 to send (0 skipped)
+1|critsend | 2026-04-09 16:42:04 +00:00: 2026-04-09T16:42:04.463Z [INFO] Processed 16 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:06 +00:00: 2026-04-09T16:42:06.109Z [INFO] Processed 17 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:07 +00:00: 2026-04-09T16:42:07.974Z [INFO] Processed 14 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:42:09 +00:00: 2026-04-09T16:42:09.830Z [INFO] Processed 11 tag operations in 6 bulk groups
+1|critsend | 2026-04-09 16:42:12 +00:00: 2026-04-09T16:42:12.130Z [INFO] Processed 16 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:42:13 +00:00: 2026-04-09T16:42:13.988Z [INFO] Processed 13 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:42:16 +00:00: 2026-04-09T16:42:16.126Z [INFO] Processed 18 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:17 +00:00: 2026-04-09T16:42:17.694Z [INFO] Processed 8 tag operations in 5 bulk groups
+1|critsend | 2026-04-09 16:42:19 +00:00: 2026-04-09T16:42:19.983Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:21 +00:00: 2026-04-09T16:42:21.779Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-04-09 16:42:23 +00:00: 2026-04-09T16:42:23.973Z [INFO] Processed 13 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:42:26 +00:00: 2026-04-09T16:42:26.108Z [INFO] Processed 17 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:42:27 +00:00: 2026-04-09T16:42:27.810Z [INFO] Processed 12 tag operations in 6 bulk groups
+1|critsend | 2026-04-09 16:42:29 +00:00: 2026-04-09T16:42:29.836Z [INFO] Processed 12 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:42:31 +00:00: 2026-04-09T16:42:31.976Z [INFO] Processed 15 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:34 +00:00: 2026-04-09T16:42:34.003Z [INFO] Processed 17 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:42:36 +00:00: 2026-04-09T16:42:36.181Z [INFO] Processed 21 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:38 +00:00: 2026-04-09T16:42:38.062Z [INFO] Processed 18 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:40 +00:00: 2026-04-09T16:42:40.027Z [INFO] Processed 16 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:42:42 +00:00: 2026-04-09T16:42:42.083Z [INFO] Processed 18 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:42:43 +00:00: 2026-04-09T16:42:43.893Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:46 +00:00: 2026-04-09T16:42:46.461Z [INFO] Processed 32 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:47 +00:00: 2026-04-09T16:42:47.813Z [INFO] Processed 13 tag operations in 5 bulk groups
+1|critsend | 2026-04-09 16:42:49 +00:00: 2026-04-09T16:42:49.893Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:51 +00:00: 2026-04-09T16:42:51.911Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:42:53 +00:00: 2026-04-09T16:42:53.868Z [INFO] Processed 12 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:42:56 +00:00: 2026-04-09T16:42:56.029Z [INFO] Processed 16 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:42:57 +00:00: 2026-04-09T16:42:57.833Z [INFO] Processed 10 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:43:00 +00:00: 2026-04-09T16:43:00.174Z [INFO] Processed 20 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:43:01 +00:00: 2026-04-09T16:43:01.781Z [INFO] Processed 9 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:43:03 +00:00: 2026-04-09T16:43:03.857Z [INFO] Processed 10 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:43:05 +00:00: 2026-04-09T16:43:05.870Z [INFO] Processed 12 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:43:07 +00:00: 2026-04-09T16:43:07.921Z [INFO] Processed 15 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:43:09 +00:00: 2026-04-09T16:43:09.937Z [INFO] Processed 14 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:43:12 +00:00: 2026-04-09T16:43:12.081Z [INFO] Processed 17 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:43:13 +00:00: 2026-04-09T16:43:13.776Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-04-09 16:43:16 +00:00: 2026-04-09T16:43:16.385Z [INFO] Processed 28 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:43:18 +00:00: 2026-04-09T16:43:18.165Z [INFO] Processed 21 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:43:19 +00:00: 2026-04-09T16:43:19.832Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-04-09 16:43:22 +00:00: 2026-04-09T16:43:22.068Z [INFO] Processed 18 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:43:24 +00:00: 2026-04-09T16:43:24.035Z [INFO] Processed 15 tag operations in 11 bulk groups
+1|critsend | 2026-04-09 16:43:25 +00:00: 2026-04-09T16:43:25.923Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-04-09 16:43:27 +00:00: 2026-04-09T16:43:27.956Z [INFO] Processed 14 tag operations in 10 bulk groups
+1|critsend | 2026-04-09 16:43:29 +00:00: 2026-04-09T16:43:29.970Z [INFO] Processed 17 tag operations in 8 bulk groups
