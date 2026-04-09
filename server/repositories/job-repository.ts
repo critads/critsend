@@ -164,12 +164,12 @@ export async function markSendForRetry(campaignId: string, subscriberId: string)
 
 export async function bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number> {
   if (subscriberIds.length === 0) return 0;
-  const arrayLiteral = `{${subscriberIds.map(id => `"${id}"`).join(',')}}::text[]`;
+  const arrayStr = `{${subscriberIds.map(id => `"${id}"`).join(',')}}`;
   const result = await db.execute(sql`
     UPDATE campaign_sends
     SET status = 'pending', retry_count = retry_count + 1, last_retry_at = NOW()
     WHERE campaign_id = ${campaignId}
-      AND subscriber_id = ANY(${sql.raw(arrayLiteral)})
+      AND subscriber_id = ANY(${arrayStr}::text[])
       AND status = 'failed'
     RETURNING id
   `);
