@@ -61,7 +61,7 @@ interface CampaignAnalytics {
   unsubscribeCount: number;
   openRate: number;
   clickRate: number;
-  topLinks: Array<{ url: string; clicks: number }>;
+  topLinks: Array<{ url: string; clicks: number; uniqueClickers: number }>;
   topOpenerIps: Array<{ ip: string; count: number }>;
   recentActivity: Array<{
     email: string;
@@ -598,7 +598,10 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
                     <span className="text-sm font-mono truncate max-w-[300px]">
                       {link.url}
                     </span>
-                    <Badge variant="secondary">{link.clicks} clicks</Badge>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <Badge variant="default">{link.uniqueClickers} unique</Badge>
+                      <Badge variant="secondary">{link.clicks} total</Badge>
+                    </div>
                   </div>
                 ))}
               </div>

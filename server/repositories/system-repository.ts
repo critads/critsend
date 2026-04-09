@@ -10,7 +10,7 @@ import { db, pool } from "../db";
 import { eq, desc, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import bcrypt from "bcrypt";
-import { getCampaign, getCampaignStats, getUniqueOpenCount, getUniqueClickCount } from "./campaign-repository";
+import { getCampaign, getUniqueOpenCount, getUniqueClickCount } from "./campaign-repository";
 import { getSubscriber } from "./subscriber-repository";
 import { mapWithConcurrency } from "../utils";
 
@@ -272,25 +272,42 @@ export async function getCampaignAnalytics(campaignId: string) {
   }));
   const unsubscribeCount = Number((unsubscribeResult.rows[0] as any)?.cnt ?? 0);
 
-  const stats = await getCampaignStats(campaignId);
-  const clicks = stats.filter(s => s.type === "click");
+  const [topLinksResult, recentStatsResult] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        link                                AS url,
+        COUNT(*)::int                       AS clicks,
+        COUNT(DISTINCT subscriber_id)::int  AS unique_clickers
+      FROM campaign_stats
+      WHERE campaign_id = ${campaignId}
+        AND type = 'click'
+        AND link IS NOT NULL AND link <> ''
+      GROUP BY link
+      ORDER BY unique_clickers DESC
+      LIMIT 5
+    `),
+    db.execute(sql`
+      SELECT *
+      FROM campaign_stats
+      WHERE campaign_id = ${campaignId}
+      ORDER BY timestamp DESC
+      LIMIT 20
+    `),
+  ]);
 
-  const linkCounts: Record<string, number> = {};
-  clicks.forEach(c => {
-    if (c.link) linkCounts[c.link] = (linkCounts[c.link] || 0) + 1;
-  });
-  const topLinks = Object.entries(linkCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([url, count]) => ({ url, clicks: count }));
+  const topLinks = (topLinksResult.rows as any[]).map(r => ({
+    url: r.url as string,
+    clicks: Number(r.clicks),
+    uniqueClickers: Number(r.unique_clickers),
+  }));
 
-  const recentStats = stats.slice(0, 20);
+  const recentStats = recentStatsResult.rows as any[];
   const recentActivity = await mapWithConcurrency(recentStats, 3, async (stat: any) => {
-    const sub = await getSubscriber(stat.subscriberId);
+    const sub = await getSubscriber(stat.subscriber_id);
     return {
       email: sub?.email || "unknown",
       type: stat.type,
-      timestamp: stat.timestamp.toISOString(),
+      timestamp: new Date(stat.timestamp).toISOString(),
       link: stat.link || undefined,
     };
   });

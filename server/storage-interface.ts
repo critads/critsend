@@ -285,7 +285,7 @@ export interface IStorage {
   getCampaignAnalytics(campaignId: string): Promise<{
     campaign: Campaign; totalOpens: number; uniqueOpens: number; totalClicks: number; uniqueClicks: number;
     openRate: number; clickRate: number;
-    topLinks: Array<{ url: string; clicks: number }>;
+    topLinks: Array<{ url: string; clicks: number; uniqueClickers: number }>;
     recentActivity: Array<{ email: string; type: string; timestamp: string; link?: string }>;
   } | undefined>;
   getCampaignBatchOpenStats(campaignId: string, batchSize?: number): Promise<Array<{
