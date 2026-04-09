@@ -270,7 +270,9 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
       try {
         await db.execute(sql`NOTIFY import_jobs`);
-      } catch {}
+      } catch (notifyErr: unknown) {
+        logger.warn(`[IMPORT] NOTIFY import_jobs failed after requeue of ${id} — worker will pick up job on next poll:`, notifyErr);
+      }
 
       logger.info(`[IMPORT] Import job ${id} force-requeued by user (was: ${currentStatus})`);
       res.json({ success: true, message: "Import requeued successfully" });
