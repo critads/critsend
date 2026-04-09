@@ -1,0 +1,132 @@
+ubuntu@ns3102288:~/critsend$ pm2 logs critsend-worker --nostream --lines 3000 | grep "5ba351db"
+# Check what errors were logged for this campaign
+psql $DATABASE_URL -c "
+  SELECT message, COUNT(*) as cnt
+  FROM error_logs
+  WHERE campaign_id = '5ba351db-8750-4b6a-9e37-9250653110fd'
+    AND type = 'send_failed'
+  GROUP BY message
+  ORDER BY cnt DESC
+  LIMIT 20;
+"
+1|critsend | 2026-04-09 04:55:14 +00:00: 2026-04-09T04:55:14.012Z [ERROR] [JOB_POLL] Error processing job 5f2dacc8-9be3-4299-baf4-962e661061e2 for campaign 5ba351db-8750-4b6a-9e37-9250653110fd: {"length":91,"name":"error","severity":"ERROR","code":"42601","position":"166","file":"scan.l","line":"1244","routine":"scanner_yyerror"}
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.413Z [ERROR] [JOB_POLL] Error processing job 5e23956b-fbf0-4a4a-9a0e-ffc06fad0fd5 for campaign 5ba351db-8750-4b6a-9e37-9250653110fd: {"length":91,"name":"error","severity":"ERROR","code":"42601","position":"166","file":"scan.l","line":"1244","routine":"scanner_yyerror"}
+1|critsend | 2026-04-09 04:54:47 +00:00: 2026-04-09T04:54:47.751Z [INFO] [JOB_POLL] Worker worker-54761-1775710447460 started job 5f2dacc8-9be3-4299-baf4-962e661061e2 for campaign 5ba351db-8750-4b6a-9e37-9250653110fd (1/8 active)
+1|critsend | 2026-04-09 04:54:47 +00:00: 2026-04-09T04:54:47.752Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] processCampaignInternal started
+1|critsend | 2026-04-09 04:54:47 +00:00: 2026-04-09T04:54:47.848Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Set retry deadline to 2026-04-09T16:54:47.822Z
+1|critsend | 2026-04-09 04:54:47 +00:00: 2026-04-09T04:54:47.873Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Verifying SMTP connection to MTA 'server2.mayasoldes.com'...
+1|critsend | 2026-04-09 04:54:47 +00:00: 2026-04-09T04:54:47.948Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] SMTP verification OK
+1|critsend | 2026-04-09 04:54:48 +00:00: 2026-04-09T04:54:48.290Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Segment 'e87a4dbf-c476-419e-a739-454859b8e98e' has 247713 subscribers
+1|critsend | 2026-04-09 04:54:48 +00:00: 2026-04-09T04:54:48.359Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-04-09 04:54:48 +00:00: 2026-04-09T04:54:48.436Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Pre-registered 16 click tracking link(s)
+1|critsend | 2026-04-09 04:54:50 +00:00: 2026-04-09T04:54:50.348Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:54:51 +00:00: 2026-04-09T04:54:51.910Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 2: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:54:53 +00:00: 2026-04-09T04:54:53.468Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 3: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:54:54 +00:00: 2026-04-09T04:54:54.848Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 4: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:54:56 +00:00: 2026-04-09T04:54:56.154Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 5: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:54:57 +00:00: 2026-04-09T04:54:57.416Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 6: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:54:58 +00:00: 2026-04-09T04:54:58.513Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 7: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:54:59 +00:00: 2026-04-09T04:54:59.584Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 8: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:00 +00:00: 2026-04-09T04:55:00.513Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 9: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:01 +00:00: 2026-04-09T04:55:01.514Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 10: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:02 +00:00: 2026-04-09T04:55:02.557Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 11: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:03 +00:00: 2026-04-09T04:55:03.617Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 12: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:04 +00:00: 2026-04-09T04:55:04.646Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 13: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:05 +00:00: 2026-04-09T04:55:05.602Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 14: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:06 +00:00: 2026-04-09T04:55:06.579Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 15: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:07 +00:00: 2026-04-09T04:55:07.487Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 16: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:08 +00:00: 2026-04-09T04:55:08.301Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 17: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:09 +00:00: 2026-04-09T04:55:09.203Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 18: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:09 +00:00: 2026-04-09T04:55:09.891Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 19: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:10 +00:00: 2026-04-09T04:55:10.574Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 20: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:11 +00:00: 2026-04-09T04:55:11.185Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 21: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:11 +00:00: 2026-04-09T04:55:11.830Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 22: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:12 +00:00: 2026-04-09T04:55:12.576Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 23: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:13 +00:00: 2026-04-09T04:55:13.159Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 24: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:13 +00:00: 2026-04-09T04:55:13.557Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Batch 25: All 7713 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:13 +00:00: 2026-04-09T04:55:13.557Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] No more subscribers to process (batchNumber: 25)
+1|critsend | 2026-04-09 04:55:13 +00:00: 2026-04-09T04:55:13.700Z [INFO] Recovered orphaned pending sends {"recoveredCount":2345,"campaignId":"5ba351db-8750-4b6a-9e37-9250653110fd"}
+1|critsend | 2026-04-09 04:55:13 +00:00: 2026-04-09T04:55:13.701Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Recovered 2345 carry-over pending send(s) for retry phase
+1|critsend | 2026-04-09 04:55:13 +00:00: 2026-04-09T04:55:13.701Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Starting retry phase for 2345 failed emails (deadline: 2026-04-09T16:54:47.822Z)
+1|critsend | 2026-04-09 04:55:13 +00:00: 2026-04-09T04:55:13.964Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5f2dacc8] Retry pass 1: 2345 failed sends to retry
+1|critsend | 2026-04-09 04:55:14 +00:00: 2026-04-09T04:55:14.160Z [INFO] [JOB_POLL] Campaign 5ba351db-8750-4b6a-9e37-9250653110fd error - retry #1 scheduled in 30s
+1|critsend | 2026-04-09 04:55:14 +00:00: 2026-04-09T04:55:14.160Z [INFO] [JOB_POLL] Campaign 5ba351db-8750-4b6a-9e37-9250653110fd finished (0/8 active)
+1|critsend | 2026-04-09 04:55:47 +00:00: 2026-04-09T04:55:47.756Z [INFO] [JOB_POLL] Worker worker-54761-1775710447460 started job 5e23956b-fbf0-4a4a-9a0e-ffc06fad0fd5 for campaign 5ba351db-8750-4b6a-9e37-9250653110fd (1/8 active)
+1|critsend | 2026-04-09 04:55:47 +00:00: 2026-04-09T04:55:47.756Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] processCampaignInternal started
+1|critsend | 2026-04-09 04:55:47 +00:00: 2026-04-09T04:55:47.851Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Set retry deadline to 2026-04-09T16:55:47.826Z
+1|critsend | 2026-04-09 04:55:47 +00:00: 2026-04-09T04:55:47.875Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Verifying SMTP connection to MTA 'server2.mayasoldes.com'...
+1|critsend | 2026-04-09 04:55:47 +00:00: 2026-04-09T04:55:47.951Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] SMTP verification OK
+1|critsend | 2026-04-09 04:55:48 +00:00: 2026-04-09T04:55:48.246Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Segment 'e87a4dbf-c476-419e-a739-454859b8e98e' has 247713 subscribers
+1|critsend | 2026-04-09 04:55:48 +00:00: 2026-04-09T04:55:48.314Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-04-09 04:55:48 +00:00: 2026-04-09T04:55:48.383Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Pre-registered 16 click tracking link(s)
+1|critsend | 2026-04-09 04:55:48 +00:00: 2026-04-09T04:55:48.942Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:49 +00:00: 2026-04-09T04:55:49.281Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 2: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:49 +00:00: 2026-04-09T04:55:49.615Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 3: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:49 +00:00: 2026-04-09T04:55:49.948Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 4: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:50 +00:00: 2026-04-09T04:55:50.275Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 5: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:50 +00:00: 2026-04-09T04:55:50.595Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 6: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:50 +00:00: 2026-04-09T04:55:50.919Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 7: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:51 +00:00: 2026-04-09T04:55:51.235Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 8: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:51 +00:00: 2026-04-09T04:55:51.563Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 9: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:51 +00:00: 2026-04-09T04:55:51.890Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 10: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:52 +00:00: 2026-04-09T04:55:52.240Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 11: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:52 +00:00: 2026-04-09T04:55:52.579Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 12: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:52 +00:00: 2026-04-09T04:55:52.939Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 13: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:53 +00:00: 2026-04-09T04:55:53.303Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 14: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:53 +00:00: 2026-04-09T04:55:53.633Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 15: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:54 +00:00: 2026-04-09T04:55:54.029Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 16: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:54 +00:00: 2026-04-09T04:55:54.358Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 17: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:54 +00:00: 2026-04-09T04:55:54.685Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 18: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:55 +00:00: 2026-04-09T04:55:55.006Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 19: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:55 +00:00: 2026-04-09T04:55:55.352Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 20: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:55 +00:00: 2026-04-09T04:55:55.713Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 21: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:56 +00:00: 2026-04-09T04:55:56.108Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 22: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:56 +00:00: 2026-04-09T04:55:56.498Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 23: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:56 +00:00: 2026-04-09T04:55:56.823Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 24: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.073Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Batch 25: All 7713 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.073Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] No more subscribers to process (batchNumber: 25)
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.182Z [INFO] Recovered orphaned pending sends {"recoveredCount":2345,"campaignId":"5ba351db-8750-4b6a-9e37-9250653110fd"}
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.182Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Recovered 2345 carry-over pending send(s) for retry phase
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.182Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Starting retry phase for 2345 failed emails (deadline: 2026-04-09T16:55:47.826Z)
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.367Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:5e23956b] Retry pass 1: 2345 failed sends to retry
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.537Z [INFO] [JOB_POLL] Campaign 5ba351db-8750-4b6a-9e37-9250653110fd error - retry #2 scheduled in 60s
+1|critsend | 2026-04-09 04:55:57 +00:00: 2026-04-09T04:55:57.537Z [INFO] [JOB_POLL] Campaign 5ba351db-8750-4b6a-9e37-9250653110fd finished (0/8 active)
+1|critsend | 2026-04-09 04:56:57 +00:00: 2026-04-09T04:56:57.755Z [INFO] [JOB_POLL] Worker worker-54761-1775710447460 started job eccf4630-53e1-4e80-b02c-e035a6e53d5a for campaign 5ba351db-8750-4b6a-9e37-9250653110fd (1/8 active)
+1|critsend | 2026-04-09 04:56:57 +00:00: 2026-04-09T04:56:57.755Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] processCampaignInternal started
+1|critsend | 2026-04-09 04:56:57 +00:00: 2026-04-09T04:56:57.847Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Verifying SMTP connection to MTA 'server2.mayasoldes.com'...
+1|critsend | 2026-04-09 04:56:57 +00:00: 2026-04-09T04:56:57.923Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] SMTP verification OK
+1|critsend | 2026-04-09 04:56:58 +00:00: 2026-04-09T04:56:58.229Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Segment 'e87a4dbf-c476-419e-a739-454859b8e98e' has 247713 subscribers
+1|critsend | 2026-04-09 04:56:58 +00:00: 2026-04-09T04:56:58.276Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-04-09 04:56:58 +00:00: 2026-04-09T04:56:58.348Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Pre-registered 16 click tracking link(s)
+1|critsend | 2026-04-09 04:56:58 +00:00: 2026-04-09T04:56:58.919Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:56:59 +00:00: 2026-04-09T04:56:59.304Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 2: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:56:59 +00:00: 2026-04-09T04:56:59.634Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 3: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:56:59 +00:00: 2026-04-09T04:56:59.955Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 4: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:00 +00:00: 2026-04-09T04:57:00.288Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 5: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:00 +00:00: 2026-04-09T04:57:00.612Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 6: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:00 +00:00: 2026-04-09T04:57:00.936Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 7: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:01 +00:00: 2026-04-09T04:57:01.268Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 8: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:01 +00:00: 2026-04-09T04:57:01.589Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 9: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:01 +00:00: 2026-04-09T04:57:01.921Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 10: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:02 +00:00: 2026-04-09T04:57:02.254Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 11: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:02 +00:00: 2026-04-09T04:57:02.588Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 12: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:02 +00:00: 2026-04-09T04:57:02.914Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 13: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:03 +00:00: 2026-04-09T04:57:03.263Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 14: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:03 +00:00: 2026-04-09T04:57:03.601Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 15: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:03 +00:00: 2026-04-09T04:57:03.928Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 16: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:04 +00:00: 2026-04-09T04:57:04.271Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 17: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:04 +00:00: 2026-04-09T04:57:04.603Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 18: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:04 +00:00: 2026-04-09T04:57:04.928Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 19: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:05 +00:00: 2026-04-09T04:57:05.259Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 20: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:05 +00:00: 2026-04-09T04:57:05.582Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 21: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:05 +00:00: 2026-04-09T04:57:05.946Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 22: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:06 +00:00: 2026-04-09T04:57:06.275Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 23: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:06 +00:00: 2026-04-09T04:57:06.591Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 24: All 10000 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:06 +00:00: 2026-04-09T04:57:06.834Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] Batch 25: All 7713 subscribers already processed, skipping
+1|critsend | 2026-04-09 04:57:06 +00:00: 2026-04-09T04:57:06.834Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] No more subscribers to process (batchNumber: 25)
+1|critsend | 2026-04-09 04:57:07 +00:00: 2026-04-09T04:57:07.079Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] RECONCILIATION: expected=247713, actual=247713 (sent=245368, failed=2345, pending=0, attempting=0), discrepancy=0 (0.00%)
+1|critsend | 2026-04-09 04:57:07 +00:00: 2026-04-09T04:57:07.154Z [INFO] [CAMPAIGN 5ba351db-8750-4b6a-9e37-9250653110fd job:eccf4630] COMPLETED: 245368 sent, 2345 failed
+1|critsend | 2026-04-09 04:57:07 +00:00: 2026-04-09T04:57:07.204Z [INFO] [JOB_POLL] Job eccf4630-53e1-4e80-b02c-e035a6e53d5a completed (campaign 5ba351db-8750-4b6a-9e37-9250653110fd status: completed)
+1|critsend | 2026-04-09 04:57:07 +00:00: 2026-04-09T04:57:07.204Z [INFO] [JOB_POLL] Campaign 5ba351db-8750-4b6a-9e37-9250653110fd finished (0/8 active)
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
