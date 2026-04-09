@@ -217,48 +217,59 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
       const { id } = req.params;
 
-      const activeCheck = await db.execute(sql`
-        SELECT 1 FROM import_job_queue
-        WHERE import_job_id = ${id} AND status = 'processing'
-        LIMIT 1
+      const eligibilityCheck = await db.execute(sql`
+        SELECT status FROM import_jobs WHERE id = ${id} LIMIT 1
       `);
-      if (activeCheck.rows.length > 0) {
-        return res.status(400).json({ error: "Import is currently processing and cannot be requeued" });
+      if (eligibilityCheck.rows.length === 0) {
+        return res.status(404).json({ error: "Import job not found" });
+      }
+      const currentStatus = (eligibilityCheck.rows[0] as any).status as string;
+      if (!["queued", "failed", "cancelled"].includes(currentStatus)) {
+        return res.status(400).json({ error: `Import cannot be requeued from status '${currentStatus}'` });
       }
 
-      const resetResult = await db.execute(sql`
-        UPDATE import_job_queue
-        SET status = 'pending',
-            retry_count = 0,
-            started_at = NULL,
-            heartbeat = NULL,
-            worker_id = NULL,
-            completed_at = NULL,
-            error_message = NULL
-        WHERE id = (
-          SELECT id FROM import_job_queue
-          WHERE import_job_id = ${id}
-          ORDER BY created_at DESC
-          LIMIT 1
-        )
-        RETURNING id
-      `);
+      let requeued = false;
+      await db.transaction(async (tx) => {
+        const resetResult = await tx.execute(sql`
+          UPDATE import_job_queue
+          SET status = 'pending',
+              retry_count = 0,
+              started_at = NULL,
+              heartbeat = NULL,
+              worker_id = NULL,
+              completed_at = NULL,
+              error_message = NULL
+          WHERE id = (
+            SELECT id FROM import_job_queue
+            WHERE import_job_id = ${id}
+            ORDER BY created_at DESC
+            LIMIT 1
+          )
+          RETURNING id
+        `);
 
-      if (resetResult.rows.length === 0) {
+        if (resetResult.rows.length === 0) {
+          return;
+        }
+
+        await tx.execute(sql`
+          UPDATE import_jobs
+          SET status = 'queued', completed_at = NULL, error_message = NULL
+          WHERE id = ${id}
+        `);
+
+        requeued = true;
+      });
+
+      if (!requeued) {
         return res.status(400).json({ error: "No queue row found for this import — the original CSV path is unavailable" });
       }
-
-      await db.execute(sql`
-        UPDATE import_jobs
-        SET status = 'queued', completed_at = NULL, error_message = NULL
-        WHERE id = ${id} AND status NOT IN ('processing', 'awaiting_confirmation')
-      `);
 
       try {
         await db.execute(sql`NOTIFY import_jobs`);
       } catch {}
 
-      logger.info(`[IMPORT] Import job ${id} force-requeued by user`);
+      logger.info(`[IMPORT] Import job ${id} force-requeued by user (was: ${currentStatus})`);
       res.json({ success: true, message: "Import requeued successfully" });
     } catch (error) {
       logger.error("Error requeueing import:", error);

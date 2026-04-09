@@ -449,8 +449,8 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
       queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
       toast({ title: "Import requeued", description: "The import will begin processing shortly." });
     },
-    onError: (err: any) => {
-      const msg = err?.message || "Could not requeue the import.";
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Could not requeue the import.";
       toast({ title: "Requeue failed", description: msg, variant: "destructive" });
     },
   });
