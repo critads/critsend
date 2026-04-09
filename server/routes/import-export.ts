@@ -2,7 +2,7 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import { importJobs, importJobQueue } from "@shared/schema";
 import * as fs from "fs";
 import * as path from "path";
@@ -217,13 +217,16 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
       const { id } = req.params;
 
-      const eligibilityCheck = await db.execute(sql`
-        SELECT status FROM import_jobs WHERE id = ${id} LIMIT 1
-      `);
-      if (eligibilityCheck.rows.length === 0) {
+      const [existingJob] = await db
+        .select({ status: importJobs.status })
+        .from(importJobs)
+        .where(eq(importJobs.id, id))
+        .limit(1);
+
+      if (!existingJob) {
         return res.status(404).json({ error: "Import job not found" });
       }
-      const currentStatus = (eligibilityCheck.rows[0] as any).status as string;
+      const currentStatus = existingJob.status;
       if (!["queued", "failed", "cancelled"].includes(currentStatus)) {
         return res.status(400).json({ error: `Import cannot be requeued from status '${currentStatus}'` });
       }
