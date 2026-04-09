@@ -763,9 +763,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
         if (resetCount === 0) return { campaign: null, resetCount: 0 };
 
         // 2. Reset campaign counters and status.
+        //    retryUntil is cleared so campaign-sender sets a fresh 12-hour window;
+        //    without this an expired deadline causes the retry phase to be silently skipped.
         const [updated] = await tx
           .update(campaigns)
-          .set({ status: "sending", failedCount: 0, pauseReason: null })
+          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
         if (!updated) return { campaign: null, resetCount };

@@ -487,11 +487,9 @@ export default function CampaignDetail() {
             <div data-testid="table-failed-emails">
               <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
                 Failed Emails
-                {errorsData && (
-                  <span className="ml-2 font-normal normal-case">
-                    ({errorsData.total.toLocaleString()} total)
-                  </span>
-                )}
+                <span className="ml-2 font-normal normal-case">
+                  ({campaign.failedCount.toLocaleString()} total)
+                </span>
               </h4>
 
               {errorsLoading ? (
@@ -557,8 +555,10 @@ export default function CampaignDetail() {
                   )}
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  No detailed error logs found. Errors may have been cleared by the maintenance job.
+                <p className="text-sm text-muted-foreground py-4 text-center" data-testid="text-no-error-logs">
+                  {campaign.failedCount > 0
+                    ? `No detailed error logs available — they may have been cleared by the maintenance job. The ${campaign.failedCount.toLocaleString()} failed sends are still queued and can be retried.`
+                    : "No detailed error logs found."}
                 </p>
               )}
             </div>
