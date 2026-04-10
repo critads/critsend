@@ -341,7 +341,7 @@ export default function Campaigns() {
                     <TableHead><span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />Opens</span></TableHead>
                     <TableHead><span className="flex items-center gap-1"><MousePointerClick className="h-3.5 w-3.5" />Clicks</span></TableHead>
                     <TableHead><span className="flex items-center gap-1"><UserMinus className="h-3.5 w-3.5" />Unsubs</span></TableHead>
-                    <TableHead>Scheduled</TableHead>
+                    <TableHead>Dates</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -400,10 +400,19 @@ export default function Campaigns() {
                           {(campaignStats?.[campaign.id]?.unsubscribes ?? 0).toLocaleString()}
                         </span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {campaign.scheduledAt
-                          ? new Date(campaign.scheduledAt).toLocaleString()
-                          : "Not scheduled"}
+                      <TableCell>
+                        <div className="flex flex-col gap-1 text-sm">
+                          <div className="flex items-center gap-1 text-muted-foreground">
+                            <span className="font-medium text-foreground/70">Created</span>
+                            <span>{new Date(campaign.createdAt).toLocaleString()}</span>
+                          </div>
+                          {campaign.startedAt && (
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <span className="font-medium text-foreground/70">Sending</span>
+                              <span>{new Date(campaign.startedAt).toLocaleString()}</span>
+                            </div>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
