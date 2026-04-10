@@ -211,7 +211,7 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
          ORDER BY ip_address`,
         [req.params.id]
       );
-      const lines = ["ip_address", ...result.rows.map((r: any) => r.ip_address)];
+      const lines = ["ip_address", ...result.rows.map((r: { ip_address: string }) => r.ip_address)];
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="clickers-${req.params.id}.csv"`);
       res.send(lines.join("\n"));
