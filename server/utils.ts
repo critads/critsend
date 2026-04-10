@@ -35,15 +35,17 @@ export function cleanupOrphanedTempSessions(): void {
       const stat = fs.statSync(entryPath);
       
       if (!stat.isDirectory()) continue;
+
+      // Never delete a session folder that contains any files — those files are
+      // hosted at permanent URLs and must not be removed. Only clean up truly
+      // empty directories (abandoned sessions where no images were ever uploaded).
+      const files = fs.readdirSync(entryPath);
+      if (files.length > 0) continue;
       
       const age = now - stat.mtimeMs;
       if (age > TEMP_SESSION_MAX_AGE_MS) {
-        const files = fs.readdirSync(entryPath);
-        for (const file of files) {
-          fs.unlinkSync(path.join(entryPath, file));
-        }
         fs.rmdirSync(entryPath);
-        logger.info(`Cleaned up orphaned draft session: ${entry}`);
+        logger.info(`Cleaned up empty orphaned draft session: ${entry}`);
       }
     }
   } catch (error) {
