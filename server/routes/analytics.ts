@@ -1,5 +1,6 @@
 import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
+import { pool } from "../db";
 import { logger } from "../logger";
 
 export function registerAnalyticsRoutes(app: Express, helpers: {
@@ -193,6 +194,30 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error fetching batch open stats:", error);
       res.status(500).json({ error: "Failed to fetch batch open stats" });
+    }
+  });
+
+  app.get("/api/analytics/campaign/:id/clicker-ips", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const result = await pool.query(
+        `SELECT DISTINCT ip_address
+         FROM campaign_stats
+         WHERE campaign_id = $1
+           AND type = 'click'
+           AND ip_address IS NOT NULL
+         ORDER BY ip_address`,
+        [req.params.id]
+      );
+      const lines = ["ip_address", ...result.rows.map((r: any) => r.ip_address)];
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="clickers-${req.params.id}.csv"`);
+      res.send(lines.join("\n"));
+    } catch (error) {
+      logger.error("Error exporting clicker IPs:", error);
+      res.status(500).json({ error: "Failed to export clicker IPs" });
     }
   });
 

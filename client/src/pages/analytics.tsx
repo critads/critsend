@@ -39,6 +39,7 @@ import {
   ChevronDown,
   ChevronUp,
   Layers,
+  Download,
 } from "lucide-react";
 import {
   BarChart,
@@ -570,6 +571,21 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
           icon={Mail}
           isLoading={isLoading}
         />
+      </div>
+
+      <div className="flex items-center justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!data || data.uniqueClicks === 0}
+          onClick={() => {
+            window.location.href = `/api/analytics/campaign/${campaignId}/clicker-ips`;
+          }}
+          data-testid="button-export-clicker-ips"
+        >
+          <Download className="h-4 w-4 mr-2" />
+          Export Clicker IPs
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
