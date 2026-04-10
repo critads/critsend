@@ -1025,6 +1025,67 @@ async function pollForImportJobs() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// IMPORT GUARDIAN — web-process fallback processor
+// ═══════════════════════════════════════════════════════════════
+
+let importGuardianInterval: NodeJS.Timeout | null = null;
+
+/**
+ * One shot guardian poll: claims and processes a single pending import job
+ * that has been waiting for more than 60 seconds (i.e., the real worker
+ * did not pick it up). Uses the same SKIP LOCKED claim so there is no
+ * double-processing risk when the real worker is alive.
+ */
+async function runGuardianPoll(): Promise<void> {
+  if (isActiveImportJob) return;
+  if (activeFlushJob) return;
+  if (!isPoolHealthy()) {
+    logger.debug('[IMPORT_GUARDIAN] Skipping — pool saturated');
+    return;
+  }
+  try {
+    const staleCheck = await db.execute(sql`
+      SELECT 1 FROM import_job_queue
+      WHERE status = 'pending'
+        AND created_at < NOW() - INTERVAL '60 seconds'
+      LIMIT 1
+    `);
+    if (staleCheck.rows.length === 0) return;
+
+    logger.warn('[IMPORT_GUARDIAN] Stale pending import found (>60 s without a worker claim) — taking over as fallback processor');
+    await pollForImportJobs();
+  } catch (err: any) {
+    logger.error('[IMPORT_GUARDIAN] Error in guardian poll:', err?.message);
+  }
+}
+
+/**
+ * Start the fallback import guardian in the web process.
+ * Safe to call even when the real worker is alive — SKIP LOCKED prevents races.
+ * The guardian only activates when a job has been pending for > 60 seconds.
+ */
+export function startImportGuardian(): void {
+  if (importGuardianInterval) return;
+  logger.info('[IMPORT_GUARDIAN] Fallback import guardian started (polls every 30 s for stale pending jobs)');
+  importGuardianInterval = setInterval(runGuardianPoll, 30000);
+}
+
+export function stopImportGuardian(): void {
+  if (importGuardianInterval) {
+    clearInterval(importGuardianInterval);
+    importGuardianInterval = null;
+    logger.info('[IMPORT_GUARDIAN] Fallback import guardian stopped');
+  }
+}
+
+/**
+ * Trigger a one-shot guardian poll immediately (e.g. after a Requeue NOTIFY).
+ */
+export async function triggerGuardianPoll(): Promise<void> {
+  return runGuardianPoll();
+}
+
 const MAINTENANCE_INTERVAL = 21600000; // 6 hours
 const MAINTENANCE_BATCH_SIZE = 1000;
 const MAINTENANCE_MAX_ROWS = 50000;

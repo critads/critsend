@@ -62,12 +62,15 @@ module.exports = {
       env_production: {
         NODE_ENV: "production",
         PROCESS_TYPE: "worker",
-        NODE_OPTIONS: "--max-old-space-size=4096 --expose-gc",
+        NODE_OPTIONS: "--max-old-space-size=6144 --expose-gc",
         WORKER_PG_POOL_MAX: "14",
         MAX_CONCURRENT_CAMPAIGNS: "8",
       },
 
-      max_restarts: 10,
+      // Raised from 10 → 50 so PM2 doesn't give up after a burst of memory-triggered
+      // restarts during large imports (GIN index recreation uses significant RAM).
+      max_restarts: 50,
+      // 5-second pause between restarts to avoid rapid crash loops burning the restart budget.
       restart_delay: 5000,
       min_uptime: "10s",
 
@@ -76,7 +79,9 @@ module.exports = {
       merge_logs: true,
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
 
-      max_memory_restart: "2G",
+      // Raised from 2G → 4G — large imports (376k+ rows) with GIN index recreation
+      // can use well over 2 GB; frequent memory-restarts deplete the restart budget.
+      max_memory_restart: "4G",
       kill_timeout: 30000,
     },
   ],

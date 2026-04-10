@@ -192,6 +192,28 @@ export function registerImportExportRoutes(app: Express, helpers: {
     }
   });
 
+  app.get("/api/import/queue-health", async (_req: Request, res: Response) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT
+          COUNT(*)::int AS pending_count,
+          EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_pending_age_seconds
+        FROM import_job_queue
+        WHERE status = 'pending'
+      `);
+      const row = (result.rows as any[])[0];
+      res.json({
+        pendingCount: Number(row?.pending_count ?? 0),
+        oldestPendingAgeSeconds: row?.oldest_pending_age_seconds != null
+          ? Number(row.oldest_pending_age_seconds)
+          : null,
+      });
+    } catch (error) {
+      logger.error("Error fetching import queue health:", error);
+      res.status(500).json({ error: "Failed to fetch queue health" });
+    }
+  });
+
   app.post("/api/import/:id/cancel", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {

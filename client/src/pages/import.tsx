@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   Tag,
   BookmarkCheck,
+  TriangleAlert,
 } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -998,6 +999,27 @@ alice@example.com;VIP;;;`}
           </Button>
         </CardHeader>
         <CardContent>
+          {(() => {
+            const STALE_THRESHOLD_MS = 90_000;
+            const hasStaleQueuedJob = jobs?.some(
+              (j) =>
+                (j.status === "queued" || j.status === "pending") &&
+                j.processedRows === 0 &&
+                Date.now() - new Date(j.createdAt).getTime() > STALE_THRESHOLD_MS
+            );
+            if (!hasStaleQueuedJob) return null;
+            return (
+              <div
+                className="flex items-start gap-3 rounded-md border border-amber-400/60 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-300 mb-4"
+                data-testid="banner-worker-offline"
+              >
+                <TriangleAlert className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
+                <span>
+                  <strong>Import worker may be temporarily offline.</strong> The system will automatically retry and process your import — no action needed. If this persists beyond a few minutes, you can click <strong>Requeue</strong> to trigger an immediate retry.
+                </span>
+              </div>
+            );
+          })()}
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (

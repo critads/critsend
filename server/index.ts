@@ -6,7 +6,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
-import { startAllWorkers, stopAllBackgroundWorkers } from "./workers";
+import { startAllWorkers, stopAllBackgroundWorkers, startImportGuardian, stopImportGuardian, triggerGuardianPoll } from "./workers";
 import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMetricsCollector } from "./metrics";
 import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
@@ -97,6 +97,7 @@ async function gracefulShutdown(signal: string) {
     }, CONNECTION_DRAIN_TIMEOUT);
     
     stopAllBackgroundWorkers();
+    stopImportGuardian();
     stopMetricsCollector();
     logger.info('Background workers stopped');
 
@@ -552,6 +553,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     startBullMQWorkers();
   } else if (process.env.DISABLE_WORKERS === 'true') {
     logger.info("[MONOLITH] DISABLE_WORKERS=true — background workers disabled on this instance");
+  }
+
+  // Always start the import guardian in the web process (PROCESS_TYPE=web or DISABLE_WORKERS=true).
+  // It polls every 30 s for pending import jobs that have been waiting > 60 s without a worker
+  // claiming them. SKIP LOCKED makes it safe even when the dedicated worker IS alive.
+  if (process.env.PROCESS_TYPE === 'web' || process.env.DISABLE_WORKERS === 'true') {
+    startImportGuardian();
+
+    // When a Requeue NOTIFY arrives, run a guardian poll after 10 s.
+    // This allows the real worker a short window to claim first; if it doesn't,
+    // the guardian takes over — so requeue always triggers processing within ~10 s.
+    messageQueue.onMessage('import_jobs', () => {
+      logger.info('[IMPORT_GUARDIAN] import_jobs NOTIFY received — scheduling fallback poll in 10 s');
+      setTimeout(() => {
+        triggerGuardianPoll().catch((err: any) =>
+          logger.error('[IMPORT_GUARDIAN] Fallback poll error:', err?.message)
+        );
+      }, 10000);
+    });
   }
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
