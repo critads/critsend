@@ -1,0 +1,26 @@
+I need you to perform a full audit of all outgoing HTTP requests and automated processes that could be generating clicks on external tracking URLs.
+
+Context: We are seeing a high volume of automated clicks on our redirect tracking links (redirect.critads.com/r/...) coming from IPs in the 185.200.32.x range. These IPs belong to UAB code200, a Lithuanian datacenter/proxy provider. The traffic started ramping up around April 6-8, 2026, with up to 3,000+ clicks per day from 99 unique IPs in that range. Each IP clicks across 10-18 different campaigns systematically.
+
+Please investigate the following:
+
+Click heatmap feature: Does our click heatmap or link tracking module pre-fetch, crawl, or follow URLs embedded in email campaigns to build heatmaps or generate link previews? If so, what IPs or servers does it use for this? Could it be using a third-party proxy service like UAB code200 to simulate clicks from different locations?
+
+Link validation / URL checking: Do we have any automated process that validates, tests, or checks the status of links in campaigns (e.g., broken link detection, deliverability checks)? What IPs do these processes use?
+
+Anti-spam / deliverability testing: Are we using any seed list testing, inbox placement testing, or spam filter checking service that might follow links in test emails? Do any of these services route through proxy networks?
+
+Third-party integrations: List all third-party services or APIs we integrate with that might interact with the URLs in our email campaigns (analytics providers, link shorteners, preview generators, security scanners, etc.).
+
+Outbound IP inventory: Provide a complete list of all IP addresses and IP ranges used by our platform for any kind of outbound HTTP request (including background jobs, cron tasks, webhooks, crawlers, etc.).
+
+Server infrastructure: Do any of our servers, workers, or background processes run on infrastructure provided by UAB code200, or do we use any proxy/VPN services that might route through their network?
+
+Logs check: Can you search our outbound request logs for any HTTP requests made to redirect.critads.com or critads.com in the last 7 days? If found, show me which internal process triggered them, from which IP, and how many times.
+
+What I need back:
+
+A clear YES or NO on whether our platform could be generating these clicks
+If YES, which specific feature or process is responsible, and how to disable or configure it to stop
+The full list of our outbound IPs so I can cross-reference with the bot traffic
+Any recommendations to prevent our own tools from inflating click stats on external tracking systems
