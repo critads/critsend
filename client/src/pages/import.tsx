@@ -587,6 +587,14 @@ export default function Import() {
 
   useJobStream();
 
+  const { data: queueHealth } = useQuery<{ pendingCount: number; oldestPendingAgeSeconds: number | null }>({
+    queryKey: ["/api/import/queue-health"],
+    refetchInterval: (query) => {
+      const d = query.state.data as { pendingCount: number } | undefined;
+      return d?.pendingCount ? 15000 : 60000;
+    },
+  });
+
   const { data: jobs, isLoading, refetch } = useQuery<ImportJob[]>({
     queryKey: ["/api/import-jobs"],
     refetchInterval: (query) => {
@@ -999,16 +1007,10 @@ alice@example.com;VIP;;;`}
           </Button>
         </CardHeader>
         <CardContent>
-          {(() => {
-            const STALE_THRESHOLD_MS = 90_000;
-            const hasStaleQueuedJob = jobs?.some(
-              (j) =>
-                (j.status === "queued" || j.status === "pending") &&
-                j.processedRows === 0 &&
-                Date.now() - new Date(j.createdAt).getTime() > STALE_THRESHOLD_MS
-            );
-            if (!hasStaleQueuedJob) return null;
-            return (
+          {queueHealth &&
+            queueHealth.pendingCount > 0 &&
+            queueHealth.oldestPendingAgeSeconds !== null &&
+            queueHealth.oldestPendingAgeSeconds > 90 && (
               <div
                 className="flex items-start gap-3 rounded-md border border-amber-400/60 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-300 mb-4"
                 data-testid="banner-worker-offline"
@@ -1018,8 +1020,7 @@ alice@example.com;VIP;;;`}
                   <strong>Import worker may be temporarily offline.</strong> The system will automatically retry and process your import — no action needed. If this persists beyond a few minutes, you can click <strong>Requeue</strong> to trigger an immediate retry.
                 </span>
               </div>
-            );
-          })()}
+            )}
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
