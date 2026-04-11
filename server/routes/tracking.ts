@@ -1,10 +1,39 @@
 import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { verifyTrackingSignature } from "../tracking";
 import { UAParser } from "ua-parser-js";
 import geoip from "geoip-lite";
 import type { TrackingContext } from "../repositories/campaign-repository";
+
+// Bootstrap: add suppressed_until column and backfill subscribers who unsubscribed
+// in the last 7 days so the 30-day cooling-off window applies to existing data.
+(async () => {
+  try {
+    await db.execute(sql`ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS suppressed_until TIMESTAMP`);
+    // Retroactively suppress anyone who clicked unsubscribe in the last 7 days.
+    // Uses MAX(timestamp) so a subscriber who unsubscribed multiple times gets
+    // the most recent event as the start of their 30-day window.
+    await db.execute(sql`
+      UPDATE subscribers s
+      SET suppressed_until = cs.last_unsub + INTERVAL '30 days'
+      FROM (
+        SELECT subscriber_id, MAX(timestamp) AS last_unsub
+        FROM campaign_stats
+        WHERE type = 'unsubscribe'
+          AND timestamp > NOW() - INTERVAL '7 days'
+        GROUP BY subscriber_id
+      ) cs
+      WHERE s.id = cs.subscriber_id
+        AND (s.suppressed_until IS NULL OR s.suppressed_until < cs.last_unsub + INTERVAL '30 days')
+    `);
+    logger.info("[TRACKING] Bootstrap migration: suppressed_until column ready, recent unsubscribers backfilled");
+  } catch (err: any) {
+    logger.error(`[TRACKING] Bootstrap migration FAILED (suppressed_until): ${err?.message || err}`);
+  }
+})();
 
 function extractTrackingContext(req: Request): TrackingContext {
   const rawIp =
@@ -170,6 +199,9 @@ export function registerTrackingRoutes(app: Express) {
         storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
           .catch(err => logger.error("Failed to record unsubscribe stat (short):", err));
 
+        storage.setSuppressedUntil(subscriberId)
+          .catch(err => logger.error("Failed to set suppressed_until (short):", err));
+
         if (campaign?.unsubscribeTag) {
           storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
             .then(() => logger.info(`Short unsub: tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
@@ -210,6 +242,9 @@ export function registerTrackingRoutes(app: Express) {
 
         storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
           .catch(err => logger.error("Failed to record unsubscribe stat (POST short):", err));
+
+        storage.setSuppressedUntil(subscriberId)
+          .catch(err => logger.error("Failed to set suppressed_until (POST short):", err));
 
         if (campaign?.unsubscribeTag) {
           storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
@@ -424,6 +459,9 @@ export function registerTrackingRoutes(app: Express) {
 
         storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
           .catch(err => logger.error("Failed to record unsubscribe stat:", err));
+
+        storage.setSuppressedUntil(subscriberId)
+          .catch(err => logger.error("Failed to set suppressed_until:", err));
 
         if (campaign?.unsubscribeTag) {
           storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)

@@ -38,6 +38,7 @@ export interface IStorage {
   getSubscribersByEmails(emails: string[]): Promise<Map<string, Subscriber>>;
   createSubscriber(data: InsertSubscriber): Promise<Subscriber>;
   updateSubscriber(id: string, data: Partial<InsertSubscriber>): Promise<Subscriber | undefined>;
+  setSuppressedUntil(subscriberId: string): Promise<void>;
   deleteSubscriber(id: string): Promise<void>;
   deleteAllSubscribers(): Promise<number>;
 

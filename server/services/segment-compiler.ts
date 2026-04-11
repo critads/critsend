@@ -170,22 +170,25 @@ export function compileSegmentRules(rules: SegmentRulesV2): SQL {
   return compileGroup(rules.root);
 }
 
+// Suppression guard: excludes subscribers within their 30-day cooling-off window.
+const notSuppressed = sql`(suppressed_until IS NULL OR suppressed_until < NOW())`;
+
 export function compileCountQuery(rules: SegmentRulesV2): SQL {
   const where = compileSegmentRules(rules);
-  return sql`SELECT count(*) FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags))`;
+  return sql`SELECT count(*) FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed}`;
 }
 
 export function compilePreviewQuery(rules: SegmentRulesV2, limit: number): SQL {
   const where = compileSegmentRules(rules);
-  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) ORDER BY import_date DESC LIMIT ${limit}`;
+  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed} ORDER BY import_date DESC LIMIT ${limit}`;
 }
 
 export function compileCursorQuery(rules: SegmentRulesV2, limit: number, afterId?: string): SQL {
   const where = compileSegmentRules(rules);
   if (afterId) {
-    return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND id > ${afterId} ORDER BY id ASC LIMIT ${limit}`;
+    return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed} AND id > ${afterId} ORDER BY id ASC LIMIT ${limit}`;
   }
-  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) ORDER BY id ASC LIMIT ${limit}`;
+  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed} ORDER BY id ASC LIMIT ${limit}`;
 }
 
 export { escapeLikeValue };

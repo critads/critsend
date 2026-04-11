@@ -94,6 +94,12 @@ export async function updateSubscriber(id: string, data: Partial<InsertSubscribe
   return sub;
 }
 
+export async function setSuppressedUntil(subscriberId: string): Promise<void> {
+  await db.execute(
+    sql`UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '30 days' WHERE id = ${subscriberId}`
+  );
+}
+
 export async function deleteSubscriber(id: string): Promise<void> {
   // campaign_sends and campaign_stats cascade from subscriber FK
   await db.execute(sql`DELETE FROM nullsink_captures WHERE subscriber_id = ${id}`);

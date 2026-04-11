@@ -11,6 +11,7 @@ export const subscribers = pgTable("subscribers", {
   refs: text("refs").array().notNull().default(sql`ARRAY[]::text[]`),
   ipAddress: text("ip_address"),
   importDate: timestamp("import_date").notNull().defaultNow(),
+  suppressedUntil: timestamp("suppressed_until"),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
   emailLowerIdx: index("subscribers_email_lower_idx").on(sql`lower(email)`),
