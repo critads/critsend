@@ -398,14 +398,28 @@ export default function Campaigns() {
                         </div>
                       </TableCell>
                       <TableCell data-testid={`text-opens-${campaign.id}`}>
-                        <span className="font-medium tabular-nums">
-                          {(campaignStats?.[campaign.id]?.opens ?? 0).toLocaleString()}
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium tabular-nums">
+                            {(campaignStats?.[campaign.id]?.opens ?? 0).toLocaleString()}
+                          </span>
+                          {campaign.sentCount > 0 && (campaignStats?.[campaign.id]?.opens ?? 0) > 0 && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {((campaignStats![campaign.id].opens / campaign.sentCount) * 100).toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell data-testid={`text-clicks-${campaign.id}`}>
-                        <span className="font-medium tabular-nums">
-                          {(campaignStats?.[campaign.id]?.clicks ?? 0).toLocaleString()}
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium tabular-nums">
+                            {(campaignStats?.[campaign.id]?.clicks ?? 0).toLocaleString()}
+                          </span>
+                          {campaign.sentCount > 0 && (campaignStats?.[campaign.id]?.clicks ?? 0) > 0 && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {((campaignStats![campaign.id].clicks / campaign.sentCount) * 100).toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell data-testid={`text-unsubs-${campaign.id}`}>
                         <span className={`font-medium tabular-nums ${(campaignStats?.[campaign.id]?.unsubscribes ?? 0) > 0 ? "text-destructive" : ""}`}>
