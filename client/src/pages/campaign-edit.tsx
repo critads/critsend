@@ -38,6 +38,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
+import DateTimePicker from "@/components/date-time-picker";
 
 /** Inject a <base href> into preview HTML so relative image URLs (/campaigns/...)
  *  resolve against the current server instead of about:srcdoc. */
@@ -293,8 +294,12 @@ export default function CampaignEdit() {
   });
 
   const sendMutation = useMutation({
-    mutationFn: (data: Partial<InsertCampaign>) =>
-      apiRequest("PATCH", `/api/campaigns/${campaignId}`, { ...data, status: formData.scheduledAt ? "scheduled" : "sending" }),
+    mutationFn: async (data: Partial<InsertCampaign>) => {
+      await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
+      const sendPayload = data.scheduledAt ? { scheduledAt: data.scheduledAt } : {};
+      const sendRes = await apiRequest("POST", `/api/campaigns/${campaignId}/send`, sendPayload);
+      return sendRes.json();
+    },
     onMutate: async (newData) => {
       await queryClient.cancelQueries({ queryKey: ["/api/campaigns", campaignId] });
       const previousCampaign = queryClient.getQueryData(["/api/campaigns", campaignId]);
@@ -314,13 +319,13 @@ export default function CampaignEdit() {
       });
       navigate("/campaigns");
     },
-    onError: (_error, _newData, context) => {
+    onError: (error: Error, _newData, context) => {
       if (context?.previousCampaign) {
         queryClient.setQueryData(["/api/campaigns", campaignId], context.previousCampaign);
       }
       toast({
         title: "Error",
-        description: "Failed to start campaign. Please try again.",
+        description: error.message || "Failed to start campaign. Please try again.",
         variant: "destructive",
       });
     },
@@ -969,13 +974,10 @@ export default function CampaignEdit() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="schedule">Schedule (optional) - Paris Time</Label>
-              <Input
-                id="schedule"
-                type="datetime-local"
-                value={formData.scheduledAt ? formatParisTime(new Date(formData.scheduledAt)) : ""}
-                onChange={(e) => updateField("scheduledAt", parseParisTime(e.target.value))}
-                data-testid="input-schedule"
+              <Label>Schedule (optional) - Paris Time</Label>
+              <DateTimePicker
+                value={formData.scheduledAt ? new Date(formData.scheduledAt) : null}
+                onChange={(date) => updateField("scheduledAt", date ? date.toISOString() : null)}
               />
               <p className="text-xs text-muted-foreground">
                 Leave empty to send immediately, or pick a date and time (Paris timezone)

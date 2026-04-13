@@ -21,6 +21,7 @@ let flushJobPollingInterval: NodeJS.Timeout | null = null;
 let mtaRecoveryInterval: NodeJS.Timeout | null = null;
 let memoryCheckInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
+let scheduledCampaignInterval: NodeJS.Timeout | null = null;
 
 let isActiveImportJob = false;
 let activeFlushJob = false;
@@ -42,13 +43,14 @@ export function getImportJobProcessorRunning(): boolean {
   return !!importJobPollingInterval;
 }
 
-export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean; maintenanceWorker: boolean } {
+export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean; maintenanceWorker: boolean; scheduledCampaignPoller: boolean } {
   return {
     jobProcessor: !!jobPollingInterval,
     importProcessor: !!importJobPollingInterval,
     tagQueueWorker: !!tagQueueInterval,
     flushProcessor: !!flushJobPollingInterval,
     maintenanceWorker: !!maintenanceInterval,
+    scheduledCampaignPoller: !!scheduledCampaignInterval,
   };
 }
 
@@ -712,6 +714,51 @@ async function resumeInterruptedCampaigns() {
   }
 }
 
+async function pollScheduledCampaigns() {
+  if (!isPoolHealthy()) return;
+  try {
+    const result = await db.execute(sql`
+      WITH promoted AS (
+        UPDATE campaigns
+        SET status = 'sending'
+        WHERE status = 'scheduled'
+          AND scheduled_at <= NOW()
+        RETURNING id, name
+      )
+      INSERT INTO campaign_jobs (campaign_id, status)
+      SELECT id, 'pending' FROM promoted
+      WHERE NOT EXISTS (
+        SELECT 1 FROM campaign_jobs cj
+        WHERE cj.campaign_id = promoted.id
+          AND cj.status IN ('pending', 'processing')
+      )
+      RETURNING campaign_id, (SELECT name FROM promoted WHERE promoted.id = campaign_id) AS name
+    `);
+    const launched = result.rows as Array<{ campaign_id: string; name: string }>;
+    for (const row of launched) {
+      await messageQueue.notify("campaign_jobs", { campaignId: row.campaign_id }).catch(() => {});
+      logger.info(`[SCHEDULE_POLL] Campaign ${row.campaign_id} (${row.name}) scheduled time reached — transitioned to sending`);
+    }
+  } catch (error) {
+    logger.error("[SCHEDULE_POLL] Error polling scheduled campaigns:", error);
+  }
+}
+
+function startScheduledCampaignPoller() {
+  if (scheduledCampaignInterval) return;
+  logger.info("[SCHEDULE_POLL] Starting scheduled campaign poller (30s interval)");
+  scheduledCampaignInterval = setInterval(pollScheduledCampaigns, 30000);
+  pollScheduledCampaigns();
+}
+
+function stopScheduledCampaignPoller() {
+  if (scheduledCampaignInterval) {
+    clearInterval(scheduledCampaignInterval);
+    scheduledCampaignInterval = null;
+    logger.info("[SCHEDULE_POLL] Scheduled campaign poller stopped");
+  }
+}
+
 async function startJobProcessor() {
   if (jobPollingInterval) {
     return;
@@ -1236,6 +1283,7 @@ export async function startAllWorkers() {
   await startJobProcessor();
   startTagQueueWorker();
   startMaintenanceWorker();
+  startScheduledCampaignPoller();
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
   });
@@ -1247,6 +1295,7 @@ export function stopAllBackgroundWorkers() {
   stopJobProcessor();
   stopTagQueueWorker();
   stopMaintenanceWorker();
+  stopScheduledCampaignPoller();
   closeNullsinkTransporter();
   logger.info("[SHUTDOWN] All background workers stopped");
 }

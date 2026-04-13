@@ -37,6 +37,7 @@ import {
   Save,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign } from "@shared/schema";
+import DateTimePicker from "@/components/date-time-picker";
 
 /** Inject a <base href> into preview HTML so relative image URLs (/campaigns/...)
  *  resolve against the current server instead of about:srcdoc. */
@@ -282,12 +283,6 @@ export default function CampaignNew() {
 
       const sendPayload = data.scheduledAt ? { scheduledAt: data.scheduledAt } : {};
       const sendRes = await apiRequest("POST", `/api/campaigns/${currentCampaignId}/send`, sendPayload);
-
-      if (!sendRes.ok) {
-        const errorData = await sendRes.json();
-        throw new Error(errorData.details?.join(", ") || errorData.error || "Failed to start campaign");
-      }
-
       return sendRes.json();
     },
     onSuccess: (result) => {
@@ -900,13 +895,10 @@ export default function CampaignNew() {
         return (
           <div className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="schedule">Schedule (optional) - Paris Time</Label>
-              <Input
-                id="schedule"
-                type="datetime-local"
-                value={formData.scheduledAt ? formatParisTime(new Date(formData.scheduledAt)) : ""}
-                onChange={(e) => updateField("scheduledAt", parseParisTime(e.target.value))}
-                data-testid="input-schedule"
+              <Label>Schedule (optional) - Paris Time</Label>
+              <DateTimePicker
+                value={formData.scheduledAt ? new Date(formData.scheduledAt) : null}
+                onChange={(date) => updateField("scheduledAt", date ? date.toISOString() : null)}
               />
               <p className="text-xs text-muted-foreground">
                 Leave empty to send immediately, or pick a date and time (Paris timezone)
