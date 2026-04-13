@@ -90,6 +90,34 @@ export function registerSubscriberRoutes(app: Express, helpers: {
     }
   });
 
+  app.post("/api/subscribers/bulk-delete", async (req: Request, res: Response) => {
+    try {
+      const schema = z.object({
+        emails: z.array(z.string().email()).min(1).max(500000),
+        confirmed: z.boolean().optional(),
+      });
+      const { emails, confirmed } = schema.parse(req.body);
+
+      const unique = [...new Set(emails.map(e => e.toLowerCase().trim()))];
+
+      if (!confirmed) {
+        const matched = await storage.countByEmails(unique);
+        return res.json({ matched, total: unique.length, notFound: unique.length - matched });
+      }
+
+      const result = await storage.bulkDeleteByEmails(unique);
+      storage.invalidateSegmentCountCache();
+      logger.info(`[BULK_DELETE] Deleted ${result.deleted} subscribers (${result.notFound} not found) from ${unique.length} emails`);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid input", details: error.errors });
+      }
+      logger.error("Error in bulk delete:", error);
+      res.status(500).json({ error: "Failed to bulk delete subscribers" });
+    }
+  });
+
   app.delete("/api/subscribers/:id", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {

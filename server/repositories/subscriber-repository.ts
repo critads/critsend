@@ -116,6 +116,54 @@ export async function deleteAllSubscribers(): Promise<number> {
   return result.rowCount || 0;
 }
 
+export async function bulkDeleteByEmails(emails: string[]): Promise<{ deleted: number; notFound: number }> {
+  if (emails.length === 0) return { deleted: 0, notFound: 0 };
+  const lowerEmails = [...new Set(emails.map(e => e.toLowerCase().trim()).filter(Boolean))];
+  const BATCH = 5000;
+  let totalDeleted = 0;
+
+  for (let i = 0; i < lowerEmails.length; i += BATCH) {
+    const batch = lowerEmails.slice(i, i + BATCH);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const idResult = await client.query(
+        `SELECT id FROM subscribers WHERE email = ANY($1::text[])`,
+        [batch]
+      );
+      const ids = idResult.rows.map((r: { id: string }) => r.id);
+      if (ids.length > 0) {
+        await client.query(`DELETE FROM error_logs WHERE subscriber_id = ANY($1::text[])`, [ids]);
+        await client.query(`DELETE FROM nullsink_captures WHERE subscriber_id = ANY($1::text[])`, [ids]);
+        await client.query(`DELETE FROM automation_enrollments WHERE subscriber_id = ANY($1::text[])`, [ids]);
+        const delResult = await client.query(
+          `DELETE FROM subscribers WHERE id = ANY($1::text[])`,
+          [ids]
+        );
+        totalDeleted += delResult.rowCount || 0;
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  return { deleted: totalDeleted, notFound: lowerEmails.length - totalDeleted };
+}
+
+export async function countByEmails(emails: string[]): Promise<number> {
+  if (emails.length === 0) return 0;
+  const lowerEmails = [...new Set(emails.map(e => e.toLowerCase().trim()).filter(Boolean))];
+  const result = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM subscribers WHERE email = ANY($1::text[])`,
+    [lowerEmails]
+  );
+  return parseInt(result.rows[0]?.cnt || '0', 10);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // SEGMENT OPERATIONS
 // ═══════════════════════════════════════════════════════════════

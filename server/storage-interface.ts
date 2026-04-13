@@ -41,6 +41,8 @@ export interface IStorage {
   setSuppressedUntil(subscriberId: string): Promise<void>;
   deleteSubscriber(id: string): Promise<void>;
   deleteAllSubscribers(): Promise<number>;
+  bulkDeleteByEmails(emails: string[]): Promise<{ deleted: number; notFound: number }>;
+  countByEmails(emails: string[]): Promise<number>;
 
   // ═══════════════════════════════════════════════════════════════
   // SEGMENT OPERATIONS

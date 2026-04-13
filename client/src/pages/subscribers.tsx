@@ -42,6 +42,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { 
   Search, 
   MoreVertical, 
@@ -57,6 +59,9 @@ import {
   XCircle,
   Filter,
   ShieldBan,
+  Upload,
+  Loader2,
+  UserMinus,
 } from "lucide-react";
 import type { Subscriber } from "@shared/schema";
 
@@ -83,6 +88,11 @@ export default function Subscribers() {
   const [flushJobId, setFlushJobId] = useState<string | null>(null);
   const [showSaveSegmentDialog, setShowSaveSegmentDialog] = useState(false);
   const [segmentName, setSegmentName] = useState("");
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [bulkDeleteEmails, setBulkDeleteEmails] = useState("");
+  const [bulkDeleteParsed, setBulkDeleteParsed] = useState<string[]>([]);
+  const [bulkDeletePreview, setBulkDeletePreview] = useState<{ matched: number; total: number; notFound: number } | null>(null);
+  const [bulkDeleteResult, setBulkDeleteResult] = useState<{ deleted: number; notFound: number } | null>(null);
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery<SubscribersResponse>({
@@ -329,6 +339,73 @@ export default function Subscribers() {
     },
   });
 
+  const parseEmailList = (text: string): string[] => {
+    return [...new Set(
+      text.split(/[\n,;]+/)
+        .map(e => e.trim().toLowerCase())
+        .filter(e => e && e.includes("@"))
+    )];
+  };
+
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/\r?\n/);
+      if (lines.length === 0) return;
+      const header = lines[0].toLowerCase();
+      const cols = header.split(/[,;\t]/);
+      const emailIdx = cols.findIndex(c => c.trim() === "email");
+      const idx = emailIdx >= 0 ? emailIdx : 0;
+      const emails: string[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(/[,;\t]/);
+        const val = parts[idx]?.trim().replace(/^["']|["']$/g, "").toLowerCase();
+        if (val && val.includes("@")) emails.push(val);
+      }
+      const unique = [...new Set(emails)];
+      setBulkDeleteParsed(unique);
+      setBulkDeleteEmails(unique.join("\n"));
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const bulkDeletePreviewMutation = useMutation({
+    mutationFn: async (emails: string[]) => {
+      const res = await apiRequest("POST", "/api/subscribers/bulk-delete", { emails });
+      return res.json() as Promise<{ matched: number; total: number; notFound: number }>;
+    },
+    onSuccess: (data) => setBulkDeletePreview(data),
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const bulkDeleteConfirmMutation = useMutation({
+    mutationFn: async (emails: string[]) => {
+      const res = await apiRequest("POST", "/api/subscribers/bulk-delete", { emails, confirmed: true });
+      return res.json() as Promise<{ deleted: number; notFound: number }>;
+    },
+    onSuccess: (data) => {
+      setBulkDeleteResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/subscribers"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const resetBulkDelete = () => {
+    setShowBulkDelete(false);
+    setBulkDeleteEmails("");
+    setBulkDeleteParsed([]);
+    setBulkDeletePreview(null);
+    setBulkDeleteResult(null);
+  };
+
   const handleSaveAsSegment = () => {
     if (!segmentName.trim() || !search.trim()) return;
     const searchTerm = search.trim();
@@ -396,6 +473,14 @@ export default function Subscribers() {
           <Button onClick={() => setShowAddDialog(true)} data-testid="button-add-subscriber">
             <Plus className="h-4 w-4 mr-2" />
             Add Subscriber
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setShowBulkDelete(true)}
+            data-testid="button-bulk-delete"
+          >
+            <UserMinus className="h-4 w-4 mr-2" />
+            Bulk Delete
           </Button>
           <Button 
             variant="destructive" 
@@ -915,6 +1000,149 @@ export default function Subscribers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showBulkDelete} onOpenChange={(open) => { if (!open) resetBulkDelete(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserMinus className="h-5 w-5" />
+              Bulk Delete Subscribers
+            </DialogTitle>
+            <DialogDescription>
+              Delete specific subscribers by providing a list of email addresses.
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkDeleteResult ? (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                <CheckCircle2 className="h-8 w-8 text-green-600 shrink-0" />
+                <div>
+                  <p className="font-medium" data-testid="text-bulk-delete-result">
+                    Deleted {bulkDeleteResult.deleted.toLocaleString()} subscriber{bulkDeleteResult.deleted !== 1 ? "s" : ""}
+                  </p>
+                  {bulkDeleteResult.notFound > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {bulkDeleteResult.notFound.toLocaleString()} email{bulkDeleteResult.notFound !== 1 ? "s were" : " was"} not found in the database.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={resetBulkDelete} data-testid="button-bulk-delete-done">Done</Button>
+              </DialogFooter>
+            </div>
+          ) : bulkDeletePreview ? (
+            <div className="space-y-4 py-2">
+              <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 space-y-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+                  <p className="font-medium">Confirm deletion</p>
+                </div>
+                <p className="text-sm" data-testid="text-bulk-delete-preview">
+                  <strong>{bulkDeletePreview.matched.toLocaleString()}</strong> of {bulkDeletePreview.total.toLocaleString()} emails matched subscribers in your database.
+                  {bulkDeletePreview.notFound > 0 && (
+                    <span className="text-muted-foreground"> ({bulkDeletePreview.notFound.toLocaleString()} not found)</span>
+                  )}
+                </p>
+                <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBulkDeletePreview(null)} data-testid="button-bulk-delete-back">
+                  Back
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => bulkDeleteConfirmMutation.mutate(bulkDeleteParsed)}
+                  disabled={bulkDeleteConfirmMutation.isPending || bulkDeletePreview.matched === 0}
+                  data-testid="button-bulk-delete-confirm"
+                >
+                  {bulkDeleteConfirmMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</>
+                  ) : (
+                    `Delete ${bulkDeletePreview.matched.toLocaleString()} subscriber${bulkDeletePreview.matched !== 1 ? "s" : ""}`
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <Tabs defaultValue="paste">
+                <TabsList className="w-full">
+                  <TabsTrigger value="paste" className="flex-1" data-testid="tab-paste-emails">Paste Emails</TabsTrigger>
+                  <TabsTrigger value="csv" className="flex-1" data-testid="tab-upload-csv">Upload CSV</TabsTrigger>
+                </TabsList>
+                <TabsContent value="paste" className="space-y-3 mt-3">
+                  <Textarea
+                    placeholder={"Enter email addresses, one per line:\n\nuser1@example.com\nuser2@example.com\nuser3@example.com"}
+                    value={bulkDeleteEmails}
+                    onChange={(e) => {
+                      setBulkDeleteEmails(e.target.value);
+                      setBulkDeleteParsed(parseEmailList(e.target.value));
+                    }}
+                    rows={8}
+                    className="font-mono text-sm"
+                    data-testid="textarea-bulk-delete-emails"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Separate emails by newlines, commas, or semicolons.
+                    {bulkDeleteParsed.length > 0 && (
+                      <span className="font-medium text-foreground"> {bulkDeleteParsed.length.toLocaleString()} email{bulkDeleteParsed.length !== 1 ? "s" : ""} detected.</span>
+                    )}
+                  </p>
+                </TabsContent>
+                <TabsContent value="csv" className="space-y-3 mt-3">
+                  <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Upload a CSV file with an <code className="bg-muted px-1 rounded">email</code> column
+                    </p>
+                    <Button variant="outline" size="sm" asChild>
+                      <label className="cursor-pointer" data-testid="button-upload-csv">
+                        Choose File
+                        <input
+                          type="file"
+                          accept=".csv,.txt"
+                          className="hidden"
+                          onChange={handleCsvUpload}
+                        />
+                      </label>
+                    </Button>
+                  </div>
+                  {bulkDeleteParsed.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{bulkDeleteParsed.length.toLocaleString()} email{bulkDeleteParsed.length !== 1 ? "s" : ""}</span> parsed from file.
+                    </p>
+                  )}
+                </TabsContent>
+              </Tabs>
+              <DialogFooter>
+                <Button variant="outline" onClick={resetBulkDelete}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    const emails = bulkDeleteParsed.length > 0 ? bulkDeleteParsed : parseEmailList(bulkDeleteEmails);
+                    if (emails.length === 0) {
+                      toast({ title: "No emails", description: "Please enter or upload at least one email address.", variant: "destructive" });
+                      return;
+                    }
+                    setBulkDeleteParsed(emails);
+                    bulkDeletePreviewMutation.mutate(emails);
+                  }}
+                  disabled={bulkDeletePreviewMutation.isPending}
+                  data-testid="button-bulk-delete-preview"
+                >
+                  {bulkDeletePreviewMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Checking...</>
+                  ) : (
+                    "Check & Delete"
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showSaveSegmentDialog} onOpenChange={setShowSaveSegmentDialog}>
         <DialogContent className="max-w-md">
