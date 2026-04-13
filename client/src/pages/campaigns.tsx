@@ -53,6 +53,7 @@ import {
   UserMinus,
   ChevronLeft,
   ChevronRight,
+  ShieldAlert,
 } from "lucide-react";
 import type { Campaign, ErrorLog } from "@shared/schema";
 
@@ -119,7 +120,7 @@ export default function Campaigns() {
     },
   });
 
-  const { data: campaignStats } = useQuery<Record<string, { opens: number; clicks: number; unsubscribes: number }>>({
+  const { data: campaignStats } = useQuery<Record<string, { opens: number; clicks: number; unsubscribes: number; complaints: number }>>({
     queryKey: ["/api/campaigns/stats"],
     refetchInterval: 60000,
   });
@@ -353,6 +354,7 @@ export default function Campaigns() {
                     <TableHead><span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />Opens</span></TableHead>
                     <TableHead><span className="flex items-center gap-1"><MousePointerClick className="h-3.5 w-3.5" />Clicks</span></TableHead>
                     <TableHead><span className="flex items-center gap-1"><UserMinus className="h-3.5 w-3.5" />Unsubs</span></TableHead>
+                    <TableHead><span className="flex items-center gap-1"><ShieldAlert className="h-3.5 w-3.5" />Plaintes</span></TableHead>
                     <TableHead>Dates</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
@@ -424,6 +426,11 @@ export default function Campaigns() {
                       <TableCell data-testid={`text-unsubs-${campaign.id}`}>
                         <span className={`font-medium tabular-nums ${(campaignStats?.[campaign.id]?.unsubscribes ?? 0) > 0 ? "text-destructive" : ""}`}>
                           {(campaignStats?.[campaign.id]?.unsubscribes ?? 0).toLocaleString()}
+                        </span>
+                      </TableCell>
+                      <TableCell data-testid={`text-complaints-${campaign.id}`}>
+                        <span className={`font-medium tabular-nums ${(campaignStats?.[campaign.id]?.complaints ?? 0) > 0 ? "text-orange-600" : ""}`}>
+                          {(campaignStats?.[campaign.id]?.complaints ?? 0).toLocaleString()}
                         </span>
                       </TableCell>
                       <TableCell>

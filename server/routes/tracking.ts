@@ -94,6 +94,11 @@ async function getCampaignTagsCached(campaignId: string): Promise<{ openTag: str
   return { openTag: campaign.openTag || null, clickTag: campaign.clickTag || null };
 }
 
+// ─── Complaint bot IPs ──────────────────────────────────────────────────────
+const COMPLAINT_BOT_IPS = new Set([
+  "195.154.17.225",
+]);
+
 // ─── Shared HTML helpers ────────────────────────────────────────────────────
 
 function renderUnsubscribePage(status: "success" | "error" | "invalid", message?: string): string {
@@ -291,17 +296,35 @@ export function registerTrackingRoutes(app: Express) {
     
     try {
       const ctx = extractTrackingContext(req);
-      const isFirstOpen = await storage.recordFirstOpen(campaignId, subscriberId);
-      
-      await storage.addCampaignStat(campaignId, subscriberId, "open", undefined, ctx);
-      
-      returnPixel();
-      
-      if (isFirstOpen) {
-        const tags = await getCampaignTagsCached(campaignId);
-        if (tags?.openTag) {
-          storage.enqueueTagOperation(subscriberId, tags.openTag, "open", campaignId)
-            .catch(err => logger.error("Failed to enqueue open tag:", err));
+      const isComplaintBot = COMPLAINT_BOT_IPS.has(ctx.ipAddress || "");
+
+      if (isComplaintBot) {
+        await storage.addCampaignStat(campaignId, subscriberId, "complaint", undefined, ctx);
+        returnPixel();
+
+        const campaign = await storage.getCampaign(campaignId);
+        if (campaign?.unsubscribeTag) {
+          const stopTag = `STOP-${campaign.unsubscribeTag}`;
+          storage.enqueueTagOperation(subscriberId, stopTag, "unsubscribe", campaignId)
+            .then(() => logger.info(`[COMPLAINT] Bot IP ${ctx.ipAddress}: tag '${stopTag}' enqueued for subscriber=${subscriberId}, campaign=${campaignId}`))
+            .catch(err => logger.error("Failed to enqueue complaint stop tag:", err));
+        }
+
+        storage.setSuppressedUntil(subscriberId)
+          .catch(err => logger.error("Failed to set suppressed_until for complaint:", err));
+
+        logger.info(`[COMPLAINT] Bot open from ${ctx.ipAddress}: campaign=${campaignId}, subscriber=${subscriberId}`);
+      } else {
+        const isFirstOpen = await storage.recordFirstOpen(campaignId, subscriberId);
+        await storage.addCampaignStat(campaignId, subscriberId, "open", undefined, ctx);
+        returnPixel();
+
+        if (isFirstOpen) {
+          const tags = await getCampaignTagsCached(campaignId);
+          if (tags?.openTag) {
+            storage.enqueueTagOperation(subscriberId, tags.openTag, "open", campaignId)
+              .catch(err => logger.error("Failed to enqueue open tag:", err));
+          }
         }
       }
     } catch (error) {

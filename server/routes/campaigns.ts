@@ -147,16 +147,18 @@ export function registerCampaignRoutes(app: Express, helpers: {
           COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')  AS unique_opens,
           COUNT(*) FILTER (WHERE type = 'click')        AS total_clicks,
           COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click') AS unique_clicks,
-          COUNT(*) FILTER (WHERE type = 'unsubscribe')  AS unsubscribes
+          COUNT(*) FILTER (WHERE type = 'unsubscribe')  AS unsubscribes,
+          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint') AS complaints
         FROM campaign_stats
         GROUP BY campaign_id
       `);
-      const statsMap: Record<string, { opens: number; clicks: number; unsubscribes: number }> = {};
+      const statsMap: Record<string, { opens: number; clicks: number; unsubscribes: number; complaints: number }> = {};
       for (const row of result.rows as any[]) {
         statsMap[row.campaign_id] = {
           opens: parseInt(row.unique_opens, 10) || 0,
           clicks: parseInt(row.unique_clicks, 10) || 0,
           unsubscribes: parseInt(row.unsubscribes, 10) || 0,
+          complaints: parseInt(row.complaints, 10) || 0,
         };
       }
       res.json(statsMap);
