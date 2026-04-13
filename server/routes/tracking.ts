@@ -99,24 +99,33 @@ async function getCampaignTagsCached(campaignId: string): Promise<{ openTag: str
 function renderUnsubscribePage(status: "success" | "error" | "invalid", message?: string): string {
   const isSuccess = status === "success";
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${isSuccess ? "Unsubscribed" : "Error"}</title>
+  <title>${isSuccess ? "Désabonnement" : "Erreur"}</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; display: flex; justify-content: center;
            align-items: center; height: 100vh; margin: 0; background: #f9fafb; }
     .card { background: #fff; border-radius: 12px; padding: 48px 40px; text-align: center;
-            box-shadow: 0 1px 3px rgba(0,0,0,.1); max-width: 420px; width: 100%; }
-    h1 { margin: 0 0 12px; font-size: 1.5rem; color: ${isSuccess ? "#111" : "#c00"}; }
-    p  { margin: 0; color: #666; line-height: 1.5; }
+            box-shadow: 0 1px 3px rgba(0,0,0,.1); max-width: 480px; width: 100%; }
+    h1 { margin: 0 0 20px; font-size: 2rem; font-weight: 800; color: #333; line-height: 1.2; }
+    p  { margin: 0 0 32px; color: #555; line-height: 1.6; font-size: 1.05rem; font-style: italic; }
+    .btn { display: inline-block; background: #d33; color: #fff; text-decoration: none;
+           padding: 16px 48px; border-radius: 6px; font-size: 1.1rem; font-weight: 600;
+           transition: background 0.2s; }
+    .btn:hover { background: #b22; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>${isSuccess ? "Unsubscribed Successfully" : (status === "invalid" ? "Invalid Link" : "Something went wrong")}</h1>
-    <p>${message || (isSuccess ? "You have been removed from our mailing list." : "This unsubscribe link is invalid or has expired.")}</p>
+    ${isSuccess
+      ? `<h1>Votre demande est enregistrée</h1>
+         <p>Votre demande de désabonnement va bientôt été prise en compte</p>
+         <a href="https://redirect.critads.com/r/abort" class="btn">Cliquez-ici pour continuer</a>`
+      : `<h1>${status === "invalid" ? "Lien invalide" : "Une erreur est survenue"}</h1>
+         <p>${message || "Ce lien de désabonnement est invalide ou a expiré."}</p>`
+    }
   </div>
 </body>
 </html>`;
@@ -405,26 +414,7 @@ export function registerTrackingRoutes(app: Express) {
     
     if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "unsubscribe", sig)) {
       logger.warn(`Invalid tracking signature for unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}, sig=${sig?.slice(0, 8)}...`);
-      return res.status(403).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Invalid Link</title>
-          <style>
-            body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .container { text-align: center; }
-            h1 { color: #c00; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Invalid Link</h1>
-            <p>This unsubscribe link is invalid or has expired.</p>
-          </div>
-        </body>
-        </html>
-      `);
+      return res.status(403).send(renderUnsubscribePage("invalid"));
     }
 
     logger.info(`Unsubscribe request: campaign=${campaignId}, subscriber=${subscriberId}`);
@@ -433,26 +423,7 @@ export function registerTrackingRoutes(app: Express) {
       const campaign = await storage.getCampaign(campaignId);
       const subscriber = await storage.getSubscriber(subscriberId);
       
-      res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Unsubscribed</title>
-          <style>
-            body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .container { text-align: center; }
-            h1 { color: #333; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Unsubscribed Successfully</h1>
-            <p>You have been removed from our mailing list.</p>
-          </div>
-        </body>
-        </html>
-      `);
+      res.send(renderUnsubscribePage("success"));
       
       if (subscriber) {
         const ctx = extractTrackingContext(req);
