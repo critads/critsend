@@ -97,6 +97,8 @@ export default function Segments() {
   const [viewingSegment, setViewingSegment] = useState<Segment | null>(null);
   const [viewPage, setViewPage] = useState(1);
   const [isExporting, setIsExporting] = useState<string | null>(null);
+  const [segmentPage, setSegmentPage] = useState(1);
+  const SEGMENTS_PER_PAGE = 20;
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -410,7 +412,7 @@ export default function Segments() {
         </div>
       ) : segments && segments.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {segments.map((segment) => {
+          {segments.slice((segmentPage - 1) * SEGMENTS_PER_PAGE, segmentPage * SEGMENTS_PER_PAGE).map((segment) => {
             const summary = summarizeRules(segment.rules);
             return (
               <Card key={segment.id} data-testid={`segment-card-${segment.id}`}>
@@ -507,6 +509,38 @@ export default function Segments() {
             );
           })}
         </div>
+        {segments.length > SEGMENTS_PER_PAGE && (
+          <div className="flex items-center justify-between mt-4">
+            <p className="text-sm text-muted-foreground">
+              Showing {((segmentPage - 1) * SEGMENTS_PER_PAGE) + 1}–{Math.min(segmentPage * SEGMENTS_PER_PAGE, segments.length)} of {segments.length} segments
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSegmentPage(p => Math.max(1, p - 1))}
+                disabled={segmentPage <= 1}
+                data-testid="button-segments-prev-page"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground px-2">
+                Page {segmentPage} of {Math.ceil(segments.length / SEGMENTS_PER_PAGE)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSegmentPage(p => Math.min(Math.ceil(segments.length / SEGMENTS_PER_PAGE), p + 1))}
+                disabled={segmentPage >= Math.ceil(segments.length / SEGMENTS_PER_PAGE)}
+                data-testid="button-segments-next-page"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+        )}
       ) : (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
