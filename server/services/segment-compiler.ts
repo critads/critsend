@@ -62,6 +62,8 @@ function compileCondition(cond: SegmentCondition): SQL {
         return sql`(${subscribers.tags} IS NOT NULL AND array_length(${subscribers.tags}, 1) > 0)`;
       case "has_no_tags":
         return sql`(${subscribers.tags} IS NULL OR array_length(${subscribers.tags}, 1) IS NULL OR array_length(${subscribers.tags}, 1) = 0)`;
+      case "tag_contains":
+        return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + v + '%'})`;
       default:
         logger.warn("Unknown operator for tags field", { operator, field });
         return sql`FALSE`;
@@ -79,6 +81,8 @@ function compileCondition(cond: SegmentCondition): SQL {
         return sql`(${subscribers.refs} IS NOT NULL AND array_length(${subscribers.refs}, 1) > 0)`;
       case "has_no_refs":
         return sql`(${subscribers.refs} IS NULL OR array_length(${subscribers.refs}, 1) IS NULL OR array_length(${subscribers.refs}, 1) = 0)`;
+      case "ref_contains":
+        return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.refs}) AS r WHERE r ILIKE ${'%' + v + '%'})`;
       default:
         logger.warn("Unknown operator for refs field", { operator, field });
         return sql`FALSE`;

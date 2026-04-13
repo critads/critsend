@@ -594,8 +594,8 @@ export const segmentConditionSchema = z.object({
   field: z.enum(["email", "tags", "refs", "date_added", "ip_address"]),
   operator: z.enum([
     "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty",
-    "has_tag", "not_has_tag", "has_any_tag", "has_no_tags",
-    "has_ref", "not_has_ref", "has_any_ref", "has_no_refs",
+    "has_tag", "not_has_tag", "has_any_tag", "has_no_tags", "tag_contains",
+    "has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains",
     "before", "after", "between", "in_last_days", "not_in_last_days",
   ]),
   value: z.union([z.string(), z.array(z.string()), z.null()]),
@@ -627,8 +627,8 @@ export type SegmentRulesV2 = z.infer<typeof segmentRulesV2Schema>;
 
 export const fieldOperatorsV2 = {
   email: ["equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty"],
-  tags: ["has_tag", "not_has_tag", "has_any_tag", "has_no_tags"],
-  refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs"],
+  tags: ["has_tag", "not_has_tag", "has_any_tag", "has_no_tags", "tag_contains"],
+  refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
 } as const;
@@ -644,10 +644,12 @@ export const operatorLabelsV2: Record<string, string> = {
   is_not_empty: "is not empty",
   has_tag: "has tag",
   not_has_tag: "does not have tag",
+  tag_contains: "contains",
   has_any_tag: "has any tag",
   has_no_tags: "has no tags",
   has_ref: "has ref",
   not_has_ref: "does not have ref",
+  ref_contains: "contains",
   has_any_ref: "has any ref",
   has_no_refs: "has no refs",
   before: "is before",
