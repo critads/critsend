@@ -1,0 +1,109 @@
+ubuntu@ns3102288:~/critsend$ cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+Already up to date.
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 19 modules transformed.
+✗ Build failed in 420ms
+[vite:esbuild] Transform failed with 1 error:
+/home/ubuntu/critsend/client/src/pages/segments.tsx:512:8: ERROR: Expected ")" but found "{"
+file: /home/ubuntu/critsend/client/src/pages/segments.tsx:512:8
+
+Expected ")" but found "{"
+510 |            })}
+511 |          </div>
+512 |          {segments.length > SEGMENTS_PER_PAGE && (
+    |          ^
+513 |            <div className="flex items-center justify-between mt-4">
+514 |              <p className="text-sm text-muted-foreground">
+
+    at failureErrorWithLog (/home/ubuntu/critsend/node_modules/vite/node_modules/esbuild/lib/main.js:1467:15)
+    at /home/ubuntu/critsend/node_modules/vite/node_modules/esbuild/lib/main.js:736:50
+    at responseCallbacks.<computed> (/home/ubuntu/critsend/node_modules/vite/node_modules/esbuild/lib/main.js:603:9)
+    at handleIncomingPacket (/home/ubuntu/critsend/node_modules/vite/node_modules/esbuild/lib/main.js:658:12)
+    at Socket.readFromStdout (/home/ubuntu/critsend/node_modules/vite/node_modules/esbuild/lib/main.js:581:7)
+    at Socket.emit (node:events:524:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:191:23) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter],
+  frame: '\n' +
+    '\x1B[33mExpected ")" but found "{"\x1B[39m\n' +
+    '510 |            })}\n' +
+    '511 |          </div>\n' +
+    '512 |          {segments.length > SEGMENTS_PER_PAGE && (\n' +
+    '    |          ^\n' +
+    '513 |            <div className="flex items-center justify-between mt-4">\n' +
+    '514 |              <p className="text-sm text-muted-foreground">\n',
+  loc: {
+    column: 8,
+    file: '/home/ubuntu/critsend/client/src/pages/segments.tsx',
+    length: 1,
+    line: 512,
+    lineText: '        {segments.length > SEGMENTS_PER_PAGE && (',
+    namespace: '',
+    suggestion: ')'
+  },
+  code: 'PLUGIN_ERROR',
+  plugin: 'vite:esbuild',
+  hook: 'transform',
+  id: '/home/ubuntu/critsend/client/src/pages/segments.tsx',
+  watchFiles: [
+    '/home/ubuntu/critsend/client/index.html',
+    '/home/ubuntu/critsend/client/src/main.tsx',
+    '/home/ubuntu/critsend/package.json',
+    '/home/ubuntu/critsend/node_modules/react/jsx-runtime.js',
+    '/home/ubuntu/critsend/node_modules/react-dom/client.js',
+    '/home/ubuntu/critsend/client/src/App.tsx',
+    '/home/ubuntu/critsend/client/src/index.css',
+    '/home/ubuntu/critsend/node_modules/react-dom/index.js',
+    '/home/ubuntu/critsend/node_modules/react/cjs/react-jsx-runtime.production.min.js',
+    '/home/ubuntu/critsend/node_modules/wouter/esm/index.js',
+    '/home/ubuntu/critsend/node_modules/react/index.js',
+    '/home/ubuntu/critsend/node_modules/@tanstack/react-query/build/modern/index.js',
+    '/home/ubuntu/critsend/client/src/lib/queryClient.ts',
+    '/home/ubuntu/critsend/client/src/components/ui/toaster.tsx',
+    '/home/ubuntu/critsend/node_modules/lucide-react/dist/esm/lucide-react.js',
+    '/home/ubuntu/critsend/client/src/components/theme-provider.tsx',
+    '/home/ubuntu/critsend/client/src/components/ui/sidebar.tsx',
+    '/home/ubuntu/critsend/client/src/components/ui/tooltip.tsx',
+    '/home/ubuntu/critsend/client/src/components/app-sidebar.tsx',
+    '/home/ubuntu/critsend/client/src/pages/reset-password.tsx',
+    '/home/ubuntu/critsend/client/src/pages/auth.tsx',
+    '/home/ubuntu/critsend/client/src/hooks/use-auth.ts',
+    '/home/ubuntu/critsend/client/src/pages/dashboard.tsx',
+    '/home/ubuntu/critsend/client/src/pages/subscribers.tsx',
+    '/home/ubuntu/critsend/client/src/components/theme-toggle.tsx',
+    '/home/ubuntu/critsend/client/src/pages/segment-new.tsx',
+    '/home/ubuntu/critsend/client/src/pages/segments.tsx',
+    '/home/ubuntu/critsend/client/src/pages/mtas.tsx',
+    '/home/ubuntu/critsend/client/src/pages/mta-edit.tsx',
+    '/home/ubuntu/critsend/client/src/pages/mta-new.tsx',
+    '/home/ubuntu/critsend/client/src/pages/campaign-new.tsx',
+    '/home/ubuntu/critsend/client/src/pages/campaigns.tsx',
+    '/home/ubuntu/critsend/client/src/pages/campaign-edit.tsx',
+    '/home/ubuntu/critsend/client/src/pages/campaign-detail.tsx',
+    '/home/ubuntu/critsend/client/src/pages/import.tsx',
+    '/home/ubuntu/critsend/client/src/pages/export.tsx',
+    '/home/ubuntu/critsend/client/src/pages/analytics.tsx',
+    '/home/ubuntu/critsend/client/src/pages/headers.tsx',
+    '/home/ubuntu/critsend/client/src/pages/api-docs.tsx',
+    '/home/ubuntu/critsend/client/src/pages/error-logs.tsx',
+    '/home/ubuntu/critsend/client/src/pages/test-metrics.tsx',
+    '/home/ubuntu/critsend/client/src/pages/warmup.tsx',
+    '/home/ubuntu/critsend/client/src/pages/database-health.tsx',
+    '/home/ubuntu/critsend/client/src/pages/advanced-analytics.tsx',
+    '/home/ubuntu/critsend/client/src/pages/not-found.tsx',
+    '/home/ubuntu/critsend/client/src/pages/automation.tsx',
+    '/home/ubuntu/critsend/node_modules/react-dom/cjs/react-dom.production.min.js'
+  ]
+}
+ubuntu@ns3102288:~/critsend$ 
