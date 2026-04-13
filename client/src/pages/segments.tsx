@@ -411,6 +411,7 @@ export default function Segments() {
           ))}
         </div>
       ) : segments && segments.length > 0 ? (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {segments.slice((segmentPage - 1) * SEGMENTS_PER_PAGE, segmentPage * SEGMENTS_PER_PAGE).map((segment) => {
             const summary = summarizeRules(segment.rules);
@@ -541,6 +542,7 @@ export default function Segments() {
             </div>
           </div>
         )}
+        </>
       ) : (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
