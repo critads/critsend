@@ -1,0 +1,138 @@
+root@rescue12-customer-eu (ns3102288.ip-54-36-173.eu) ~ # fdisk -l
+Disk /dev/ram0: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram1: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram2: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram3: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram4: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram5: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram6: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram7: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram8: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram9: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram10: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram11: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram12: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram13: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram14: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/ram15: 50 MiB, 52428800 bytes, 102400 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 4096 bytes
+I/O size (minimum/optimal): 4096 bytes / 4096 bytes
+
+
+Disk /dev/nvme0n1: 476.94 GiB, 512110190592 bytes, 1000215216 sectors
+Disk model: SAMSUNG MZVL2512HCJQ-00B07              
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: 2975DFD2-FF84-4557-8CE6-D1D4117AD15C
+
+Device              Start        End   Sectors   Size Type
+/dev/nvme0n1p1       2048    1048575   1046528   511M EFI System
+/dev/nvme0n1p2    1048576    3145727   2097152     1G Linux RAID
+/dev/nvme0n1p3    3145728  999161855 996016128 474.9G Linux RAID
+/dev/nvme0n1p4  999161856 1000210431   1048576   512M Linux filesystem
+/dev/nvme0n1p5 1000211120 1000215182      4063     2M Linux filesystem
+
+
+Disk /dev/nvme1n1: 476.94 GiB, 512110190592 bytes, 1000215216 sectors
+Disk model: SAMSUNG MZVL2512HCJQ-00B07              
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: 400DA086-506E-463C-BB6F-DDAB80828631
+
+Device             Start        End   Sectors   Size Type
+/dev/nvme1n1p1      2048    1048575   1046528   511M EFI System
+/dev/nvme1n1p2   1048576    3145727   2097152     1G Linux RAID
+/dev/nvme1n1p3   3145728  999161855 996016128 474.9G Linux RAID
+/dev/nvme1n1p4 999161856 1000210431   1048576   512M Linux filesystem
+
+
+Disk /dev/md3: 474.81 GiB, 509824991232 bytes, 995751936 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+
+
+Disk /dev/md2: 1022 MiB, 1071644672 bytes, 2093056 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes

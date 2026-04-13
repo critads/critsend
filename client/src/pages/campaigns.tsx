@@ -51,6 +51,8 @@ import {
   RefreshCw,
   MousePointerClick,
   UserMinus,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { Campaign, ErrorLog } from "@shared/schema";
 
@@ -83,6 +85,7 @@ export default function Campaigns() {
   useJobStream();
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -242,9 +245,17 @@ export default function Campaigns() {
     },
   });
 
+  const PAGE_SIZE = 20;
+
   const filteredCampaigns = campaigns?.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.subject.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const totalPages = Math.ceil((filteredCampaigns?.length ?? 0) / PAGE_SIZE);
+  const paginatedCampaigns = filteredCampaigns?.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
   );
 
   return (
@@ -287,7 +298,7 @@ export default function Campaigns() {
               <Input
                 placeholder="Search campaigns..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
                 className="pl-9"
                 data-testid="input-search-campaigns"
               />
@@ -323,6 +334,7 @@ export default function Campaigns() {
               </Button>
             </div>
           ) : filteredCampaigns && filteredCampaigns.length > 0 ? (
+            <div className="space-y-4">
             <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -346,7 +358,7 @@ export default function Campaigns() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCampaigns.map((campaign) => (
+                  {paginatedCampaigns?.map((campaign) => (
                     <TableRow
                       key={campaign.id}
                       data-testid={`campaign-row-${campaign.id}`}
@@ -491,6 +503,39 @@ export default function Campaigns() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between" data-testid="campaigns-pagination">
+                <p className="text-sm text-muted-foreground">
+                  Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, filteredCampaigns.length)} of {filteredCampaigns.length} campaigns
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    data-testid="button-prev-page"
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    Previous
+                  </Button>
+                  <span className="text-sm font-medium tabular-nums px-2">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    data-testid="button-next-page"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                </div>
+              </div>
+            )}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">

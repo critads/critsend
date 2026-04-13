@@ -1,0 +1,137 @@
+ubuntu@ns3102288:~/critsend$ cat /home/ubuntu/.ssh/authorized_keys
+ubuntu@ns3102288:~/critsend$ sudo crontab -l && crontab -l
+no crontab for root
+ubuntu@ns3102288:~/critsend$ sudo cat /etc/cron.d/*
+# /etc/cron.d/certbot: crontab entries for the certbot package
+#
+# Upstream recommends attempting renewal twice a day
+#
+# Eventually, this will be an opportunity to validate certificates
+# haven't been revoked, etc.  Renewal will only occur if expiration
+# is within 30 days.
+#
+# Important Note!  This cronjob will NOT be executed if you are
+# running systemd as your init system.  If you are running systemd,
+# the cronjob.timer function takes precedence over this cronjob.  For
+# more details, see the systemd.timer manpage, or use systemctl show
+# certbot.timer.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+0 */12 * * * root test -x /usr/bin/certbot -a \! -d /run/systemd/system && perl -e 'sleep int(rand(43200))' && certbot -q renew
+30 3 * * 0 root test -e /run/systemd/system || SERVICE_MODE=1 /usr/lib/x86_64-linux-gnu/e2fsprogs/e2scrub_all_cron
+10 3 * * * root test -e /run/systemd/system || SERVICE_MODE=1 /sbin/e2scrub_all -A -r
+ubuntu@ns3102288:~/critsend$ sudo find /tmp -type f 2>/dev/null
+/tmp/node-jiti/critsend-tailwind.config.ts.e83a4cf6.js
+/tmp/tsx-1000/17759-61b89be581e557dc2f90bb36eebeb6d5153fa356
+ubuntu@ns3102288:~/critsend$ sudo ss -tlnp
+State     Recv-Q    Send-Q       Local Address:Port        Peer Address:Port    Process                                                                         
+LISTEN    0         511                0.0.0.0:5000             0.0.0.0:*        users:(("node /home/ubun",pid=2028,fd=26))                                     
+LISTEN    0         511                0.0.0.0:443              0.0.0.0:*        users:(("nginx",pid=1146,fd=8),("nginx",pid=1145,fd=8),("nginx",pid=1144,fd=8),("nginx",pid=1143,fd=8),("nginx",pid=1142,fd=8),("nginx",pid=1141,fd=8),("nginx",pid=1140,fd=8),("nginx",pid=1139,fd=8),("nginx",pid=1138,fd=8),("nginx",pid=1137,fd=8),("nginx",pid=1136,fd=8),("nginx",pid=1135,fd=8),("nginx",pid=1134,fd=8),("nginx",pid=1133,fd=8),("nginx",pid=1132,fd=8),("nginx",pid=1131,fd=8),("nginx",pid=1130,fd=8),("nginx",pid=1129,fd=8),("nginx",pid=1128,fd=8),("nginx",pid=1127,fd=8),("nginx",pid=1126,fd=8),("nginx",pid=1125,fd=8),("nginx",pid=1124,fd=8),("nginx",pid=1123,fd=8),("nginx",pid=1122,fd=8))
+LISTEN    0         128                0.0.0.0:22               0.0.0.0:*        users:(("sshd",pid=1121,fd=3))                                                 
+LISTEN    0         511                0.0.0.0:80               0.0.0.0:*        users:(("nginx",pid=1146,fd=6),("nginx",pid=1145,fd=6),("nginx",pid=1144,fd=6),("nginx",pid=1143,fd=6),("nginx",pid=1142,fd=6),("nginx",pid=1141,fd=6),("nginx",pid=1140,fd=6),("nginx",pid=1139,fd=6),("nginx",pid=1138,fd=6),("nginx",pid=1137,fd=6),("nginx",pid=1136,fd=6),("nginx",pid=1135,fd=6),("nginx",pid=1134,fd=6),("nginx",pid=1133,fd=6),("nginx",pid=1132,fd=6),("nginx",pid=1131,fd=6),("nginx",pid=1130,fd=6),("nginx",pid=1129,fd=6),("nginx",pid=1128,fd=6),("nginx",pid=1127,fd=6),("nginx",pid=1126,fd=6),("nginx",pid=1125,fd=6),("nginx",pid=1124,fd=6),("nginx",pid=1123,fd=6),("nginx",pid=1122,fd=6))
+LISTEN    0         4096         127.0.0.53%lo:53               0.0.0.0:*        users:(("systemd-resolve",pid=1030,fd=14))                                     
+LISTEN    0         511                   [::]:443                 [::]:*        users:(("nginx",pid=1146,fd=9),("nginx",pid=1145,fd=9),("nginx",pid=1144,fd=9),("nginx",pid=1143,fd=9),("nginx",pid=1142,fd=9),("nginx",pid=1141,fd=9),("nginx",pid=1140,fd=9),("nginx",pid=1139,fd=9),("nginx",pid=1138,fd=9),("nginx",pid=1137,fd=9),("nginx",pid=1136,fd=9),("nginx",pid=1135,fd=9),("nginx",pid=1134,fd=9),("nginx",pid=1133,fd=9),("nginx",pid=1132,fd=9),("nginx",pid=1131,fd=9),("nginx",pid=1130,fd=9),("nginx",pid=1129,fd=9),("nginx",pid=1128,fd=9),("nginx",pid=1127,fd=9),("nginx",pid=1126,fd=9),("nginx",pid=1125,fd=9),("nginx",pid=1124,fd=9),("nginx",pid=1123,fd=9),("nginx",pid=1122,fd=9))
+LISTEN    0         128                   [::]:22                  [::]:*        users:(("sshd",pid=1121,fd=4))                                                 
+LISTEN    0         511                   [::]:80                  [::]:*        users:(("nginx",pid=1146,fd=7),("nginx",pid=1145,fd=7),("nginx",pid=1144,fd=7),("nginx",pid=1143,fd=7),("nginx",pid=1142,fd=7),("nginx",pid=1141,fd=7),("nginx",pid=1140,fd=7),("nginx",pid=1139,fd=7),("nginx",pid=1138,fd=7),("nginx",pid=1137,fd=7),("nginx",pid=1136,fd=7),("nginx",pid=1135,fd=7),("nginx",pid=1134,fd=7),("nginx",pid=1133,fd=7),("nginx",pid=1132,fd=7),("nginx",pid=1131,fd=7),("nginx",pid=1130,fd=7),("nginx",pid=1129,fd=7),("nginx",pid=1128,fd=7),("nginx",pid=1127,fd=7),("nginx",pid=1126,fd=7),("nginx",pid=1125,fd=7),("nginx",pid=1124,fd=7),("nginx",pid=1123,fd=7),("nginx",pid=1122,fd=7))
+ubuntu@ns3102288:~/critsend$ history | tail -100
+  400  bash deploy/deploy.sh
+  401  cd ~/critsend
+  402  bash deploy/deploy.sh
+  403  cd ~/critsend
+  404  deploy/deploy.sh
+  405  nano /opt/critsend/.env
+  406  cd ~/critsend
+  407  git pull
+  408  npm run build
+  409  pm2 reload ecosystem.config.cjs --env production
+  410  cd
+  411  cd /home/ubuntu/critsend
+  412  git pull
+  413  npm run build
+  414  pm2 reload deploy/ecosystem.config.cjs --env production
+  415  UPDATE import_job_queue
+  416  SET status = 'completed', completed_at = NOW()
+  417  WHERE status IN ('pending', 'processing')
+  418  UPDATE import_jobs
+  419  SET status = 'completed', completed_at = NOW()
+  420  WHERE status = 'pending'
+  421  psql $DATABASE_URL
+  422  sudo apt-get install -y postgresql-client
+  423  psql $DATABASE_URL
+  424  export $(grep -v '^#' .env | xargs)
+  425  psql $DATABASE_URL
+  426  node -e "
+  427  require('dotenv').config();
+  428  const { Pool } = require('pg');
+  429  const pool = new Pool({ connectionString: process.env.DATABASE_URL || process.env.NEON_DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  430  pool.query(\`
+  431    UPDATE import_jobs SET status = 'cancelled', completed_at = NOW()
+  432    WHERE status IN ('queued', 'pending') AND processed_rows = 0
+  433  \`).then(r => { console.log('import_jobs updated:', r.rowCount); return pool.query(\`
+  434    UPDATE import_job_queue SET status = 'cancelled', completed_at = NOW()
+  435    WHERE status IN ('pending', 'processing')
+  436      AND import_job_id IN (SELECT id FROM import_jobs WHERE status = 'cancelled')
+  437  \`); }).then(r => { console.log('import_job_queue updated:', r.rowCount); pool.end(); }).catch(e => { console.error(e.message); pool.end(); });
+  438  "
+  439  cd /home/ubuntu/critsend
+  440  git pull
+  441  npm run build
+  442  pm2 reload deploy/ecosystem.config.cjs --env production
+  443  git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+  444  cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+  445  pm2 logs critsend-worker --nostream --lines 3000 | grep "5ba351db"
+  446  # Check what errors were logged for this campaign
+  447  psql $DATABASE_URL -c "
+  448    SELECT message, COUNT(*) as cnt
+  449    FROM error_logs
+  450    WHERE campaign_id = '5ba351db-8750-4b6a-9e37-9250653110fd'
+  451      AND type = 'send_failed'
+  452    GROUP BY message
+  453    ORDER BY cnt DESC
+  454    LIMIT 20;
+  455  "
+  456  cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+  457  pm2 logs critsend-worker --lines 200 | grep "5ba351db"
+  458  cd /home/ubuntu/critsend
+  459  git pull
+  460  npm run build
+  461  pm2 reload deploy/ecosystem.config.cjs --env production
+  462  cd
+  463  cd /home/ubuntu/critsend && git pull
+  464  sudo sed -i 's/ critsender.verysent.com;/ critsender.verysent.com critsender.rndaserver.com;/' /etc/nginx/sites-available/critsend
+  465  sudo nginx -t && sudo systemctl reload nginx
+  466  sudo certbot certonly --nginx -d critsender.rndaserver.com
+  467  sudo cp /home/ubuntu/critsend/deploy/nginx.conf /etc/nginx/sites-available/critsend
+  468  sudo nginx -t && sudo systemctl reload nginx
+  469  pm2 status
+  470  pm2 logs critsend-worker --lines 100 --nostream
+  471  pm2 logs critsend-worker --lines 50 --nostream
+  472  psql "$DATABASE_URL" -c "
+  473  SELECT id, import_job_id, status, retry_count, 
+  474         to_char(heartbeat, 'HH24:MI:SS') as heartbeat,
+  475         to_char(created_at, 'MM-DD HH24:MI:SS') as created
+  476  FROM import_job_queue
+  477  ORDER BY created_at DESC LIMIT 10;
+  478  psql "$DATABASE_URL" -c "
+  479  SELECT id, status, filename, 
+  480  FROM import_jobs
+  481  ORDER BY created_at DESC LIMIT 5;
+  482  "
+  483  quit
+  484  q
+  485  cd /home/ubuntu/critsend
+  486  git pull
+  487  npm run build
+  488  pm2 reload deploy/ecosystem.config.cjs --env production
+  489  cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+  490  cd /home/ubuntu/critsend && git pull && npm run build && pm2 start deploy/ecosystem.config.cjs --env production && pm2 save
+  491  sudo cat /var/log/auth.log | grep "Accepted" | tail -50
+  492  sudo lastlog | grep -v "Never"
+  493  sudo last -20
+  494  cat /home/ubuntu/.ssh/authorized_keys
+  495  sudo crontab -l && crontab -l
+  496  sudo cat /etc/cron.d/*
+  497  sudo find /tmp -type f 2>/dev/null
+  498  sudo ss -tlnp
+  499  history | tail -100

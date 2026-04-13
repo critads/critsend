@@ -1,0 +1,78 @@
+ubuntu@ns3102288:~/critsend$ sudo cat /var/log/auth.log | grep "Accepted" | tail -50
+grep: (standard input): binary file matches
+Apr  5 09:04:51 ns3102288 sshd[92372]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 10:04:18 ns3102288 sshd[92684]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 12:05:39 ns3102288 sshd[93251]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 13:04:02 ns3102288 sshd[93764]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 14:04:02 ns3102288 sshd[94153]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 15:04:06 ns3102288 sshd[94380]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 16:04:04 ns3102288 sshd[94730]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 17:01:56 ns3102288 sshd[95140]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 18:57:44 ns3102288 sshd[95710]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 19:57:18 ns3102288 sshd[95965]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 20:57:17 ns3102288 sshd[96282]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 21:57:17 ns3102288 sshd[96786]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 22:57:18 ns3102288 sshd[97183]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  5 23:56:16 ns3102288 sshd[97559]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 00:57:20 ns3102288 sshd[98801]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 02:54:54 ns3102288 sshd[99532]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 03:52:16 ns3102288 sshd[99704]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 04:43:55 ns3102288 sshd[99922]: Accepted password for ubuntu from 102.209.96.7 port 56768 ssh2
+Apr  6 04:52:20 ns3102288 sshd[100911]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 05:52:27 ns3102288 sshd[101245]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 06:52:32 ns3102288 sshd[103572]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 07:52:35 ns3102288 sshd[104718]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 09:51:12 ns3102288 sshd[107411]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 10:50:57 ns3102288 sshd[108685]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 11:50:57 ns3102288 sshd[109879]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 12:50:59 ns3102288 sshd[110234]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 13:51:01 ns3102288 sshd[110485]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 14:48:50 ns3102288 sshd[110797]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 16:46:31 ns3102288 sshd[112249]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 17:46:12 ns3102288 sshd[114034]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 18:46:13 ns3102288 sshd[114903]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 19:46:15 ns3102288 sshd[115186]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 20:46:15 ns3102288 sshd[115519]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  6 21:46:15 ns3102288 sshd[115854]: userauth_pubkey: key type ssh-rsa not in PubkeyAcceptedAlgorithms [preauth]
+Apr  7 03:23:04 ns3102288 sshd[118759]: Accepted password for ubuntu from 102.115.54.219 port 18509 ssh2
+Apr  7 03:23:41 ns3102288 sshd[119632]: Accepted password for ubuntu from 54.36.173.140 port 36698 ssh2
+Apr  7 03:24:04 ns3102288 sshd[120045]: Accepted password for ubuntu from 54.36.173.140 port 37906 ssh2
+Apr  7 04:22:58 ns3102288 sshd[122206]: Accepted password for ubuntu from 196.20.216.9 port 10004 ssh2
+Apr  8 05:58:12 ns3102288 sshd[13891]: Accepted password for ubuntu from 169.150.209.215 port 56677 ssh2
+Apr  8 06:32:31 ns3102288 sshd[15140]: Accepted password for ubuntu from 102.209.96.7 port 59864 ssh2
+Apr  8 06:55:51 ns3102288 sshd[16496]: Accepted password for ubuntu from 169.150.209.215 port 49396 ssh2
+Apr  8 10:07:03 ns3102288 sshd[19682]: Accepted password for ubuntu from 169.150.209.215 port 61714 ssh2
+Apr  8 10:32:08 ns3102288 sshd[20494]: Accepted password for ubuntu from 169.150.209.215 port 64596 ssh2
+Apr  9 04:44:15 ns3102288 sshd[53590]: Accepted password for ubuntu from 169.150.209.215 port 49869 ssh2
+Apr  9 05:12:14 ns3102288 sshd[55587]: Accepted password for ubuntu from 169.150.209.215 port 51684 ssh2
+Apr  9 16:43:03 ns3102288 sshd[93725]: Accepted password for ubuntu from 197.225.73.64 port 54333 ssh2
+Apr  9 17:03:01 ns3102288 sshd[95034]: Accepted password for ubuntu from 197.225.73.64 port 57132 ssh2
+Apr 10 05:23:47 ns3102288 sshd[107573]: Accepted password for ubuntu from 149.50.214.41 port 62794 ssh2
+Apr 10 15:14:42 ns3102288 sshd[113784]: Accepted password for ubuntu from 197.225.73.64 port 5905 ssh2
+Apr 11 05:09:50 ns3102288 sshd[121353]: Accepted password for ubuntu from 102.115.30.245 port 17651 ssh2
+ubuntu@ns3102288:~/critsend$ sudo lastlog | grep -v "Never"
+Username         Port     From             Latest
+ubuntu           pts/0    169.150.209.215  Sat Apr 11 17:13:29 +0000 2026
+ubuntu@ns3102288:~/critsend$ sudo last -20
+ubuntu   pts/0        169.150.209.215  Sat Apr 11 17:13   still logged in
+reboot   system boot  5.15.0-174-gener Sat Apr 11 17:12   still running
+ubuntu   pts/0        102.115.30.245   Sat Apr 11 05:09 - 07:21  (02:11)
+ubuntu   pts/0        197.225.73.64    Fri Apr 10 15:14 - 17:26  (02:12)
+ubuntu   pts/0        149.50.214.41    Fri Apr 10 05:23 - 07:37  (02:13)
+ubuntu   pts/0        197.225.73.64    Thu Apr  9 17:03 - 21:21  (04:18)
+ubuntu   pts/0        197.225.73.64    Thu Apr  9 16:43 - 17:02  (00:19)
+ubuntu   pts/0        169.150.209.215  Thu Apr  9 05:12 - 07:39  (02:26)
+ubuntu   pts/0        169.150.209.215  Thu Apr  9 04:44 - 05:11  (00:27)
+ubuntu   pts/1        169.150.209.215  Wed Apr  8 10:32 - 13:00  (02:28)
+ubuntu   pts/0        169.150.209.215  Wed Apr  8 10:07 - 12:19  (02:12)
+ubuntu   pts/2        169.150.209.215  Wed Apr  8 06:55 - 09:07  (02:11)
+ubuntu   pts/1        102.209.96.7     Wed Apr  8 06:32 - 08:34  (02:01)
+ubuntu   pts/0        169.150.209.215  Wed Apr  8 05:58 - 07:59  (02:01)
+reboot   system boot  5.15.0-173-gener Tue Apr  7 12:47   still running
+ubuntu   pts/3        196.20.216.9     Tue Apr  7 04:22 - 06:35  (02:12)
+ubuntu   pts/2        54.36.173.140    Tue Apr  7 03:24 - 05:38  (02:13)
+ubuntu   pts/1        54.36.173.140    Tue Apr  7 03:23 - 05:38  (02:14)
+ubuntu   pts/0        102.115.54.219   Tue Apr  7 03:23 - 05:38  (02:14)
+ubuntu   pts/0        102.209.96.7     Mon Apr  6 04:43 - 13:13  (08:29)
+
+wtmp begins Wed Mar 25 20:55:29 2026
