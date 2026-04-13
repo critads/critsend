@@ -44,7 +44,7 @@ export function registerHealthRoutes(app: Express) {
       }
 
       const workerHealth = getWorkerHealth();
-      const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor;
+      const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor && workerHealth.scheduledCampaignPoller;
 
       let redisStatus: "ok" | "degraded" | "disabled" = "disabled";
       if (isRedisConfigured && redisConnection) {
