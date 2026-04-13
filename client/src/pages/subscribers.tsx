@@ -358,7 +358,11 @@ export default function Subscribers() {
       const header = lines[0].toLowerCase();
       const cols = header.split(/[,;\t]/);
       const emailIdx = cols.findIndex(c => c.trim() === "email");
-      const idx = emailIdx >= 0 ? emailIdx : 0;
+      if (emailIdx < 0) {
+        toast({ title: "Invalid CSV", description: "CSV file must have an 'email' column header in the first row.", variant: "destructive" });
+        return;
+      }
+      const idx = emailIdx;
       const emails: string[] = [];
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split(/[,;\t]/);
