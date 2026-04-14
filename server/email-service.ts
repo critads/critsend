@@ -252,6 +252,7 @@ export function personalizeContent(
 ): string {
   let personalized = content;
   personalized = personalized.replace(/\{\{email\}\}/gi, subscriber.email);
+  personalized = personalized.replace(/\[EMAIL\]/g, subscriber.email);
   personalized = personalized.replace(/\{\{subscriber_id\}\}/gi, subscriber.id);
   if (subscriber.tags && subscriber.tags.length > 0) {
     personalized = personalized.replace(/\{\{tags\}\}/gi, subscriber.tags.join(", "));
