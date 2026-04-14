@@ -435,10 +435,6 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-sm">
-                          <div className="flex items-center gap-1 text-muted-foreground">
-                            <span className="font-medium text-foreground/70">Created</span>
-                            <span>{new Date(campaign.createdAt).toLocaleString()}</span>
-                          </div>
                           {campaign.startedAt && (
                             <div className="flex items-center gap-1 text-muted-foreground">
                               <span className="font-medium text-foreground/70">Sending</span>
