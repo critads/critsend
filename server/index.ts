@@ -6,7 +6,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
-import { startAllWorkers, stopAllBackgroundWorkers, startImportGuardian, stopImportGuardian, triggerGuardianPoll } from "./workers";
+import { startAllWorkers, stopAllBackgroundWorkers, startImportGuardian, stopImportGuardian, triggerGuardianPoll, startCampaignGuardian, stopCampaignGuardian } from "./workers";
 import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMetricsCollector } from "./metrics";
 import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
@@ -98,6 +98,7 @@ async function gracefulShutdown(signal: string) {
     
     stopAllBackgroundWorkers();
     stopImportGuardian();
+    stopCampaignGuardian();
     stopMetricsCollector();
     logger.info('Background workers stopped');
 
@@ -560,6 +561,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // claiming them. SKIP LOCKED makes it safe even when the dedicated worker IS alive.
   if (process.env.PROCESS_TYPE === 'web' || process.env.DISABLE_WORKERS === 'true') {
     startImportGuardian();
+    startCampaignGuardian();
 
     // When a Requeue NOTIFY arrives, run a guardian poll after 10 s.
     // This allows the real worker a short window to claim first; if it doesn't,

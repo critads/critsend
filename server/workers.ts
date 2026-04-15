@@ -1092,6 +1092,26 @@ async function runGuardianPoll(): Promise<void> {
     return;
   }
   try {
+    const rescuedStale = await db.execute(sql`
+      UPDATE import_job_queue
+      SET status = 'pending',
+          started_at = NULL,
+          heartbeat = NULL,
+          worker_id = NULL,
+          retry_count = retry_count + 1
+      WHERE status = 'processing'
+        AND heartbeat < NOW() - INTERVAL '5 minutes'
+        AND NOT EXISTS (
+          SELECT 1 FROM import_jobs j
+          WHERE j.id = import_job_queue.import_job_id
+          AND j.status = 'cancelled'
+        )
+      RETURNING import_job_id
+    `);
+    if (rescuedStale.rows.length > 0) {
+      logger.warn(`[IMPORT_GUARDIAN] Rescued ${rescuedStale.rows.length} orphaned processing import(s) with stale heartbeat (>5 min) — reset to pending`);
+    }
+
     const staleCheck = await db.execute(sql`
       SELECT 1 FROM import_job_queue
       WHERE status = 'pending'
@@ -1131,6 +1151,55 @@ export function stopImportGuardian(): void {
  */
 export async function triggerGuardianPoll(): Promise<void> {
   return runGuardianPoll();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CAMPAIGN GUARDIAN — rescue stuck campaigns in the web process
+// ═══════════════════════════════════════════════════════════════
+
+let campaignGuardianInterval: NodeJS.Timeout | null = null;
+
+async function runCampaignGuardianPoll(): Promise<void> {
+  try {
+    const stuckCampaigns = await db.execute(sql`
+      SELECT c.id, c.name FROM campaigns c
+      WHERE c.status = 'sending'
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_jobs cj
+        WHERE cj.campaign_id = c.id
+        AND (
+          cj.status IN ('pending', 'processing')
+          OR (cj.status = 'failed' AND cj.completed_at > NOW() - INTERVAL '2 minutes')
+        )
+      )
+    `);
+
+    const campaigns = stuckCampaigns.rows as Array<{ id: string; name: string }>;
+    if (campaigns.length > 0) {
+      logger.warn(`[CAMPAIGN_GUARDIAN] Found ${campaigns.length} stuck campaign(s) in 'sending' with no active job — re-enqueuing`);
+      for (const campaign of campaigns) {
+        logger.info(`[CAMPAIGN_GUARDIAN] Re-enqueuing campaign ${campaign.id} (${campaign.name})`);
+        await storage.enqueueCampaignJob(campaign.id);
+        await messageQueue.notify("campaign_jobs", { campaignId: campaign.id });
+      }
+    }
+  } catch (err: any) {
+    logger.error('[CAMPAIGN_GUARDIAN] Error in campaign guardian poll:', err?.message);
+  }
+}
+
+export function startCampaignGuardian(): void {
+  if (campaignGuardianInterval) return;
+  logger.info('[CAMPAIGN_GUARDIAN] Campaign guardian started (polls every 60 s for stuck campaigns)');
+  campaignGuardianInterval = setInterval(runCampaignGuardianPoll, 60000);
+}
+
+export function stopCampaignGuardian(): void {
+  if (campaignGuardianInterval) {
+    clearInterval(campaignGuardianInterval);
+    campaignGuardianInterval = null;
+    logger.info('[CAMPAIGN_GUARDIAN] Campaign guardian stopped');
+  }
 }
 
 const MAINTENANCE_INTERVAL = 21600000; // 6 hours
