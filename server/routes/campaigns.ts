@@ -147,7 +147,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')  AS unique_opens,
           COUNT(*) FILTER (WHERE type = 'click')        AS total_clicks,
           COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click') AS unique_clicks,
-          COUNT(*) FILTER (WHERE type = 'unsubscribe')  AS unsubscribes,
+          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')  AS unsubscribes,
           COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint') AS complaints
         FROM campaign_stats
         GROUP BY campaign_id
