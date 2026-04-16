@@ -600,6 +600,20 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     logger.warn(`${logPrefix} Carry-over pending recovery failed (non-fatal): ${msg}`);
   }
 
+  try {
+    const dbCounts = await retryDbOp(
+      () => storage.getCampaignSendCounts(campaignId),
+      `${logPrefix} syncTotalFailed`
+    );
+    if (dbCounts.failed > totalFailed) {
+      logger.info(`${logPrefix} Syncing totalFailed: in-memory=${totalFailed}, DB=${dbCounts.failed} (carry-over from previous crashed passes)`);
+      totalFailed = dbCounts.failed;
+    }
+  } catch (syncErr: unknown) {
+    const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
+    logger.warn(`${logPrefix} Failed-count DB sync failed (non-fatal): ${msg}`);
+  }
+
   const RETRY_WINDOW_MS = 12 * 60 * 60 * 1000;
   const retryDeadline = campaign.retryUntil ? campaign.retryUntil.getTime() : Date.now() + RETRY_WINDOW_MS;
 
