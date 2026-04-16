@@ -737,6 +737,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
       
       const updateData = { ...req.body };
       delete updateData.status;
+      if (updateData.scheduledAt && typeof updateData.scheduledAt === 'string') {
+        updateData.scheduledAt = new Date(updateData.scheduledAt);
+      }
       
       if (Object.keys(updateData).length > 0) {
         logger.info(`[CAMPAIGN_SEND] ${timestamp} - Saving final campaign data`);
