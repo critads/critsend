@@ -401,6 +401,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
         }
       }
 
+      if (normalizedBody.scheduledAt && typeof normalizedBody.scheduledAt === 'string') {
+        normalizedBody.scheduledAt = new Date(normalizedBody.scheduledAt);
+      }
+
       if (normalizedBody.htmlContent && normalizedBody.htmlContent !== "") {
         normalizedBody.htmlContent = sanitizeCampaignHtml(normalizedBody.htmlContent);
       }
