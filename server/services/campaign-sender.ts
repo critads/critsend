@@ -58,11 +58,17 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     return;
   }
 
-  if (!campaign.retryUntil) {
-    const retryDeadline = new Date(Date.now() + 12 * 60 * 60 * 1000);
+  const nowMs = Date.now();
+  const isStaleRetryUntil = campaign.retryUntil && campaign.retryUntil.getTime() <= nowMs;
+  if (!campaign.retryUntil || isStaleRetryUntil) {
+    const retryDeadline = new Date(nowMs + 12 * 60 * 60 * 1000);
     await storage.updateCampaign(campaignId, { retryUntil: retryDeadline });
     campaign.retryUntil = retryDeadline;
-    logger.info(`${logPrefix} Set retry deadline to ${retryDeadline.toISOString()}`);
+    if (isStaleRetryUntil) {
+      logger.info(`${logPrefix} Stale retryUntil detected (in the past) - reset to ${retryDeadline.toISOString()}`);
+    } else {
+      logger.info(`${logPrefix} Set retry deadline to ${retryDeadline.toISOString()}`);
+    }
   }
 
   if (!campaign.segmentId) {
@@ -530,7 +536,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     closeNullsinkTransporter();
 
     const fatalMsg = error.message || '';
-    const isTransientDb = /connection timeout|Connection terminated|connection refused|ECONNRESET|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer/i.test(fatalMsg);
+    const isTransientDb = /connection timeout|timeout exceeded when trying to connect|timeout exceeded|Connection terminated|connection refused|ECONNRESET|ETIMEDOUT|EPIPE|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer|Cannot use a pool after calling end|read ECONNRESET|getaddrinfo ENOTFOUND/i.test(fatalMsg);
     if (isTransientDb) {
       await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "db_connection_error" }).catch((err: any) => {
         logger.warn(`${logPrefix} Failed to pause campaign on DB error: ${err.message}`);
