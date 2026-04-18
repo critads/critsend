@@ -44,6 +44,7 @@ import {
   Copy,
   ChevronLeft,
   ChevronRight,
+  RefreshCw,
 } from "lucide-react";
 import type { Segment, SegmentGroup, SegmentRulesV2, Subscriber } from "@shared/schema";
 import { operatorLabelsV2 } from "@shared/schema";
@@ -107,14 +108,66 @@ export default function Segments() {
   const [isCountLoading, setIsCountLoading] = useState(false);
   const { toast } = useToast();
 
-  const { data: segments, isLoading } = useQuery<Segment[]>({
-    queryKey: ["/api/segments"],
+  // Server-side paginated list. Returns { segments, total, page, limit }.
+  const { data: segmentsPage, isLoading } = useQuery<{
+    segments: Segment[];
+    total: number;
+    page: number;
+    limit: number;
+  }>({
+    queryKey: ["/api/segments", "paginated", segmentPage, SEGMENTS_PER_PAGE],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/segments?paginate=true&page=${segmentPage}&limit=${SEGMENTS_PER_PAGE}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to fetch segments");
+      return res.json();
+    },
+  });
+  const segments = segmentsPage?.segments;
+  const totalSegments = segmentsPage?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalSegments / SEGMENTS_PER_PAGE));
+
+  // Counts for the visible page only — uses cached helper (5-minute TTL)
+  // on the server, falls back to live count on cache miss.
+  const visibleIds = (segments ?? []).map((s) => s.id);
+  const visibleIdsKey = visibleIds.join(",");
+  const { data: segmentCounts, refetch: refetchCounts, isFetching: isRefreshingCounts } = useQuery<
+    Record<string, number>
+  >({
+    queryKey: ["/api/segments/counts", visibleIdsKey],
+    queryFn: async () => {
+      if (!visibleIdsKey) return {};
+      const res = await fetch(`/api/segments/counts?ids=${encodeURIComponent(visibleIdsKey)}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch segment counts");
+      return res.json();
+    },
+    enabled: visibleIds.length > 0,
   });
 
-  const { data: segmentCounts } = useQuery<Record<string, number>>({
-    queryKey: ["/api/segments/counts"],
-    enabled: !!segments && segments.length > 0,
-  });
+  const handleRefreshCounts = async () => {
+    if (!visibleIdsKey) return;
+    try {
+      const res = await fetch(
+        `/api/segments/counts?ids=${encodeURIComponent(visibleIdsKey)}&refresh=true`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to refresh counts");
+      // Invalidate so the existing query re-reads with the now-fresh cache.
+      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts", visibleIdsKey] });
+      await refetchCounts();
+      toast({ title: "Counts refreshed", description: "Subscriber counts are now up to date." });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to refresh counts. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const { data: segmentSubscribers, isLoading: isLoadingSubscribers } =
     useQuery<SegmentSubscribersResponse>({
@@ -413,7 +466,7 @@ export default function Segments() {
       ) : segments && segments.length > 0 ? (
         <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {segments.slice((segmentPage - 1) * SEGMENTS_PER_PAGE, segmentPage * SEGMENTS_PER_PAGE).map((segment) => {
+          {segments.map((segment) => {
             const summary = summarizeRules(segment.rules);
             return (
               <Card key={segment.id} data-testid={`segment-card-${segment.id}`}>
@@ -510,38 +563,51 @@ export default function Segments() {
             );
           })}
         </div>
-        {segments.length > SEGMENTS_PER_PAGE && (
-          <div className="flex items-center justify-between mt-4">
-            <p className="text-sm text-muted-foreground">
-              Showing {((segmentPage - 1) * SEGMENTS_PER_PAGE) + 1}–{Math.min(segmentPage * SEGMENTS_PER_PAGE, segments.length)} of {segments.length} segments
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSegmentPage(p => Math.max(1, p - 1))}
-                disabled={segmentPage <= 1}
-                data-testid="button-segments-prev-page"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Previous
-              </Button>
-              <span className="text-sm text-muted-foreground px-2">
-                Page {segmentPage} of {Math.ceil(segments.length / SEGMENTS_PER_PAGE)}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSegmentPage(p => Math.min(Math.ceil(segments.length / SEGMENTS_PER_PAGE), p + 1))}
-                disabled={segmentPage >= Math.ceil(segments.length / SEGMENTS_PER_PAGE)}
-                data-testid="button-segments-next-page"
-              >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
+          <p className="text-sm text-muted-foreground">
+            Showing {((segmentPage - 1) * SEGMENTS_PER_PAGE) + 1}–{Math.min(segmentPage * SEGMENTS_PER_PAGE, totalSegments)} of {totalSegments} segments
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefreshCounts}
+              disabled={isRefreshingCounts || visibleIds.length === 0}
+              data-testid="button-refresh-counts"
+              title="Recompute subscriber counts (bypass 5-minute cache)"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${isRefreshingCounts ? "animate-spin" : ""}`} />
+              {isRefreshingCounts ? "Refreshing..." : "Refresh counts"}
+            </Button>
+            {totalPages > 1 && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSegmentPage(p => Math.max(1, p - 1))}
+                  disabled={segmentPage <= 1}
+                  data-testid="button-segments-prev-page"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground px-2">
+                  Page {segmentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSegmentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={segmentPage >= totalPages}
+                  data-testid="button-segments-next-page"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </>
+            )}
           </div>
-        )}
+        </div>
         </>
       ) : (
         <Card>

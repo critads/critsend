@@ -21,6 +21,18 @@ export function registerSegmentRoutes(app: Express, helpers: {
   app.get("/api/segments", async (req: Request, res: Response) => {
     try {
       const segmentsList = await storage.getSegments();
+      // Server-side pagination. If the client passes paginate=true (or any
+      // page/limit param), return an envelope { segments, total, page, limit }.
+      // Otherwise return the raw array for backward compatibility with older
+      // callers (campaign wizards etc. that need the full list).
+      const wantsPaginated = req.query.paginate === "true" || req.query.page !== undefined || req.query.limit !== undefined;
+      if (wantsPaginated) {
+        const { page, limit } = parsePagination(req.query);
+        const total = segmentsList.length;
+        const start = (page - 1) * limit;
+        const slice = segmentsList.slice(start, start + limit);
+        return res.json({ segments: slice, total, page, limit });
+      }
       res.json(segmentsList);
     } catch (error) {
       logger.error("Error fetching segments:", error);
@@ -30,13 +42,39 @@ export function registerSegmentRoutes(app: Express, helpers: {
 
   app.get("/api/segments/counts", async (req: Request, res: Response) => {
     try {
-      const segmentsList = await storage.getSegments();
+      // Optional `ids` query param: comma-separated list of segment ids to
+      // compute counts for. When omitted, falls back to all segments
+      // (preserves backward compat). The list endpoint should always send
+      // `ids` to limit work to the visible page.
+      const idsParam = typeof req.query.ids === "string" ? req.query.ids : "";
+      const refresh = req.query.refresh === "true";
+
+      let targetIds: string[];
+      if (idsParam) {
+        targetIds = idsParam
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => validateId(s))
+          .slice(0, 100); // hard cap to prevent abuse
+      } else {
+        const segmentsList = await storage.getSegments();
+        targetIds = segmentsList.map((s) => s.id);
+      }
+
+      // When refresh=true, drop the cached entries for the requested ids so
+      // the next call computes fresh counts. Used by the "Refresh counts"
+      // button after a large import.
+      if (refresh) {
+        for (const id of targetIds) storage.invalidateSegmentCountCache(id);
+      }
+
       const counts: Record<string, number> = {};
       const { mapWithConcurrency } = await import("../utils");
-      await mapWithConcurrency(segmentsList, 3, async (segment) => {
-        // Always use a live count — the in-memory cache is per-process and becomes
-        // stale when subscribers are imported by the worker process.
-        counts[segment.id] = await storage.countSubscribersForSegment(segment.id);
+      await mapWithConcurrency(targetIds, 5, async (id) => {
+        // Use the cached helper (5-minute TTL). The cache is invalidated
+        // on subscriber imports / flush jobs, and can be force-refreshed
+        // via ?refresh=true above.
+        counts[id] = await storage.getSegmentSubscriberCountCached(id);
       });
       res.json(counts);
     } catch (error) {
