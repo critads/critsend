@@ -27,11 +27,24 @@ export function registerSegmentRoutes(app: Express, helpers: {
       // callers (campaign wizards etc. that need the full list).
       const wantsPaginated = req.query.paginate === "true" || req.query.page !== undefined || req.query.limit !== undefined;
       if (wantsPaginated) {
-        const { page, limit } = parsePagination(req.query);
+        // Strict validation: reject invalid page/limit instead of silently
+        // clamping. Allows the client to detect bad requests early.
+        const rawPage = req.query.page;
+        const rawLimit = req.query.limit;
+        const pageNum = rawPage === undefined ? 1 : Number(rawPage);
+        const limitNum = rawLimit === undefined ? 20 : Number(rawLimit);
+        if (
+          !Number.isInteger(pageNum) || pageNum < 1 || pageNum > 10000 ||
+          !Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100
+        ) {
+          return res.status(400).json({
+            error: "Invalid pagination: page must be an integer in [1,10000] and limit must be an integer in [1,100]",
+          });
+        }
         const total = segmentsList.length;
-        const start = (page - 1) * limit;
-        const slice = segmentsList.slice(start, start + limit);
-        return res.json({ segments: slice, total, page, limit });
+        const start = (pageNum - 1) * limitNum;
+        const slice = segmentsList.slice(start, start + limitNum);
+        return res.json({ segments: slice, total, page: pageNum, limit: limitNum });
       }
       res.json(segmentsList);
     } catch (error) {

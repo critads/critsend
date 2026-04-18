@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
@@ -128,6 +128,15 @@ export default function Segments() {
   const segments = segmentsPage?.segments;
   const totalSegments = segmentsPage?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalSegments / SEGMENTS_PER_PAGE));
+
+  // If a delete/duplicate leaves us on an out-of-range page (e.g. last
+  // segment on page 3 deleted while total still > 0), step back to the
+  // last valid page instead of showing the empty-state.
+  useEffect(() => {
+    if (segmentPage > totalPages) {
+      setSegmentPage(totalPages);
+    }
+  }, [segmentPage, totalPages]);
 
   // Counts for the visible page only — uses cached helper (5-minute TTL)
   // on the server, falls back to live count on cache miss.
