@@ -1,55 +1,69 @@
 import { type Express, type Request, type Response } from "express";
 import { pool } from "../db";
 import { logger } from "../logger";
+import {
+  runAnalyticsRollup,
+  getAnalyticsCached,
+  publishAnalyticsInvalidation,
+  parseRefreshFlag,
+} from "../repositories/analytics-ops";
 
 export function registerAdvancedAnalyticsRoutes(app: Express) {
 
   app.get("/api/analytics/overview", async (req: Request, res: Response) => {
     try {
-      const [subscriberResult, campaignResult, sendsResult, statsResult] = await Promise.all([
-        pool.query(`SELECT COUNT(*)::int AS total_subscribers FROM subscribers`),
-        pool.query(`SELECT COUNT(*)::int AS total_campaigns FROM campaigns`),
-        pool.query(`
-          SELECT
-            COUNT(*)::int AS total_sent,
-            COUNT(*) FILTER (WHERE status = 'bounced')::int AS total_bounces
-          FROM campaign_sends
-        `),
-        pool.query(`
-          SELECT
-            COUNT(*) FILTER (WHERE type = 'open')::int AS total_opens,
-            COUNT(*) FILTER (WHERE type = 'click')::int AS total_clicks,
-            COUNT(*) FILTER (WHERE type = 'unsubscribe')::int AS total_unsubscribes
-          FROM campaign_stats
-        `),
-      ]);
+      const refresh = parseRefreshFlag(req.query);
+      const data = await getAnalyticsCached("overview", async () => {
+        // The all-time totals are inherently expensive on tables this size
+        // (campaign_sends ≈ 14M, campaign_stats ≈ 5.5M). The 5-min cache
+        // amortizes that cost across requests; the rollup is not used here
+        // because totals span all history, not the rollup's window.
+        const [subscriberResult, campaignResult, sendsResult, statsResult] = await Promise.all([
+          pool.query(`SELECT COUNT(*)::int AS total_subscribers FROM subscribers`),
+          pool.query(`SELECT COUNT(*)::int AS total_campaigns FROM campaigns`),
+          pool.query(`
+            SELECT
+              COUNT(*)::int AS total_sent,
+              COUNT(*) FILTER (WHERE status = 'bounced')::int AS total_bounces
+            FROM campaign_sends
+          `),
+          pool.query(`
+            SELECT
+              COUNT(*) FILTER (WHERE type = 'open')::int AS total_opens,
+              COUNT(*) FILTER (WHERE type = 'click')::int AS total_clicks,
+              COUNT(*) FILTER (WHERE type = 'unsubscribe')::int AS total_unsubscribes
+            FROM campaign_stats
+          `),
+        ]);
 
-      const totalSubscribers = subscriberResult.rows[0]?.total_subscribers ?? 0;
-      const totalCampaigns = campaignResult.rows[0]?.total_campaigns ?? 0;
-      const totalSent = sendsResult.rows[0]?.total_sent ?? 0;
-      const totalBounces = sendsResult.rows[0]?.total_bounces ?? 0;
-      const totalOpens = statsResult.rows[0]?.total_opens ?? 0;
-      const totalClicks = statsResult.rows[0]?.total_clicks ?? 0;
-      const totalUnsubscribes = statsResult.rows[0]?.total_unsubscribes ?? 0;
+        const totalSubscribers = subscriberResult.rows[0]?.total_subscribers ?? 0;
+        const totalCampaigns = campaignResult.rows[0]?.total_campaigns ?? 0;
+        const totalSent = sendsResult.rows[0]?.total_sent ?? 0;
+        const totalBounces = sendsResult.rows[0]?.total_bounces ?? 0;
+        const totalOpens = statsResult.rows[0]?.total_opens ?? 0;
+        const totalClicks = statsResult.rows[0]?.total_clicks ?? 0;
+        const totalUnsubscribes = statsResult.rows[0]?.total_unsubscribes ?? 0;
 
-      const openRate = totalSent > 0 ? (totalOpens / totalSent) * 100 : 0;
-      const clickRate = totalSent > 0 ? (totalClicks / totalSent) * 100 : 0;
-      const bounceRate = totalSent > 0 ? (totalBounces / totalSent) * 100 : 0;
-      const unsubscribeRate = totalSent > 0 ? (totalUnsubscribes / totalSent) * 100 : 0;
+        const openRate = totalSent > 0 ? (totalOpens / totalSent) * 100 : 0;
+        const clickRate = totalSent > 0 ? (totalClicks / totalSent) * 100 : 0;
+        const bounceRate = totalSent > 0 ? (totalBounces / totalSent) * 100 : 0;
+        const unsubscribeRate = totalSent > 0 ? (totalUnsubscribes / totalSent) * 100 : 0;
 
-      res.json({
-        totalSubscribers,
-        totalCampaigns,
-        totalSent,
-        totalOpens,
-        totalClicks,
-        totalBounces,
-        totalUnsubscribes,
-        openRate: Math.round(openRate * 100) / 100,
-        clickRate: Math.round(clickRate * 100) / 100,
-        bounceRate: Math.round(bounceRate * 100) / 100,
-        unsubscribeRate: Math.round(unsubscribeRate * 100) / 100,
-      });
+        return {
+          totalSubscribers,
+          totalCampaigns,
+          totalSent,
+          totalOpens,
+          totalClicks,
+          totalBounces,
+          totalUnsubscribes,
+          openRate: Math.round(openRate * 100) / 100,
+          clickRate: Math.round(clickRate * 100) / 100,
+          bounceRate: Math.round(bounceRate * 100) / 100,
+          unsubscribeRate: Math.round(unsubscribeRate * 100) / 100,
+        };
+      }, refresh);
+      res.json(data);
     } catch (error) {
       logger.error("Error fetching analytics overview:", error);
       res.status(500).json({ error: "Failed to fetch analytics overview" });
@@ -139,8 +153,10 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
         return res.status(400).json({ error: "Invalid period. Must be 'weekly' or 'monthly'" });
       }
       const period = periodParam === "weekly" ? "week" : "month";
+      const refresh = parseRefreshFlag(req.query);
 
-      const result = await pool.query(
+      const rows = await getAnalyticsCached(`cohort:${period}`, async () => {
+        const result = await pool.query(
         `WITH cohorts AS (
           SELECT
             date_trunc($1, import_date)::date AS cohort,
@@ -182,10 +198,12 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
         LEFT JOIN unsubscribed u ON c.cohort = u.cohort
         LEFT JOIN engaged e ON c.cohort = e.cohort
         ORDER BY c.cohort DESC`,
-        [period]
-      );
+          [period]
+        );
+        return result.rows;
+      }, refresh);
 
-      res.json(result.rows);
+      res.json(rows);
     } catch (error) {
       logger.error("Error fetching cohort analysis:", error);
       res.status(500).json({ error: "Failed to fetch cohort analysis" });
@@ -195,7 +213,9 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
   app.get("/api/analytics/deliverability", async (req: Request, res: Response) => {
     try {
       const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const refresh = parseRefreshFlag(req.query);
 
+      const data = await getAnalyticsCached(`deliverability:${days}`, async () => {
       const [overallResult, mtaResult] = await Promise.all([
         pool.query(
           `SELECT
@@ -255,7 +275,7 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
         };
       });
 
-      res.json({
+      return {
         deliveryRate,
         bounceRate,
         complaintRate,
@@ -265,7 +285,9 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
         totalBounced: totalBounced,
         totalComplaints,
         byMta,
-      });
+      };
+      }, refresh);
+      res.json(data);
     } catch (error) {
       logger.error("Error fetching deliverability metrics:", error);
       res.status(500).json({ error: "Failed to fetch deliverability metrics" });
@@ -276,6 +298,7 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
     try {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 10, 1), 100);
       const sortBy = req.query.sortBy as string || "openRate";
+      const refresh = parseRefreshFlag(req.query);
 
       const allowedSortBy = ["openRate", "clickRate", "sent"];
       if (!allowedSortBy.includes(sortBy)) {
@@ -296,49 +319,70 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
           break;
       }
 
-      const result = await pool.query(
-        `SELECT
-          c.id,
-          c.name,
-          c.subject,
-          c.status,
-          c.created_at,
-          c.sent_count,
-          COUNT(DISTINCT cs_sends.id)::int AS total_sent,
-          COUNT(DISTINCT cs_opens.id)::int AS total_opens,
-          COUNT(DISTINCT cs_clicks.id)::int AS total_clicks,
-          CASE WHEN COUNT(DISTINCT cs_sends.id) > 0
-            THEN ROUND((COUNT(DISTINCT cs_opens.id)::numeric / COUNT(DISTINCT cs_sends.id)) * 100, 2)
-            ELSE 0
-          END AS open_rate,
-          CASE WHEN COUNT(DISTINCT cs_sends.id) > 0
-            THEN ROUND((COUNT(DISTINCT cs_clicks.id)::numeric / COUNT(DISTINCT cs_sends.id)) * 100, 2)
-            ELSE 0
-          END AS click_rate
-        FROM campaigns c
-        LEFT JOIN campaign_sends cs_sends ON cs_sends.campaign_id = c.id
-        LEFT JOIN campaign_stats cs_opens ON cs_opens.campaign_id = c.id AND cs_opens.type = 'open'
-        LEFT JOIN campaign_stats cs_clicks ON cs_clicks.campaign_id = c.id AND cs_clicks.type = 'click'
-        GROUP BY c.id, c.name, c.subject, c.status, c.created_at, c.sent_count
-        HAVING COUNT(DISTINCT cs_sends.id) > 0
-        ORDER BY ${orderClause}
-        LIMIT $1`,
-        [limit]
-      );
+      const rows = await getAnalyticsCached(`top-campaigns:${sortBy}:${limit}`, async () => {
+        // Pre-aggregate per campaign in CTEs BEFORE joining. The original
+        // query did three LEFT JOINs followed by COUNT(DISTINCT ...) which
+        // is a cardinality bomb on a 14M-row sends table × 5.5M-row stats
+        // table. The CTE form scans each table once and emits one row per
+        // campaign, then joins those tiny aggregates back onto campaigns.
+        const result = await pool.query(
+          `WITH sends AS (
+            SELECT campaign_id, COUNT(*)::int AS total_sent
+            FROM campaign_sends
+            GROUP BY campaign_id
+          ),
+          opens AS (
+            SELECT campaign_id,
+              COUNT(*)::int AS total_opens,
+              COUNT(DISTINCT subscriber_id)::int AS unique_opens
+            FROM campaign_stats
+            WHERE type = 'open'
+            GROUP BY campaign_id
+          ),
+          clicks AS (
+            SELECT campaign_id,
+              COUNT(*)::int AS total_clicks,
+              COUNT(DISTINCT subscriber_id)::int AS unique_clicks
+            FROM campaign_stats
+            WHERE type = 'click'
+            GROUP BY campaign_id
+          )
+          SELECT
+            c.id, c.name, c.subject, c.status, c.created_at, c.sent_count,
+            s.total_sent,
+            COALESCE(o.total_opens, 0) AS total_opens,
+            COALESCE(cl.total_clicks, 0) AS total_clicks,
+            CASE WHEN s.total_sent > 0
+              THEN ROUND((COALESCE(o.total_opens, 0)::numeric / s.total_sent) * 100, 2)
+              ELSE 0 END AS open_rate,
+            CASE WHEN s.total_sent > 0
+              THEN ROUND((COALESCE(cl.total_clicks, 0)::numeric / s.total_sent) * 100, 2)
+              ELSE 0 END AS click_rate
+          FROM campaigns c
+          JOIN sends s ON s.campaign_id = c.id
+          LEFT JOIN opens o ON o.campaign_id = c.id
+          LEFT JOIN clicks cl ON cl.campaign_id = c.id
+          WHERE s.total_sent > 0
+          ORDER BY ${orderClause}
+          LIMIT $1`,
+          [limit]
+        );
+        return result.rows.map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          subject: row.subject,
+          status: row.status,
+          createdAt: row.created_at,
+          sentCount: row.sent_count,
+          totalSent: Number(row.total_sent),
+          totalOpens: Number(row.total_opens),
+          totalClicks: Number(row.total_clicks),
+          openRate: parseFloat(row.open_rate),
+          clickRate: parseFloat(row.click_rate),
+        }));
+      }, refresh);
 
-      res.json(result.rows.map((row: any) => ({
-        id: row.id,
-        name: row.name,
-        subject: row.subject,
-        status: row.status,
-        createdAt: row.created_at,
-        sentCount: row.sent_count,
-        totalSent: row.total_sent,
-        totalOpens: row.total_opens,
-        totalClicks: row.total_clicks,
-        openRate: parseFloat(row.open_rate),
-        clickRate: parseFloat(row.click_rate),
-      })));
+      res.json(rows);
     } catch (error) {
       logger.error("Error fetching top campaigns:", error);
       res.status(500).json({ error: "Failed to fetch top campaigns" });
@@ -348,7 +392,9 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
   app.get("/api/analytics/subscriber-growth", async (req: Request, res: Response) => {
     try {
       const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const refresh = parseRefreshFlag(req.query);
 
+      const data = await getAnalyticsCached(`subscriber-growth:${days}`, async () => {
       const result = await pool.query(
         `WITH date_series AS (
           SELECT generate_series(
@@ -390,113 +436,44 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
         [days]
       );
 
-      res.json(result.rows.map((row: any) => ({
+      return result.rows.map((row: any) => ({
         date: row.date,
         newSubscribers: parseInt(row.newSubscribers) || 0,
         removedSubscribers: parseInt(row.removedSubscribers) || 0,
         netGrowth: parseInt(row.netGrowth) || 0,
         totalAtDate: parseInt(row.totalAtDate) || 0,
-      })));
+      }));
+      }, refresh);
+      res.json(data);
     } catch (error) {
       logger.error("Error fetching subscriber growth:", error);
       res.status(500).json({ error: "Failed to fetch subscriber growth" });
     }
   });
 
+  // Force-clear the analytics cache across all processes (web + worker).
+  // Called by the "Refresh" button so the next chart render recomputes
+  // from scratch instead of waiting for the 5-min TTL to expire.
+  app.post("/api/analytics/cache/invalidate", async (req: Request, res: Response) => {
+    try {
+      const prefix = typeof req.query.prefix === "string" ? req.query.prefix : undefined;
+      publishAnalyticsInvalidation(prefix);
+      res.json({ success: true, prefix: prefix ?? null });
+    } catch (error) {
+      logger.error("Error invalidating analytics cache:", error);
+      res.status(500).json({ error: "Failed to invalidate analytics cache" });
+    }
+  });
+
   app.post("/api/analytics/rollup", async (req: Request, res: Response) => {
     try {
-      const days = Math.min(Math.max(parseInt(req.query.days as string) || 7, 1), 90);
-
-      await pool.query(
-        `INSERT INTO analytics_daily (id, date, campaign_id, total_sent, total_delivered, total_opens, unique_opens, total_clicks, unique_clicks, total_bounces, total_unsubscribes, total_complaints, subscriber_growth, subscriber_churn, updated_at)
-        SELECT
-          gen_random_uuid(),
-          d.date,
-          d.campaign_id,
-          COALESCE(sends.total_sent, 0),
-          COALESCE(sends.total_delivered, 0),
-          COALESCE(stats.total_opens, 0),
-          COALESCE(stats.unique_opens, 0),
-          COALESCE(stats.total_clicks, 0),
-          COALESCE(stats.unique_clicks, 0),
-          COALESCE(sends.total_bounces, 0),
-          COALESCE(stats.total_unsubscribes, 0),
-          COALESCE(stats.total_complaints, 0),
-          0,
-          0,
-          NOW()
-        FROM (
-          SELECT DISTINCT sent_at::date AS date, campaign_id
-          FROM campaign_sends
-          WHERE sent_at >= NOW() - $1::int * INTERVAL '1 day'
-          UNION
-          SELECT DISTINCT timestamp::date AS date, campaign_id
-          FROM campaign_stats
-          WHERE timestamp >= NOW() - $1::int * INTERVAL '1 day'
-        ) d
-        LEFT JOIN (
-          SELECT
-            sent_at::date AS date,
-            campaign_id,
-            COUNT(*)::int AS total_sent,
-            COUNT(*) FILTER (WHERE status = 'sent')::int AS total_delivered,
-            COUNT(*) FILTER (WHERE status = 'bounced')::int AS total_bounces
-          FROM campaign_sends
-          WHERE sent_at >= NOW() - $1::int * INTERVAL '1 day'
-          GROUP BY sent_at::date, campaign_id
-        ) sends ON sends.date = d.date AND sends.campaign_id = d.campaign_id
-        LEFT JOIN (
-          SELECT
-            timestamp::date AS date,
-            campaign_id,
-            COUNT(*) FILTER (WHERE type = 'open')::int AS total_opens,
-            COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')::int AS unique_opens,
-            COUNT(*) FILTER (WHERE type = 'click')::int AS total_clicks,
-            COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click')::int AS unique_clicks,
-            COUNT(*) FILTER (WHERE type = 'unsubscribe')::int AS total_unsubscribes,
-            COUNT(*) FILTER (WHERE type = 'complaint')::int AS total_complaints
-          FROM campaign_stats
-          WHERE timestamp >= NOW() - $1::int * INTERVAL '1 day'
-          GROUP BY timestamp::date, campaign_id
-        ) stats ON stats.date = d.date AND stats.campaign_id = d.campaign_id
-        ON CONFLICT (date, campaign_id) DO UPDATE SET
-          total_sent = EXCLUDED.total_sent,
-          total_delivered = EXCLUDED.total_delivered,
-          total_opens = EXCLUDED.total_opens,
-          unique_opens = EXCLUDED.unique_opens,
-          total_clicks = EXCLUDED.total_clicks,
-          unique_clicks = EXCLUDED.unique_clicks,
-          total_bounces = EXCLUDED.total_bounces,
-          total_unsubscribes = EXCLUDED.total_unsubscribes,
-          total_complaints = EXCLUDED.total_complaints,
-          updated_at = NOW()`,
-        [days]
-      );
-
-      await pool.query(
-        `INSERT INTO analytics_daily (id, date, campaign_id, total_sent, total_delivered, total_opens, unique_opens, total_clicks, unique_clicks, total_bounces, total_unsubscribes, total_complaints, subscriber_growth, subscriber_churn, updated_at)
-        SELECT
-          gen_random_uuid(),
-          import_date::date,
-          NULL,
-          0, 0, 0, 0, 0, 0, 0, 0, 0,
-          COUNT(*)::int,
-          0,
-          NOW()
-        FROM subscribers
-        WHERE import_date >= NOW() - $1::int * INTERVAL '1 day'
-        GROUP BY import_date::date
-        ON CONFLICT (date, campaign_id) DO UPDATE SET
-          subscriber_growth = EXCLUDED.subscriber_growth,
-          updated_at = NOW()`,
-        [days]
-      );
-
-      logger.info("Analytics rollup completed", { days });
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 7, 1), 3650);
+      await runAnalyticsRollup(days);
       res.json({ success: true, message: `Rollup completed for the last ${days} days` });
     } catch (error) {
       logger.error("Error running analytics rollup:", error);
       res.status(500).json({ error: "Failed to run analytics rollup" });
     }
   });
+
 }

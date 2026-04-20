@@ -128,5 +128,18 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
   // Start BullMQ workers if Redis/BullMQ is configured
   startBullMQWorkers();
 
+  // Schedule analytics_daily rollup. The web process never runs this — only
+  // the worker — so we don't double-write. Initial backfill covers all
+  // history; subsequent incremental rollups overwrite the last 7 days.
+  const { runAnalyticsRollup } = await import("./repositories/analytics-ops");
+  runAnalyticsRollup(3650).catch((err) =>
+    logger.error("[ANALYTICS_ROLLUP] Initial backfill failed", { error: String(err) })
+  );
+  setInterval(() => {
+    runAnalyticsRollup(7).catch((err) =>
+      logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
+    );
+  }, 15 * 60 * 1000).unref();
+
   logger.info("[WORKER] All workers running");
 })();

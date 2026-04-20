@@ -518,6 +518,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const { runImportBootstrapMigrations } = await import("./routes/import-export");
   await runImportBootstrapMigrations();
 
+  // Fire-and-forget: CREATE INDEX CONCURRENTLY can take many minutes on big
+  // tables (campaign_sends ≈ 14M rows, campaign_stats ≈ 5.5M rows). Don't
+  // block startup; the IF NOT EXISTS guard makes it safe across restarts.
+  const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
+  runAnalyticsBootstrapMigrations();
+
   await registerRoutes(httpServer, app);
   
   validateConnectionBudget();
@@ -532,6 +538,18 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     if (redisSubscriber) {
       startRedisProgressBridge(redisSubscriber);
       logger.info("[SSE] Redis progress bridge started");
+      // Cross-process analytics cache invalidation. The worker process
+      // publishes when a campaign job finishes / rollup completes; this
+      // subscription drops the cached values in the web process so the
+      // next analytics read recomputes from the database. Re-uses the
+      // SSE subscriber connection (subscriptions multiplex on one socket).
+      try {
+        const { startAnalyticsInvalidationSubscriber } = await import("./repositories/analytics-ops");
+        startAnalyticsInvalidationSubscriber(redisSubscriber);
+        logger.info("[ANALYTICS] Cache invalidation subscriber started");
+      } catch (err) {
+        logger.warn(`[ANALYTICS] Failed to start invalidation subscriber: ${(err as Error).message}`);
+      }
     }
   } else {
     logger.info("[SSE] Redis not configured — progress events via in-process EventEmitter (monolith mode)");

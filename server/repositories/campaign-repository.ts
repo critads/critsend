@@ -559,26 +559,32 @@ export async function getCampaignLinkDestination(linkId: string): Promise<string
 // ═══════════════════════════════════════════════════════════════
 
 export async function getDashboardStats() {
+  // Single combined query against campaign_stats with FILTER aggregates —
+  // halves the work compared with two separate full-table COUNT scans.
   const [
     subCountResult,
     [{ campaignCount }],
-    [{ openCount }],
-    [{ clickCount }],
+    statsResult,
     recentCampaigns,
     recentImports,
   ] = await Promise.all([
     db.execute(sql`SELECT COUNT(*) as count FROM subscribers`),
     db.select({ campaignCount: sql<number>`count(*)` }).from(campaigns),
-    db.select({ openCount: sql<number>`count(*)` }).from(campaignStats).where(eq(campaignStats.type, "open")),
-    db.select({ clickCount: sql<number>`count(*)` }).from(campaignStats).where(eq(campaignStats.type, "click")),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE type = 'open')::int  AS open_count,
+        COUNT(*) FILTER (WHERE type = 'click')::int AS click_count
+      FROM campaign_stats
+    `),
     db.select().from(campaigns).orderBy(desc(campaigns.createdAt)).limit(5),
     db.select().from(importJobs).orderBy(desc(importJobs.createdAt)).limit(5),
   ]);
+  const statsRow = statsResult.rows[0] as any;
   return {
     totalSubscribers: Number((subCountResult.rows[0] as any)?.count || 0),
     totalCampaigns: Number(campaignCount),
-    totalOpens: Number(openCount),
-    totalClicks: Number(clickCount),
+    totalOpens: Number(statsRow?.open_count || 0),
+    totalClicks: Number(statsRow?.click_count || 0),
     recentCampaigns,
     recentImports,
   };
@@ -754,38 +760,67 @@ export async function resolveTrackingToken(token: string): Promise<{
 }
 
 export async function getOverallAnalytics() {
-  const [
-    [{ openCount }],
-    [{ clickCount }],
-    allCampaigns,
-  ] = await Promise.all([
-    db.select({ openCount: sql<number>`count(*)` }).from(campaignStats).where(eq(campaignStats.type, "open")),
-    db.select({ clickCount: sql<number>`count(*)` }).from(campaignStats).where(eq(campaignStats.type, "click")),
-    db.select().from(campaigns).where(eq(campaigns.status, "completed")).orderBy(desc(campaigns.completedAt)).limit(10),
+  // Pull the 10 most recent completed campaigns first, then aggregate their
+  // unique opens / unique clicks in a SINGLE GROUP BY query — no per-campaign
+  // round-trips. Combined opens/clicks totals also collapse into one query.
+  const [statsResult, allCampaigns] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE type = 'open')::int  AS open_count,
+        COUNT(*) FILTER (WHERE type = 'click')::int AS click_count
+      FROM campaign_stats
+    `),
+    db.select().from(campaigns)
+      .where(eq(campaigns.status, "completed"))
+      .orderBy(desc(campaigns.completedAt))
+      .limit(10),
   ]);
+  const statsRow = statsResult.rows[0] as any;
+  const openCount = Number(statsRow?.open_count || 0);
+  const clickCount = Number(statsRow?.click_count || 0);
 
-  const campaignMetrics = await mapWithConcurrency(allCampaigns, 3, async (campaign) => {
-    const [uniqueOpens, uniqueClicks] = await Promise.all([
-      getUniqueOpenCount(campaign.id),
-      getUniqueClickCount(campaign.id),
-    ]);
-    return {
-      id: campaign.id,
-      name: campaign.name,
-      sentCount: campaign.sentCount,
-      openRate: campaign.sentCount > 0 ? (uniqueOpens / campaign.sentCount) * 100 : 0,
-      clickRate: campaign.sentCount > 0 ? (uniqueClicks / campaign.sentCount) * 100 : 0,
-    };
-  });
+  let campaignMetrics: Array<{
+    id: string; name: string; sentCount: number; openRate: number; clickRate: number;
+  }> = [];
+
+  if (allCampaigns.length > 0) {
+    const ids = allCampaigns.map((c) => c.id);
+    const aggResult = await db.execute(sql`
+      SELECT
+        campaign_id,
+        COUNT(*) FILTER (WHERE first_open_at IS NOT NULL)::int  AS unique_opens,
+        COUNT(*) FILTER (WHERE first_click_at IS NOT NULL)::int AS unique_clicks
+      FROM campaign_sends
+      WHERE campaign_id = ANY(${ids}::text[])
+      GROUP BY campaign_id
+    `);
+    const byId = new Map<string, { uo: number; uc: number }>();
+    for (const row of aggResult.rows as any[]) {
+      byId.set(row.campaign_id, {
+        uo: Number(row.unique_opens || 0),
+        uc: Number(row.unique_clicks || 0),
+      });
+    }
+    campaignMetrics = allCampaigns.map((c) => {
+      const agg = byId.get(c.id) || { uo: 0, uc: 0 };
+      return {
+        id: c.id,
+        name: c.name,
+        sentCount: c.sentCount,
+        openRate: c.sentCount > 0 ? (agg.uo / c.sentCount) * 100 : 0,
+        clickRate: c.sentCount > 0 ? (agg.uc / c.sentCount) * 100 : 0,
+      };
+    });
+  }
 
   const avgOpenRate = campaignMetrics.length > 0
-    ? campaignMetrics.reduce((acc, c) => acc + c.openRate, 0) / campaignMetrics.length : 0;
+    ? campaignMetrics.reduce((a, c) => a + c.openRate, 0) / campaignMetrics.length : 0;
   const avgClickRate = campaignMetrics.length > 0
-    ? campaignMetrics.reduce((acc, c) => acc + c.clickRate, 0) / campaignMetrics.length : 0;
+    ? campaignMetrics.reduce((a, c) => a + c.clickRate, 0) / campaignMetrics.length : 0;
 
   return {
-    totalOpens: Number(openCount),
-    totalClicks: Number(clickCount),
+    totalOpens: openCount,
+    totalClicks: clickCount,
     totalCampaigns: allCampaigns.length,
     avgOpenRate,
     avgClickRate,

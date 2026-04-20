@@ -305,15 +305,23 @@ export async function getCampaignAnalytics(campaignId: string) {
   }));
 
   const recentStats = recentStatsResult.rows as any[];
-  const recentActivity = await mapWithConcurrency(recentStats, 3, async (stat: any) => {
-    const sub = await getSubscriber(stat.subscriber_id);
-    return {
-      email: sub?.email || "unknown",
-      type: stat.type,
-      timestamp: new Date(stat.timestamp).toISOString(),
-      link: stat.link || undefined,
-    };
-  });
+  // Single batched lookup instead of 20 sequential subscriber queries.
+  const subscriberIds = [...new Set(recentStats.map((s: any) => s.subscriber_id).filter(Boolean))];
+  const emailById = new Map<string, string>();
+  if (subscriberIds.length > 0) {
+    const emailsResult = await db.execute(sql`
+      SELECT id, email FROM subscribers WHERE id = ANY(${subscriberIds}::text[])
+    `);
+    for (const row of emailsResult.rows as any[]) {
+      emailById.set(row.id, row.email);
+    }
+  }
+  const recentActivity = recentStats.map((stat: any) => ({
+    email: emailById.get(stat.subscriber_id) || "unknown",
+    type: stat.type,
+    timestamp: new Date(stat.timestamp).toISOString(),
+    link: stat.link || undefined,
+  }));
 
   return {
     campaign,

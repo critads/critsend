@@ -479,6 +479,18 @@ async function handleJobCompletion(job: CampaignJob) {
     } else {
       await storage.completeJob(job.id, "completed");
       logger.info(`[JOB_POLL] Job ${job.id} completed (campaign ${job.campaignId} status: ${finalStatus})`);
+      // Sends/opens/clicks for this campaign just changed materially.
+      // Invalidate the analytics cache so the next read reflects reality
+      // instead of waiting up to 5 minutes for the TTL to expire.
+      try {
+        // Use the cross-process publisher so the web instance (which serves
+        // the analytics endpoints) drops its cache too. In monolith mode
+        // both calls collapse onto the same in-memory cache.
+        const { publishAnalyticsInvalidation } = await import("./repositories/analytics-ops");
+        publishAnalyticsInvalidation();
+      } catch (cacheErr) {
+        logger.warn(`[JOB_POLL] Failed to invalidate analytics cache: ${(cacheErr as Error).message}`);
+      }
     }
   } catch (err) {
     logger.error(`[JOB_POLL] Error in handleJobCompletion for job ${job.id}:`, err);

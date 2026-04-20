@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -754,13 +755,58 @@ function CohortTab() {
 }
 
 export default function AdvancedAnalytics() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [refreshing, setRefreshing] = useState(false);
+
+  // The server-side analytics cache has a 5-min TTL. The Refresh button
+  // hits a single invalidate endpoint that fans out across web + worker
+  // processes via Redis pub/sub, then invalidates every analytics query in
+  // react-query so whichever charts are mounted (with whatever days/sortBy
+  // the user has selected) refetch from a freshly recomputed cache.
+  const refreshAll = async () => {
+    setRefreshing(true);
+    try {
+      const resp = await fetch("/api/analytics/cache/invalidate", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!resp.ok) {
+        throw new Error(`Server returned ${resp.status}`);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/overview"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/engagement"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/deliverability"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/subscriber-growth"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/top-campaigns"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/cohort"] });
+      toast({ title: "Analytics refreshed" });
+    } catch (e: any) {
+      toast({ title: "Refresh failed", description: e?.message ?? String(e), variant: "destructive" });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Advanced Analytics</h1>
-        <p className="text-muted-foreground mt-1">
-          In-depth metrics, engagement trends, and subscriber insights
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Advanced Analytics</h1>
+          <p className="text-muted-foreground mt-1">
+            In-depth metrics, engagement trends, and subscriber insights
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={refreshAll}
+          disabled={refreshing}
+          data-testid="button-refresh-analytics"
+        >
+          <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </Button>
       </div>
 
       <Tabs defaultValue="overview" data-testid="analytics-tabs">
