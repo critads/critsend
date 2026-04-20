@@ -156,48 +156,63 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
       const refresh = parseRefreshFlag(req.query);
 
       const rows = await getAnalyticsCached(`cohort:${period}`, async () => {
+        // Cohort rewrite: the original query joined the full 5.5M-row
+        // campaign_stats table to subscribers TWICE (once for unsubscribes,
+        // once for opens/clicks) and counted DISTINCT subscriber_id per
+        // cohort — that scans every event row before grouping. Here we
+        // first collapse campaign_stats to one row per subscriber per
+        // event class (unsub_subs, engaged_subs), turning the join input
+        // from millions of events into at most ~1.2M unique subscriber
+        // IDs. The final join to `subs` rides the new
+        // subscribers(import_date) index for the cohort bucketing.
         const result = await pool.query(
-        `WITH cohorts AS (
+          `WITH subs AS (
+            SELECT id, date_trunc($1, import_date)::date AS cohort
+            FROM subscribers
+          ),
+          cohort_totals AS (
+            SELECT cohort, COUNT(*)::int AS total_subscribers
+            FROM subs
+            GROUP BY cohort
+          ),
+          unsub_subs AS (
+            SELECT DISTINCT subscriber_id
+            FROM campaign_stats
+            WHERE type = 'unsubscribe'
+          ),
+          engaged_subs AS (
+            SELECT DISTINCT subscriber_id
+            FROM campaign_stats
+            WHERE type IN ('open', 'click')
+          ),
+          unsub_by_cohort AS (
+            SELECT s.cohort, COUNT(*)::int AS unsub_count
+            FROM subs s
+            JOIN unsub_subs u ON u.subscriber_id = s.id
+            GROUP BY s.cohort
+          ),
+          engaged_by_cohort AS (
+            SELECT s.cohort, COUNT(*)::int AS engaged_count
+            FROM subs s
+            JOIN engaged_subs e ON e.subscriber_id = s.id
+            GROUP BY s.cohort
+          )
           SELECT
-            date_trunc($1, import_date)::date AS cohort,
-            COUNT(*)::int AS total_subscribers
-          FROM subscribers
-          GROUP BY date_trunc($1, import_date)
-        ),
-        unsubscribed AS (
-          SELECT
-            date_trunc($1, s.import_date)::date AS cohort,
-            COUNT(DISTINCT cs.subscriber_id)::int AS unsub_count
-          FROM campaign_stats cs
-          JOIN subscribers s ON s.id = cs.subscriber_id
-          WHERE cs.type = 'unsubscribe'
-          GROUP BY date_trunc($1, s.import_date)
-        ),
-        engaged AS (
-          SELECT
-            date_trunc($1, s.import_date)::date AS cohort,
-            COUNT(DISTINCT cs.subscriber_id)::int AS engaged_count
-          FROM campaign_stats cs
-          JOIN subscribers s ON s.id = cs.subscriber_id
-          WHERE cs.type IN ('open', 'click')
-          GROUP BY date_trunc($1, s.import_date)
-        )
-        SELECT
-          c.cohort,
-          c.total_subscribers,
-          c.total_subscribers - COALESCE(u.unsub_count, 0) AS active_subscribers,
-          CASE WHEN c.total_subscribers > 0
-            THEN ROUND(((c.total_subscribers - COALESCE(u.unsub_count, 0))::numeric / c.total_subscribers) * 100, 2)
-            ELSE 0
-          END AS active_rate,
-          CASE WHEN c.total_subscribers > 0
-            THEN ROUND((COALESCE(e.engaged_count, 0)::numeric / c.total_subscribers) * 100, 2)
-            ELSE 0
-          END AS engagement_rate
-        FROM cohorts c
-        LEFT JOIN unsubscribed u ON c.cohort = u.cohort
-        LEFT JOIN engaged e ON c.cohort = e.cohort
-        ORDER BY c.cohort DESC`,
+            ct.cohort,
+            ct.total_subscribers,
+            ct.total_subscribers - COALESCE(u.unsub_count, 0) AS active_subscribers,
+            CASE WHEN ct.total_subscribers > 0
+              THEN ROUND(((ct.total_subscribers - COALESCE(u.unsub_count, 0))::numeric / ct.total_subscribers) * 100, 2)
+              ELSE 0
+            END AS active_rate,
+            CASE WHEN ct.total_subscribers > 0
+              THEN ROUND((COALESCE(e.engaged_count, 0)::numeric / ct.total_subscribers) * 100, 2)
+              ELSE 0
+            END AS engagement_rate
+          FROM cohort_totals ct
+          LEFT JOIN unsub_by_cohort u USING (cohort)
+          LEFT JOIN engaged_by_cohort e USING (cohort)
+          ORDER BY ct.cohort DESC`,
           [period]
         );
         return result.rows;
