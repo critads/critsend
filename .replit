@@ -61,3 +61,7 @@ REDIS_URL = "rediss://default:AZSLAAIncDE1M2M1NDVmNzE3Nzg0Y2IyYWJkYzFlMjYyZWI0Mz
 DISABLE_WORKERS = "true"
 
 [userenv.production]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
