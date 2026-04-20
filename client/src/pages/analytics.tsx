@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,6 @@ import {
   Monitor,
   Smartphone,
   Chrome,
-  Flame,
   ChevronDown,
   ChevronUp,
   Layers,
@@ -505,24 +504,6 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
         .then(r => r.json()),
   });
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [iframeHeight, setIframeHeight] = useState(600);
-  const [iframeLoaded, setIframeLoaded] = useState(false);
-
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (
-        e.origin !== window.location.origin ||
-        e.source !== iframeRef.current?.contentWindow
-      ) return;
-      if (e.data?.type === "hm-height" && typeof e.data.height === "number") {
-        setIframeHeight(Math.min(e.data.height + 40, 2400));
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, []);
-
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -808,51 +789,14 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Flame className="h-5 w-5" />
-              Click Heatmap
+              <MousePointer2 className="h-5 w-5" />
+              Link Performance
             </CardTitle>
             <CardDescription>
-              Visual overlay showing clicks per link in the campaign email
+              Per-link click breakdown for this campaign
             </CardDescription>
-            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-muted-foreground">
-              <span className="font-semibold">Legend:</span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-[#ef4444]" /> ≥30%
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-[#f97316]" /> ≥10%
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-[#eab308]" /> ≥3%
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-[#22c55e]" /> &gt;0%
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-[#9ca3af]" /> 0 clicks
-              </span>
-            </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="relative rounded-md border overflow-hidden bg-white">
-              {!iframeLoaded && (
-                <div className="absolute inset-0 flex items-center justify-center bg-muted/60 z-10 min-h-[400px]">
-                  <Skeleton className="w-full h-full min-h-[400px]" />
-                </div>
-              )}
-              <iframe
-                ref={iframeRef}
-                src={`/api/analytics/campaign/${campaignId}/heatmap`}
-                title="Click Heatmap"
-                width="100%"
-                height={iframeHeight}
-                style={{ border: "none", display: "block" }}
-                sandbox="allow-scripts allow-same-origin"
-                onLoad={() => setIframeLoaded(true)}
-                data-testid="iframe-click-heatmap"
-              />
-            </div>
-
+          <CardContent>
             <LinkSummaryTable links={heatmapData.links} totalClicks={heatmapData.totalClicks} />
           </CardContent>
         </Card>

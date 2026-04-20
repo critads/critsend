@@ -138,12 +138,16 @@ export async function seedDefaultMaintenanceRules(): Promise<void> {
 // ═══════════════════════════════════════════════════════════════
 
 export async function getCampaignClickHeatmap(campaignId: string): Promise<{
-  htmlContent: string;
   links: Array<{ url: string; clicks: number; uniqueClickers: number; pct: number }>;
   totalClicks: number;
 } | null> {
-  const campaign = await getCampaign(campaignId);
-  if (!campaign) return null;
+  // Confirm the campaign exists (returns 404 to the route otherwise) without
+  // pulling the full htmlContent — the iframe overlay that needed it has been
+  // removed; only the per-link summary table consumes this now.
+  const exists = await db.execute(sql`
+    SELECT 1 FROM campaigns WHERE id = ${campaignId} LIMIT 1
+  `);
+  if ((exists.rows as any[]).length === 0) return null;
 
   const result = await db.execute(sql`
     SELECT
@@ -162,7 +166,6 @@ export async function getCampaignClickHeatmap(campaignId: string): Promise<{
   const totalClicks = rows.reduce((sum, r) => sum + Number(r.clicks), 0);
 
   return {
-    htmlContent: campaign.htmlContent,
     links: rows.map(r => ({
       url: r.url as string,
       clicks: Number(r.clicks),

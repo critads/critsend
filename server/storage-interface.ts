@@ -273,7 +273,6 @@ export interface IStorage {
     recentCampaigns: Array<{ id: string; name: string; openRate: number; clickRate: number; sentCount: number }>;
   }>;
   getCampaignClickHeatmap(campaignId: string): Promise<{
-    htmlContent: string;
     links: Array<{ url: string; clicks: number; uniqueClickers: number; pct: number }>;
     totalClicks: number;
   } | null>;
