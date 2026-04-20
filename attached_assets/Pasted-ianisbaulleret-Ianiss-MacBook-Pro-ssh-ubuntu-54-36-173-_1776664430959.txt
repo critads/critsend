@@ -1,0 +1,112 @@
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@54.36.173.140
+ubuntu@54.36.173.140's password: 
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 5.15.0-174-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Apr 20 05:51:27 UTC 2026
+
+  System load:  0.04               Processes:               328
+  Usage of /:   1.7% of 466.29GB   Users logged in:         0
+  Memory usage: 1%                 IPv4 address for enp6s0: 54.36.173.140
+  Swap usage:   0%                 IPv6 address for enp6s0: 2001:41d0:602:c8c::
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+16 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+6 additional security updates can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+*** System restart required ***
+Last login: Mon Apr 20 05:40:33 2026 from 196.20.218.62
+ubuntu@ns3102288:~$ cd /home/ubuntu/critsend
+ubuntu@ns3102288:~/critsend$ git pull
+remote: Enumerating objects: 10, done.
+remote: Counting objects: 100% (10/10), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 8 (delta 5), reused 8 (delta 5), pack-reused 0 (from 0)
+Unpacking objects: 100% (8/8), 61.33 KiB | 1.36 MiB/s, done.
+From https://github.com/critads/critsend
+   2057a78..443c21c  main       -> origin/main
+Updating 2057a78..443c21c
+Fast-forward
+ ...pm2-logs-critsend-web-nostrea_1776663890223.txt |  71 +++++++++++++++++++++
+ ...shot_2026-04-20_at_9.43.09_AM_1776663803995.png | Bin 0 -> 101784 bytes
+ 2 files changed, 71 insertions(+)
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-critsend-pm2-logs-critsend-web-nostrea_1776663890223.txt
+ create mode 100644 attached_assets/Screenshot_2026-04-20_at_9.43.09_AM_1776663803995.png
+ubuntu@ns3102288:~/critsend$ npm ci
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 832 packages, and audited 833 packages in 5s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+42 vulnerabilities (7 low, 4 moderate, 30 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+ubuntu@ns3102288:~/critsend$ npm run build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2492 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-BZWqRm0d.css     87.07 kB │ gzip:  14.09 kB
+../dist/public/assets/index-BHM9AaI4.js   1,241.44 kB │ gzip: 331.10 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.71s
+building server...
+
+  dist/index.cjs  1.7mb ⚠️
+
+⚡ Done in 58ms
+building import worker...
+
+  dist/import-worker.cjs  193.4kb
+
+⚡ Done in 21ms
+building background worker...
+
+  dist/worker-main.cjs  888.3kb
+
+⚡ Done in 30ms
+ubuntu@ns3102288:~/critsend$ pm2 reload deploy/ecosystem.config.cjs --env production
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
