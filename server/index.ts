@@ -570,6 +570,21 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     logger.info("[MONOLITH] PROCESS_TYPE is not 'web' — starting background workers in-process");
     await startAllWorkers();
     startBullMQWorkers();
+
+    // In split-process production this scheduler lives in worker-main.ts; in
+    // monolith mode the web process IS the worker, so schedule it here too
+    // (gated by the same DISABLE_WORKERS check) — otherwise the rollup never
+    // refreshes and analytics queries that depend on analytics_daily would
+    // gradually go stale.
+    const { runAnalyticsRollup } = await import("./repositories/analytics-ops");
+    runAnalyticsRollup(3650).catch((err) =>
+      logger.error("[ANALYTICS_ROLLUP] Initial backfill failed", { error: String(err) })
+    );
+    setInterval(() => {
+      runAnalyticsRollup(7).catch((err) =>
+        logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
+      );
+    }, 15 * 60 * 1000).unref();
   } else if (process.env.DISABLE_WORKERS === 'true') {
     logger.info("[MONOLITH] DISABLE_WORKERS=true — background workers disabled on this instance");
   }
