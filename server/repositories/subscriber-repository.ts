@@ -12,18 +12,75 @@ import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { logger } from "../logger";
 import { compileSegmentRules } from "../services/segment-compiler";
 import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
+import { redisConnection, isRedisConfigured } from "../redis";
 
-// ─── Segment count in-memory cache ───────────────────────────────────────────
+// ─── Segment count cache ────────────────────────────────────────────────────
+// Primary: Redis (shared across instances). Fallback: in-memory Map when
+// Redis is not configured.
+const SEGMENT_COUNT_CACHE_TTL = 300_000; // 5 minutes (ms, in-memory fallback)
+const SEGMENT_COUNT_CACHE_TTL_SEC = 300; // 5 minutes (Redis EXPIRE)
+const REDIS_SEGMENT_COUNT_PREFIX = "segment:count:";
+
 const segmentCountCache = new Map<string, { count: number; timestamp: number }>();
-const SEGMENT_COUNT_CACHE_TTL = 300_000; // 5 minutes
 
-// Auto-prune expired entries every 5 minutes
+// Auto-prune expired in-memory entries every 5 minutes (no-op when Redis is used)
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of segmentCountCache) {
     if (now - entry.timestamp > SEGMENT_COUNT_CACHE_TTL) segmentCountCache.delete(key);
   }
 }, 300_000).unref();
+
+async function redisGetSegmentCount(segmentId: string): Promise<number | null> {
+  if (!redisConnection) return null;
+  try {
+    const v = await redisConnection.get(REDIS_SEGMENT_COUNT_PREFIX + segmentId);
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  } catch (err) {
+    logger.warn(`[segmentCount] Redis get failed: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+async function redisSetSegmentCount(segmentId: string, count: number): Promise<void> {
+  if (!redisConnection) return;
+  try {
+    await redisConnection.set(
+      REDIS_SEGMENT_COUNT_PREFIX + segmentId,
+      String(count),
+      "EX",
+      SEGMENT_COUNT_CACHE_TTL_SEC,
+    );
+  } catch (err) {
+    logger.warn(`[segmentCount] Redis set failed: ${(err as Error).message}`);
+  }
+}
+
+async function redisDeleteSegmentCount(segmentId?: string): Promise<void> {
+  if (!redisConnection) return;
+  try {
+    if (segmentId) {
+      await redisConnection.del(REDIS_SEGMENT_COUNT_PREFIX + segmentId);
+      return;
+    }
+    let cursor = "0";
+    do {
+      const [next, keys] = await redisConnection.scan(
+        cursor,
+        "MATCH",
+        `${REDIS_SEGMENT_COUNT_PREFIX}*`,
+        "COUNT",
+        100,
+      );
+      cursor = next;
+      if (keys.length > 0) await redisConnection.del(...keys);
+    } while (cursor !== "0");
+  } catch (err) {
+    logger.warn(`[segmentCount] Redis del failed: ${(err as Error).message}`);
+  }
+}
 
 function normalizeRules(rules: any): SegmentRulesV2 | null {
   if (!rules) return null;
@@ -280,6 +337,14 @@ export async function deleteSegment(id: string): Promise<void> {
 }
 
 export async function getSegmentSubscriberCountCached(segmentId: string): Promise<number> {
+  if (isRedisConfigured) {
+    const fromRedis = await redisGetSegmentCount(segmentId);
+    if (fromRedis !== null) return fromRedis;
+    const count = await countSubscribersForSegment(segmentId);
+    await redisSetSegmentCount(segmentId, count);
+    return count;
+  }
+  // In-memory fallback when Redis is not configured
   const cached = segmentCountCache.get(segmentId);
   if (cached && Date.now() - cached.timestamp < SEGMENT_COUNT_CACHE_TTL) {
     return cached.count;
@@ -289,12 +354,17 @@ export async function getSegmentSubscriberCountCached(segmentId: string): Promis
   return count;
 }
 
-export function invalidateSegmentCountCache(segmentId?: string): void {
+export async function invalidateSegmentCountCache(segmentId?: string): Promise<void> {
   if (segmentId) {
     segmentCountCache.delete(segmentId);
   } else {
     segmentCountCache.clear();
   }
+  // Awaiting Redis deletion guarantees that any subsequent read on this or
+  // any other instance will miss the cache and recompute the count. This is
+  // required by callers like `?refresh=true` that immediately re-read the
+  // count right after invalidating.
+  await redisDeleteSegmentCount(segmentId);
 }
 
 // ═══════════════════════════════════════════════════════════════

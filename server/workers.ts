@@ -227,7 +227,7 @@ async function pollForFlushJobs() {
       const actualProcessed = await processFlushJob(job.id, job.totalRows);
       await storage.completeFlushJob(job.id, "completed", undefined, actualProcessed);
       flushJobsTotal.inc({ status: 'completed' });
-      storage.invalidateSegmentCountCache();
+      await storage.invalidateSegmentCountCache();
       logger.info(`Flush job ${job.id} completed successfully (${actualProcessed} rows deleted)`);
       publishJobProgress({
         jobType: "flush",
@@ -1053,7 +1053,7 @@ async function pollForImportJobs() {
               await storage.updateImportJob(importJobId, { status: "completed", completedAt: new Date() })
                 .catch((err: any) => logger.error(`[IMPORT] Safety-net status update failed: ${err.message}`));
             }
-            storage.invalidateSegmentCountCache();
+            await storage.invalidateSegmentCountCache();
             logger.info(`[IMPORT] Job ${importJobId} completed successfully (status: ${lastProgressStatus})`);
           }
         }

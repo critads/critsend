@@ -57,7 +57,7 @@ export interface IStorage {
   updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined>;
   deleteSegment(id: string): Promise<void>;
   getSegmentSubscriberCountCached(segmentId: string): Promise<number>;
-  invalidateSegmentCountCache(segmentId?: string): void;
+  invalidateSegmentCountCache(segmentId?: string): Promise<void>;
   previewSegmentRules(rules: SegmentRulesV2, sampleLimit?: number): Promise<{ count: number; sample: Subscriber[] }>;
   duplicateSegment(id: string): Promise<Segment | undefined>;
 

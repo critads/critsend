@@ -78,7 +78,7 @@ export function registerSegmentRoutes(app: Express, helpers: {
       // the next call computes fresh counts. Used by the "Refresh counts"
       // button after a large import.
       if (refresh) {
-        for (const id of targetIds) storage.invalidateSegmentCountCache(id);
+        await Promise.all(targetIds.map((id) => storage.invalidateSegmentCountCache(id)));
       }
 
       const counts: Record<string, number> = {};

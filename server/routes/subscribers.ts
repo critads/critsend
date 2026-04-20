@@ -57,7 +57,7 @@ export function registerSubscriberRoutes(app: Express, helpers: {
       }
       
       const subscriber = await storage.createSubscriber(data);
-      storage.invalidateSegmentCountCache();
+      await storage.invalidateSegmentCountCache();
       res.status(201).json(subscriber);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -106,7 +106,7 @@ export function registerSubscriberRoutes(app: Express, helpers: {
       }
 
       const result = await storage.bulkDeleteByEmails(unique);
-      storage.invalidateSegmentCountCache();
+      await storage.invalidateSegmentCountCache();
       logger.info(`[BULK_DELETE] Deleted ${result.deleted} subscribers (${result.notFound} not found) from ${unique.length} emails`);
       res.json(result);
     } catch (error) {
