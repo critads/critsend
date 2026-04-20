@@ -1,6 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -810,17 +813,50 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
 }
 
 function OverallAnalyticsView() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [refreshing, setRefreshing] = useState(false);
   const { data, isLoading } = useQuery<OverallAnalytics>({
     queryKey: ["/api/analytics/overall"],
   });
 
+  // Server-side analytics responses are cached for 5 minutes. The Refresh
+  // button busts that cache (cross-process via Redis pub/sub) and then
+  // invalidates every analytics query in react-query so the next render
+  // recomputes from the database.
+  const refreshAll = async () => {
+    setRefreshing(true);
+    try {
+      await apiRequest("POST", "/api/analytics/cache/invalidate");
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/overall"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/campaign"] });
+      toast({ title: "Analytics refreshed" });
+    } catch (e: any) {
+      toast({ title: "Refresh failed", description: e?.message ?? String(e), variant: "destructive" });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
-        <p className="text-muted-foreground">
-          Track opens, clicks, and engagement across all campaigns
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
+          <p className="text-muted-foreground">
+            Track opens, clicks, and engagement across all campaigns
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={refreshAll}
+          disabled={refreshing}
+          data-testid="button-refresh-analytics"
+        >
+          <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

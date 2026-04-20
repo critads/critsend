@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -767,13 +768,9 @@ export default function AdvancedAnalytics() {
   const refreshAll = async () => {
     setRefreshing(true);
     try {
-      const resp = await fetch("/api/analytics/cache/invalidate", {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!resp.ok) {
-        throw new Error(`Server returned ${resp.status}`);
-      }
+      // apiRequest auto-attaches the CSRF token required for non-GET calls
+      // and throws on non-2xx, so we don't need to manage either ourselves.
+      await apiRequest("POST", "/api/analytics/cache/invalidate");
       await queryClient.invalidateQueries({ queryKey: ["/api/analytics/overview"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/analytics/engagement"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/analytics/deliverability"] });
