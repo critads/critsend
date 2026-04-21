@@ -1247,6 +1247,14 @@ const MAINTENANCE_INTERVAL = 21600000; // 6 hours
 const MAINTENANCE_BATCH_SIZE = 1000;
 const MAINTENANCE_MAX_ROWS = 50000;
 
+// tracking_tokens is a high-volume table (~310M rows on prod ≈ 65 GB). The
+// initial purge needs a much larger per-run budget than the default 50k cap so
+// the backlog actually drains; subsequent steady-state runs hit the cutoff
+// quickly and exit early. Both the retention horizon and per-run delete cap
+// are env-configurable.
+const TRACKING_TOKEN_DEFAULT_RETENTION_DAYS = 90;
+const TRACKING_TOKEN_DEFAULT_MAX_ROWS = 5_000_000;
+
 const TABLE_CLEANUP_QUERIES: Record<string, { column: string; statusFilter?: boolean }> = {
   nullsink_captures: { column: "timestamp" },
   campaign_sends: { column: "sent_at" },
@@ -1255,7 +1263,18 @@ const TABLE_CLEANUP_QUERIES: Record<string, { column: string; statusFilter?: boo
   import_job_queue: { column: "created_at", statusFilter: true },
   error_logs: { column: "timestamp" },
   session: { column: "expire" },
+  tracking_tokens: { column: "created_at" },
 };
+
+function getTrackingTokenRetentionDays(): number {
+  const raw = parseInt(process.env.TRACKING_TOKEN_RETENTION_DAYS || "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : TRACKING_TOKEN_DEFAULT_RETENTION_DAYS;
+}
+
+function getTrackingTokenMaxRowsPerRun(): number {
+  const raw = parseInt(process.env.TRACKING_TOKEN_MAX_DELETE_PER_RUN || "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : TRACKING_TOKEN_DEFAULT_MAX_ROWS;
+}
 
 async function runMaintenanceForRule(rule: any, triggeredBy: string): Promise<{ rowsDeleted: number; durationMs: number; status: string; errorMessage?: string }> {
   const startTime = Date.now();
@@ -1265,10 +1284,19 @@ async function runMaintenanceForRule(rule: any, triggeredBy: string): Promise<{ 
     return { rowsDeleted: 0, durationMs: 0, status: "failed", errorMessage: `No cleanup config for table ${rule.tableName}` };
   }
 
-  try {
-    const cutoff = new Date(Date.now() - rule.retentionDays * 24 * 60 * 60 * 1000);
+  // Per-table overrides (env-configurable). Tracking tokens use a much larger
+  // per-run cap because the steady-state backlog can exceed the default 50k.
+  let retentionDays = rule.retentionDays;
+  let maxRowsPerRun = MAINTENANCE_MAX_ROWS;
+  if (rule.tableName === "tracking_tokens") {
+    retentionDays = getTrackingTokenRetentionDays();
+    maxRowsPerRun = getTrackingTokenMaxRowsPerRun();
+  }
 
-    while (totalDeleted < MAINTENANCE_MAX_ROWS) {
+  try {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    while (totalDeleted < maxRowsPerRun) {
       let query: string;
       let params: any[];
 

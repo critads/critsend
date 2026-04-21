@@ -126,6 +126,16 @@ export async function seedDefaultMaintenanceRules(): Promise<void> {
     { tableName: "import_job_queue", displayName: "Import Queue", description: "Completed import queue entries", retentionDays: 30, enabled: true },
     { tableName: "error_logs", displayName: "Error Logs", description: "Application error log entries", retentionDays: 30, enabled: true },
     { tableName: "session", displayName: "Sessions", description: "Expired user sessions", retentionDays: 7, enabled: true },
+    {
+      tableName: "tracking_tokens",
+      displayName: "Tracking Tokens",
+      description: "Per-batch /c/ and /u/ short-link tokens for click and unsubscribe URLs",
+      retentionDays: (() => {
+        const raw = parseInt(process.env.TRACKING_TOKEN_RETENTION_DAYS || "", 10);
+        return Number.isFinite(raw) && raw > 0 ? raw : 90;
+      })(),
+      enabled: true,
+    },
   ];
   for (const rule of defaults) {
     await upsertMaintenanceRule(rule);

@@ -415,6 +415,7 @@ export const trackingTokens = pgTable("tracking_tokens", {
 }, (table) => ({
   campaignIdx: index("tracking_tokens_campaign_idx").on(table.campaignId),
   subscriberIdx: index("tracking_tokens_subscriber_idx").on(table.subscriberId),
+  createdAtIdx: index("tracking_tokens_created_at_idx").on(table.createdAt),
 }));
 
 export type TrackingToken = typeof trackingTokens.$inferSelect;

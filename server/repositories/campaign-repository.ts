@@ -616,6 +616,22 @@ export async function getDashboardStats() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS tracking_tokens_campaign_idx   ON tracking_tokens (campaign_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS tracking_tokens_subscriber_idx ON tracking_tokens (subscriber_id)`);
+    // created_at index powers the retention purge job (DELETE … WHERE created_at < cutoff).
+    // Without it, batched deletes on a 300M-row table do a sequential scan and are unusable.
+    // CREATE INDEX CONCURRENTLY runs on its own connection (autocommit per pool.query),
+    // so it does not block live writes; on a fresh DB it returns instantly via IF NOT EXISTS.
+    // CONCURRENTLY only — a blocking CREATE INDEX on a 300M+ row table would
+    // lock writes for many minutes and stall live tracking. If it fails (e.g.
+    // a previous attempt left an INVALID index behind), drop and let the next
+    // process restart retry. Never fall back to a blocking CREATE INDEX here.
+    try {
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_created_at_idx ON tracking_tokens (created_at)`);
+    } catch (idxErr: any) {
+      logger.warn(`[tracking_tokens] CONCURRENTLY created_at index build failed, will retry on next start: ${idxErr?.message || idxErr}`);
+      try {
+        await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_created_at_idx`);
+      } catch { /* ignore */ }
+    }
   } catch (err: any) {
     logger.error('[tracking_tokens] Table bootstrap failed:', err.message);
   }
