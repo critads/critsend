@@ -257,6 +257,7 @@ export interface IStorage {
   getMaintenanceLogs(limit?: number): Promise<DbMaintenanceLog[]>;
   createMaintenanceLog(data: Omit<DbMaintenanceLog, 'id' | 'executedAt'>): Promise<DbMaintenanceLog>;
   getTableStats(): Promise<Array<{tableName: string; rowCount: number; sizeBytes: number; sizePretty: string}>>;
+  getTrackingTokenBloat(): Promise<import("./repositories/system-repository").TrackingTokenBloatStatus>;
   seedDefaultMaintenanceRules(): Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════

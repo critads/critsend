@@ -18,6 +18,15 @@ export function registerDatabaseHealthRoutes(app: Express) {
     }
   });
 
+  app.get("/api/database-health/tracking-token-bloat", async (_req: Request, res: Response) => {
+    try {
+      const bloat = await storage.getTrackingTokenBloat();
+      res.json(bloat);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch tracking_tokens bloat status" });
+    }
+  });
+
   app.get("/api/database-health/rules", async (_req: Request, res: Response) => {
     try {
       const rules = await storage.getMaintenanceRules();

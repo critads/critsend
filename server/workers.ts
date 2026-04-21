@@ -1389,6 +1389,33 @@ async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: 
   return results;
 }
 
+// Tracks the last reclaim-recommended state we logged for tracking_tokens so
+// the alert fires once on transition (healthy → bloated) and once when it
+// clears, instead of repeating every maintenance cycle.
+let lastTrackingTokenBloatAlerted = false;
+
+async function checkTrackingTokenBloat(): Promise<void> {
+  try {
+    const status = await storage.getTrackingTokenBloat();
+    if (status.reclaimRecommended && !lastTrackingTokenBloatAlerted) {
+      logger.warn(
+        `[MAINTENANCE] tracking_tokens reclaim recommended — ${status.reasons.join(" ")} ` +
+        `live=${status.liveRows} dead=${status.deadRows} size=${status.totalSizePretty}. ` +
+        `See ${status.runbookPath} to run the one-shot reclamation.`
+      );
+      lastTrackingTokenBloatAlerted = true;
+    } else if (!status.reclaimRecommended && lastTrackingTokenBloatAlerted) {
+      logger.info(
+        `[MAINTENANCE] tracking_tokens bloat cleared — ` +
+        `live=${status.liveRows} dead=${status.deadRows} size=${status.totalSizePretty}.`
+      );
+      lastTrackingTokenBloatAlerted = false;
+    }
+  } catch (err) {
+    logger.error("[MAINTENANCE] tracking_tokens bloat check failed:", err);
+  }
+}
+
 function startMaintenanceWorker() {
   if (maintenanceInterval) return;
   logger.info("[MAINTENANCE] Starting maintenance worker (6h interval)");
@@ -1406,6 +1433,7 @@ function startMaintenanceWorker() {
     } catch (err) {
       logger.error("[MAINTENANCE] Failed to expire abandoned imports:", err);
     }
+    await checkTrackingTokenBloat();
   }, MAINTENANCE_INTERVAL);
 }
 

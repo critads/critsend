@@ -26,6 +26,23 @@ import {
   XCircle,
   AlertTriangle,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+interface TrackingTokenBloatStatus {
+  tableName: "tracking_tokens";
+  liveRows: number;
+  deadRows: number;
+  deadRatio: number;
+  totalSizeBytes: number;
+  totalSizePretty: string;
+  heapSizeBytes: number;
+  heapSizePretty: string;
+  thresholds: { deadRatio: number; minBytesForRatioAlert: number; sizeBytes: number };
+  reclaimRecommended: boolean;
+  reasons: string[];
+  runbookPath: string;
+  measuredAt: string;
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -224,6 +241,11 @@ export default function DatabaseHealth() {
     queryKey: ["/api/database-health/logs"],
   });
 
+  const { data: bloat } = useQuery<TrackingTokenBloatStatus>({
+    queryKey: ["/api/database-health/tracking-token-bloat"],
+    refetchInterval: 60_000,
+  });
+
   const statsByTable = new Map<string, { rowCount: number; sizeBytes: number; sizePretty: string }>();
   for (const s of stats ?? []) {
     statsByTable.set(s.tableName, { rowCount: s.rowCount, sizeBytes: s.sizeBytes, sizePretty: s.sizePretty });
@@ -293,6 +315,39 @@ export default function DatabaseHealth() {
           {runCleanupMutation.isPending ? "Running..." : "Run Cleanup Now"}
         </Button>
       </div>
+
+      {bloat?.reclaimRecommended && (
+        <Alert variant="destructive" data-testid="alert-tracking-token-bloat">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle data-testid="text-bloat-title">
+            tracking_tokens reclaim recommended
+          </AlertTitle>
+          <AlertDescription className="space-y-2">
+            <ul className="list-disc pl-5 text-sm">
+              {bloat.reasons.map((reason, i) => (
+                <li key={i} data-testid={`text-bloat-reason-${i}`}>{reason}</li>
+              ))}
+            </ul>
+            <div className="text-xs text-muted-foreground" data-testid="text-bloat-stats">
+              live={bloat.liveRows.toLocaleString()} ·
+              {" "}dead={bloat.deadRows.toLocaleString()} ·
+              {" "}dead ratio={(bloat.deadRatio * 100).toFixed(1)}% ·
+              {" "}total size={bloat.totalSizePretty}
+            </div>
+            <div className="text-sm" data-testid="text-bloat-runbook">
+              Run the one-shot reclamation documented in
+              {" "}
+              <code className="px-1 py-0.5 rounded bg-muted text-foreground">
+                {bloat.runbookPath}
+              </code>
+              {" "}(<code className="px-1 py-0.5 rounded bg-muted text-foreground">
+                tsx scripts/reclaim-tracking-tokens.ts --check
+              </code>
+              {" "}to start).
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader>

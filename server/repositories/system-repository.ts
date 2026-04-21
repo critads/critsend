@@ -117,6 +117,119 @@ export async function getTableStats(): Promise<Array<{tableName: string; rowCoun
   }));
 }
 
+// ───────────────────────────────────────────────────────────────
+// Bloat watch for tracking_tokens
+//
+// The retention worker only marks rows dead — Postgres won't return the
+// space until the table is rewritten (see docs/reclaim-tracking-tokens.md).
+// This check surfaces when the dead/live ratio or absolute size has crept
+// back into territory where an operator should run that one-shot reclaim.
+// Thresholds are env-configurable so they can be tuned without a deploy.
+// ───────────────────────────────────────────────────────────────
+
+export interface TrackingTokenBloatStatus {
+  tableName: "tracking_tokens";
+  liveRows: number;
+  deadRows: number;
+  deadRatio: number;          // dead / (live + dead), 0 when no rows
+  totalSizeBytes: number;     // pg_total_relation_size (heap + indexes + toast)
+  totalSizePretty: string;
+  heapSizeBytes: number;      // pg_relation_size (heap only)
+  heapSizePretty: string;
+  thresholds: {
+    deadRatio: number;        // ratio above which we consider it bloated
+    minBytesForRatioAlert: number; // ratio alert ignored below this size
+    sizeBytes: number;        // size above which we always alert
+  };
+  reclaimRecommended: boolean;
+  reasons: string[];          // human-readable bullets, empty when healthy
+  runbookPath: "docs/reclaim-tracking-tokens.md";
+  measuredAt: string;         // ISO timestamp for the dashboard
+}
+
+function getEnvNumber(name: string, fallback: number): number {
+  const raw = parseFloat(process.env[name] || "");
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+interface TrackingTokenBloatRow {
+  total_bytes: string | number | null;
+  heap_bytes: string | number | null;
+  total_pretty: string | null;
+  heap_pretty: string | null;
+  live_rows: string | number | null;
+  dead_rows: string | number | null;
+}
+
+export async function getTrackingTokenBloat(): Promise<TrackingTokenBloatStatus> {
+  const result = await pool.query<TrackingTokenBloatRow>(`
+    SELECT
+      COALESCE(pg_total_relation_size('tracking_tokens'), 0)::bigint AS total_bytes,
+      COALESCE(pg_relation_size('tracking_tokens'), 0)::bigint       AS heap_bytes,
+      pg_size_pretty(COALESCE(pg_total_relation_size('tracking_tokens'), 0)) AS total_pretty,
+      pg_size_pretty(COALESCE(pg_relation_size('tracking_tokens'), 0))       AS heap_pretty,
+      COALESCE((SELECT n_live_tup FROM pg_stat_user_tables WHERE relname = 'tracking_tokens'), 0)::bigint AS live_rows,
+      COALESCE((SELECT n_dead_tup FROM pg_stat_user_tables WHERE relname = 'tracking_tokens'), 0)::bigint AS dead_rows
+  `);
+  const r = result.rows[0];
+  const liveRows = Number(r?.live_rows ?? 0);
+  const deadRows = Number(r?.dead_rows ?? 0);
+  const totalSizeBytes = Number(r?.total_bytes ?? 0);
+  const heapSizeBytes = Number(r?.heap_bytes ?? 0);
+  const totalPretty = r?.total_pretty ?? "0 bytes";
+  const heapPretty = r?.heap_pretty ?? "0 bytes";
+  const denom = liveRows + deadRows;
+  const deadRatio = denom > 0 ? deadRows / denom : 0;
+
+  const thresholds = {
+    deadRatio: getEnvNumber("TRACKING_TOKEN_BLOAT_DEAD_RATIO", 0.5),
+    minBytesForRatioAlert: getEnvNumber("TRACKING_TOKEN_BLOAT_MIN_BYTES", 1024 * 1024 * 1024), // 1 GiB
+    sizeBytes: getEnvNumber("TRACKING_TOKEN_BLOAT_SIZE_BYTES", 10 * 1024 * 1024 * 1024),       // 10 GiB
+  };
+
+  const reasons: string[] = [];
+  if (deadRatio >= thresholds.deadRatio && totalSizeBytes >= thresholds.minBytesForRatioAlert) {
+    reasons.push(
+      `Dead-tuple ratio is ${(deadRatio * 100).toFixed(1)}% (threshold ${(thresholds.deadRatio * 100).toFixed(0)}%) at ${totalPretty}.`
+    );
+  }
+  if (totalSizeBytes >= thresholds.sizeBytes) {
+    reasons.push(
+      `Total relation size is ${totalPretty}, above the ${pgSizePretty(thresholds.sizeBytes)} alert threshold.`
+    );
+  }
+
+  return {
+    tableName: "tracking_tokens",
+    liveRows,
+    deadRows,
+    deadRatio,
+    totalSizeBytes,
+    totalSizePretty: totalPretty,
+    heapSizeBytes,
+    heapSizePretty: heapPretty,
+    thresholds,
+    reclaimRecommended: reasons.length > 0,
+    reasons,
+    runbookPath: "docs/reclaim-tracking-tokens.md",
+    measuredAt: new Date().toISOString(),
+  };
+}
+
+// Mirror Postgres' pg_size_pretty for threshold display so dashboard text
+// matches what operators see when they query the database directly.
+function pgSizePretty(bytes: number): string {
+  const units = ["bytes", "kB", "MB", "GB", "TB"];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  if (i === 0) return `${Math.round(value)} ${units[i]}`;
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`;
+}
+
 export async function seedDefaultMaintenanceRules(): Promise<void> {
   const defaults: InsertDbMaintenanceRule[] = [
     { tableName: "nullsink_captures", displayName: "Nullsink Captures", description: "Test email captures from nullsink campaigns", retentionDays: 7, enabled: true },
