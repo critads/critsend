@@ -74,7 +74,51 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="secondary" className="gap-1" data-testid="badge-partial"><AlertTriangle className="w-3 h-3" />Partial</Badge>;
 }
 
-function RuleRow({ rule }: { rule: any }) {
+function Sparkline({ values, testId }: { values: number[]; testId?: string }) {
+  if (!values || values.length === 0) {
+    return <span className="text-xs text-muted-foreground" data-testid={testId}>—</span>;
+  }
+  const w = 80;
+  const h = 24;
+  const max = Math.max(...values, 1);
+  const stepX = values.length > 1 ? w / (values.length - 1) : 0;
+  const points = values
+    .map((v, i) => {
+      const x = values.length === 1 ? w / 2 : i * stepX;
+      const y = h - (v / max) * (h - 2) - 1;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const last = values[values.length - 1];
+  return (
+    <div className="flex items-center gap-2" data-testid={testId}>
+      <svg width={w} height={h} className="overflow-visible">
+        {values.length > 1 ? (
+          <polyline
+            points={points}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            className="text-primary"
+          />
+        ) : (
+          <circle cx={w / 2} cy={h / 2} r="2" className="fill-primary" />
+        )}
+      </svg>
+      <span className="text-xs text-muted-foreground tabular-nums">{last.toLocaleString()}</span>
+    </div>
+  );
+}
+
+function RuleRow({
+  rule,
+  tableStat,
+  recentDeletes,
+}: {
+  rule: any;
+  tableStat?: { rowCount: number; sizeBytes: number; sizePretty: string };
+  recentDeletes: number[];
+}) {
   const { toast } = useToast();
   const [retentionDays, setRetentionDays] = useState(rule.retentionDays);
   const [enabled, setEnabled] = useState(rule.enabled);
@@ -135,6 +179,21 @@ function RuleRow({ rule }: { rule: any }) {
         </span>
       </TableCell>
       <TableCell>
+        {tableStat ? (
+          <div className="text-sm">
+            <div data-testid={`text-rule-rows-${rule.id}`}>{formatNumber(tableStat.rowCount)} rows</div>
+            <div className="text-xs text-muted-foreground" data-testid={`text-rule-size-${rule.id}`}>
+              {tableStat.sizePretty || formatBytes(tableStat.sizeBytes)}
+            </div>
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </TableCell>
+      <TableCell>
+        <Sparkline values={recentDeletes} testId={`sparkline-${rule.id}`} />
+      </TableCell>
+      <TableCell>
         {isDirty && (
           <Button
             size="sm"
@@ -164,6 +223,30 @@ export default function DatabaseHealth() {
   const { data: logs, isLoading: logsLoading } = useQuery<any[]>({
     queryKey: ["/api/database-health/logs"],
   });
+
+  const statsByTable = new Map<string, { rowCount: number; sizeBytes: number; sizePretty: string }>();
+  for (const s of stats ?? []) {
+    statsByTable.set(s.tableName, { rowCount: s.rowCount, sizeBytes: s.sizeBytes, sizePretty: s.sizePretty });
+  }
+
+  // Build a per-rule history of rowsDeleted (oldest -> newest, last 10 runs).
+  const deletesByRule = new Map<string, number[]>();
+  if (logs) {
+    const grouped = new Map<string, any[]>();
+    for (const log of logs) {
+      if (!log.ruleId) continue;
+      const arr = grouped.get(log.ruleId) ?? [];
+      arr.push(log);
+      grouped.set(log.ruleId, arr);
+    }
+    for (const [ruleId, arr] of grouped.entries()) {
+      const sorted = [...arr]
+        .sort((a, b) => new Date(a.executedAt).getTime() - new Date(b.executedAt).getTime())
+        .slice(-10)
+        .map(l => Number(l.rowsDeleted ?? 0));
+      deletesByRule.set(ruleId, sorted);
+    }
+  }
 
   const runCleanupMutation = useMutation({
     mutationFn: async () => {
@@ -275,17 +358,24 @@ export default function DatabaseHealth() {
                   <TableHead>Retention</TableHead>
                   <TableHead>Enabled</TableHead>
                   <TableHead>Last Run</TableHead>
-                  <TableHead>Rows Cleaned</TableHead>
+                  <TableHead>Last Cleaned</TableHead>
+                  <TableHead>Current Size</TableHead>
+                  <TableHead>Recent Deletes</TableHead>
                   <TableHead className="w-16"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rules?.map((rule: any) => (
-                  <RuleRow key={rule.id} rule={rule} />
+                  <RuleRow
+                    key={rule.id}
+                    rule={rule}
+                    tableStat={statsByTable.get(rule.tableName)}
+                    recentDeletes={deletesByRule.get(rule.id) ?? []}
+                  />
                 ))}
                 {(!rules || rules.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">No cleanup rules configured</TableCell>
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">No cleanup rules configured</TableCell>
                   </TableRow>
                 )}
               </TableBody>
