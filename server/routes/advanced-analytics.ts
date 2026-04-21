@@ -14,35 +14,67 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
     try {
       const refresh = parseRefreshFlag(req.query);
       const data = await getAnalyticsCached("overview", async () => {
-        // The all-time totals are inherently expensive on tables this size
-        // (campaign_sends ≈ 14M, campaign_stats ≈ 5.5M). The 5-min cache
-        // amortizes that cost across requests; the rollup is not used here
-        // because totals span all history, not the rollup's window.
-        const [subscriberResult, campaignResult, sendsResult, statsResult] = await Promise.all([
-          pool.query(`SELECT COUNT(*)::int AS total_subscribers FROM subscribers`),
-          pool.query(`SELECT COUNT(*)::int AS total_campaigns FROM campaigns`),
-          pool.query(`
-            SELECT
-              COUNT(*)::int AS total_sent,
-              COUNT(*) FILTER (WHERE status = 'bounced')::int AS total_bounces
-            FROM campaign_sends
-          `),
-          pool.query(`
-            SELECT
-              COUNT(*) FILTER (WHERE type = 'open')::int AS total_opens,
-              COUNT(*) FILTER (WHERE type = 'click')::int AS total_clicks,
-              COUNT(*) FILTER (WHERE type = 'unsubscribe')::int AS total_unsubscribes
-            FROM campaign_stats
-          `),
-        ]);
+        // Fast path: read the materialized single-row totals refreshed
+        // every 15 minutes by the worker. PK lookup, no big-table scans.
+        // If the table is missing entirely (fresh deploy before db:push
+        // applied the new schema), Postgres throws 42P01 — treat that as
+        // "no row" so the live-COUNT fallback kicks in instead of 500ing.
+        let totalsRow: { rowCount: number; rows: any[] };
+        try {
+          const r = await pool.query(
+            `SELECT total_subscribers, total_campaigns, total_sent, total_bounces,
+                    total_opens, total_clicks, total_unsubscribes, updated_at
+             FROM analytics_totals WHERE id = 'global' LIMIT 1`
+          );
+          totalsRow = { rowCount: r.rowCount ?? 0, rows: r.rows };
+        } catch (err: any) {
+          if (err?.code === "42P01") {
+            totalsRow = { rowCount: 0, rows: [] };
+          } else {
+            throw err;
+          }
+        }
 
-        const totalSubscribers = subscriberResult.rows[0]?.total_subscribers ?? 0;
-        const totalCampaigns = campaignResult.rows[0]?.total_campaigns ?? 0;
-        const totalSent = sendsResult.rows[0]?.total_sent ?? 0;
-        const totalBounces = sendsResult.rows[0]?.total_bounces ?? 0;
-        const totalOpens = statsResult.rows[0]?.total_opens ?? 0;
-        const totalClicks = statsResult.rows[0]?.total_clicks ?? 0;
-        const totalUnsubscribes = statsResult.rows[0]?.total_unsubscribes ?? 0;
+        let totalSubscribers: number;
+        let totalCampaigns: number;
+        let totalSent: number;
+        let totalBounces: number;
+        let totalOpens: number;
+        let totalClicks: number;
+        let totalUnsubscribes: number;
+
+        if (totalsRow.rowCount && totalsRow.rowCount > 0) {
+          const r = totalsRow.rows[0];
+          totalSubscribers = r.total_subscribers ?? 0;
+          totalCampaigns = r.total_campaigns ?? 0;
+          totalSent = r.total_sent ?? 0;
+          totalBounces = r.total_bounces ?? 0;
+          totalOpens = r.total_opens ?? 0;
+          totalClicks = r.total_clicks ?? 0;
+          totalUnsubscribes = r.total_unsubscribes ?? 0;
+        } else {
+          // Fallback for fresh deployments before the rollup has run.
+          // Same expensive scans as before, but only on the very first
+          // hit; subsequent calls hit the materialized row.
+          const [subscriberResult, campaignResult, sendsResult, statsResult] = await Promise.all([
+            pool.query(`SELECT COUNT(*)::int AS total_subscribers FROM subscribers`),
+            pool.query(`SELECT COUNT(*)::int AS total_campaigns FROM campaigns`),
+            pool.query(`SELECT COUNT(*)::int AS total_sent,
+                               COUNT(*) FILTER (WHERE status = 'bounced')::int AS total_bounces
+                        FROM campaign_sends`),
+            pool.query(`SELECT COUNT(*) FILTER (WHERE type = 'open')::int AS total_opens,
+                               COUNT(*) FILTER (WHERE type = 'click')::int AS total_clicks,
+                               COUNT(*) FILTER (WHERE type = 'unsubscribe')::int AS total_unsubscribes
+                        FROM campaign_stats`),
+          ]);
+          totalSubscribers = subscriberResult.rows[0]?.total_subscribers ?? 0;
+          totalCampaigns = campaignResult.rows[0]?.total_campaigns ?? 0;
+          totalSent = sendsResult.rows[0]?.total_sent ?? 0;
+          totalBounces = sendsResult.rows[0]?.total_bounces ?? 0;
+          totalOpens = statsResult.rows[0]?.total_opens ?? 0;
+          totalClicks = statsResult.rows[0]?.total_clicks ?? 0;
+          totalUnsubscribes = statsResult.rows[0]?.total_unsubscribes ?? 0;
+        }
 
         const openRate = totalSent > 0 ? (totalOpens / totalSent) * 100 : 0;
         const clickRate = totalSent > 0 ? (totalClicks / totalSent) * 100 : 0;
@@ -73,7 +105,9 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
   app.get("/api/analytics/engagement", async (req: Request, res: Response) => {
     try {
       const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const refresh = parseRefreshFlag(req.query);
 
+      const rows = await getAnalyticsCached(`engagement:${days}`, async () => {
       const rollupResult = await pool.query(
         `SELECT COUNT(*)::int AS cnt FROM analytics_daily WHERE date >= NOW() - $1::int * INTERVAL '1 day'`,
         [days]
@@ -139,6 +173,9 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
         rows = result.rows;
       }
 
+      return rows;
+      }, refresh);
+
       res.json(rows);
     } catch (error) {
       logger.error("Error fetching engagement trends:", error);
@@ -156,63 +193,29 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
       const refresh = parseRefreshFlag(req.query);
 
       const rows = await getAnalyticsCached(`cohort:${period}`, async () => {
-        // Cohort rewrite: the original query joined the full 5.5M-row
-        // campaign_stats table to subscribers TWICE (once for unsubscribes,
-        // once for opens/clicks) and counted DISTINCT subscriber_id per
-        // cohort — that scans every event row before grouping. Here we
-        // first collapse campaign_stats to one row per subscriber per
-        // event class (unsub_subs, engaged_subs), turning the join input
-        // from millions of events into at most ~1.2M unique subscriber
-        // IDs. The final join to `subs` rides the new
-        // subscribers(import_date) index for the cohort bucketing.
+        // Denormalized cohort: subscribers.suppressed_until and
+        // subscribers.last_engaged_at are kept up to date by the rollup
+        // (and an idempotent one-shot bootstrap), so cohort analysis
+        // scans ONLY the subscribers table — never the 5.5M-row
+        // campaign_stats. A single GROUP BY + COUNT(*) FILTER does it.
         const result = await pool.query(
-          `WITH subs AS (
-            SELECT id, date_trunc($1, import_date)::date AS cohort
-            FROM subscribers
-          ),
-          cohort_totals AS (
-            SELECT cohort, COUNT(*)::int AS total_subscribers
-            FROM subs
-            GROUP BY cohort
-          ),
-          unsub_subs AS (
-            SELECT DISTINCT subscriber_id
-            FROM campaign_stats
-            WHERE type = 'unsubscribe'
-          ),
-          engaged_subs AS (
-            SELECT DISTINCT subscriber_id
-            FROM campaign_stats
-            WHERE type IN ('open', 'click')
-          ),
-          unsub_by_cohort AS (
-            SELECT s.cohort, COUNT(*)::int AS unsub_count
-            FROM subs s
-            JOIN unsub_subs u ON u.subscriber_id = s.id
-            GROUP BY s.cohort
-          ),
-          engaged_by_cohort AS (
-            SELECT s.cohort, COUNT(*)::int AS engaged_count
-            FROM subs s
-            JOIN engaged_subs e ON e.subscriber_id = s.id
-            GROUP BY s.cohort
-          )
-          SELECT
-            ct.cohort,
-            ct.total_subscribers,
-            ct.total_subscribers - COALESCE(u.unsub_count, 0) AS active_subscribers,
-            CASE WHEN ct.total_subscribers > 0
-              THEN ROUND(((ct.total_subscribers - COALESCE(u.unsub_count, 0))::numeric / ct.total_subscribers) * 100, 2)
+          `SELECT
+            date_trunc($1, import_date)::date AS cohort,
+            COUNT(*)::int AS total_subscribers,
+            COUNT(*) FILTER (WHERE suppressed_until IS NULL OR suppressed_until < NOW())::int AS active_subscribers,
+            CASE WHEN COUNT(*) > 0
+              THEN ROUND((COUNT(*) FILTER (WHERE suppressed_until IS NULL OR suppressed_until < NOW())::numeric
+                          / COUNT(*)) * 100, 2)
               ELSE 0
             END AS active_rate,
-            CASE WHEN ct.total_subscribers > 0
-              THEN ROUND((COALESCE(e.engaged_count, 0)::numeric / ct.total_subscribers) * 100, 2)
+            CASE WHEN COUNT(*) > 0
+              THEN ROUND((COUNT(*) FILTER (WHERE last_engaged_at IS NOT NULL)::numeric
+                          / COUNT(*)) * 100, 2)
               ELSE 0
             END AS engagement_rate
-          FROM cohort_totals ct
-          LEFT JOIN unsub_by_cohort u USING (cohort)
-          LEFT JOIN engaged_by_cohort e USING (cohort)
-          ORDER BY ct.cohort DESC`,
+          FROM subscribers
+          GROUP BY date_trunc($1, import_date)::date
+          ORDER BY date_trunc($1, import_date)::date DESC`,
           [period]
         );
         return result.rows;
@@ -313,6 +316,10 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
     try {
       const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 10, 1), 100);
       const sortBy = req.query.sortBy as string || "openRate";
+      // Window the scan: by default we only consider campaigns that sent
+      // anything in the last 90 days, which slashes both CTE inputs and
+      // matches what users actually look at on this page.
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 90, 1), 3650);
       const refresh = parseRefreshFlag(req.query);
 
       const allowedSortBy = ["openRate", "clickRate", "sent"];
@@ -334,16 +341,19 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
           break;
       }
 
-      const rows = await getAnalyticsCached(`top-campaigns:${sortBy}:${limit}`, async () => {
+      const rows = await getAnalyticsCached(`top-campaigns:${sortBy}:${limit}:${days}`, async () => {
         // Pre-aggregate per campaign in CTEs BEFORE joining. The original
         // query did three LEFT JOINs followed by COUNT(DISTINCT ...) which
         // is a cardinality bomb on a 14M-row sends table × 5.5M-row stats
         // table. The CTE form scans each table once and emits one row per
         // campaign, then joins those tiny aggregates back onto campaigns.
+        // The time window cuts each scan to roughly the last `days` worth
+        // of rows, slashing buffer reads on multi-million-row tables.
         const result = await pool.query(
           `WITH sends AS (
             SELECT campaign_id, COUNT(*)::int AS total_sent
             FROM campaign_sends
+            WHERE sent_at >= NOW() - $2::int * INTERVAL '1 day'
             GROUP BY campaign_id
           ),
           opens AS (
@@ -352,6 +362,7 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
               COUNT(DISTINCT subscriber_id)::int AS unique_opens
             FROM campaign_stats
             WHERE type = 'open'
+              AND timestamp >= NOW() - $2::int * INTERVAL '1 day'
             GROUP BY campaign_id
           ),
           clicks AS (
@@ -360,6 +371,7 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
               COUNT(DISTINCT subscriber_id)::int AS unique_clicks
             FROM campaign_stats
             WHERE type = 'click'
+              AND timestamp >= NOW() - $2::int * INTERVAL '1 day'
             GROUP BY campaign_id
           )
           SELECT
@@ -380,7 +392,7 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
           WHERE s.total_sent > 0
           ORDER BY ${orderClause}
           LIMIT $1`,
-          [limit]
+          [limit, days]
         );
         return result.rows.map((row: any) => ({
           id: row.id,

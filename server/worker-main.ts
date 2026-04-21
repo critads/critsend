@@ -131,7 +131,12 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
   // Schedule analytics_daily rollup. The web process never runs this — only
   // the worker — so we don't double-write. Initial backfill covers all
   // history; subsequent incremental rollups overwrite the last 7 days.
-  const { runAnalyticsRollup } = await import("./repositories/analytics-ops");
+  const { runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
+  // One-shot last_engaged_at backfill — guarded by a marker row so the
+  // expensive scan only runs the first time after the column ships.
+  runEngagementBackfillOnce().catch((err) =>
+    logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
+  );
   runAnalyticsRollup(3650).catch((err) =>
     logger.error("[ANALYTICS_ROLLUP] Initial backfill failed", { error: String(err) })
   );

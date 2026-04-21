@@ -576,7 +576,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     // (gated by the same DISABLE_WORKERS check) — otherwise the rollup never
     // refreshes and analytics queries that depend on analytics_daily would
     // gradually go stale.
-    const { runAnalyticsRollup } = await import("./repositories/analytics-ops");
+    const { runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
+    runEngagementBackfillOnce().catch((err) =>
+      logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
+    );
     runAnalyticsRollup(3650).catch((err) =>
       logger.error("[ANALYTICS_ROLLUP] Initial backfill failed", { error: String(err) })
     );

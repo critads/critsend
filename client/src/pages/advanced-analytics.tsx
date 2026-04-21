@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -759,6 +759,23 @@ export default function AdvancedAnalytics() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Prefetch every tab's default query once on mount so switching tabs is
+  // instant. The default queryFn (queryKey.join("/")) handles the URL
+  // shape exactly like the per-tab useQuery hooks below.
+  useEffect(() => {
+    const prefetches: Array<readonly [string, ...string[]]> = [
+      ["/api/analytics/overview"],
+      ["/api/analytics/engagement", "?days=30"],
+      ["/api/analytics/deliverability", "?days=30"],
+      ["/api/analytics/subscriber-growth", "?days=30"],
+      ["/api/analytics/top-campaigns", "?limit=10&sortBy=openRate"],
+      ["/api/analytics/cohort", "?period=monthly"],
+    ];
+    for (const queryKey of prefetches) {
+      queryClient.prefetchQuery({ queryKey: queryKey as readonly string[] });
+    }
+  }, [queryClient]);
 
   // The server-side analytics cache has a 5-min TTL. The Refresh button
   // hits a single invalidate endpoint that fans out across web + worker

@@ -12,6 +12,7 @@ export const subscribers = pgTable("subscribers", {
   ipAddress: text("ip_address"),
   importDate: timestamp("import_date").notNull().defaultNow(),
   suppressedUntil: timestamp("suppressed_until"),
+  lastEngagedAt: timestamp("last_engaged_at"),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
   emailLowerIdx: index("subscribers_email_lower_idx").on(sql`lower(email)`),
@@ -972,6 +973,23 @@ export const insertAutomationWorkflowSchema = createInsertSchema(automationWorkf
 });
 
 export const insertAnalyticsDailySchema = createInsertSchema(analyticsDaily).omit({ id: true, updatedAt: true });
+
+// Single-row materialized totals — read by /api/analytics/overview so it
+// never has to scan campaign_sends/campaign_stats/subscribers/campaigns.
+// The rollup refreshes this once per cycle (every 15 minutes).
+export const analyticsTotals = pgTable("analytics_totals", {
+  id: varchar("id").primaryKey().default(sql`'global'`),
+  totalSubscribers: integer("total_subscribers").notNull().default(0),
+  totalCampaigns: integer("total_campaigns").notNull().default(0),
+  totalSent: integer("total_sent").notNull().default(0),
+  totalBounces: integer("total_bounces").notNull().default(0),
+  totalOpens: integer("total_opens").notNull().default(0),
+  totalClicks: integer("total_clicks").notNull().default(0),
+  totalUnsubscribes: integer("total_unsubscribes").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type AnalyticsTotals = typeof analyticsTotals.$inferSelect;
 
 // Database maintenance rules - configurable cleanup for heavy tables
 export const dbMaintenanceRules = pgTable("db_maintenance_rules", {

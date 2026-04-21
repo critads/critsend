@@ -40,6 +40,19 @@ const REQUIRED_INDEXES: Array<{ name: string; ddl: string }> = [
     ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS subscribers_import_date_idx
           ON subscribers (import_date)`,
   },
+  // Cohort analysis: COUNT(*) FILTER on these two columns drives the
+  // "active" and "engagement" rates. Partial indexes keep them tiny —
+  // most subscribers never unsubscribe and most are not engaged.
+  {
+    name: "subscribers_suppressed_partial_idx",
+    ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS subscribers_suppressed_partial_idx
+          ON subscribers (suppressed_until) WHERE suppressed_until IS NOT NULL`,
+  },
+  {
+    name: "subscribers_engaged_partial_idx",
+    ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS subscribers_engaged_partial_idx
+          ON subscribers (last_engaged_at) WHERE last_engaged_at IS NOT NULL`,
+  },
 ];
 
 let bootstrapStarted = false;
@@ -178,6 +191,29 @@ export async function runAnalyticsRollup(days: number): Promise<void> {
     [days]
   );
 
+  // Refresh per-subscriber engagement timestamp from the same window so
+  // cohort analytics never have to scan campaign_stats. Bounded to the
+  // rollup window (the bootstrap takes care of the historical backfill).
+  await pool.query(
+    `UPDATE subscribers s
+     SET last_engaged_at = e.max_ts
+     FROM (
+       SELECT subscriber_id, MAX(timestamp) AS max_ts
+       FROM campaign_stats
+       WHERE timestamp >= NOW() - $1::int * INTERVAL '1 day'
+         AND type IN ('open', 'click')
+       GROUP BY subscriber_id
+     ) e
+     WHERE e.subscriber_id = s.id
+       AND (s.last_engaged_at IS NULL OR e.max_ts > s.last_engaged_at)`,
+    [days]
+  );
+
+  // Materialize the single-row totals view used by /api/analytics/overview.
+  // Done in the worker process so the read endpoint is a PK lookup that
+  // never blocks on a 14M-row COUNT(*).
+  await runAnalyticsTotalsRefresh();
+
   logger.info(`[ANALYTICS_ROLLUP] Completed for last ${days} days in ${Date.now() - t0}ms`);
 
   // Cached metrics derived from the rollup are now stale.
@@ -186,6 +222,87 @@ export async function runAnalyticsRollup(days: number): Promise<void> {
   // cache. publishAnalyticsInvalidation() clears the local cache and fans
   // the invalidation out via Redis so the web instance drops its cache too.
   publishAnalyticsInvalidation();
+}
+
+/**
+ * Refresh the single-row analytics_totals table. Each query is a single
+ * COUNT(*) (or seq scan) that's not cheap on its own, but it runs in the
+ * worker process every 15 minutes — totally off the request path. The
+ * /api/analytics/overview endpoint then becomes a 1-row PK lookup.
+ */
+export async function runAnalyticsTotalsRefresh(): Promise<void> {
+  const t0 = Date.now();
+  const [subs, camps, sends, stats] = await Promise.all([
+    pool.query(`SELECT COUNT(*)::int AS n FROM subscribers`),
+    pool.query(`SELECT COUNT(*)::int AS n FROM campaigns`),
+    pool.query(`SELECT COUNT(*)::int AS total_sent,
+                       COUNT(*) FILTER (WHERE status = 'bounced')::int AS total_bounces
+                FROM campaign_sends`),
+    pool.query(`SELECT COUNT(*) FILTER (WHERE type = 'open')::int AS total_opens,
+                       COUNT(*) FILTER (WHERE type = 'click')::int AS total_clicks,
+                       COUNT(*) FILTER (WHERE type = 'unsubscribe')::int AS total_unsubscribes
+                FROM campaign_stats`),
+  ]);
+
+  await pool.query(
+    `INSERT INTO analytics_totals (id, total_subscribers, total_campaigns,
+        total_sent, total_bounces, total_opens, total_clicks, total_unsubscribes, updated_at)
+     VALUES ('global', $1, $2, $3, $4, $5, $6, $7, NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       total_subscribers = EXCLUDED.total_subscribers,
+       total_campaigns = EXCLUDED.total_campaigns,
+       total_sent = EXCLUDED.total_sent,
+       total_bounces = EXCLUDED.total_bounces,
+       total_opens = EXCLUDED.total_opens,
+       total_clicks = EXCLUDED.total_clicks,
+       total_unsubscribes = EXCLUDED.total_unsubscribes,
+       updated_at = NOW()`,
+    [
+      subs.rows[0]?.n ?? 0,
+      camps.rows[0]?.n ?? 0,
+      sends.rows[0]?.total_sent ?? 0,
+      sends.rows[0]?.total_bounces ?? 0,
+      stats.rows[0]?.total_opens ?? 0,
+      stats.rows[0]?.total_clicks ?? 0,
+      stats.rows[0]?.total_unsubscribes ?? 0,
+    ]
+  );
+  logger.info(`[ANALYTICS_TOTALS] Refreshed in ${Date.now() - t0}ms`);
+}
+
+/**
+ * One-shot backfill of subscribers.last_engaged_at from the full history of
+ * campaign_stats. Idempotent: a marker row in dashboard_cache prevents the
+ * heavy scan from running on every startup. The incremental rollup keeps
+ * the column up to date afterwards.
+ */
+export async function runEngagementBackfillOnce(): Promise<void> {
+  const marker = await pool.query(
+    `SELECT 1 FROM dashboard_cache WHERE key = 'analytics_engaged_backfill_done' LIMIT 1`
+  );
+  if (marker.rowCount && marker.rowCount > 0) return;
+
+  const t0 = Date.now();
+  logger.info("[ANALYTICS_BACKFILL] Backfilling subscribers.last_engaged_at from full campaign_stats history…");
+  await pool.query(
+    `UPDATE subscribers s
+     SET last_engaged_at = e.max_ts
+     FROM (
+       SELECT subscriber_id, MAX(timestamp) AS max_ts
+       FROM campaign_stats
+       WHERE type IN ('open', 'click')
+       GROUP BY subscriber_id
+     ) e
+     WHERE e.subscriber_id = s.id
+       AND s.last_engaged_at IS NULL`
+  );
+  await pool.query(
+    `INSERT INTO dashboard_cache (key, value, updated_at)
+     VALUES ('analytics_engaged_backfill_done', $1::jsonb, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [JSON.stringify({ completedAt: new Date().toISOString() })]
+  );
+  logger.info(`[ANALYTICS_BACKFILL] last_engaged_at backfill complete in ${Date.now() - t0}ms`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
