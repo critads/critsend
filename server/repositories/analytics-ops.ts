@@ -70,6 +70,33 @@ export function runAnalyticsBootstrapMigrations(): void {
   bootstrapStarted = true;
 
   (async () => {
+    // Idempotent DDL for the new analytics fast-path objects. These run
+    // before the index loop so that writer paths (rollup, totals refresh,
+    // engagement backfill) never see "relation does not exist" if code
+    // ships ahead of `npm run db:push`. ALTER/CREATE IF NOT EXISTS are
+    // cheap no-ops on already-migrated databases.
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS analytics_totals (
+           id VARCHAR PRIMARY KEY DEFAULT 'global',
+           total_subscribers INT NOT NULL DEFAULT 0,
+           total_campaigns INT NOT NULL DEFAULT 0,
+           total_sent INT NOT NULL DEFAULT 0,
+           total_bounces INT NOT NULL DEFAULT 0,
+           total_opens INT NOT NULL DEFAULT 0,
+           total_clicks INT NOT NULL DEFAULT 0,
+           total_unsubscribes INT NOT NULL DEFAULT 0,
+           updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+         )`
+      );
+      await pool.query(
+        `ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_engaged_at TIMESTAMP`
+      );
+      logger.info("[ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at");
+    } catch (err: any) {
+      logger.error(`[ANALYTICS_BOOTSTRAP] DDL bootstrap FAILED: ${err?.message || err}`);
+    }
+
     for (const idx of REQUIRED_INDEXES) {
       const t0 = Date.now();
       try {
