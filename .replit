@@ -64,4 +64,4 @@ DISABLE_WORKERS = "true"
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 90000
