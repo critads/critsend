@@ -22,6 +22,15 @@ let mtaRecoveryInterval: NodeJS.Timeout | null = null;
 let memoryCheckInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
 let scheduledCampaignInterval: NodeJS.Timeout | null = null;
+let workerHeartbeatInterval: NodeJS.Timeout | null = null;
+
+// Redis key used by the web process's /api/health endpoint to discover
+// whether the (separate) worker process is alive and which sub-workers
+// are running. TTL is set to 30s; the worker republishes every 10s, so
+// the key disappears within 30s of the worker dying.
+export const WORKER_HEARTBEAT_KEY = "critsend:worker:health";
+const WORKER_HEARTBEAT_TTL_SECONDS = 30;
+const WORKER_HEARTBEAT_INTERVAL_MS = 10_000;
 
 let isActiveImportJob = false;
 let activeFlushJob = false;
@@ -1445,11 +1454,51 @@ function stopMaintenanceWorker() {
   }
 }
 
+async function publishWorkerHeartbeat() {
+  if (!isRedisConfigured || !redisConnection) return;
+  try {
+    const payload = JSON.stringify({
+      ...getWorkerHealth(),
+      pid: process.pid,
+      processType: process.env.PROCESS_TYPE || "monolith",
+      timestamp: Date.now(),
+    });
+    await redisConnection.set(WORKER_HEARTBEAT_KEY, payload, "EX", WORKER_HEARTBEAT_TTL_SECONDS);
+  } catch (err: any) {
+    logger.warn(`[WORKER_HEARTBEAT] Failed to publish heartbeat: ${err.message}`);
+  }
+}
+
+function startWorkerHeartbeat() {
+  if (workerHeartbeatInterval) return;
+  if (!isRedisConfigured || !redisConnection) {
+    // Monolith mode (no Redis): web reads in-process flags directly, no heartbeat needed.
+    return;
+  }
+  publishWorkerHeartbeat();
+  workerHeartbeatInterval = setInterval(publishWorkerHeartbeat, WORKER_HEARTBEAT_INTERVAL_MS);
+  workerHeartbeatInterval.unref?.();
+  logger.info(`[WORKER_HEARTBEAT] Started (every ${WORKER_HEARTBEAT_INTERVAL_MS / 1000}s, TTL ${WORKER_HEARTBEAT_TTL_SECONDS}s)`);
+}
+
+function stopWorkerHeartbeat() {
+  if (workerHeartbeatInterval) {
+    clearInterval(workerHeartbeatInterval);
+    workerHeartbeatInterval = null;
+  }
+  if (isRedisConfigured && redisConnection) {
+    // Best-effort: drop the key on clean shutdown so /api/health flips to
+    // "worker down" immediately instead of waiting for TTL expiry.
+    redisConnection.del(WORKER_HEARTBEAT_KEY).catch(() => {});
+  }
+}
+
 export async function startAllWorkers() {
   await startJobProcessor();
   startTagQueueWorker();
   startMaintenanceWorker();
   startScheduledCampaignPoller();
+  startWorkerHeartbeat();
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
   });
@@ -1457,6 +1506,7 @@ export async function startAllWorkers() {
 
 export function stopAllBackgroundWorkers() {
   logger.info("[SHUTDOWN] Stopping all background workers...");
+  stopWorkerHeartbeat();
   stopMemoryMonitor();
   stopJobProcessor();
   stopTagQueueWorker();

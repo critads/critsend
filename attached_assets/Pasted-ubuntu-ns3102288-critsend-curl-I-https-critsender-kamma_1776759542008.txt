@@ -1,0 +1,53 @@
+ubuntu@ns3102288:~/critsend$ curl -I https://critsender.kammaspeed.com/api/health
+sudo certbot certificates
+HTTP/2 503 
+server: nginx/1.18.0 (Ubuntu)
+date: Tue, 21 Apr 2026 08:18:48 GMT
+content-type: application/json; charset=utf-8
+content-length: 160
+content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+origin-agent-cluster: ?1
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-xss-protection: 0
+x-request-id: 64b0adc9-557e-4e23-966c-4448e2178943
+ratelimit-policy: 200;w=60
+ratelimit-limit: 200
+ratelimit-remaining: 199
+ratelimit-reset: 60
+etag: W/"a0-5R1HeUaES3tCmC4CDWCtI2UUfpk"
+strict-transport-security: max-age=63072000; includeSubDomains; preload
+
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Found the following certs:
+  Certificate Name: critsender.kammaspeed.com
+    Serial Number: 6bde0af146a11a37181b23901958754744e
+    Key Type: RSA
+    Domains: critsender.kammaspeed.com
+    Expiry Date: 2026-07-20 07:18:23+00:00 (VALID: 89 days)
+    Certificate Path: /etc/letsencrypt/live/critsender.kammaspeed.com/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/critsender.kammaspeed.com/privkey.pem
+  Certificate Name: critsender.rndaserver.com
+    Serial Number: 639c29567b34127ee5478db752680bbf043
+    Key Type: RSA
+    Domains: critsender.rndaserver.com
+    Expiry Date: 2026-07-08 04:40:25+00:00 (VALID: 77 days)
+    Certificate Path: /etc/letsencrypt/live/critsender.rndaserver.com/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/critsender.rndaserver.com/privkey.pem
+  Certificate Name: server.critsender.com
+    Serial Number: 6e7e78514253e2404ce956902796cf0ff49
+    Key Type: RSA
+    Domains: server.critsender.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com
+    Expiry Date: 2026-06-29 15:50:30+00:00 (VALID: 69 days)
+    Certificate Path: /etc/letsencrypt/live/server.critsender.com/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/server.critsender.com/privkey.pem
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

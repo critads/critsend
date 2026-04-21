@@ -2,8 +2,87 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
-import { getWorkerHealth } from "../workers";
+import { getWorkerHealth, WORKER_HEARTBEAT_KEY } from "../workers";
 import { redisConnection, isRedisConfigured } from "../redis";
+
+type WorkerHealthFlags = ReturnType<typeof getWorkerHealth>;
+type WorkerHealthReport = WorkerHealthFlags & {
+  source: "in-process" | "remote-worker" | "remote-worker-stale" | "remote-worker-missing";
+  pid?: number;
+  processType?: string;
+  heartbeatAgeSeconds?: number;
+};
+
+/**
+ * Resolve worker health for /api/health.
+ *
+ * - Monolith mode (PROCESS_TYPE not "web"): workers run in this same process,
+ *   so the local in-process flags from getWorkerHealth() are authoritative.
+ * - Split-process mode (PROCESS_TYPE=web): workers run in a separate process
+ *   and publish a heartbeat to Redis every 10s with a 30s TTL. We read that
+ *   key here. If it's missing or stale, we report all workers as down.
+ */
+async function resolveWorkerHealth(): Promise<WorkerHealthReport> {
+  const localFlags = getWorkerHealth();
+  const downFlags: WorkerHealthFlags = {
+    jobProcessor: false,
+    importProcessor: false,
+    tagQueueWorker: false,
+    flushProcessor: false,
+    maintenanceWorker: false,
+    scheduledCampaignPoller: false,
+  };
+
+  if (process.env.PROCESS_TYPE !== "web") {
+    return { ...localFlags, source: "in-process" };
+  }
+
+  if (!isRedisConfigured || !redisConnection) {
+    // Web process with no Redis can't see the worker. Report as missing
+    // rather than lying with the local (always-false) flags.
+    return { ...downFlags, source: "remote-worker-missing" };
+  }
+
+  try {
+    const raw = await redisConnection.get(WORKER_HEARTBEAT_KEY);
+    if (!raw) {
+      return { ...downFlags, source: "remote-worker-missing" };
+    }
+    const parsed = JSON.parse(raw) as WorkerHealthFlags & {
+      pid?: number;
+      processType?: string;
+      timestamp?: number;
+    };
+    const ageMs = parsed.timestamp ? Date.now() - parsed.timestamp : Number.POSITIVE_INFINITY;
+    const stale = ageMs > 30_000;
+    if (stale) {
+      // Heartbeat is older than its TTL window — treat the worker as gone.
+      // We must force flags to false so /api/health cannot report "healthy"
+      // off of stale data.
+      return {
+        ...downFlags,
+        source: "remote-worker-stale",
+        pid: parsed.pid,
+        processType: parsed.processType,
+        heartbeatAgeSeconds: Math.round(ageMs / 1000),
+      };
+    }
+    return {
+      jobProcessor: !!parsed.jobProcessor,
+      importProcessor: !!parsed.importProcessor,
+      tagQueueWorker: !!parsed.tagQueueWorker,
+      flushProcessor: !!parsed.flushProcessor,
+      maintenanceWorker: !!parsed.maintenanceWorker,
+      scheduledCampaignPoller: !!parsed.scheduledCampaignPoller,
+      source: "remote-worker",
+      pid: parsed.pid,
+      processType: parsed.processType,
+      heartbeatAgeSeconds: Math.round(ageMs / 1000),
+    };
+  } catch {
+    return { ...downFlags, source: "remote-worker-missing" };
+  }
+}
 
 export function registerHealthRoutes(app: Express) {
   app.get("/api/health", async (_req: Request, res: Response) => {
@@ -43,7 +122,7 @@ export function registerHealthRoutes(app: Express) {
         queueDepths = { error: "Failed to query queue depths" };
       }
 
-      const workerHealth = getWorkerHealth();
+      const workerHealth = await resolveWorkerHealth();
       const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor && workerHealth.scheduledCampaignPoller;
 
       let redisStatus: "ok" | "degraded" | "disabled" = "disabled";
