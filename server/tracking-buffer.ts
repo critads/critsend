@@ -189,6 +189,7 @@ export function primeLinkCache(entries: Iterable<[string, string]>): void {
 // ── Flusher ──────────────────────────────────────────────────────────────
 
 let flushTimer: NodeJS.Timeout | null = null;
+let poolSampleTimer: NodeJS.Timeout | null = null;
 let flushing = false;
 // Side-effect promises (recordFirstOpen tag enqueues, suppression UPDATEs)
 // fired by the current flusher cycle. Tracked so graceful shutdown can
@@ -484,6 +485,16 @@ export function startTrackingBufferFlusher(): void {
     flush().catch((err) => logger.error(`[TRACKING BUFFER] tick failed: ${err?.message || err}`));
   }, FLUSH_INTERVAL_MS);
   flushTimer.unref();
+  // Sample tracking-pool in-use every 250 ms so the gauge captures real
+  // peaks during short bursts (the flush-only update under-reports
+  // request-path checkout activity that doesn't coincide with a flush).
+  poolSampleTimer = setInterval(() => {
+    try {
+      const stats = getTrackingPoolStats();
+      trackingPoolInUse.set(Math.max(0, stats.total - stats.idle));
+    } catch {}
+  }, 250);
+  poolSampleTimer.unref();
   logger.info(
     `[TRACKING BUFFER] flusher started: interval=${FLUSH_INTERVAL_MS}ms, maxQueue=${MAX_QUEUE}, maxBatchPerType=${MAX_BATCH_PER_TYPE}, dedupeWindow=${DEDUPE_WINDOW_MS}ms`,
   );

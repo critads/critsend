@@ -86,7 +86,26 @@ HEALTH_PID=$!
 log_info "Firing pixel requests..."
 START_NS=$(date +%s%N)
 PARALLEL="${PARALLEL:-50}"
-seq 1 "$TOTAL" | xargs -n1 -P"$PARALLEL" -I{} curl -s -o /dev/null -w "%{http_code} %{time_total}\n" --max-time 10 "$PIXEL_URL" >> "$TMP/pixel.txt" 2>&1 || true
+
+# Paced batches: split TOTAL into DURATION 1-second windows of $RPS
+# requests each. Within each window we fan out via xargs -P, then sleep
+# the remainder of the second. This avoids the all-at-once burst of the
+# old single xargs and exercises sustained-rate behavior the way a real
+# campaign send does. Per-batch parallelism is capped at PARALLEL.
+for ((sec=0; sec<DURATION; sec++)); do
+  BATCH_START_NS=$(date +%s%N)
+  seq 1 "$RPS" \
+    | xargs -n1 -P"$PARALLEL" -I{} curl -s -o /dev/null \
+        -w "%{http_code} %{time_total}\n" --max-time 10 "$PIXEL_URL" \
+    >> "$TMP/pixel.txt" 2>&1 || true
+  BATCH_END_NS=$(date +%s%N)
+  BATCH_MS=$(( (BATCH_END_NS - BATCH_START_NS) / 1000000 ))
+  if [ "$BATCH_MS" -lt 1000 ]; then
+    SLEEP_S=$(awk -v ms="$BATCH_MS" 'BEGIN{ printf "%.3f", (1000-ms)/1000 }')
+    sleep "$SLEEP_S"
+  fi
+done
+
 END_NS=$(date +%s%N)
 ELAPSED_MS=$(( (END_NS - START_NS) / 1000000 ))
 
@@ -96,6 +115,23 @@ wait "$HEALTH_PID" 2>/dev/null || true
 COMPLETED=$(wc -l < "$TMP/pixel.txt" | tr -d ' ')
 ACTUAL_RPS=$(awk -v c="$COMPLETED" -v ms="$ELAPSED_MS" 'BEGIN{ if (ms>0) printf "%.1f", (c*1000)/ms; else print "0"}')
 log_info "Pixel: completed=$COMPLETED in ${ELAPSED_MS}ms (~${ACTUAL_RPS} rps)"
+
+# Status code distribution — proves we hit the actual tracking path
+# (200 pixel) and not the per-IP rate limiter (429) or signature reject.
+log_info "Pixel HTTP status distribution:"
+awk '{print $1}' "$TMP/pixel.txt" | sort | uniq -c | sort -rn \
+  | awk '{ printf "  %s: %s\n", $2, $1 }'
+
+OK_COUNT=$(awk '$1=="200"{c++} END{print c+0}' "$TMP/pixel.txt")
+RL_COUNT=$(awk '$1=="429"{c++} END{print c+0}' "$TMP/pixel.txt")
+if [ "$RL_COUNT" -gt 0 ]; then
+  RL_PCT=$(awk -v r="$RL_COUNT" -v c="$COMPLETED" 'BEGIN{ if (c>0) printf "%.1f", (r*100)/c; else print "0"}')
+  log_warn "${RL_COUNT} requests (${RL_PCT}%) were rate-limited (429). Raise the limit on /api/track for synthetic runs (e.g. set RATE_LIMIT_TRACKING_DISABLED=1 on the server) so the test exercises the real DB path."
+fi
+if [ "$OK_COUNT" -eq 0 ] && [ "$ALLOW_INVALID_SIG" != "1" ]; then
+  log_fail "No 200 responses — the tracking path was never exercised. Check your signed PIXEL_URL."
+  exit 1
+fi
 
 if [ -s "$HEALTH_LOG" ]; then
   HEALTH_COUNT=$(wc -l < "$HEALTH_LOG" | tr -d ' ')
