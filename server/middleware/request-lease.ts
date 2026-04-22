@@ -27,6 +27,7 @@ import { AsyncLocalStorage } from "async_hooks";
 import type { Request, Response, NextFunction } from "express";
 import type { Pool, PoolClient } from "pg";
 import { pool, isPoolCheckoutError } from "../db";
+import { routeBucket } from "./pool-safety";
 
 type ConnectCallback = (err: Error | undefined, client: PoolClient | undefined, release: (err?: Error | boolean) => void) => void;
 type ReleaseFn = (err?: Error | boolean) => void;
@@ -91,7 +92,7 @@ export function requestLeaseMiddleware(req: Request, res: Response, next: NextFu
   // req.route is set after routing; before that, fall back to path. We
   // accept the slight cardinality cost because it's still bounded by the
   // number of unique routes the app exposes.
-  const route = (req.route?.path as string) || req.baseUrl + req.path || req.path || "unknown";
+  const route = (req.route?.path as string) || routeBucket(req.path);
   leaseStore.run({ route, count: 0, peak: 0, warned: false, poolErrorOccurred: false }, () => next());
 }
 

@@ -241,6 +241,15 @@ async function bulkInsertErrorLogs(rows: Array<{ email: string; subscriberId: st
   let p = 1;
   for (const r of rows) {
     placeholders.push(`($${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, NOW())`);
+    values.push(
+      "send_failed",
+      "warning",
+      `${r.type}: ${r.reason}`,
+      r.email,
+      r.subscriberId,
+      r.campaignId,
+      r.details,
+    );
   }
   await trackingPool.query(
     `INSERT INTO error_logs (type, severity, message, email, subscriber_id, campaign_id, details, "timestamp")

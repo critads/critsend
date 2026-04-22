@@ -60,7 +60,7 @@ function isCritical(path: string): boolean {
 }
 
 // Stable, low-cardinality route bucket for the load_shed metric.
-function routeBucket(path: string): string {
+export function routeBucket(path: string): string {
   if (path.startsWith("/api/campaigns")) return "/api/campaigns";
   if (path.startsWith("/api/subscribers")) return "/api/subscribers";
   if (path.startsWith("/api/imports")) return "/api/imports";
