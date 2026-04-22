@@ -32,7 +32,9 @@ const LOAD_SHED_THRESHOLD = Number(process.env.POOL_LOAD_SHED_THRESHOLD || 0.9);
 //   /api/unsubscribe/           — legal compliance (RFC 8058)
 //   /api/webhooks/              — bounce/complaint webhooks now buffered
 //                                 in-memory, so they never touch the main pool
-//   /api/auth/                  — login/logout must work to recover
+//   /api/auth/, /api/csrf-token — login/logout must work to recover
+//   /u, /c, /t, /w              — short tracking links (also support no
+//                                 trailing slash for the /u root path)
 const CRITICAL_PREFIXES = [
   "/api/health",
   "/metrics",
@@ -44,13 +46,30 @@ const CRITICAL_PREFIXES = [
   "/api/unsubscribe/",
   "/api/webhooks/",
   "/api/auth/",
+  "/api/csrf-token",
 ];
+// Bare paths (no trailing slash) treated as critical too — covers e.g. `/u`.
+const CRITICAL_EXACT = new Set(["/u", "/c", "/t", "/w"]);
 
 function isCritical(path: string): boolean {
+  if (CRITICAL_EXACT.has(path)) return true;
   for (const p of CRITICAL_PREFIXES) {
     if (path.startsWith(p)) return true;
   }
   return false;
+}
+
+// Stable, low-cardinality route bucket for the load_shed metric.
+function routeBucket(path: string): string {
+  if (path.startsWith("/api/campaigns")) return "/api/campaigns";
+  if (path.startsWith("/api/subscribers")) return "/api/subscribers";
+  if (path.startsWith("/api/imports")) return "/api/imports";
+  if (path.startsWith("/api/segments")) return "/api/segments";
+  if (path.startsWith("/api/automations")) return "/api/automations";
+  if (path.startsWith("/api/analytics")) return "/api/analytics";
+  if (path.startsWith("/api/mtas")) return "/api/mtas";
+  if (path.startsWith("/api/")) return "/api/other";
+  return "non-api";
 }
 
 let lastShedLogAt = 0;
@@ -69,7 +88,7 @@ export function loadShedMiddleware(req: Request, res: Response, next: NextFuncti
   if (waiting === 0 && saturation < LOAD_SHED_THRESHOLD) return next();
 
   const reason = waiting > 0 ? "waiting" : "saturation";
-  poolLoadShedTotal.inc({ reason });
+  poolLoadShedTotal.inc({ reason, route: routeBucket(req.path) });
   const now = Date.now();
   if (now - lastShedLogAt > SHED_LOG_INTERVAL_MS) {
     lastShedLogAt = now;

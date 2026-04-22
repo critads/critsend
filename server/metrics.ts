@@ -293,7 +293,7 @@ export const bounceBufferQueueDepth = new client.Gauge({
 export const poolLoadShedTotal = new client.Counter({
   name: 'critsend_db_pool_load_shed_total',
   help: 'Requests rejected with 503 by the load-shedding middleware',
-  labelNames: ['reason'] as const,
+  labelNames: ['reason', 'route'] as const,
   registers: [register],
 });
 
