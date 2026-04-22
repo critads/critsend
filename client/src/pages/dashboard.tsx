@@ -18,7 +18,9 @@ import {
   UserPlus,
   TrendingUp,
   BarChart3,
+  Filter,
 } from "lucide-react";
+import type { Segment } from "@shared/schema";
 import {
   Area,
   AreaChart,
@@ -40,6 +42,7 @@ interface DashboardStats {
     status: string;
     sentCount: number;
     scheduledAt: string | null;
+    segmentId: string | null;
   }>;
   recentImports: Array<{
     id: string;
@@ -142,6 +145,15 @@ export default function Dashboard() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
+
+  const { data: segments } = useQuery<Segment[]>({
+    queryKey: ["/api/segments"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const segmentNameById = new Map<string, string>(
+    (segments ?? []).map((s) => [s.id, s.name]),
+  );
 
   return (
     <div className="p-6 lg:p-8 space-y-8">
@@ -345,11 +357,31 @@ export default function Dashboard() {
                     className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
                     data-testid={`campaign-item-${campaign.id}`}
                   >
-                    <div className="flex flex-col gap-1">
-                      <span className="font-medium">{campaign.name}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {campaign.sentCount.toLocaleString()} emails sent
-                      </span>
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <span className="font-medium truncate">{campaign.name}</span>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span>{campaign.sentCount.toLocaleString()} emails sent</span>
+                        <span aria-hidden>·</span>
+                        {campaign.segmentId ? (
+                          <Link href={`/segments/${campaign.segmentId}`}>
+                            <span
+                              className="inline-flex items-center gap-1 hover:text-primary hover:underline truncate max-w-[160px]"
+                              data-testid={`text-segment-${campaign.id}`}
+                            >
+                              <Filter className="h-3 w-3 shrink-0" />
+                              {segmentNameById.get(campaign.segmentId) ?? "Segment"}
+                            </span>
+                          </Link>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1"
+                            data-testid={`text-segment-${campaign.id}`}
+                          >
+                            <Filter className="h-3 w-3 shrink-0" />
+                            All subscribers
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <CampaignStatusBadge status={campaign.status} />
                   </div>

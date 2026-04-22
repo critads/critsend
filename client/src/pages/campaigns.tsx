@@ -54,6 +54,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
+  Filter,
 } from "lucide-react";
 import type { Campaign, ErrorLog, Segment } from "@shared/schema";
 

@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  Filter,
 } from "lucide-react";
 import type { Campaign, Mta, Segment } from "@shared/schema";
 
@@ -198,6 +199,23 @@ export default function CampaignDetail() {
                 {campaign.name}
               </h1>
               <CampaignStatusBadge status={campaign.status} />
+              {campaign.segmentId ? (
+                <Link href={`/segments/${campaign.segmentId}`}>
+                  <Badge
+                    variant="outline"
+                    className="gap-1 cursor-pointer hover:bg-muted"
+                    data-testid="badge-header-segment"
+                  >
+                    <Filter className="h-3 w-3" />
+                    {segment?.name ?? "Segment"}
+                  </Badge>
+                </Link>
+              ) : (
+                <Badge variant="outline" className="gap-1" data-testid="badge-header-segment">
+                  <Filter className="h-3 w-3" />
+                  All subscribers
+                </Badge>
+              )}
             </div>
             <p className="text-muted-foreground" data-testid="text-campaign-subject">
               {campaign.subject}
@@ -275,7 +293,20 @@ export default function CampaignDetail() {
                 <span className="text-muted-foreground">Audience</span>
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium" data-testid="text-segment">{segment?.name || "Unknown"}</span>
+                  {campaign.segmentId ? (
+                    <Link href={`/segments/${campaign.segmentId}`}>
+                      <span
+                        className="font-medium hover:text-primary hover:underline"
+                        data-testid="text-segment"
+                      >
+                        {segment?.name || "Unknown"}
+                      </span>
+                    </Link>
+                  ) : (
+                    <span className="font-medium" data-testid="text-segment">
+                      All subscribers
+                    </span>
+                  )}
                 </div>
               </div>
               <Separator />
