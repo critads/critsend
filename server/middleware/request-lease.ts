@@ -25,8 +25,12 @@
  */
 import { AsyncLocalStorage } from "async_hooks";
 import type { Request, Response, NextFunction } from "express";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { pool, isPoolCheckoutError } from "../db";
+
+type ConnectCallback = (err: Error | undefined, client: PoolClient | undefined, release: (err?: Error | boolean) => void) => void;
+type ReleaseFn = (err?: Error | boolean) => void;
+type ConnectFn = Pool["connect"];
 import { logger } from "../logger";
 import {
   poolRequestHolding,
@@ -113,15 +117,17 @@ function attribute(ctx: LeaseCtx, client: PoolClient): void {
   ctx.count++;
   if (ctx.count > ctx.peak) ctx.peak = ctx.count;
   poolRequestHolding.inc({ route: ctx.route });
-  const originalRelease = client.release.bind(client);
+  // pg's PoolClient.release accepts (err?: Error | boolean | undefined).
+  const originalRelease: ReleaseFn = client.release.bind(client) as ReleaseFn;
   let released = false;
-  (client as any).release = (err?: Error | boolean) => {
+  const wrapped: ReleaseFn = (err?: Error | boolean) => {
     if (released) return;
     released = true;
     ctx.count = Math.max(0, ctx.count - 1);
     poolRequestHolding.dec({ route: ctx.route });
-    return originalRelease(err as any);
+    return originalRelease(err);
   };
+  client.release = wrapped as PoolClient["release"];
 }
 
 /**
@@ -136,16 +142,23 @@ export function installRequestLeaseTracker(): void {
   if (patched) return;
   patched = true;
 
-  const originalConnect = pool.connect.bind(pool) as any;
-  (pool as any).connect = function patchedConnect(cb?: any): any {
+  const originalConnect: ConnectFn = pool.connect.bind(pool);
+
+  function patchedConnect(): Promise<PoolClient>;
+  function patchedConnect(cb: ConnectCallback): void;
+  function patchedConnect(cb?: ConnectCallback): Promise<PoolClient> | void {
     // ── Callback form (used by pool.query internally) ──────────────────
     if (typeof cb === "function") {
       const ctxCb = leaseStore.getStore();
       if (ctxCb) {
         try { checkCap(ctxCb); }
-        catch (capErr) { return cb(capErr as Error, undefined as any, () => {}); }
+        catch (capErr) {
+          // No client to release; provide a no-op release to satisfy signature.
+          const noop: ReleaseFn = () => {};
+          return cb(capErr as Error, undefined, noop);
+        }
       }
-      return originalConnect((err: Error, client: PoolClient, release: any) => {
+      return originalConnect((err, client, release) => {
         if (err && isPoolCheckoutError(err)) markPoolErrorOnRequest();
         if (err || !client) return cb(err, client, release);
         const ctx = leaseStore.getStore();
@@ -154,7 +167,7 @@ export function installRequestLeaseTracker(): void {
         if (ctx.count > ctx.peak) ctx.peak = ctx.count;
         poolRequestHolding.inc({ route: ctx.route });
         let released = false;
-        const wrappedRelease = (e?: any) => {
+        const wrappedRelease: ReleaseFn = (e) => {
           if (released) return release(e);
           released = true;
           ctx.count = Math.max(0, ctx.count - 1);
@@ -168,7 +181,7 @@ export function installRequestLeaseTracker(): void {
     // ── Promise form ──────────────────────────────────────────────────
     const ctx = leaseStore.getStore();
     if (ctx) checkCap(ctx);
-    const p = originalConnect() as Promise<PoolClient>;
+    const p = originalConnect();
     if (!ctx) return p;
     return p.then(
       (client) => {
@@ -180,7 +193,8 @@ export function installRequestLeaseTracker(): void {
         throw err;
       },
     );
-  };
+  }
+  pool.connect = patchedConnect as ConnectFn;
 
   logger.info(`[POOL LEASE] Request-lease tracker installed (cap=${MAX_PER_REQUEST}/request)`);
 }
