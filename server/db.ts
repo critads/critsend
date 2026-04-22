@@ -83,8 +83,23 @@ export function getPoolSaturation(): number {
  */
 export function isPoolCheckoutError(err: unknown): boolean {
   if (!err) return false;
-  const msg = (err as Error)?.message || String(err);
-  return /timeout exceeded when trying to connect|Connection terminated due to connection timeout|Cannot use a pool after calling end/i.test(msg);
+  const e = err as { message?: string; code?: string; severity?: string };
+  // 1. PostgreSQL SQLSTATE codes that signal capacity / connection exhaustion.
+  //    Covers Neon's "too many clients" + driver-level connection failures
+  //    that should always be retryable from the client's perspective.
+  //    See https://www.postgresql.org/docs/current/errcodes-appendix.html
+  //      53300 = too_many_connections
+  //      53400 = configuration_limit_exceeded
+  //      57P03 = cannot_connect_now
+  //      08006 = connection_failure
+  //      08001 = sqlclient_unable_to_establish_sqlconnection
+  //      08004 = sqlserver_rejected_establishment_of_sqlconnection
+  if (e.code && /^(53300|53400|57P03|08006|08001|08004)$/.test(e.code)) return true;
+  // 2. Message-pattern fallback for pg-pool-internal errors that don't carry
+  //    a SQLSTATE (the pool layer raises plain JS Errors before reaching the
+  //    server). Matches both modern and legacy pg builds.
+  const msg = e.message || String(err);
+  return /timeout exceeded when trying to connect|Connection terminated due to connection timeout|Cannot use a pool after calling end|too many connections for role|remaining connection slots are reserved/i.test(msg);
 }
 
 if (isExternalDb) {

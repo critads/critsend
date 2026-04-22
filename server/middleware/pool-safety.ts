@@ -64,7 +64,9 @@ function isCritical(path: string): boolean {
 // can both import it without forming a circular dependency.
 
 /** Canonical body for every 503 response coming out of the safety net. */
-const SERVICE_BUSY_BODY = { error: "service_busy", retryAfterSeconds: 1 } as const;
+// Strict shape per task contract: only `{ error: "service_busy" }`. The
+// retry interval is communicated solely via the `Retry-After: 1` header.
+const SERVICE_BUSY_BODY = { error: "service_busy" } as const;
 
 function sendServiceBusy(res: Response): Response {
   res.setHeader("Retry-After", "1");
