@@ -40,7 +40,12 @@ HEALTH_P99_MS_LIMIT="${HEALTH_P99_MS_LIMIT:-500}"
 # Hard SLO thresholds for the safety net itself.
 POOL_WAITING_PEAK_LIMIT="${POOL_WAITING_PEAK_LIMIT:-2}"
 SHED_RATE_LIMIT_PER_SEC="${SHED_RATE_LIMIT_PER_SEC:-50}"
-METRIC_SCRAPE_INTERVAL_S="${METRIC_SCRAPE_INTERVAL_S:-2}"
+METRIC_SCRAPE_INTERVAL_S="${METRIC_SCRAPE_INTERVAL_S:-1}"
+# critsend_db_pool_saturation_total is a counter sampled every poll. Under
+# steady load-shedding, its rate-of-change should stay near zero (we shed
+# BEFORE saturating). If it grows by more than this many ticks/sec, the
+# safety net is failing.
+SATURATION_RATE_LIMIT_PER_SEC="${SATURATION_RATE_LIMIT_PER_SEC:-5}"
 
 end_at=$(( $(date +%s) + DURATION_S ))
 TMPDIR_RUN=$(mktemp -d)
@@ -125,7 +130,9 @@ fire_bounces() {
 }
 
 fire_pixel() {
-  curl_call pixel "$HOST/api/track/open?cid=lt&sid=lt&sig=lt" >/dev/null
+  # PIXEL_URL_PATH is precomputed once at startup with a real HMAC signature
+  # so we exercise the full tracking buffer enqueue path (not just hit a 404).
+  curl_call pixel "$HOST${PIXEL_URL_PATH}" >/dev/null
 }
 
 fire_health() {
@@ -187,8 +194,29 @@ spawn_loop() {
 
 echo "[load-test] HOST=$HOST  duration=${DURATION_S}s  campaigns=$NUM_CAMPAIGNS  bounce_rps=$BOUNCE_RPS  pixel_rps=$PIXEL_RPS"
 
+# Pre-sign a pixel URL so /api/track/open/:cid/:sid?sig=... is valid and
+# actually exercises the tracking buffer (not 404). Uses TRACKING_SECRET or
+# SESSION_SECRET (matches server/tracking.ts). Bash falls back to a static
+# UUID pair so the same URL is reused for the whole run.
+PIXEL_CID="${PIXEL_CID:-00000000-0000-0000-0000-00000000abcd}"
+PIXEL_SID="${PIXEL_SID:-00000000-0000-0000-0000-00000000ef01}"
+PIXEL_SECRET="${TRACKING_SECRET:-${SESSION_SECRET:-}}"
+if [[ -z "$PIXEL_SECRET" ]]; then
+  echo "[load-test] WARN: TRACKING_SECRET / SESSION_SECRET not set — pixel signature will be rejected (pre-route 4xx); test will not exercise tracking buffer."
+  PIXEL_URL_PATH="/api/track/open/${PIXEL_CID}/${PIXEL_SID}?sig=invalid"
+else
+  PIXEL_SIG=$(printf '%s:%s:open' "$PIXEL_CID" "$PIXEL_SID" \
+    | openssl dgst -sha256 -hmac "$PIXEL_SECRET" -hex 2>/dev/null \
+    | awk '{print $NF}')
+  PIXEL_URL_PATH="/api/track/open/${PIXEL_CID}/${PIXEL_SID}?sig=${PIXEL_SIG}"
+fi
+echo "[load-test] pixel URL: ${PIXEL_URL_PATH}"
+
 shed_before=$(sum_metric critsend_db_pool_load_shed_total || echo 0)
 [[ -z "$shed_before" ]] && shed_before=0
+sat_before=$(sum_metric critsend_db_pool_saturation_total || echo 0)
+[[ -z "$sat_before" ]] && sat_before=0
+echo "[load-test] critsend_db_pool_saturation_total (pre) = $sat_before"
 echo "[load-test] critsend_db_pool_load_shed_total (pre) = $shed_before"
 
 echo "[load-test] launching campaigns…"
@@ -238,6 +266,12 @@ shed_delta=$(( shed_after - shed_before ))
 shed_rate=$(awk "BEGIN{printf \"%.2f\", $shed_delta / $DURATION_S}")
 echo "critsend_db_pool_load_shed_total: $shed_before → $shed_after  (Δ=$shed_delta, ${shed_rate}/sec, limit=${SHED_RATE_LIMIT_PER_SEC}/sec)"
 
+sat_after=$(sum_metric critsend_db_pool_saturation_total || echo 0)
+[[ -z "$sat_after" ]] && sat_after=0
+sat_delta=$(( sat_after - sat_before ))
+sat_rate=$(awk "BEGIN{printf \"%.2f\", $sat_delta / $DURATION_S}")
+echo "critsend_db_pool_saturation_total: $sat_before → $sat_after  (Δ=$sat_delta, ${sat_rate}/sec, limit=${SATURATION_RATE_LIMIT_PER_SEC}/sec)"
+
 failures=()
 [[ $bad_5xx -gt 0 ]]                                && failures+=("$bad_5xx 5xx (500/502/504) responses")
 [[ $bad_503 -gt 0 ]]                                && failures+=("$bad_503 503 responses missing Retry-After header")
@@ -245,6 +279,9 @@ failures=()
 [[ $pool_waiting_peak -gt $POOL_WAITING_PEAK_LIMIT ]] && failures+=("pool waiting peak=$pool_waiting_peak exceeds $POOL_WAITING_PEAK_LIMIT (load-shed not engaging fast enough)")
 if awk "BEGIN{exit !($shed_rate > $SHED_RATE_LIMIT_PER_SEC)}"; then
   failures+=("load-shed rate ${shed_rate}/sec exceeds ${SHED_RATE_LIMIT_PER_SEC}/sec — pool too small or workload too heavy")
+fi
+if awk "BEGIN{exit !($sat_rate > $SATURATION_RATE_LIMIT_PER_SEC)}"; then
+  failures+=("saturation_total rate ${sat_rate}/sec exceeds ${SATURATION_RATE_LIMIT_PER_SEC}/sec — load-shedding is firing too late")
 fi
 
 if [[ ${#failures[@]} -gt 0 ]]; then

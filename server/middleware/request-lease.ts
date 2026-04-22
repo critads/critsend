@@ -12,15 +12,21 @@
  * `pool.query()`'s temporary checkouts) is observed transparently — no
  * route or storage code has to opt in.
  *
- * Enforcement: if a request exceeds the cap, we log a warning and increment
- * a metric, but we do NOT throw — aborting mid-transaction would corrupt
- * state. The hard backpressure comes from `loadShedMiddleware` rejecting
- * new requests once the pool is saturated.
+ * Enforcement: when a request already holds the cap and asks for ANOTHER
+ * checkout, we throw `RequestLeaseExceededError` from the new attempt only.
+ * Already-acquired clients (and any in-progress transaction on them) keep
+ * running, so transactional state is not corrupted. The thrown error is
+ * caught by `poolErrorHandler` and translated to 503 + Retry-After.
+ *
+ * In addition, we record on the per-request ALS context whenever a real
+ * pg checkout-timeout error happens, so `pool-safety.ts` can upgrade any
+ * downstream `res.status(500)` from a route's local catch block into the
+ * standard 503 contract.
  */
 import { AsyncLocalStorage } from "async_hooks";
 import type { Request, Response, NextFunction } from "express";
 import type { PoolClient } from "pg";
-import { pool } from "../db";
+import { pool, isPoolCheckoutError } from "../db";
 import { logger } from "../logger";
 import {
   poolRequestHolding,
@@ -53,6 +59,19 @@ interface LeaseCtx {
   count: number;
   peak: number;
   warned: boolean;
+  /** Set true when ANY pool checkout error happened during this request. */
+  poolErrorOccurred: boolean;
+}
+
+/** Mark the active request as having seen a pool checkout error. No-op
+ *  outside an ALS context (e.g. background workers). */
+export function markPoolErrorOnRequest(): void {
+  const ctx = leaseStore.getStore();
+  if (ctx) ctx.poolErrorOccurred = true;
+}
+
+export function requestSawPoolError(): boolean {
+  return leaseStore.getStore()?.poolErrorOccurred === true;
 }
 
 export const leaseStore = new AsyncLocalStorage<LeaseCtx>();
@@ -69,7 +88,7 @@ export function requestLeaseMiddleware(req: Request, res: Response, next: NextFu
   // accept the slight cardinality cost because it's still bounded by the
   // number of unique routes the app exposes.
   const route = (req.route?.path as string) || req.baseUrl + req.path || req.path || "unknown";
-  leaseStore.run({ route, count: 0, peak: 0, warned: false }, () => next());
+  leaseStore.run({ route, count: 0, peak: 0, warned: false, poolErrorOccurred: false }, () => next());
 }
 
 let patched = false;
@@ -127,6 +146,7 @@ export function installRequestLeaseTracker(): void {
         catch (capErr) { return cb(capErr as Error, undefined as any, () => {}); }
       }
       return originalConnect((err: Error, client: PoolClient, release: any) => {
+        if (err && isPoolCheckoutError(err)) markPoolErrorOnRequest();
         if (err || !client) return cb(err, client, release);
         const ctx = leaseStore.getStore();
         if (!ctx) return cb(err, client, release);
@@ -150,10 +170,16 @@ export function installRequestLeaseTracker(): void {
     if (ctx) checkCap(ctx);
     const p = originalConnect() as Promise<PoolClient>;
     if (!ctx) return p;
-    return p.then((client) => {
-      attribute(ctx, client);
-      return client;
-    });
+    return p.then(
+      (client) => {
+        attribute(ctx, client);
+        return client;
+      },
+      (err) => {
+        if (isPoolCheckoutError(err)) markPoolErrorOnRequest();
+        throw err;
+      },
+    );
   };
 
   logger.info(`[POOL LEASE] Request-lease tracker installed (cap=${MAX_PER_REQUEST}/request)`);

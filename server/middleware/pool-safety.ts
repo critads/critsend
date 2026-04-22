@@ -23,7 +23,7 @@ import { pool, getPoolSaturation, isPoolCheckoutError } from "../db";
 import { MAIN_POOL_MAX } from "../connection-budget";
 import { logger } from "../logger";
 import { poolLoadShedTotal, poolCheckoutTimeoutTotal } from "../metrics";
-import { isRequestLeaseExceeded } from "./request-lease";
+import { isRequestLeaseExceeded, requestSawPoolError } from "./request-lease";
 
 const LOAD_SHED_THRESHOLD = Number(process.env.POOL_LOAD_SHED_THRESHOLD || 0.9);
 // Routes that must always be served, even under saturation.
@@ -70,6 +70,37 @@ function routeBucket(path: string): string {
   if (path.startsWith("/api/mtas")) return "/api/mtas";
   if (path.startsWith("/api/")) return "/api/other";
   return "non-api";
+}
+
+/**
+ * Upgrade any `res.status(500)` to 503 + Retry-After when a pool checkout
+ * error happened earlier in this request — even if the route catches the
+ * error locally and returns 500 itself. This makes the "no 500s from pool
+ * starvation" guarantee architectural rather than per-handler.
+ *
+ * Mount AFTER `requestLeaseMiddleware` so the ALS context exists.
+ */
+export function poolErrorResponseUpgrade(req: Request, res: Response, next: NextFunction): void {
+  const originalStatus = res.status.bind(res);
+  (res as any).status = function patchedStatus(code: number) {
+    if (code === 500 && !res.headersSent && requestSawPoolError()) {
+      poolCheckoutTimeoutTotal.inc();
+      res.setHeader("Retry-After", "1");
+      return originalStatus(503);
+    }
+    return originalStatus(code);
+  };
+  // Same for sendStatus.
+  const originalSendStatus = res.sendStatus.bind(res);
+  (res as any).sendStatus = function patchedSendStatus(code: number) {
+    if (code === 500 && !res.headersSent && requestSawPoolError()) {
+      poolCheckoutTimeoutTotal.inc();
+      res.setHeader("Retry-After", "1");
+      return originalSendStatus(503);
+    }
+    return originalSendStatus(code);
+  };
+  next();
 }
 
 let lastShedLogAt = 0;

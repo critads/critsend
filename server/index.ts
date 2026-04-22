@@ -20,7 +20,7 @@ import { initQueues, closeQueues } from "./queues";
 import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
 import { closeRedisConnections, createRedisConnection, isRedisConfigured } from "./redis";
 import { startRedisProgressBridge } from "./job-events";
-import { loadShedMiddleware, poolErrorHandler } from "./middleware/pool-safety";
+import { loadShedMiddleware, poolErrorHandler, poolErrorResponseUpgrade } from "./middleware/pool-safety";
 import { requestLeaseMiddleware, installRequestLeaseTracker } from "./middleware/request-lease";
 
 /**
@@ -198,6 +198,9 @@ app.use(loadShedMiddleware);
 // below which monkey-patches pool.connect to attribute checkouts to routes.
 installRequestLeaseTracker();
 app.use(requestLeaseMiddleware);
+// Upgrade any 500 to 503+Retry-After when a pool checkout error happened
+// during this request — guarantees no per-handler 500-from-saturation gaps.
+app.use(poolErrorResponseUpgrade);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
