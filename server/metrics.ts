@@ -206,6 +206,54 @@ export const bullmqDelayed = new client.Gauge({
   registers: [register],
 });
 
+// ─── Tracking buffer (open / click / unsubscribe / complaint) ──────────────
+export const trackingBufferEnqueued = new client.Counter({
+  name: 'critsend_tracking_buffer_enqueued_total',
+  help: 'Tracking events accepted into the in-memory buffer',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const trackingBufferFlushed = new client.Counter({
+  name: 'critsend_tracking_buffer_flushed_total',
+  help: 'Tracking events written to the database in batched flushes',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const trackingBufferDropped = new client.Counter({
+  name: 'critsend_tracking_buffer_dropped_total',
+  help: 'Tracking events dropped because the buffer was full or write failed',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const trackingBufferDeduped = new client.Counter({
+  name: 'critsend_tracking_buffer_deduped_total',
+  help: 'Tracking events suppressed by the (campaign,subscriber,type) dedupe window',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const trackingBufferQueueDepth = new client.Gauge({
+  name: 'critsend_tracking_buffer_queue_depth',
+  help: 'Current number of buffered tracking events awaiting flush',
+  registers: [register],
+});
+
+export const trackingPoolInUse = new client.Gauge({
+  name: 'critsend_tracking_pool_in_use',
+  help: 'Tracking-pool connections currently checked out',
+  registers: [register],
+});
+
+export const trackingLinkCacheHits = new client.Counter({
+  name: 'critsend_tracking_link_cache_hits_total',
+  help: 'getCampaignLinkDestination LRU cache outcomes',
+  labelNames: ['result'] as const,
+  registers: [register],
+});
+
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   res.on('finish', () => {

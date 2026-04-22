@@ -112,7 +112,19 @@ async function gracefulShutdown(signal: string) {
     await closeRedisConnections();
     
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
+
+    // Drain buffered tracking events before closing the dedicated pool.
+    try {
+      const { stopTrackingBufferFlusher } = await import("./tracking-buffer");
+      await stopTrackingBufferFlusher();
+    } catch (err: any) {
+      logger.warn(`[TRACKING BUFFER] stop failed: ${err?.message || err}`);
+    }
+    try {
+      const { closeTrackingPool } = await import("./tracking-pool");
+      await closeTrackingPool();
+    } catch {}
+
     const { pool } = await import("./db");
     await pool.end();
     logger.info('Database pool closed');
@@ -215,10 +227,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Bootstrap the session table once at startup (instead of letting
+// connect-pg-simple lazily CREATE TABLE on every cold-start request — that
+// path acquires a pool connection and runs DDL inside the request lifecycle,
+// which has caused stalls when the main pool is saturated). The bootstrap
+// itself runs fire-and-forget inside the startup IIFE further down; here we
+// just make sure connect-pg-simple does NOT try to lazily create the table.
 const sessionMiddleware = session({
   store: new PostgresSessionStore({
     pool,
-    createTableIfMissing: true,
+    createTableIfMissing: false,
   }),
   secret: (() => {
     const secret = process.env.SESSION_SECRET;
@@ -237,7 +255,12 @@ const sessionMiddleware = session({
   },
 });
 
-const sessionSkipPaths = ['/api/track/', '/api/unsubscribe/', '/api/webhooks/', '/api/health', '/metrics', '/t/', '/w/'];
+// Tracking endpoints must skip session middleware so they never acquire a
+// connection from the main pool (connect-pg-simple writes to the session
+// table per request). `/c/` and `/u/` are the branded short tracking URLs
+// added in the link-registry migration; previous oversight had them going
+// through session, which silently negated the tracking-pool isolation.
+const sessionSkipPaths = ['/api/track/', '/api/unsubscribe/', '/api/webhooks/', '/api/health', '/metrics', '/t/', '/w/', '/c/', '/u/'];
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (sessionSkipPaths.some(p => req.path.startsWith(p))) {
@@ -444,6 +467,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path.startsWith('/api/track/') || req.path.startsWith('/api/unsubscribe/')) {
     return next();
   }
+  // Branded short URLs (POST /u/:token is the RFC 8058 one-click unsubscribe).
+  if (req.path.startsWith('/c/') || req.path.startsWith('/u/')) {
+    return next();
+  }
   if (req.path.startsWith('/api/webhooks/')) {
     return next();
   }
@@ -515,6 +542,22 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 (async () => {
+  // Bootstrap connect-pg-simple session table (idempotent). Done here so
+  // we don't pay for a CREATE TABLE on the first cold-start request, and
+  // so connect-pg-simple can run with createTableIfMissing:false.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "session" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL,
+      CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
+    );
+  `).catch((err) => {
+    logger.warn(`[SESSION] CREATE TABLE failed (likely already exists): ${err?.message || err}`);
+  });
+  await pool.query(`CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");`)
+    .catch(() => {});
+
   const { runImportBootstrapMigrations } = await import("./routes/import-export");
   await runImportBootstrapMigrations();
 
@@ -525,8 +568,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   runAnalyticsBootstrapMigrations();
 
   await registerRoutes(httpServer, app);
-  
+
   validateConnectionBudget();
+
+  // Start the in-memory tracking buffer flusher (web process only — tracking
+  // routes are registered here, not in worker-main.ts). Flushes every
+  // TRACKING_FLUSH_INTERVAL_MS to the dedicated tracking pool.
+  const { startTrackingBufferFlusher } = await import("./tracking-buffer");
+  startTrackingBufferFlusher();
 
   initQueues();
 

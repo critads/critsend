@@ -7,6 +7,7 @@ import { verifyTrackingSignature } from "../tracking";
 import { UAParser } from "ua-parser-js";
 import geoip from "geoip-lite";
 import type { TrackingContext } from "../repositories/campaign-repository";
+import { enqueueTrackingEvent, getLinkDestinationCached } from "../tracking-buffer";
 
 // Bootstrap: add suppressed_until column and backfill subscribers who unsubscribed
 // in the last 7 days so the 30-day cooling-off window applies to existing data.
@@ -72,26 +73,29 @@ function extractTrackingContext(req: Request): TrackingContext {
   };
 }
 
-const campaignTagCache = new Map<string, { openTag: string | null; clickTag: string | null; fetchedAt: number }>();
+type CachedTags = { openTag: string | null; clickTag: string | null; unsubscribeTag: string | null };
+const campaignTagCache = new Map<string, CachedTags & { fetchedAt: number }>();
 const CAMPAIGN_CACHE_TTL = 60000;
 
-async function getCampaignTagsCached(campaignId: string): Promise<{ openTag: string | null; clickTag: string | null } | null> {
+async function getCampaignTagsCached(campaignId: string): Promise<CachedTags | null> {
   const cached = campaignTagCache.get(campaignId);
   if (cached && Date.now() - cached.fetchedAt < CAMPAIGN_CACHE_TTL) {
-    return { openTag: cached.openTag, clickTag: cached.clickTag };
+    return { openTag: cached.openTag, clickTag: cached.clickTag, unsubscribeTag: cached.unsubscribeTag };
   }
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign) return null;
-  campaignTagCache.set(campaignId, {
+  const entry: CachedTags & { fetchedAt: number } = {
     openTag: campaign.openTag || null,
     clickTag: campaign.clickTag || null,
+    unsubscribeTag: campaign.unsubscribeTag || null,
     fetchedAt: Date.now(),
-  });
+  };
+  campaignTagCache.set(campaignId, entry);
   if (campaignTagCache.size > 500) {
     const oldest = [...campaignTagCache.entries()].sort((a, b) => a[1].fetchedAt - b[1].fetchedAt);
     for (let i = 0; i < 100; i++) campaignTagCache.delete(oldest[i][0]);
   }
-  return { openTag: campaign.openTag || null, clickTag: campaign.clickTag || null };
+  return { openTag: entry.openTag, clickTag: entry.clickTag, unsubscribeTag: entry.unsubscribeTag };
 }
 
 // ─── Complaint bot IPs ──────────────────────────────────────────────────────
@@ -153,7 +157,8 @@ export function registerTrackingRoutes(app: Express) {
       }
       const { campaignId, subscriberId, linkId } = resolved;
 
-      const destinationUrl = await storage.getCampaignLinkDestination(linkId);
+      // LRU-cached lookup against the dedicated tracking pool (warm path = no DB)
+      const destinationUrl = await getLinkDestinationCached(linkId);
       if (!destinationUrl) {
         logger.warn(`Short click token ${token}: link destination missing for linkId=${linkId}`);
         return res.status(404).send("Link not found");
@@ -170,22 +175,22 @@ export function registerTrackingRoutes(app: Express) {
         return res.status(400).send("Invalid URL");
       }
 
-      // Record stat and redirect
-      const ctx = extractTrackingContext(req);
-      const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
-      await storage.addCampaignStat(campaignId, subscriberId, "click", destinationUrl, ctx);
+      // Redirect immediately, then queue the stat write
       res.redirect(destinationUrl);
 
-      if (isFirstClick) {
-        const tags = await getCampaignTagsCached(campaignId);
-        if (tags?.clickTag) {
-          storage.enqueueTagOperation(subscriberId, tags.clickTag, "click", campaignId)
-            .catch(err => logger.error("Failed to enqueue click tag (short):", err));
-        }
-      }
+      const ctx = extractTrackingContext(req);
+      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+      enqueueTrackingEvent({
+        type: "click",
+        campaignId,
+        subscriberId,
+        link: destinationUrl,
+        ctx,
+        clickTag: tags?.clickTag ?? null,
+      });
     } catch (error) {
       logger.error("Error in short click route:", error);
-      res.status(500).send("Tracking error");
+      if (!res.headersSent) res.status(500).send("Tracking error");
     }
   });
 
@@ -208,26 +213,21 @@ export function registerTrackingRoutes(app: Express) {
 
       if (subscriber) {
         const ctx = extractTrackingContext(req);
-        const campaign = await storage.getCampaign(campaignId);
-
-        storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
-          .catch(err => logger.error("Failed to record unsubscribe stat (short):", err));
-
-        storage.setSuppressedUntil(subscriberId)
-          .catch(err => logger.error("Failed to set suppressed_until (short):", err));
-
-        if (campaign?.unsubscribeTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
-            .then(() => logger.info(`Short unsub: tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
-            .catch(err => logger.error("Failed to enqueue unsubscribe tag (short):", err));
-        }
+        const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+        enqueueTrackingEvent({
+          type: "unsubscribe",
+          campaignId,
+          subscriberId,
+          ctx,
+          unsubscribeTag: tags?.unsubscribeTag ?? null,
+        });
         logger.info(`Short unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
       } else {
         logger.warn(`Short unsubscribe: subscriber not found: ${subscriberId}`);
       }
     } catch (error) {
       logger.error("Error in short unsubscribe route:", error);
-      res.status(500).send(renderUnsubscribePage("error", "An error occurred. Please try again."));
+      if (!res.headersSent) res.status(500).send(renderUnsubscribePage("error", "An error occurred. Please try again."));
     }
   });
 
@@ -252,19 +252,14 @@ export function registerTrackingRoutes(app: Express) {
 
       if (subscriber) {
         const ctx = extractTrackingContext(req);
-        const campaign = await storage.getCampaign(campaignId);
-
-        storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
-          .catch(err => logger.error("Failed to record unsubscribe stat (POST short):", err));
-
-        storage.setSuppressedUntil(subscriberId)
-          .catch(err => logger.error("Failed to set suppressed_until (POST short):", err));
-
-        if (campaign?.unsubscribeTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
-            .then(() => logger.info(`POST short unsub: tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
-            .catch(err => logger.error("Failed to enqueue unsubscribe tag (POST short):", err));
-        }
+        const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+        enqueueTrackingEvent({
+          type: "unsubscribe",
+          campaignId,
+          subscriberId,
+          ctx,
+          unsubscribeTag: tags?.unsubscribeTag ?? null,
+        });
         logger.info(`POST short unsubscribe (RFC 8058): campaign=${campaignId}, subscriber=${subscriberId}`);
       } else {
         logger.warn(`POST short unsubscribe: subscriber not found: ${subscriberId}`);
@@ -278,7 +273,7 @@ export function registerTrackingRoutes(app: Express) {
   app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {
     const { campaignId, subscriberId } = req.params;
     const sig = req.query.sig as string;
-    
+
     const returnPixel = () => {
       const pixel = Buffer.from(
         "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
@@ -288,48 +283,46 @@ export function registerTrackingRoutes(app: Express) {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       res.send(pixel);
     };
-    
+
     if (!sig || !verifyTrackingSignature(campaignId, subscriberId, "open", sig)) {
       logger.warn(`Invalid tracking signature for open: campaign=${campaignId}, subscriber=${subscriberId}`);
       return returnPixel();
     }
-    
+
+    // Respond first; persistence happens in the buffered flusher.
+    returnPixel();
+
     try {
       const ctx = extractTrackingContext(req);
       const isComplaintBot = COMPLAINT_BOT_IPS.has(ctx.ipAddress || "");
 
+      // Tag lookup is in-process cached (60s TTL) — only one DB hit per
+      // campaign per minute, so safe on the request path.
+      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+
       if (isComplaintBot) {
-        await storage.addCampaignStat(campaignId, subscriberId, "complaint", undefined, ctx);
-        returnPixel();
-
-        const campaign = await storage.getCampaign(campaignId);
-        if (campaign?.unsubscribeTag) {
-          const stopTag = `STOP-${campaign.unsubscribeTag}`;
-          storage.enqueueTagOperation(subscriberId, stopTag, "unsubscribe", campaignId)
-            .then(() => logger.info(`[COMPLAINT] Bot IP ${ctx.ipAddress}: tag '${stopTag}' enqueued for subscriber=${subscriberId}, campaign=${campaignId}`))
-            .catch(err => logger.error("Failed to enqueue complaint stop tag:", err));
-        }
-
-        storage.setSuppressedUntil(subscriberId)
-          .catch(err => logger.error("Failed to set suppressed_until for complaint:", err));
-
+        // Buffer handles setSuppressedUntil + STOP-tag inside processSideEffects.
+        // unsubscribeTag comes from the same cached lookup — no second DB roundtrip.
+        enqueueTrackingEvent({
+          type: "complaint",
+          campaignId,
+          subscriberId,
+          ctx,
+          unsubscribeTag: tags?.unsubscribeTag ?? null,
+        });
         logger.info(`[COMPLAINT] Bot open from ${ctx.ipAddress}: campaign=${campaignId}, subscriber=${subscriberId}`);
       } else {
-        const isFirstOpen = await storage.recordFirstOpen(campaignId, subscriberId);
-        await storage.addCampaignStat(campaignId, subscriberId, "open", undefined, ctx);
-        returnPixel();
-
-        if (isFirstOpen) {
-          const tags = await getCampaignTagsCached(campaignId);
-          if (tags?.openTag) {
-            storage.enqueueTagOperation(subscriberId, tags.openTag, "open", campaignId)
-              .catch(err => logger.error("Failed to enqueue open tag:", err));
-          }
-        }
+        enqueueTrackingEvent({
+          type: "open",
+          campaignId,
+          subscriberId,
+          ctx,
+          openTag: tags?.openTag ?? null,
+        });
       }
     } catch (error) {
-      logger.error("Error tracking open:", error);
-      returnPixel();
+      // Response already sent; just log and move on.
+      logger.error("Error queuing open event:", error);
     }
   });
 
@@ -348,7 +341,7 @@ export function registerTrackingRoutes(app: Express) {
 
       let destinationUrl: string | null;
       try {
-        destinationUrl = await storage.getCampaignLinkDestination(lid);
+        destinationUrl = await getLinkDestinationCached(lid);
       } catch (err: any) {
         logger.error(`Error looking up link destination lid=${lid}: ${err.message}`);
         return res.status(500).json({ error: "Tracking error" });
@@ -371,21 +364,21 @@ export function registerTrackingRoutes(app: Express) {
         return res.status(400).json({ error: "Invalid URL" });
       }
 
+      // Redirect first; persistence happens in the buffered flusher.
+      res.redirect(destinationUrl);
       try {
         const ctx = extractTrackingContext(req);
-        const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
-        await storage.addCampaignStat(campaignId, subscriberId, "click", destinationUrl, ctx);
-        res.redirect(destinationUrl);
-        if (isFirstClick) {
-          const tags = await getCampaignTagsCached(campaignId);
-          if (tags?.clickTag) {
-            storage.enqueueTagOperation(subscriberId, tags.clickTag, "click", campaignId)
-              .catch(err => logger.error("Failed to enqueue click tag:", err));
-          }
-        }
+        const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+        enqueueTrackingEvent({
+          type: "click",
+          campaignId,
+          subscriberId,
+          link: destinationUrl,
+          ctx,
+          clickTag: tags?.clickTag ?? null,
+        });
       } catch (error) {
-        logger.error("Error tracking click (lid):", error);
-        return res.status(500).json({ error: "Tracking error" });
+        logger.error("Error queuing click event (lid):", error);
       }
       return;
     }
@@ -413,21 +406,20 @@ export function registerTrackingRoutes(app: Express) {
       return res.status(403).json({ error: "Invalid tracking signature" });
     }
 
+    res.redirect(url);
     try {
       const ctx = extractTrackingContext(req);
-      const isFirstClick = await storage.recordFirstClick(campaignId, subscriberId);
-      await storage.addCampaignStat(campaignId, subscriberId, "click", url, ctx);
-      res.redirect(url);
-      if (isFirstClick) {
-        const tags = await getCampaignTagsCached(campaignId);
-        if (tags?.clickTag) {
-          storage.enqueueTagOperation(subscriberId, tags.clickTag, "click", campaignId)
-            .catch(err => logger.error("Failed to enqueue click tag:", err));
-        }
-      }
+      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+      enqueueTrackingEvent({
+        type: "click",
+        campaignId,
+        subscriberId,
+        link: url,
+        ctx,
+        clickTag: tags?.clickTag ?? null,
+      });
     } catch (error) {
-      logger.error("Error tracking click:", error);
-      return res.status(500).json({ error: "Tracking error" });
+      logger.error("Error queuing click event (legacy):", error);
     }
   });
 
@@ -443,25 +435,20 @@ export function registerTrackingRoutes(app: Express) {
     logger.info(`Unsubscribe request: campaign=${campaignId}, subscriber=${subscriberId}`);
     
     try {
-      const campaign = await storage.getCampaign(campaignId);
       const subscriber = await storage.getSubscriber(subscriberId);
-      
+
       res.send(renderUnsubscribePage("success"));
-      
+
       if (subscriber) {
         const ctx = extractTrackingContext(req);
-
-        storage.addCampaignStat(campaignId, subscriberId, "unsubscribe", undefined, ctx)
-          .catch(err => logger.error("Failed to record unsubscribe stat:", err));
-
-        storage.setSuppressedUntil(subscriberId)
-          .catch(err => logger.error("Failed to set suppressed_until:", err));
-
-        if (campaign?.unsubscribeTag) {
-          storage.enqueueTagOperation(subscriberId, campaign.unsubscribeTag, "unsubscribe", campaignId)
-            .then(() => logger.info(`Unsubscribe tag '${campaign.unsubscribeTag}' enqueued for subscriber=${subscriberId}`))
-            .catch(err => logger.error("Failed to enqueue unsubscribe tag:", err));
-        }
+        const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+        enqueueTrackingEvent({
+          type: "unsubscribe",
+          campaignId,
+          subscriberId,
+          ctx,
+          unsubscribeTag: tags?.unsubscribeTag ?? null,
+        });
       } else {
         logger.warn(`Unsubscribe: subscriber not found: ${subscriberId}`);
       }
