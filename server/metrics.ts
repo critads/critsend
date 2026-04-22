@@ -289,6 +289,13 @@ export const bounceBufferQueueDepth = new client.Gauge({
   registers: [register],
 });
 
+export const bounceBufferFlushPartialFailure = new client.Counter({
+  name: 'critsend_bounce_buffer_flush_partial_failure_total',
+  help: 'Sub-operations that failed inside an otherwise-successful bounce flush (e.g. error_logs INSERT failed while tag updates succeeded). Alert on rate>0.',
+  labelNames: ['op'] as const,
+  registers: [register],
+});
+
 // ─── Pool safety / load-shed observability ─────────────────────────────────
 export const poolLoadShedTotal = new client.Counter({
   name: 'critsend_db_pool_load_shed_total',

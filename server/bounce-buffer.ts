@@ -24,6 +24,7 @@ import {
   bounceBufferDropped,
   bounceBufferDeduped,
   bounceBufferQueueDepth,
+  bounceBufferFlushPartialFailure,
 } from "./metrics";
 
 export type BounceType = "hard_bounce" | "soft_bounce" | "complaint" | "unsubscribe";
@@ -189,16 +190,22 @@ async function flush(): Promise<void> {
       });
     }
 
-    await Promise.allSettled([
-      bulkAddTagsViaTrackingPool(hardBounceIds, ["BCK", "bounce:hard_bounce"]),
-      bulkAddTagsViaTrackingPool(complaintIds, ["BCK", "bounce:complaint"]),
-      bulkAddTagsViaTrackingPool(softBounceIds, ["bounce:soft"]),
-      bulkInsertErrorLogs(errorRows),
-    ]);
-
-    bounceBufferFlushed.inc({ type: "hard_bounce" }, hardBounceIds.length);
-    bounceBufferFlushed.inc({ type: "complaint" }, complaintIds.length);
-    bounceBufferFlushed.inc({ type: "soft_bounce" }, softBounceIds.length);
+    const subOps: Array<{ op: string; promise: Promise<unknown>; successCount: number; type?: string }> = [
+      { op: "tag_hard_bounce", promise: bulkAddTagsViaTrackingPool(hardBounceIds, ["BCK", "bounce:hard_bounce"]), successCount: hardBounceIds.length, type: "hard_bounce" },
+      { op: "tag_complaint",   promise: bulkAddTagsViaTrackingPool(complaintIds,  ["BCK", "bounce:complaint"]),   successCount: complaintIds.length,  type: "complaint" },
+      { op: "tag_soft_bounce", promise: bulkAddTagsViaTrackingPool(softBounceIds, ["bounce:soft"]),               successCount: softBounceIds.length, type: "soft_bounce" },
+      { op: "insert_error_logs", promise: bulkInsertErrorLogs(errorRows), successCount: errorRows.length },
+    ];
+    const results = await Promise.allSettled(subOps.map((s) => s.promise));
+    results.forEach((r, i) => {
+      const sub = subOps[i];
+      if (r.status === "fulfilled") {
+        if (sub.type) bounceBufferFlushed.inc({ type: sub.type }, sub.successCount);
+      } else {
+        bounceBufferFlushPartialFailure.inc({ op: sub.op }, sub.successCount || 1);
+        logger.error(`[BOUNCE BUFFER] sub-op '${sub.op}' failed: ${(r.reason as any)?.message || r.reason}`);
+      }
+    });
     bounceBufferFlushed.inc({ type: "unsubscribe" }, events.filter((e) => e.type === "unsubscribe").length);
   } catch (err: any) {
     bounceBufferDropped.inc({ reason: "flush_error" }, batch.length);
@@ -234,18 +241,9 @@ async function bulkInsertErrorLogs(rows: Array<{ email: string; subscriberId: st
   let p = 1;
   for (const r of rows) {
     placeholders.push(`($${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, NOW())`);
-    values.push(
-      "send_failed",
-      "warning",
-      `${r.type}: ${r.reason}`,
-      r.email,
-      r.subscriberId,
-      r.campaignId,
-      r.details,
-    );
   }
   await trackingPool.query(
-    `INSERT INTO error_logs (type, severity, message, email, subscriber_id, campaign_id, details, created_at)
+    `INSERT INTO error_logs (type, severity, message, email, subscriber_id, campaign_id, details, "timestamp")
      VALUES ${placeholders.join(", ")}`,
     values,
   );
