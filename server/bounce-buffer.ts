@@ -117,8 +117,8 @@ export function enqueueBounce(event: Omit<BounceEvent, "enqueuedAt">): EnqueueRe
     bounceBufferEnqueued.inc({ type: event.type });
     bounceBufferQueueDepth.set(queue.length);
     return dropped ? "dropped" : "accepted";
-  } catch (err: any) {
-    logger.error(`[BOUNCE BUFFER] enqueue failed: ${err?.message || err}`);
+  } catch (err) {
+    logger.error(`[BOUNCE BUFFER] enqueue failed: ${err instanceof Error ? err.message : String(err)}`);
     return "dropped";
   }
 }
@@ -203,15 +203,16 @@ async function flush(): Promise<void> {
         if (sub.type) bounceBufferFlushed.inc({ type: sub.type }, sub.successCount);
       } else {
         bounceBufferFlushPartialFailure.inc({ op: sub.op }, sub.successCount || 1);
-        logger.error(`[BOUNCE BUFFER] sub-op '${sub.op}' failed: ${(r.reason as any)?.message || r.reason}`);
+        const reasonMsg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        logger.error(`[BOUNCE BUFFER] sub-op '${sub.op}' failed: ${reasonMsg}`);
       }
     });
     bounceBufferFlushed.inc({ type: "unsubscribe" }, events.filter((e) => e.type === "unsubscribe").length);
-  } catch (err: any) {
+  } catch (err) {
     bounceBufferDropped.inc({ reason: "flush_error" }, batch.length);
     // Clear dedupe entries so legitimate retries are not silently suppressed.
     for (const ev of batch) dedupe.delete(dedupeKey(ev));
-    logger.error(`[BOUNCE BUFFER] flush failed: ${err?.message || err}`);
+    logger.error(`[BOUNCE BUFFER] flush failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     flushing = false;
   }
@@ -236,7 +237,7 @@ async function bulkAddTagsViaTrackingPool(subscriberIds: string[], tags: string[
 
 async function bulkInsertErrorLogs(rows: Array<{ email: string; subscriberId: string; type: string; reason: string; campaignId: string | null; details: string }>): Promise<void> {
   if (rows.length === 0) return;
-  const values: any[] = [];
+  const values: Array<string | null> = [];
   const placeholders: string[] = [];
   let p = 1;
   for (const r of rows) {
@@ -278,8 +279,8 @@ export async function stopBounceBufferFlusher(): Promise<void> {
     logger.info(`[BOUNCE BUFFER] draining ${queue.length} events on shutdown`);
     try {
       await flush();
-    } catch (err: any) {
-      logger.error(`[BOUNCE BUFFER] final drain failed: ${err?.message || err}`);
+    } catch (err) {
+      logger.error(`[BOUNCE BUFFER] final drain failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

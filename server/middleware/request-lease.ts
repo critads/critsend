@@ -56,7 +56,11 @@ export class RequestLeaseExceededError extends Error {
 }
 
 export function isRequestLeaseExceeded(err: unknown): err is RequestLeaseExceededError {
-  return !!err && (err as any).code === "REQUEST_LEASE_EXCEEDED";
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "REQUEST_LEASE_EXCEEDED"
+  );
 }
 
 interface LeaseCtx {

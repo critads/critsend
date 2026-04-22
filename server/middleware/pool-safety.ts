@@ -115,7 +115,8 @@ export function poolErrorResponseUpgrade(_req: Request, res: Response, next: Nex
       // Emit canonical JSON body (not Express's default plain-text status
       // message) so all 503s from the safety net are byte-identical.
       originalStatus(503);
-      return originalJson(SERVICE_BUSY_BODY) as unknown as Response;
+      originalJson(SERVICE_BUSY_BODY);
+      return res;
     }
     return originalSendStatus(code);
   };
