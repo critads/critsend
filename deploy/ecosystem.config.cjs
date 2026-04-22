@@ -63,7 +63,11 @@ module.exports = {
         NODE_ENV: "production",
         PROCESS_TYPE: "worker",
         NODE_OPTIONS: "--max-old-space-size=6144 --expose-gc",
-        WORKER_PG_POOL_MAX: "14",
+        // Sized for ≥1.5× MAX_CONCURRENT_CAMPAIGNS. With campaign-sender now
+        // serializing prefetch + finalize, each in-flight campaign holds at
+        // most 1 main-pool conn at a time, so 18 slots comfortably cover
+        // 12 concurrent campaigns + tag queue + maintenance + heartbeats.
+        WORKER_PG_POOL_MAX: "18",
         MAX_CONCURRENT_CAMPAIGNS: "8",
       },
 

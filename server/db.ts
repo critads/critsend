@@ -32,7 +32,11 @@ const poolConfig: pg.PoolConfig = {
   max: MAIN_POOL_MAX,
   min: isExternalDb ? 1 : 2,
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
-  connectionTimeoutMillis: isExternalDb ? 10000 : 10000,
+  // Fail fast on checkout when the pool is saturated. The 503 middleware
+  // (server/middleware/pool-safety.ts) catches the timeout error and turns
+  // it into a 503 + Retry-After:1, so a brief saturation spike degrades to
+  // "retry soon" instead of a 10-second user-visible hang.
+  connectionTimeoutMillis: isExternalDb ? 2000 : 5000,
   statement_timeout: 120000,
   lock_timeout: 30000,
   allowExitOnIdle: false,
@@ -57,6 +61,30 @@ export function isPoolHealthy(): boolean {
   if (pool.waitingCount > 0) return false;
   if (pool.totalCount >= MAIN_POOL_MAX && pool.idleCount === 0) return false;
   return true;
+}
+
+/**
+ * Pool saturation in [0..1].
+ *   total>=max with no idle and waiters > 0  → 1.0 (fully saturated)
+ *   active connections / max                 → otherwise.
+ * Used by the load-shedding middleware to short-circuit non-critical
+ * requests before they ever try to acquire a connection.
+ */
+export function getPoolSaturation(): number {
+  const active = pool.totalCount - pool.idleCount;
+  if (MAIN_POOL_MAX <= 0) return 0;
+  if (pool.waitingCount > 0 && pool.idleCount === 0) return 1;
+  return Math.min(1, active / MAIN_POOL_MAX);
+}
+
+/**
+ * Returns true when the error originates from `pg`'s pool checkout timeout.
+ * Used by the safety middleware to convert these into 503 instead of 500.
+ */
+export function isPoolCheckoutError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = (err as Error)?.message || String(err);
+  return /timeout exceeded when trying to connect|Connection terminated due to connection timeout|Cannot use a pool after calling end/i.test(msg);
 }
 
 if (isExternalDb) {

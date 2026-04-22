@@ -20,6 +20,7 @@ import { initQueues, closeQueues } from "./queues";
 import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
 import { closeRedisConnections, createRedisConnection, isRedisConfigured } from "./redis";
 import { startRedisProgressBridge } from "./job-events";
+import { loadShedMiddleware, poolErrorHandler } from "./middleware/pool-safety";
 
 /**
  * Silently attempt to persist a system-level error to the error_logs DB table.
@@ -121,6 +122,12 @@ async function gracefulShutdown(signal: string) {
       logger.warn(`[TRACKING BUFFER] stop failed: ${err?.message || err}`);
     }
     try {
+      const { stopBounceBufferFlusher } = await import("./bounce-buffer");
+      await stopBounceBufferFlusher();
+    } catch (err: any) {
+      logger.warn(`[BOUNCE BUFFER] stop failed: ${err?.message || err}`);
+    }
+    try {
       const { closeTrackingPool } = await import("./tracking-pool");
       await closeTrackingPool();
     } catch {}
@@ -178,6 +185,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+// Load-shedding: reject non-critical requests with 503 + Retry-After when
+// the main pool is already saturated. Critical paths (health, metrics,
+// tracking, webhooks, auth) bypass this check.
+app.use(loadShedMiddleware);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
@@ -577,6 +589,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const { startTrackingBufferFlusher } = await import("./tracking-buffer");
   startTrackingBufferFlusher();
 
+  // In-memory bounce buffer + batched flusher. Bounce webhooks (Mailgun/SES
+  // retries) can spike to hundreds/sec; the buffer keeps that traffic off
+  // the main pool by sharing the dedicated tracking pool.
+  const { startBounceBufferFlusher } = await import("./bounce-buffer");
+  startBounceBufferFlusher();
+
   initQueues();
 
   // Subscribe to worker-process progress events and forward them to SSE clients.
@@ -660,6 +678,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       }, 10000);
     });
   }
+
+  // Translate `pg` pool checkout timeouts into 503 + Retry-After:1 instead
+  // of letting them bubble into the generic 500 handler. Must run before
+  // the generic handler below.
+  app.use(poolErrorHandler);
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

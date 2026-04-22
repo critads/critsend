@@ -254,6 +254,55 @@ export const trackingLinkCacheHits = new client.Counter({
   registers: [register],
 });
 
+// ─── Bounce-webhook buffer (mirror of tracking buffer) ─────────────────────
+export const bounceBufferEnqueued = new client.Counter({
+  name: 'critsend_bounce_buffer_enqueued_total',
+  help: 'Bounce events accepted into the in-memory buffer',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const bounceBufferFlushed = new client.Counter({
+  name: 'critsend_bounce_buffer_flushed_total',
+  help: 'Bounce events written to the database in batched flushes',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const bounceBufferDropped = new client.Counter({
+  name: 'critsend_bounce_buffer_dropped_total',
+  help: 'Bounce events dropped because the buffer was full or write failed',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const bounceBufferDeduped = new client.Counter({
+  name: 'critsend_bounce_buffer_deduped_total',
+  help: 'Bounce events suppressed by the (email,type) dedupe window',
+  labelNames: ['type'] as const,
+  registers: [register],
+});
+
+export const bounceBufferQueueDepth = new client.Gauge({
+  name: 'critsend_bounce_buffer_queue_depth',
+  help: 'Current number of buffered bounce events awaiting flush',
+  registers: [register],
+});
+
+// ─── Pool safety / load-shed observability ─────────────────────────────────
+export const poolLoadShedTotal = new client.Counter({
+  name: 'critsend_db_pool_load_shed_total',
+  help: 'Requests rejected with 503 by the load-shedding middleware',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const poolCheckoutTimeoutTotal = new client.Counter({
+  name: 'critsend_db_pool_checkout_timeout_total',
+  help: 'Requests that bubbled a pg pool checkout timeout error',
+  registers: [register],
+});
+
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   res.on('finish', () => {

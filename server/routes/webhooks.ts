@@ -1,10 +1,24 @@
 import { type Express, type Request, type Response } from "express";
-import { storage } from "../storage";
 import { logger } from "../logger";
 import { bouncesTotal } from "../metrics";
 import { z } from "zod";
 import crypto from "crypto";
+import { enqueueBounce } from "../bounce-buffer";
 
+/**
+ * Bounce/complaint webhooks.
+ *
+ * Both endpoints validate, increment metrics, enqueue into the in-memory
+ * bounce buffer, and return 202 immediately. The buffer flusher
+ * (server/bounce-buffer.ts) batches DB writes against the dedicated
+ * tracking pool, so a bounce flood from Mailgun/SES retries can never
+ * drain the user-facing main pool.
+ *
+ * Idempotency contract: dedupe key (email|type) collapses repeats inside
+ * a 60s window; the flusher then re-checks the subscriber's tags so
+ * already-processed bounces are skipped exactly like the previous
+ * synchronous path did.
+ */
 export function registerWebhookRoutes(app: Express) {
   function verifyWebhookSecret(req: Request, res: Response): boolean {
     const webhookSecret = process.env.WEBHOOK_SECRET;
@@ -21,7 +35,7 @@ export function registerWebhookRoutes(app: Express) {
     return true;
   }
 
-  app.post("/api/webhooks/bounce", async (req: Request, res: Response) => {
+  app.post("/api/webhooks/bounce", (req: Request, res: Response) => {
     if (!verifyWebhookSecret(req, res)) return;
     try {
       const bounceSchema = z.object({
@@ -31,63 +45,26 @@ export function registerWebhookRoutes(app: Express) {
         campaignId: z.string().max(100).optional(),
         timestamp: z.string().optional(),
       });
-      
+
       const data = bounceSchema.parse(req.body);
       bouncesTotal.inc({ type: data.type });
-      
-      const subscriber = await storage.getSubscriberByEmail(data.email);
-      if (!subscriber) {
-        return res.status(200).json({ status: "ok", message: "Subscriber not found, ignored" });
-      }
-      
-      const currentTags = subscriber.tags || [];
-      
-      if (data.type === "hard_bounce" || data.type === "complaint") {
-        if (currentTags.includes("BCK")) {
-          logger.info(`[BOUNCE] Duplicate bounce skipped for ${data.email} (type: ${data.type}) - already blocklisted`);
-          return res.json({ status: "ok", message: "Already processed" });
-        }
-        await storage.updateSubscriber(subscriber.id, {
-          tags: [...currentTags, "BCK", `bounce:${data.type}`],
-        });
-        logger.info(`[BOUNCE] Blocklisted ${data.email} due to ${data.type}`);
-      } else if (data.type === "soft_bounce") {
-        const bounceTag = `bounce:soft`;
-        if (currentTags.includes(bounceTag)) {
-          logger.info(`[BOUNCE] Duplicate bounce skipped for ${data.email} (type: ${data.type}) - already tagged`);
-          return res.json({ status: "ok", message: "Already processed" });
-        }
-        await storage.updateSubscriber(subscriber.id, {
-          tags: [...currentTags, bounceTag],
-        });
-      } else if (data.type === "unsubscribe") {
-        if (currentTags.includes("BCK")) {
-          logger.info(`[BOUNCE] Duplicate unsubscribe skipped for ${data.email} - already blocklisted`);
-          return res.json({ status: "ok", message: "Already processed" });
-        }
-      }
-      
-      await storage.logError({
-        type: "send_failed",
-        severity: "warning",
-        message: `${data.type}: ${data.reason || 'No reason provided'}`,
+      const accepted = enqueueBounce({
         email: data.email,
-        subscriberId: subscriber.id,
-        campaignId: data.campaignId || null,
-        details: JSON.stringify(data),
+        type: data.type,
+        reason: data.reason,
+        campaignId: data.campaignId,
       });
-      
-      res.json({ status: "ok", action: data.type === "hard_bounce" || data.type === "complaint" ? "blocklisted" : "tagged" });
+      res.status(202).json({ status: "accepted", deduped: !accepted });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      logger.error("Error processing bounce webhook:", error);
-      res.status(500).json({ error: "Failed to process bounce" });
+      logger.error("Error queueing bounce webhook:", error);
+      res.status(500).json({ error: "Failed to enqueue bounce" });
     }
   });
 
-  app.post("/api/webhooks/bounces/batch", async (req: Request, res: Response) => {
+  app.post("/api/webhooks/bounces/batch", (req: Request, res: Response) => {
     if (!verifyWebhookSecret(req, res)) return;
     try {
       const batchSchema = z.object({
@@ -96,75 +73,35 @@ export function registerWebhookRoutes(app: Express) {
           email: z.string().email(),
           type: z.enum(["hard_bounce", "soft_bounce", "complaint", "unsubscribe"]),
           reason: z.string().max(1000).optional(),
+          campaignId: z.string().max(100).optional(),
         })).max(1000, "Maximum 1000 bounces per batch"),
       });
-      
+
       const { bounces, idempotencyKey } = batchSchema.parse(req.body);
       if (idempotencyKey) {
         logger.info(`[BOUNCE] Batch received with idempotencyKey: ${idempotencyKey}`);
       }
+
+      let accepted = 0;
+      let deduped = 0;
       for (const b of bounces) {
         bouncesTotal.inc({ type: b.type });
+        const ok = enqueueBounce({
+          email: b.email,
+          type: b.type,
+          reason: b.reason,
+          campaignId: b.campaignId,
+        });
+        if (ok) accepted++;
+        else deduped++;
       }
-      let processed = 0;
-      let blocklisted = 0;
-      let notFound = 0;
-      let skipped = 0;
-
-      const emails = [...new Set(bounces.map(b => b.email.toLowerCase()))];
-      const subscriberMap = await storage.getSubscribersByEmails(emails);
-
-      const hardBounceIds: string[] = [];
-      const complaintIds: string[] = [];
-      const softBounceIds: string[] = [];
-
-      for (const bounce of bounces) {
-        const subscriber = subscriberMap.get(bounce.email.toLowerCase());
-        if (!subscriber) {
-          notFound++;
-          continue;
-        }
-
-        const currentTags = subscriber.tags || [];
-
-        if (bounce.type === "hard_bounce" || bounce.type === "complaint") {
-          if (currentTags.includes("BCK")) {
-            skipped++;
-            processed++;
-            continue;
-          }
-          if (bounce.type === "hard_bounce") hardBounceIds.push(subscriber.id);
-          else complaintIds.push(subscriber.id);
-          blocklisted++;
-        } else if (bounce.type === "soft_bounce") {
-          if (currentTags.includes("bounce:soft")) {
-            skipped++;
-            processed++;
-            continue;
-          }
-          softBounceIds.push(subscriber.id);
-        }
-        processed++;
-      }
-
-      if (hardBounceIds.length > 0) {
-        await storage.bulkAddTags(hardBounceIds, ["BCK", "bounce:hard_bounce"]);
-      }
-      if (complaintIds.length > 0) {
-        await storage.bulkAddTags(complaintIds, ["BCK", "bounce:complaint"]);
-      }
-      if (softBounceIds.length > 0) {
-        await storage.bulkAddTags(softBounceIds, ["bounce:soft"]);
-      }
-      
-      logger.info(`[BOUNCE] Batch processed: ${processed} bounces, ${blocklisted} blocklisted, ${skipped} skipped (already processed), ${notFound} not found`);
-      res.json({ status: "ok", processed, blocklisted, skipped, notFound, total: bounces.length });
+      res.status(202).json({ status: "accepted", accepted, deduped, total: bounces.length });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      logger.error("Error processing batch bounces:", error);
-      res.status(500).json({ error: "Failed to process bounces" });
+      logger.error("Error queueing batch bounces:", error);
+      res.status(500).json({ error: "Failed to enqueue bounces" });
     }
   });
 }

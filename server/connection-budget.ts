@@ -18,9 +18,11 @@ export const IMPORT_POOL_MAX = Number(
 export const IMPORT_CONCURRENCY = IMPORT_POOL_MAX;
 
 // PROCESS_TYPE-aware pool sizing.
-// web:    20 connections — HTTP request handlers
-// worker:  8 connections — campaign sends, imports, tag queue, flush, maintenance
-// unset: legacy monolith mode keeps the original calculated budget
+// web:    20 connections — HTTP request handlers (split: 14 main + 6 tracking)
+// worker: 18 connections — sized for ≥1.5× MAX_CONCURRENT_CAMPAIGNS so up to
+//         12 campaigns can each hold one DB conn (prefetch OR finalize, never
+//         both — see campaign-sender.ts) without queueing in the pg pool.
+// unset:  legacy monolith mode keeps the original calculated budget
 const processType = process.env.PROCESS_TYPE;
 
 // Reserve headroom so background spikes never push us to the hard Neon limit.
@@ -38,7 +40,7 @@ export const TRACKING_POOL_MAX = (() => {
 
 export const MAIN_POOL_MAX = (() => {
   if (processType === 'worker') {
-    return parseInt(process.env.WORKER_PG_POOL_MAX || '8', 10);
+    return parseInt(process.env.WORKER_PG_POOL_MAX || '18', 10);
   }
   if (processType === 'web') {
     // Tracking pool slots are subtracted from the configured web budget so

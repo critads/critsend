@@ -358,6 +358,13 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       batchNumber++;
       cursorId = batch[batch.length - 1].id;
 
+      // Serialize prefetch with the previous batch's background finalize so a
+      // single campaign never holds two main-pool connections at the same time.
+      // This is what lets WORKER_PG_POOL_MAX cover MAX_CONCURRENT_CAMPAIGNS
+      // 1:1 instead of needing 2× headroom.
+      if (flushPromise) {
+        try { await flushPromise; } catch { /* swallowed; doFlush already logs */ }
+      }
       startPrefetch(campaign.segmentId, cursorId);
 
       const subscriberIds = batch.map(s => s.id);
