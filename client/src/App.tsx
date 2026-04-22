@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -67,14 +68,44 @@ function Router() {
   );
 }
 
+const SIDEBAR_OPEN_STORAGE_KEY = "sidebar:open";
+
 function AuthenticatedApp() {
   const sidebarStyle = {
     "--sidebar-width": "14rem",
     "--sidebar-width-icon": "3rem",
   };
 
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY);
+      if (stored === null) return false;
+      return stored === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(sidebarOpen));
+    } catch {
+      // ignore storage failures (e.g. private mode)
+    }
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== SIDEBAR_OPEN_STORAGE_KEY || event.newValue === null) return;
+      setSidebarOpen(event.newValue === "true");
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
   return (
-    <SidebarProvider defaultOpen={false} style={sidebarStyle as React.CSSProperties}>
+    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} style={sidebarStyle as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 bg-background">
