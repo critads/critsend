@@ -33,6 +33,11 @@ interface BounceEvent {
   type: BounceType;
   reason?: string;
   campaignId?: string | null;
+  // ESP-supplied unique message id (Mailgun: Message-Id header,
+  // SES: mail.messageId). When present, dedupe is keyed on (email|messageId)
+  // so legitimate retries collapse to one event regardless of ESP reorder.
+  // When absent, falls back to (email|type) to preserve prior behavior.
+  messageId?: string | null;
   enqueuedAt: number;
 }
 
@@ -47,8 +52,14 @@ let lastDropWarnAt = 0;
 let droppedSinceLastWarn = 0;
 const dedupe = new Map<string, number>();
 
-function dedupeKey(e: { email: string; type: BounceType }): string {
-  return `${e.email.toLowerCase()}|${e.type}`;
+function dedupeKey(e: { email: string; type: BounceType; messageId?: string | null }): string {
+  const email = e.email.toLowerCase();
+  // Prefer (email|messageId) — that's the contract: duplicate webhooks for
+  // the same ESP message must collapse to a single processed event. Fall
+  // back to (email|type) when no messageId is supplied (older ESP / batch
+  // imports), preserving previous behavior.
+  if (e.messageId) return `${email}|${e.messageId}`;
+  return `${email}|${e.type}`;
 }
 
 function pruneDedupe(now: number): void {
@@ -115,7 +126,8 @@ async function flush(): Promise<void> {
   bounceBufferQueueDepth.set(queue.length);
 
   try {
-    // Collapse intra-batch duplicates by (email,type) — keep the latest reason.
+    // Collapse intra-batch duplicates using the same (email|messageId)
+    // (or fallback) key — keep the latest reason.
     const collapsed = new Map<string, BounceEvent>();
     for (const ev of batch) {
       const k = dedupeKey(ev);
@@ -161,7 +173,7 @@ async function flush(): Promise<void> {
         type: ev.type,
         reason: ev.reason || "No reason provided",
         campaignId: ev.campaignId || null,
-        details: JSON.stringify({ email: ev.email, type: ev.type, reason: ev.reason, campaignId: ev.campaignId }),
+        details: JSON.stringify({ email: ev.email, type: ev.type, reason: ev.reason, campaignId: ev.campaignId, messageId: ev.messageId || null }),
       });
     }
 

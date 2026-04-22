@@ -77,10 +77,7 @@ export function loadShedMiddleware(req: Request, res: Response, next: NextFuncti
     );
   }
   res.setHeader("Retry-After", "1");
-  res.status(503).json({
-    error: "Service temporarily overloaded, please retry",
-    retryAfterSeconds: 1,
-  });
+  res.status(503).json({ error: "service_busy", retryAfterSeconds: 1 });
 }
 
 /**
@@ -96,8 +93,5 @@ export function poolErrorHandler(err: any, req: Request, res: Response, next: Ne
   );
   if (res.headersSent) return next(err);
   res.setHeader("Retry-After", "1");
-  res.status(503).json({
-    error: "Database temporarily unavailable, please retry",
-    retryAfterSeconds: 1,
-  });
+  res.status(503).json({ error: "service_busy", retryAfterSeconds: 1 });
 }

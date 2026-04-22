@@ -43,6 +43,10 @@ export function registerWebhookRoutes(app: Express) {
         type: z.enum(["hard_bounce", "soft_bounce", "complaint", "unsubscribe"]),
         reason: z.string().max(1000).optional(),
         campaignId: z.string().max(100).optional(),
+        // ESP-supplied unique message identifier — Mailgun's Message-Id,
+        // SES's mail.messageId. When present, the bounce buffer dedupes on
+        // (email|messageId) so retries from the ESP collapse cleanly.
+        messageId: z.string().max(255).optional(),
         timestamp: z.string().optional(),
       });
 
@@ -53,6 +57,7 @@ export function registerWebhookRoutes(app: Express) {
         type: data.type,
         reason: data.reason,
         campaignId: data.campaignId,
+        messageId: data.messageId,
       });
       res.status(202).json({ status: "accepted", deduped: !accepted });
     } catch (error) {
@@ -74,6 +79,7 @@ export function registerWebhookRoutes(app: Express) {
           type: z.enum(["hard_bounce", "soft_bounce", "complaint", "unsubscribe"]),
           reason: z.string().max(1000).optional(),
           campaignId: z.string().max(100).optional(),
+          messageId: z.string().max(255).optional(),
         })).max(1000, "Maximum 1000 bounces per batch"),
       });
 
@@ -91,6 +97,7 @@ export function registerWebhookRoutes(app: Express) {
           type: b.type,
           reason: b.reason,
           campaignId: b.campaignId,
+          messageId: b.messageId,
         });
         if (ok) accepted++;
         else deduped++;

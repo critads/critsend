@@ -303,6 +303,21 @@ export const poolCheckoutTimeoutTotal = new client.Counter({
   registers: [register],
 });
 
+// Per-request DB connection lease — see server/middleware/request-lease.ts
+export const poolRequestHolding = new client.Gauge({
+  name: 'critsend_db_pool_request_holding',
+  help: 'Number of DB connections currently held by an in-flight request, by route',
+  labelNames: ['route'] as const,
+  registers: [register],
+});
+
+export const poolRequestLeaseExceededTotal = new client.Counter({
+  name: 'critsend_db_pool_request_lease_exceeded_total',
+  help: 'Requests that exceeded MAX_CONNECTIONS_PER_REQUEST cap',
+  labelNames: ['route'] as const,
+  registers: [register],
+});
+
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   res.on('finish', () => {

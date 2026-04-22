@@ -36,7 +36,7 @@ const poolConfig: pg.PoolConfig = {
   // (server/middleware/pool-safety.ts) catches the timeout error and turns
   // it into a 503 + Retry-After:1, so a brief saturation spike degrades to
   // "retry soon" instead of a 10-second user-visible hang.
-  connectionTimeoutMillis: isExternalDb ? 2000 : 5000,
+  connectionTimeoutMillis: isExternalDb ? 2000 : 2000,
   statement_timeout: 120000,
   lock_timeout: 30000,
   allowExitOnIdle: false,

@@ -68,7 +68,15 @@ module.exports = {
         // most 1 main-pool conn at a time, so 18 slots comfortably cover
         // 12 concurrent campaigns + tag queue + maintenance + heartbeats.
         WORKER_PG_POOL_MAX: "18",
-        MAX_CONCURRENT_CAMPAIGNS: "8",
+        // Bumped 8→12 to realize the 12-concurrent campaign blast profile
+        // the pool safety net was sized for. With prefetch+finalize now
+        // serialized, each campaign holds ≤1 main-pool conn at a time, so
+        // 12 fits well inside the 18-slot worker pool.
+        MAX_CONCURRENT_CAMPAIGNS: "12",
+        // Per-request connection-lease cap. Any single HTTP request may hold
+        // at most this many DB clients concurrently — prevents one slow
+        // route from monopolizing the pool.
+        MAX_CONNECTIONS_PER_REQUEST: "2",
       },
 
       // Raised from 10 → 50 so PM2 doesn't give up after a burst of memory-triggered

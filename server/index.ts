@@ -21,6 +21,7 @@ import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
 import { closeRedisConnections, createRedisConnection, isRedisConfigured } from "./redis";
 import { startRedisProgressBridge } from "./job-events";
 import { loadShedMiddleware, poolErrorHandler } from "./middleware/pool-safety";
+import { requestLeaseMiddleware, installRequestLeaseTracker } from "./middleware/request-lease";
 
 /**
  * Silently attempt to persist a system-level error to the error_logs DB table.
@@ -190,6 +191,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // the main pool is already saturated. Critical paths (health, metrics,
 // tracking, webhooks, auth) bypass this check.
 app.use(loadShedMiddleware);
+
+// Per-request DB connection lease accounting (cap = MAX_CONNECTIONS_PER_REQUEST,
+// default 2). Must run before any handler that opens DB clients so the
+// AsyncLocalStorage context is set. Pairs with installRequestLeaseTracker()
+// below which monkey-patches pool.connect to attribute checkouts to routes.
+installRequestLeaseTracker();
+app.use(requestLeaseMiddleware);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
