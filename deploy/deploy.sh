@@ -72,7 +72,7 @@ if [[ -f ".env" ]]; then
         export NEON_DATABASE_URL="$_db_url"
     fi
 fi
-npx drizzle-kit push
+npx drizzle-kit push --force
 ok "Database schema up to date"
 
 # ─── Step 5: Ensure directories exist with correct permissions ───────────────
