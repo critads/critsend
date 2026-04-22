@@ -55,7 +55,7 @@ import {
   ChevronRight,
   ShieldAlert,
 } from "lucide-react";
-import type { Campaign, ErrorLog } from "@shared/schema";
+import type { Campaign, ErrorLog, Segment } from "@shared/schema";
 
 function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; onClick?: () => void; campaignId?: string }) {
   const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }> = {
@@ -124,6 +124,15 @@ export default function Campaigns() {
     queryKey: ["/api/campaigns/stats"],
     refetchInterval: 60000,
   });
+
+  const { data: segments } = useQuery<Segment[]>({
+    queryKey: ["/api/segments"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const segmentNameById = new Map<string, string>(
+    (segments ?? []).map((s) => [s.id, s.name]),
+  );
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/campaigns/${id}`),
@@ -349,6 +358,7 @@ export default function Campaigns() {
                       />
                     </TableHead>
                     <TableHead>Campaign</TableHead>
+                    <TableHead><span className="flex items-center gap-1"><Filter className="h-3.5 w-3.5" />Segment</span></TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Sent</TableHead>
                     <TableHead><span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />Opens</span></TableHead>
@@ -381,6 +391,17 @@ export default function Campaigns() {
                             {campaign.subject}
                           </span>
                         </div>
+                      </TableCell>
+                      <TableCell data-testid={`text-segment-${campaign.id}`}>
+                        {campaign.segmentId ? (
+                          <Link href={`/segments/${campaign.segmentId}`}>
+                            <span className="text-sm text-foreground hover:text-primary hover:underline truncate max-w-[180px] inline-block align-bottom">
+                              {segmentNameById.get(campaign.segmentId) ?? "—"}
+                            </span>
+                          </Link>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">All subscribers</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <CampaignStatusBadge

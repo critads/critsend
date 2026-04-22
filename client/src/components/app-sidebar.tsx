@@ -138,14 +138,14 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar className="border-r border-sidebar-border">
-      <SidebarHeader className="p-4 pb-6">
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+      <SidebarHeader className="p-4 pb-6 group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:pb-3">
         <Link href="/">
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
+          <div className="flex items-center gap-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0">
+            <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary shrink-0">
               <Send className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="text-base font-semibold text-foreground">critsend</span>
+            <span className="text-base font-semibold text-foreground group-data-[collapsible=icon]:hidden">critsend</span>
           </div>
         </Link>
       </SidebarHeader>
@@ -159,6 +159,7 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
+                    tooltip={item.title}
                     className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
@@ -183,6 +184,7 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
+                    tooltip={item.title}
                     className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
@@ -207,6 +209,7 @@ export function AppSidebar() {
                   <SidebarMenuButton 
                     asChild 
                     isActive={location === item.url}
+                    tooltip={item.title}
                     className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(' ', '-')}`}>
@@ -221,19 +224,29 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       
-      <SidebarFooter className="p-3 mt-auto">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer px-2 py-1.5 rounded-md hover:bg-accent transition-colors">
-          <HelpCircle className="w-4 h-4" />
-          <span>Help & Support</span>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer px-2 py-1.5 rounded-md hover:bg-accent transition-colors w-full text-left"
-          data-testid="button-logout"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Sign Out</span>
-        </button>
+      <SidebarFooter className="p-3 mt-auto group-data-[collapsible=icon]:p-2">
+        <SidebarMenu className="space-y-0.5">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              tooltip="Help & Support"
+              className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span>Help & Support</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={handleLogout}
+              tooltip="Sign Out"
+              data-testid="button-logout"
+              className="h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign Out</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

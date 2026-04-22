@@ -74,7 +74,7 @@ function AuthenticatedApp() {
   };
 
   return (
-    <SidebarProvider style={sidebarStyle as React.CSSProperties}>
+    <SidebarProvider defaultOpen={false} style={sidebarStyle as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 bg-background">
