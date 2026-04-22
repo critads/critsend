@@ -60,4 +60,36 @@ export function validateConnectionBudget(): void {
   if (TOTAL_ALLOCATED > PG_CONNECTION_LIMIT) {
     logger.error(`[CONNECTION BUDGET] OVER BUDGET! Allocated ${TOTAL_ALLOCATED} connections but limit is ${PG_CONNECTION_LIMIT}. Reduce PG_POOL_MAX or PG_IMPORT_POOL_MAX, or increase PG_CONNECTION_LIMIT.`);
   }
+
+  // Combined split-process assertion: each process only sees its own pool sizes
+  // at runtime, so we additionally compute what the OTHER process is configured
+  // to consume (from env hints) and assert the AGGREGATE stays inside the
+  // hard Neon limit minus a configurable safety headroom. This catches
+  // mis-configurations (e.g. someone bumps WEB_PG_POOL_MAX past 20) at
+  // startup, not in production under saturation.
+  if (processType === 'web' || processType === 'worker') {
+    const webMain = processType === 'web'
+      ? MAIN_POOL_MAX
+      : Math.max(2, parseInt(process.env.WEB_PG_POOL_MAX || '20', 10) - TRACKING_POOL_MAX_HINT());
+    const workerMain = processType === 'worker'
+      ? MAIN_POOL_MAX
+      : parseInt(process.env.WORKER_PG_POOL_MAX || '18', 10);
+    const trackingMain = processType === 'web' ? TRACKING_POOL_MAX : Number(process.env.PG_TRACKING_POOL_MAX || 6);
+    const importBudget = IMPORT_POOL_MAX;
+    const notify = NOTIFY_CONNECTIONS * 2; // web + worker each open one LISTEN/NOTIFY conn
+    const safetyHeadroom = Number(process.env.PG_SPLIT_PROCESS_HEADROOM || 6);
+    const combined = webMain + workerMain + trackingMain + importBudget + notify;
+    if (combined + safetyHeadroom > PG_CONNECTION_LIMIT) {
+      logger.error(`[CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(${webMain})+worker(${workerMain})+tracking(${trackingMain})+import(${importBudget})+notify(${notify})=${combined} + headroom ${safetyHeadroom} = ${combined + safetyHeadroom} exceeds Neon limit ${PG_CONNECTION_LIMIT}. Reduce WEB_PG_POOL_MAX or WORKER_PG_POOL_MAX, or raise PG_CONNECTION_LIMIT.`);
+    } else {
+      logger.info(`[CONNECTION BUDGET] Split-process aggregate: web(${webMain})+worker(${workerMain})+tracking(${trackingMain})+import(${importBudget})+notify(${notify}) = ${combined} of ${PG_CONNECTION_LIMIT} (headroom ${PG_CONNECTION_LIMIT - combined}, required ≥ ${safetyHeadroom}) ✓`);
+    }
+  }
+}
+
+// Helper for the split-process aggregate assertion above. The web process
+// reads PG_TRACKING_POOL_MAX directly; this mirrors that for the worker
+// process so it can still calculate the web side's tracking footprint.
+function TRACKING_POOL_MAX_HINT(): number {
+  return Number(process.env.PG_TRACKING_POOL_MAX || 6);
 }

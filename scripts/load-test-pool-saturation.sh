@@ -290,6 +290,12 @@ failures=()
 if awk "BEGIN{exit !($shed_rate > $SHED_RATE_LIMIT_PER_SEC)}"; then
   failures+=("load-shed rate ${shed_rate}/sec exceeds ${SHED_RATE_LIMIT_PER_SEC}/sec — pool too small or workload too heavy")
 fi
+# In full-scenario mode, the worst-case workload MUST exercise load-shedding
+# at least a few times — if the counter never moves the safety net was either
+# bypassed or the workload didn't actually saturate. Skip in degraded mode.
+if [[ "$REQUIRE_FULL_SCENARIO" == "1" && "$shed_delta" -eq 0 ]]; then
+  failures+=("load-shed counter never incremented in full scenario — safety net was not exercised, results are not a valid SLO certification")
+fi
 if awk "BEGIN{exit !($sat_rate > $SATURATION_RATE_LIMIT_PER_SEC)}"; then
   failures+=("saturation_total rate ${sat_rate}/sec exceeds ${SATURATION_RATE_LIMIT_PER_SEC}/sec — load-shedding is firing too late")
 fi
