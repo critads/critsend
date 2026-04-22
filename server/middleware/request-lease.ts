@@ -27,7 +27,7 @@ import { AsyncLocalStorage } from "async_hooks";
 import type { Request, Response, NextFunction } from "express";
 import type { Pool, PoolClient } from "pg";
 import { pool, isPoolCheckoutError } from "../db";
-import { routeBucket } from "./pool-safety";
+import { routeBucket } from "./route-bucket";
 
 type ConnectCallback = (err: Error | undefined, client: PoolClient | undefined, release: (err?: Error | boolean) => void) => void;
 type ReleaseFn = (err?: Error | boolean) => void;

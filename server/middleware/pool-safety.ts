@@ -24,6 +24,7 @@ import { MAIN_POOL_MAX } from "../connection-budget";
 import { logger } from "../logger";
 import { poolLoadShedTotal, poolCheckoutTimeoutTotal } from "../metrics";
 import { isRequestLeaseExceeded, requestSawPoolError } from "./request-lease";
+import { routeBucket } from "./route-bucket";
 
 const LOAD_SHED_THRESHOLD = Number(process.env.POOL_LOAD_SHED_THRESHOLD || 0.9);
 // Routes that must always be served, even under saturation.
@@ -59,18 +60,8 @@ function isCritical(path: string): boolean {
   return false;
 }
 
-// Stable, low-cardinality route bucket for the load_shed metric.
-export function routeBucket(path: string): string {
-  if (path.startsWith("/api/campaigns")) return "/api/campaigns";
-  if (path.startsWith("/api/subscribers")) return "/api/subscribers";
-  if (path.startsWith("/api/imports")) return "/api/imports";
-  if (path.startsWith("/api/segments")) return "/api/segments";
-  if (path.startsWith("/api/automations")) return "/api/automations";
-  if (path.startsWith("/api/analytics")) return "/api/analytics";
-  if (path.startsWith("/api/mtas")) return "/api/mtas";
-  if (path.startsWith("/api/")) return "/api/other";
-  return "non-api";
-}
+// `routeBucket` lives in its own module so this file and `request-lease.ts`
+// can both import it without forming a circular dependency.
 
 /** Canonical body for every 503 response coming out of the safety net. */
 const SERVICE_BUSY_BODY = { error: "service_busy", retryAfterSeconds: 1 } as const;
