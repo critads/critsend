@@ -110,6 +110,10 @@ function checkCap(ctx: LeaseCtx): void {
         `[POOL LEASE] Route ${ctx.route} attempted ${ctx.count + 1}-th concurrent checkout (cap=${MAX_PER_REQUEST}); rejecting with 503.`,
       );
     }
+    // Mark on the request ALS context so any locally caught 500 from the
+    // route handler is upgraded to the canonical 503 + Retry-After contract
+    // by `poolErrorResponseUpgrade` in pool-safety.ts.
+    ctx.poolErrorOccurred = true;
     throw new RequestLeaseExceededError(ctx.route, ctx.count + 1, MAX_PER_REQUEST);
   }
 }
