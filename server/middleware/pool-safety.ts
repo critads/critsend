@@ -112,7 +112,10 @@ export function poolErrorResponseUpgrade(_req: Request, res: Response, next: Nex
       poolCheckoutTimeoutTotal.inc();
       upgraded = true;
       res.setHeader("Retry-After", "1");
-      return originalSendStatus(503);
+      // Emit canonical JSON body (not Express's default plain-text status
+      // message) so all 503s from the safety net are byte-identical.
+      originalStatus(503);
+      return originalJson(SERVICE_BUSY_BODY) as unknown as Response;
     }
     return originalSendStatus(code);
   };
