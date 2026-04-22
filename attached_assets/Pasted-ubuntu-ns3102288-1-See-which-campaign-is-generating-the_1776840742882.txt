@@ -1,0 +1,43 @@
+ubuntu@ns3102288:~$ # 1. See which campaign is generating the storm
+pm2 logs critsend-web --lines 200 --nostream | grep -oE "campaign[Ii]d.{1,40}" | sort | uniq -c | sort -rn | head -5
+
+# 2. Reload both processes — clears the stuck connection pool immediately
+pm2 reload all && sleep 3 && pm2 status
+
+# 3. Verify the app responds again
+curl -I https://server.critsender.com/api/health
+Use --update-env to update environment variables
+[PM2] Applying action reloadProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 13   │ online    │ 0%       │ 280.5mb  │
+│ 1  │ critsend-worker    │ fork     │ 13   │ online    │ 0%       │ 123.8mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+HTTP/2 200 
+server: nginx/1.18.0 (Ubuntu)
+date: Wed, 22 Apr 2026 06:52:01 GMT
+content-type: application/json; charset=utf-8
+content-length: 636
+vary: Accept-Encoding
+content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+origin-agent-cluster: ?1
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-xss-protection: 0
+x-request-id: c1ad556c-b221-42dc-873e-ebfd81871e18
+ratelimit-policy: 200;w=60
+ratelimit-limit: 200
+ratelimit-remaining: 199
+ratelimit-reset: 60
+etag: W/"27c-i2aTFzgWA9d/k8jXhRod5GHjsYk"
+strict-transport-security: max-age=63072000; includeSubDomains; preload

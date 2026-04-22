@@ -1,0 +1,40 @@
+ubuntu@ns3102288:~/critsend$ psql "$(grep -E '^(NEON_DATABASE_URL|DATABASE_URL)=' .env | head -1 | cut -d= -f2- | tr -d '"')" <<'SQL'
+SELECT cs.campaign_id, c.name, c.status,
+       COUNT(*) AS events_60min,
+       COUNT(*) FILTER (WHERE cs.type='open')  AS opens,
+       COUNT(*) FILTER (WHERE cs.type='click') AS clicks,
+       MAX(cs."timestamp") AS last_event
+FROM campaign_stats cs
+LEFT JOIN campaigns c ON c.id = cs.campaign_id
+WHERE cs."timestamp" > NOW() - INTERVAL '60 minutes'
+GROUP BY cs.campaign_id, c.name, c.status
+ORDER BY events_60min DESC
+LIMIT 5;
+
+SELECT id, name, status, started_at, sent_count, pending_count, failed_count
+FROM campaigns
+WHERE status IN ('sending','queued','scheduled')
+   OR started_at > NOW() - INTERVAL '2 hours'
+ORDER BY started_at DESC NULLS LAST
+LIMIT 10;
+SQL
+
+             campaign_id              |                     name                     |  status   | events_60min | opens | clicks |         last_event         
+--------------------------------------+----------------------------------------------+-----------+--------------+-------+--------+----------------------------
+ d2a52759-3503-4b86-878a-65a866db75c9 | #2873 Picard - 5au5NM - kamma                | completed |         3681 |  3549 |     58 | 2026-04-22 06:58:10.855018
+ 4525fb10-77fb-451b-9380-5a82304144f9 | #2870 Francoise Saget - 2agOFU - Mahlesoldes | completed |         3320 |  3099 |     96 | 2026-04-22 06:58:09.691581
+ 2e39f049-0573-461f-b068-4efb130d2661 | #2723 O2 - 5ciRXO - server2                  | sending   |         3164 |  3029 |     23 | 2026-04-22 06:58:09.253172
+ 2c4af75d-8dfc-46dd-ad99-13cadccb718e | #2846 Decathlon - 5brPHL - server2           | sending   |         3149 |  2953 |     95 | 2026-04-22 06:58:07.893128
+ b438012a-f0cf-4c3c-805a-978b1076ce6a | #2850 Technitoit - list deco - mahlesoldes   | completed |         2813 |  2626 |     26 | 2026-04-22 06:58:09.575887
+(5 rows)
+
+                  id                  |                    name                     |  status   |       started_at        | sent_count | pending_count | failed_count 
+--------------------------------------+---------------------------------------------+-----------+-------------------------+------------+---------------+--------------
+ 2c4af75d-8dfc-46dd-ad99-13cadccb718e | #2846 Decathlon - 5brPHL - server2          | sending   | 2026-04-22 06:53:52.525 |      82570 |        242356 |         7430
+ 2e39f049-0573-461f-b068-4efb130d2661 | #2723 O2 - 5ciRXO - server2                 | sending   | 2026-04-22 06:53:51.759 |      82560 |        175524 |         7435
+ 324f2b5a-7010-4db8-80e2-a9e9c81a4103 | #2869 Histoire d'or - 6csXRN - verysent     | sending   | 2026-04-22 06:53:50.236 |      59650 |        225115 |          345
+ 0ed65e6d-3602-4abc-a148-75d945b1f8f8 | #2855 FRENCHBEE - LIST TRAVEL - mahlesoldes | sending   | 2026-04-22 06:53:49.828 |      40000 |        187329 |         2000
+ 7698b5e2-f4b8-419e-8208-8ce2bcc028d2 | #2834 Zoomcar - list auto - rndaserver      | sending   | 2026-04-22 06:53:48.702 |      15265 |         31312 |         4735
+ 6ea25728-4d31-4b0f-8246-f910b3f018b5 | #2876 Campings.com - 4byISM - mayesale      | scheduled |                         |          0 |             0 |            0
+(6 rows)
+
