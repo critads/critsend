@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ import {
   AlertCircle,
   Loader2,
   RefreshCw,
+  Filter,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 import DateTimePicker from "@/components/date-time-picker";
@@ -1050,7 +1052,26 @@ export default function CampaignEdit() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Edit Campaign</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-3xl font-bold tracking-tight">Edit Campaign</h1>
+            {formData.segmentId ? (
+              <Link href={`/segments/${formData.segmentId}`}>
+                <Badge
+                  variant="outline"
+                  className="gap-1 cursor-pointer hover:bg-muted"
+                  data-testid="badge-header-segment"
+                >
+                  <Filter className="h-3 w-3" />
+                  {segments?.find((s) => s.id === formData.segmentId)?.name ?? "Segment"}
+                </Badge>
+              </Link>
+            ) : (
+              <Badge variant="outline" className="gap-1" data-testid="badge-header-segment">
+                <Filter className="h-3 w-3" />
+                All subscribers
+              </Badge>
+            )}
+          </div>
           <p className="text-muted-foreground">
             Modify your email campaign settings
           </p>

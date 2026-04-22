@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +36,7 @@ import {
   X,
   Loader2,
   Save,
+  Filter,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign } from "@shared/schema";
 import DateTimePicker from "@/components/date-time-picker";
@@ -936,7 +938,26 @@ export default function CampaignNew() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold tracking-tight">Create Campaign</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-3xl font-bold tracking-tight">Create Campaign</h1>
+            {formData.segmentId ? (
+              <Link href={`/segments/${formData.segmentId}`}>
+                <Badge
+                  variant="outline"
+                  className="gap-1 cursor-pointer hover:bg-muted"
+                  data-testid="badge-header-segment"
+                >
+                  <Filter className="h-3 w-3" />
+                  {segments?.find((s) => s.id === formData.segmentId)?.name ?? "Segment"}
+                </Badge>
+              </Link>
+            ) : (
+              <Badge variant="outline" className="gap-1" data-testid="badge-header-segment">
+                <Filter className="h-3 w-3" />
+                All subscribers
+              </Badge>
+            )}
+          </div>
           <p className="text-muted-foreground">
             Follow the steps to create a new email campaign
           </p>
