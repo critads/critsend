@@ -19,6 +19,7 @@ import crypto from "crypto";
 import { logger } from "../logger";
 import { campaignQueue } from "../queues";
 import { mapWithConcurrency } from "../utils";
+import { classifyDbError, isDiskFullError } from "../db-errors";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -597,7 +598,26 @@ export async function getDashboardStats() {
 // ─── Ensure tracking_tokens table exists (idempotent bootstrap) ─────────────
 // Called once on module load.  drizzle-kit push silently no-ops on complex
 // expression indexes, so we manage this table entirely via raw SQL.
-(async () => {
+//
+// If the database is short on disk (53100 disk_full / "could not write" /
+// "Disk quota exceeded"), the bootstrap is *deferred* rather than fatal:
+// we log a warning, expose the deferred state, and let the rest of the
+// web server come up so unrelated reads (e.g. /api/campaigns) keep
+// serving. The migration is re-runnable via runTrackingTokensBootstrap().
+let trackingTokensBootstrapState: "pending" | "ready" | "deferred" = "pending";
+let trackingTokensBootstrapDeferReason: string | null = null;
+
+export function getTrackingTokensBootstrapState(): {
+  state: "pending" | "ready" | "deferred";
+  deferReason: string | null;
+} {
+  return {
+    state: trackingTokensBootstrapState,
+    deferReason: trackingTokensBootstrapDeferReason,
+  };
+}
+
+export async function runTrackingTokensBootstrap(): Promise<"ready" | "deferred"> {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tracking_tokens (
@@ -627,15 +647,50 @@ export async function getDashboardStats() {
     try {
       await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_created_at_idx ON tracking_tokens (created_at)`);
     } catch (idxErr: any) {
+      if (isDiskFullError(idxErr)) {
+        const reason = `Disk pressure during created_at index build: ${idxErr?.message || idxErr}`;
+        logger.warn(
+          `[tracking_tokens] Bootstrap deferred (created_at index): ${reason}. ` +
+          `Web server will continue starting; rerun reclamation (see docs/reclaim-tracking-tokens.md), ` +
+          `then restart or call runTrackingTokensBootstrap() to retry.`
+        );
+        trackingTokensBootstrapState = "deferred";
+        trackingTokensBootstrapDeferReason = reason;
+        return "deferred";
+      }
       logger.warn(`[tracking_tokens] CONCURRENTLY created_at index build failed, will retry on next start: ${idxErr?.message || idxErr}`);
       try {
         await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_created_at_idx`);
       } catch { /* ignore */ }
     }
+    trackingTokensBootstrapState = "ready";
+    trackingTokensBootstrapDeferReason = null;
+    return "ready";
   } catch (err: any) {
+    const classified = classifyDbError(err);
+    if (classified.kind === "disk_full") {
+      const reason = `Database is out of disk space: ${classified.message}`;
+      logger.warn(
+        `[tracking_tokens] Bootstrap deferred — database disk pressure. ` +
+        `code=${classified.code ?? "n/a"} reason="${classified.message}". ` +
+        `Web server will continue starting; reclaim tracking_tokens space ` +
+        `(see docs/reclaim-tracking-tokens.md) and restart, or call ` +
+        `runTrackingTokensBootstrap() to retry without a restart.`
+      );
+      trackingTokensBootstrapState = "deferred";
+      trackingTokensBootstrapDeferReason = reason;
+      return "deferred";
+    }
     logger.error('[tracking_tokens] Table bootstrap failed:', err.message);
+    trackingTokensBootstrapState = "deferred";
+    trackingTokensBootstrapDeferReason = err?.message || String(err);
+    return "deferred";
   }
-})();
+}
+
+// Fire-and-forget bootstrap on module load. Errors never crash the boot —
+// runTrackingTokensBootstrap() always resolves, even when it has to defer.
+void runTrackingTokensBootstrap();
 
 const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 

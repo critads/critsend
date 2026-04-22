@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
 import { logger } from "../logger";
+import { classifyDbError, userFacingMessageFor } from "../db-errors";
 import { messageQueue } from "../message-queue";
 import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62 } from "../utils";
 import * as cheerio from "cheerio";
@@ -128,13 +129,49 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
   
+  // Per-process throttle so a sustained DB outage doesn't spam the logs with
+  // one stack trace per failed list request. We log the first failure with
+  // full context and then a single summary line every 60s.
+  let lastCampaignsListErrorLog = 0;
+  let suppressedCampaignsListErrors = 0;
+  const CAMPAIGNS_LIST_ERROR_LOG_INTERVAL_MS = 60_000;
+
   app.get("/api/campaigns", async (req: Request, res: Response) => {
     try {
       const campaignsList = await storage.getCampaigns();
       res.json(campaignsList);
     } catch (error) {
+      const classified = classifyDbError(error);
+      if (classified.transient) {
+        const now = Date.now();
+        if (now - lastCampaignsListErrorLog >= CAMPAIGNS_LIST_ERROR_LOG_INTERVAL_MS) {
+          logger.error(
+            `[campaigns] list query failed (transient ${classified.kind}, code=${classified.code ?? "n/a"}): ${classified.message}` +
+            (suppressedCampaignsListErrors > 0
+              ? ` (+${suppressedCampaignsListErrors} similar suppressed)`
+              : "")
+          );
+          lastCampaignsListErrorLog = now;
+          suppressedCampaignsListErrors = 0;
+        } else {
+          suppressedCampaignsListErrors++;
+        }
+        // Stable JSON shape — never leak raw Postgres text like
+        // "Disk quota exceeded" or file paths to the browser. The campaigns
+        // page renders this as the existing "Failed to load campaigns" state.
+        res.status(503).json({
+          error: "service_unavailable",
+          kind: classified.kind,
+          message: userFacingMessageFor(classified.kind),
+          retryable: true,
+        });
+        return;
+      }
       logger.error("Error fetching campaigns:", error);
-      res.status(500).json({ error: "Failed to fetch campaigns" });
+      res.status(500).json({
+        error: "internal_error",
+        message: "Failed to fetch campaigns",
+      });
     }
   });
 
