@@ -1,9 +1,53 @@
 # Critsend — Prometheus alert rules
 
-These are the recommended alerts for the database-pool safety net introduced in Task #49 (and a few related ones). Drop them into your Prometheus rules file (or Alertmanager-compatible equivalent) and tune thresholds for your environment.
+These are the alerts for the database-pool safety net introduced in Task #49.
+
+The first group (`critsend-db-pool-baseline`) uses the **exact thresholds and windows specified in the Task #49 acceptance criteria** and should be deployed verbatim — they are the contract the safety net is engineered to meet.
+
+The second group (`critsend-db-pool-tuned`) and `critsend-buffers` are tuned variants for noisier environments. Use the baseline rules as your canonical signal; layer the tuned ones on top if you want a softer secondary tier.
 
 ```yaml
 groups:
+  # ── BASELINE rules: exact Task #49 acceptance contract ─────────────────
+  - name: critsend-db-pool-baseline
+    interval: 15s
+    rules:
+      - alert: CritsendDbPoolWaitingBaseline
+        expr: critsend_db_pool_waiting > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Critsend main DB pool has waiters > 0 for 30s (baseline SLO)"
+          runbook: "Pool checkout queueing detected. Confirm load-shed metric is firing; if not, the safety net is failing closed."
+
+      - alert: CritsendDbPoolSaturationRateBaseline
+        expr: rate(critsend_db_pool_saturation_total[1m]) > 0.1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB pool saturation rate > 0.1/sec over 1m (baseline SLO)"
+          runbook: "Pool is saturating faster than the safety-net target. Investigate concurrent campaigns and bounce/tracking firehose."
+
+      - alert: CritsendLoadShedRateBaseline
+        expr: rate(critsend_db_pool_load_shed_total[1m]) > 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Load-shedding > 1 req/s over 1m (baseline SLO)"
+          runbook: "503 safety net firing in volume; check pool sizing or external pressure sources."
+
+      - alert: CritsendBounceBufferDroppedBaseline
+        expr: critsend_bounce_buffer_dropped_total > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bounce buffer dropped at least one event (baseline SLO)"
+          runbook: "Bounce traffic exceeded buffer capacity. Raise BOUNCE_BUFFER_MAX or tune flush interval."
+
+  # ── Tuned variants for environments where baseline is too noisy ───────
   - name: critsend-db-pool
     interval: 30s
     rules:

@@ -34,6 +34,11 @@ SUBSCRIBER_REF="${SUBSCRIBER_REF:-loadtest}"
 DURATION_S="${DURATION_S:-300}"
 NUM_CAMPAIGNS="${NUM_CAMPAIGNS:-12}"
 BOUNCE_RPS="${BOUNCE_RPS:-200}"
+BOUNCE_BATCH_SIZE="${BOUNCE_BATCH_SIZE:-1000}"
+# REQUIRE_FULL_SCENARIO=1 (default) makes the script HARD-FAIL if MTA_ID/AUTH
+# are missing so the worst-case scenario can never be silently downgraded.
+# Set REQUIRE_FULL_SCENARIO=0 to permit a documented degraded run (smoke test).
+REQUIRE_FULL_SCENARIO="${REQUIRE_FULL_SCENARIO:-1}"
 PIXEL_RPS="${PIXEL_RPS:-100}"
 HEALTH_RPS="${HEALTH_RPS:-5}"
 HEALTH_P99_MS_LIMIT="${HEALTH_P99_MS_LIMIT:-500}"
@@ -117,10 +122,10 @@ curl_call() {
   echo "$code"
 }
 
-# ── Workload: bounces (batches of 50) ────────────────────────────────────
+# ── Workload: bounces (batches of $BOUNCE_BATCH_SIZE; default 1000) ──────
 fire_bounces() {
   local bounces="["
-  for i in $(seq 1 50); do
+  for i in $(seq 1 "$BOUNCE_BATCH_SIZE"); do
     bounces+="{\"email\":\"loadtest+$RANDOM@example.com\",\"type\":\"hard_bounce\",\"reason\":\"lt\",\"messageId\":\"lt-$RANDOM-$i\"},"
   done
   bounces="${bounces%,}]"
@@ -151,9 +156,14 @@ fire_health() {
 # ── Campaign launch (12 nullsink campaigns) ──────────────────────────────
 launch_campaigns() {
   if [[ -z "$MTA_ID" || ${#auth_headers[@]} -eq 0 ]]; then
-    echo "[load-test] ⚠  MTA_ID or AUTH_COOKIE missing — skipping automated campaign launch."
-    echo "[load-test]    Set MTA_ID + AUTH_COOKIE + CSRF_TOKEN to enable the full test, or"
-    echo "[load-test]    trigger $NUM_CAMPAIGNS nullsink campaigns manually from the UI now."
+    if [[ "$REQUIRE_FULL_SCENARIO" == "1" ]]; then
+      echo "[load-test] FATAL: MTA_ID or AUTH_COOKIE missing and REQUIRE_FULL_SCENARIO=1." >&2
+      echo "[load-test]   The 12-campaign worst-case scenario is required for valid SLO assertions." >&2
+      echo "[load-test]   Set MTA_ID + AUTH_COOKIE + CSRF_TOKEN, or set REQUIRE_FULL_SCENARIO=0 for a documented degraded smoke run." >&2
+      exit 2
+    fi
+    echo "[load-test] ⚠  DEGRADED MODE (REQUIRE_FULL_SCENARIO=0): skipping campaign launch."
+    echo "[load-test]    This run does NOT certify the worst-case SLO contract."
     return
   fi
   for i in $(seq 1 "$NUM_CAMPAIGNS"); do
