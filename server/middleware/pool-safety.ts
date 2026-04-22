@@ -23,6 +23,7 @@ import { pool, getPoolSaturation, isPoolCheckoutError } from "../db";
 import { MAIN_POOL_MAX } from "../connection-budget";
 import { logger } from "../logger";
 import { poolLoadShedTotal, poolCheckoutTimeoutTotal } from "../metrics";
+import { isRequestLeaseExceeded } from "./request-lease";
 
 const LOAD_SHED_THRESHOLD = Number(process.env.POOL_LOAD_SHED_THRESHOLD || 0.9);
 // Routes that must always be served, even under saturation.
@@ -86,6 +87,15 @@ export function loadShedMiddleware(req: Request, res: Response, next: NextFuncti
  * themselves.
  */
 export function poolErrorHandler(err: any, req: Request, res: Response, next: NextFunction): void {
+  if (isRequestLeaseExceeded(err)) {
+    // The lease tracker already counted this in
+    // critsend_db_pool_request_lease_exceeded_total{route} — just translate
+    // to the standard 503 contract here.
+    if (res.headersSent) return next(err);
+    res.setHeader("Retry-After", "1");
+    res.status(503).json({ error: "service_busy", retryAfterSeconds: 1 });
+    return;
+  }
   if (!isPoolCheckoutError(err)) return next(err);
   poolCheckoutTimeoutTotal.inc();
   logger.warn(

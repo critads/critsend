@@ -29,6 +29,25 @@ import {
 
 const MAX_PER_REQUEST = Number(process.env.MAX_CONNECTIONS_PER_REQUEST || 2);
 
+/**
+ * Thrown when a request tries to check out more than MAX_CONNECTIONS_PER_REQUEST
+ * pool clients concurrently. Caught by `poolErrorHandler` and translated
+ * into 503 + Retry-After. Existing in-progress transactions on this request
+ * keep their already-acquired client (we throw on the new attempt only),
+ * so transactional state is not corrupted.
+ */
+export class RequestLeaseExceededError extends Error {
+  readonly code = "REQUEST_LEASE_EXCEEDED";
+  constructor(public route: string, public count: number, public cap: number) {
+    super(`Route ${route} attempted ${count} concurrent DB connections (cap=${cap})`);
+    this.name = "RequestLeaseExceededError";
+  }
+}
+
+export function isRequestLeaseExceeded(err: unknown): err is RequestLeaseExceededError {
+  return !!err && (err as any).code === "REQUEST_LEASE_EXCEEDED";
+}
+
 interface LeaseCtx {
   route: string;
   count: number;
@@ -55,18 +74,26 @@ export function requestLeaseMiddleware(req: Request, res: Response, next: NextFu
 
 let patched = false;
 
+function checkCap(ctx: LeaseCtx): void {
+  // Throw BEFORE checkout if this request already holds the cap. The
+  // already-acquired client is left untouched so any in-progress
+  // transaction can complete + release cleanly.
+  if (ctx.count >= MAX_PER_REQUEST) {
+    poolRequestLeaseExceededTotal.inc({ route: ctx.route });
+    if (!ctx.warned) {
+      ctx.warned = true;
+      logger.warn(
+        `[POOL LEASE] Route ${ctx.route} attempted ${ctx.count + 1}-th concurrent checkout (cap=${MAX_PER_REQUEST}); rejecting with 503.`,
+      );
+    }
+    throw new RequestLeaseExceededError(ctx.route, ctx.count + 1, MAX_PER_REQUEST);
+  }
+}
+
 function attribute(ctx: LeaseCtx, client: PoolClient): void {
   ctx.count++;
   if (ctx.count > ctx.peak) ctx.peak = ctx.count;
   poolRequestHolding.inc({ route: ctx.route });
-  if (ctx.count > MAX_PER_REQUEST && !ctx.warned) {
-    ctx.warned = true;
-    poolRequestLeaseExceededTotal.inc({ route: ctx.route });
-    logger.warn(
-      `[POOL LEASE] Route ${ctx.route} now holding ${ctx.count} DB connections (cap=${MAX_PER_REQUEST}). ` +
-      `Investigate this handler — it may be opening parallel transactions or leaking clients.`,
-    );
-  }
   const originalRelease = client.release.bind(client);
   let released = false;
   (client as any).release = (err?: Error | boolean) => {
@@ -94,21 +121,18 @@ export function installRequestLeaseTracker(): void {
   (pool as any).connect = function patchedConnect(cb?: any): any {
     // ── Callback form (used by pool.query internally) ──────────────────
     if (typeof cb === "function") {
+      const ctxCb = leaseStore.getStore();
+      if (ctxCb) {
+        try { checkCap(ctxCb); }
+        catch (capErr) { return cb(capErr as Error, undefined as any, () => {}); }
+      }
       return originalConnect((err: Error, client: PoolClient, release: any) => {
         if (err || !client) return cb(err, client, release);
         const ctx = leaseStore.getStore();
         if (!ctx) return cb(err, client, release);
-        // Wrap the release callback so we decrement on release.
         ctx.count++;
         if (ctx.count > ctx.peak) ctx.peak = ctx.count;
         poolRequestHolding.inc({ route: ctx.route });
-        if (ctx.count > MAX_PER_REQUEST && !ctx.warned) {
-          ctx.warned = true;
-          poolRequestLeaseExceededTotal.inc({ route: ctx.route });
-          logger.warn(
-            `[POOL LEASE] Route ${ctx.route} now holding ${ctx.count} DB connections (cap=${MAX_PER_REQUEST})`,
-          );
-        }
         let released = false;
         const wrappedRelease = (e?: any) => {
           if (released) return release(e);
@@ -123,17 +147,13 @@ export function installRequestLeaseTracker(): void {
 
     // ── Promise form ──────────────────────────────────────────────────
     const ctx = leaseStore.getStore();
+    if (ctx) checkCap(ctx);
     const p = originalConnect() as Promise<PoolClient>;
     if (!ctx) return p;
-    return p.then(
-      (client) => {
-        attribute(ctx, client);
-        return client;
-      },
-      (err) => {
-        throw err;
-      },
-    );
+    return p.then((client) => {
+      attribute(ctx, client);
+      return client;
+    });
   };
 
   logger.info(`[POOL LEASE] Request-lease tracker installed (cap=${MAX_PER_REQUEST}/request)`);

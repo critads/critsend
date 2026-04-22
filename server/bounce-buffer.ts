@@ -70,26 +70,38 @@ function pruneDedupe(now: number): void {
   }
 }
 
+export type EnqueueResult = "accepted" | "deduped" | "dropped";
+
 /**
- * Enqueue a bounce. Returns true if accepted, false if dropped (queue full
- * or duplicate inside the dedupe window). Always non-blocking.
+ * Enqueue a bounce. Returns:
+ *   "accepted" — appended to the queue, will be flushed.
+ *   "deduped"  — collapsed by (email|messageId) (or fallback) inside the
+ *                dedupe window; client should NOT retry.
+ *   "dropped"  — queue full and the oldest event was evicted to make room
+ *                for this one; observability bumps bounce_buffer_dropped.
+ *                Returned to the caller so 202 responses + metrics are
+ *                accurate (the new event itself IS enqueued — only the
+ *                evicted one was lost).
+ * Always non-blocking.
  */
-export function enqueueBounce(event: Omit<BounceEvent, "enqueuedAt">): boolean {
+export function enqueueBounce(event: Omit<BounceEvent, "enqueuedAt">): EnqueueResult {
   try {
     const now = Date.now();
     const key = dedupeKey(event);
     const last = dedupe.get(key);
     if (last !== undefined && now - last < DEDUPE_WINDOW_MS) {
       bounceBufferDeduped.inc({ type: event.type });
-      return false;
+      return "deduped";
     }
     dedupe.set(key, now);
     pruneDedupe(now);
 
+    let dropped = false;
     if (queue.length >= MAX_QUEUE) {
       const evicted = queue.shift();
       if (evicted) dedupe.delete(dedupeKey(evicted));
       droppedSinceLastWarn++;
+      dropped = true;
       bounceBufferDropped.inc({ reason: "queue_full" });
       if (now - lastDropWarnAt > DROP_WARN_INTERVAL_MS) {
         logger.warn(
@@ -103,10 +115,10 @@ export function enqueueBounce(event: Omit<BounceEvent, "enqueuedAt">): boolean {
     queue.push({ ...event, email: event.email.toLowerCase(), enqueuedAt: now });
     bounceBufferEnqueued.inc({ type: event.type });
     bounceBufferQueueDepth.set(queue.length);
-    return true;
+    return dropped ? "dropped" : "accepted";
   } catch (err: any) {
     logger.error(`[BOUNCE BUFFER] enqueue failed: ${err?.message || err}`);
-    return false;
+    return "dropped";
   }
 }
 

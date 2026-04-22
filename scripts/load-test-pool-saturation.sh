@@ -37,6 +37,10 @@ BOUNCE_RPS="${BOUNCE_RPS:-200}"
 PIXEL_RPS="${PIXEL_RPS:-100}"
 HEALTH_RPS="${HEALTH_RPS:-5}"
 HEALTH_P99_MS_LIMIT="${HEALTH_P99_MS_LIMIT:-500}"
+# Hard SLO thresholds for the safety net itself.
+POOL_WAITING_PEAK_LIMIT="${POOL_WAITING_PEAK_LIMIT:-2}"
+SHED_RATE_LIMIT_PER_SEC="${SHED_RATE_LIMIT_PER_SEC:-50}"
+METRIC_SCRAPE_INTERVAL_S="${METRIC_SCRAPE_INTERVAL_S:-2}"
 
 end_at=$(( $(date +%s) + DURATION_S ))
 TMPDIR_RUN=$(mktemp -d)
@@ -48,7 +52,30 @@ for code in 200 202 401 500 502 503 504; do status_counts[$code]=0; done
 bad_5xx_payloads=()
 bad_503_no_retry=()
 health_latencies_file="$TMPDIR_RUN/health_ms.txt"
+pool_waiting_file="$TMPDIR_RUN/pool_waiting.txt"
 : > "$health_latencies_file"
+: > "$pool_waiting_file"
+
+# ── Metric helpers (read /metrics, sum by metric name) ───────────────────
+sum_metric() {
+  local name="$1"
+  curl -sS -m 5 "$HOST/metrics" 2>/dev/null \
+    | awk -v m="^${name}(\\\\{|[[:space:]])" '$0 ~ m && $0 !~ /^#/ {sum += $NF} END {printf "%.0f", sum+0}'
+}
+read_gauge() {
+  local name="$1"
+  curl -sS -m 5 "$HOST/metrics" 2>/dev/null \
+    | awk -v m="^${name}(\\\\{|[[:space:]])" '$0 ~ m && $0 !~ /^#/ {print $NF; exit}'
+}
+
+scrape_metrics_loop() {
+  while [[ $(date +%s) -lt $end_at ]]; do
+    local w
+    w=$(read_gauge critsend_db_pool_waiting || echo 0)
+    [[ -n "$w" ]] && echo "$w" >> "$pool_waiting_file"
+    sleep "$METRIC_SCRAPE_INTERVAL_S"
+  done
+}
 
 # ── Auth headers ─────────────────────────────────────────────────────────
 auth_headers=()
@@ -159,15 +186,21 @@ spawn_loop() {
 }
 
 echo "[load-test] HOST=$HOST  duration=${DURATION_S}s  campaigns=$NUM_CAMPAIGNS  bounce_rps=$BOUNCE_RPS  pixel_rps=$PIXEL_RPS"
+
+shed_before=$(sum_metric critsend_db_pool_load_shed_total || echo 0)
+[[ -z "$shed_before" ]] && shed_before=0
+echo "[load-test] critsend_db_pool_load_shed_total (pre) = $shed_before"
+
 echo "[load-test] launching campaigns…"
 launch_campaigns
-echo "[load-test] starting traffic…"
+echo "[load-test] starting traffic + metric scraper…"
 
 spawn_loop fire_bounces "$BOUNCE_RPS" & PID_B=$!
 spawn_loop fire_pixel   "$PIXEL_RPS"  & PID_P=$!
 spawn_loop fire_health  "$HEALTH_RPS" & PID_H=$!
+scrape_metrics_loop                    & PID_M=$!
 
-wait $PID_B $PID_P $PID_H
+wait $PID_B $PID_P $PID_H $PID_M
 
 echo
 echo "[load-test] DONE — analyzing results"
@@ -191,14 +224,28 @@ if [[ "$total_health" -gt 0 ]]; then
 fi
 echo "Health probes: total=$total_health  p99=${p99}ms  (limit=${HEALTH_P99_MS_LIMIT}ms)"
 
-# Pool-shed metric must have moved (proves the shed actually fired)
-shed_after=$(curl -sS "$HOST/metrics" 2>/dev/null | awk '/^critsend_db_pool_load_shed_total/ && $0 !~ /^#/ {sum += $NF} END {print sum+0}')
-echo "critsend_db_pool_load_shed_total = $shed_after"
+# Pool waiting peak (sampled every $METRIC_SCRAPE_INTERVAL_S during the run)
+pool_waiting_peak=0
+if [[ -s "$pool_waiting_file" ]]; then
+  pool_waiting_peak=$(sort -n "$pool_waiting_file" | tail -1)
+fi
+echo "critsend_db_pool_waiting peak = $pool_waiting_peak (limit=$POOL_WAITING_PEAK_LIMIT)"
+
+# Load-shed delta + rate-per-second over the test window
+shed_after=$(sum_metric critsend_db_pool_load_shed_total || echo 0)
+[[ -z "$shed_after" ]] && shed_after=0
+shed_delta=$(( shed_after - shed_before ))
+shed_rate=$(awk "BEGIN{printf \"%.2f\", $shed_delta / $DURATION_S}")
+echo "critsend_db_pool_load_shed_total: $shed_before → $shed_after  (Δ=$shed_delta, ${shed_rate}/sec, limit=${SHED_RATE_LIMIT_PER_SEC}/sec)"
 
 failures=()
-[[ $bad_5xx -gt 0 ]] && failures+=("$bad_5xx 5xx (500/502/504) responses")
-[[ $bad_503 -gt 0 ]] && failures+=("$bad_503 503 responses missing Retry-After header")
-[[ $p99 -gt $HEALTH_P99_MS_LIMIT ]] && failures+=("/api/health p99=${p99}ms exceeds ${HEALTH_P99_MS_LIMIT}ms")
+[[ $bad_5xx -gt 0 ]]                                && failures+=("$bad_5xx 5xx (500/502/504) responses")
+[[ $bad_503 -gt 0 ]]                                && failures+=("$bad_503 503 responses missing Retry-After header")
+[[ $p99 -gt $HEALTH_P99_MS_LIMIT ]]                 && failures+=("/api/health p99=${p99}ms exceeds ${HEALTH_P99_MS_LIMIT}ms")
+[[ $pool_waiting_peak -gt $POOL_WAITING_PEAK_LIMIT ]] && failures+=("pool waiting peak=$pool_waiting_peak exceeds $POOL_WAITING_PEAK_LIMIT (load-shed not engaging fast enough)")
+if awk "BEGIN{exit !($shed_rate > $SHED_RATE_LIMIT_PER_SEC)}"; then
+  failures+=("load-shed rate ${shed_rate}/sec exceeds ${SHED_RATE_LIMIT_PER_SEC}/sec — pool too small or workload too heavy")
+fi
 
 if [[ ${#failures[@]} -gt 0 ]]; then
   echo

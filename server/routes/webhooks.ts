@@ -52,14 +52,14 @@ export function registerWebhookRoutes(app: Express) {
 
       const data = bounceSchema.parse(req.body);
       bouncesTotal.inc({ type: data.type });
-      const accepted = enqueueBounce({
+      const result = enqueueBounce({
         email: data.email,
         type: data.type,
         reason: data.reason,
         campaignId: data.campaignId,
         messageId: data.messageId,
       });
-      res.status(202).json({ status: "accepted", deduped: !accepted });
+      res.status(202).json({ status: result });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
@@ -90,19 +90,21 @@ export function registerWebhookRoutes(app: Express) {
 
       let accepted = 0;
       let deduped = 0;
+      let dropped = 0;
       for (const b of bounces) {
         bouncesTotal.inc({ type: b.type });
-        const ok = enqueueBounce({
+        const r = enqueueBounce({
           email: b.email,
           type: b.type,
           reason: b.reason,
           campaignId: b.campaignId,
           messageId: b.messageId,
         });
-        if (ok) accepted++;
-        else deduped++;
+        if (r === "accepted") accepted++;
+        else if (r === "deduped") deduped++;
+        else dropped++;
       }
-      res.status(202).json({ status: "accepted", accepted, deduped, total: bounces.length });
+      res.status(202).json({ status: "accepted", accepted, deduped, dropped, total: bounces.length });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
