@@ -194,7 +194,11 @@ let flushing = false;
 // fired by the current flusher cycle. Tracked so graceful shutdown can
 // await them before closing the tracking pool — otherwise the pool can
 // close mid-write and we lose first-open marks / suppressions.
-let pendingSideEffects: Promise<unknown>[] = [];
+//
+// Each entry is removed from the set as soon as it settles, so the set
+// only ever holds *currently-in-flight* side effects (no unbounded
+// accumulation over uptime).
+const pendingSideEffects: Set<Promise<unknown>> = new Set();
 
 /**
  * Drain the buffer and persist events in batched multi-row INSERTs.
@@ -268,10 +272,15 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
     // Side effects (first-open/click marker + tag ops + suppressed_until) —
     // tracked in pendingSideEffects so graceful shutdown can await them
     // before the tracking pool is closed.
-    const sideEffectPromise = processSideEffects(type, toWrite).catch((err) => {
-      logger.error(`[TRACKING BUFFER] side-effects (${type}) failed: ${err?.message || err}`);
-    });
-    pendingSideEffects.push(sideEffectPromise);
+    const sideEffectPromise: Promise<unknown> = processSideEffects(type, toWrite)
+      .catch((err) => {
+        logger.error(`[TRACKING BUFFER] side-effects (${type}) failed: ${err?.message || err}`);
+      })
+      .finally(() => {
+        // Self-prune so the set only ever holds in-flight work.
+        pendingSideEffects.delete(sideEffectPromise);
+      });
+    pendingSideEffects.add(sideEffectPromise);
   } catch (err: any) {
     trackingBufferDropped.inc({ reason: "flush_error" }, toWrite.length);
     // Clear dedupe entries for the failed batch so legitimate retries from
@@ -498,12 +507,15 @@ export async function stopTrackingBufferFlusher(): Promise<void> {
       logger.error(`[TRACKING BUFFER] final drain failed: ${err?.message || err}`);
     }
   }
-  if (pendingSideEffects.length > 0) {
-    logger.info(`[TRACKING BUFFER] awaiting ${pendingSideEffects.length} pending side-effect cycle(s)`);
+  if (pendingSideEffects.size > 0) {
+    logger.info(`[TRACKING BUFFER] awaiting ${pendingSideEffects.size} pending side-effect cycle(s)`);
     try {
-      await Promise.allSettled(pendingSideEffects);
+      await Promise.allSettled([...pendingSideEffects]);
     } catch {}
-    pendingSideEffects = [];
+    // Self-prune in .finally() should already have emptied the set, but
+    // clear defensively in case a side-effect promise rejected before
+    // its finally handler ran.
+    pendingSideEffects.clear();
   }
 }
 
