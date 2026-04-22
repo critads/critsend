@@ -1,9 +1,11 @@
 import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
-import { db, pool } from "../db";
+import { db, pool, isPoolHealthy } from "../db";
 import { sql } from "drizzle-orm";
 import { getWorkerHealth, WORKER_HEARTBEAT_KEY } from "../workers";
 import { redisConnection, isRedisConfigured } from "../redis";
+import { trackingPool, isTrackingPoolHealthy } from "../tracking-pool";
+import { MAIN_POOL_MAX, TRACKING_POOL_MAX } from "../connection-budget";
 
 type WorkerHealthFlags = ReturnType<typeof getWorkerHealth>;
 type WorkerHealthReport = WorkerHealthFlags & {
@@ -103,6 +105,28 @@ export function registerHealthRoutes(app: Express) {
         idleCount: pool.idleCount,
         waitingCount: pool.waitingCount,
       };
+
+      const mainPoolHealthy = isPoolHealthy();
+      const trackingPoolHealthy = isTrackingPoolHealthy();
+      const pools = {
+        main: {
+          status: mainPoolHealthy ? "healthy" : "degraded",
+          healthy: mainPoolHealthy,
+          inUse: Math.max(0, pool.totalCount - pool.idleCount),
+          idle: pool.idleCount,
+          waiting: pool.waitingCount,
+          max: MAIN_POOL_MAX,
+        },
+        tracking: {
+          status: trackingPoolHealthy ? "healthy" : "degraded",
+          healthy: trackingPoolHealthy,
+          inUse: Math.max(0, trackingPool.totalCount - trackingPool.idleCount),
+          idle: trackingPool.idleCount,
+          waiting: trackingPool.waitingCount,
+          max: TRACKING_POOL_MAX,
+        },
+      };
+      const poolsHealthy = mainPoolHealthy && trackingPoolHealthy;
       
       const memUsage = process.memoryUsage();
       
@@ -133,7 +157,7 @@ export function registerHealthRoutes(app: Express) {
       const useBullMQ = process.env.USE_BULLMQ === "true";
 
       res.json({
-        status: (dbHealthy && allWorkersRunning) ? 'healthy' : 'degraded',
+        status: (dbHealthy && allWorkersRunning && poolsHealthy) ? 'healthy' : 'degraded',
         timestamp: new Date().toISOString(),
         uptime: Math.floor(process.uptime()),
         database: {
@@ -141,6 +165,7 @@ export function registerHealthRoutes(app: Express) {
           status: dbHealthy ? "connected" : "disconnected",
           latencyMs: dbLatency,
           pool: poolStats,
+          pools,
         },
         redis: {
           configured: isRedisConfigured,

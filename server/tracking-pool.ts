@@ -75,6 +75,13 @@ export function getTrackingPoolStats() {
   };
 }
 
+export function isTrackingPoolHealthy(): boolean {
+  if (TRACKING_POOL_MAX <= 0) return true;
+  if (trackingPool.waitingCount > 0) return false;
+  if (trackingPool.totalCount >= TRACKING_POOL_MAX && trackingPool.idleCount === 0) return false;
+  return true;
+}
+
 export async function closeTrackingPool(): Promise<void> {
   try {
     await trackingPool.end();
