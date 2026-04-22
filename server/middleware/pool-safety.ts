@@ -87,6 +87,7 @@ type StatusFn = Response["status"];
 type SendStatusFn = Response["sendStatus"];
 type JsonFn = Response["json"];
 type SendFn = Response["send"];
+type EndFn = Response["end"];
 
 export function poolErrorResponseUpgrade(_req: Request, res: Response, next: NextFunction): void {
   const originalStatus: StatusFn = res.status.bind(res);
@@ -130,6 +131,19 @@ export function poolErrorResponseUpgrade(_req: Request, res: Response, next: Nex
     return originalSend(body);
   };
   res.send = patchedSend;
+
+  // Some handlers call `res.status(500).end()` directly (no body). Without
+  // this patch they would emit a 503 with an empty body, breaking the
+  // canonical contract. When upgraded, redirect through `originalJson` so
+  // the body is the strict service-busy payload.
+  const originalEnd = res.end.bind(res) as EndFn;
+  const patchedEnd = ((...args: unknown[]) => {
+    if (upgraded && !res.headersSent) {
+      return originalJson(SERVICE_BUSY_BODY);
+    }
+    return (originalEnd as (...a: unknown[]) => Response).apply(res, args);
+  }) as EndFn;
+  res.end = patchedEnd;
 
   next();
 }
