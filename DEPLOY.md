@@ -342,3 +342,53 @@ npx tsx scripts/generate-reset-link.ts yourusername
 - **SMTP credentials** are AES-256-GCM encrypted at rest.
   The `MTA_ENCRYPTION_KEY` in `.env` is required to decrypt them.
   **Back it up** — losing it means re-entering all MTA passwords.
+
+---
+
+## Tracking-pool isolation (Task #47) — verification runbook
+
+The web process now runs two pg pools: a **main pool** (default 14) for
+user-facing traffic and a **dedicated tracking pool** (default 6) for
+open/click/unsubscribe traffic. All tracking endpoints respond first and
+write asynchronously through `server/tracking-buffer.ts` via the tracking
+pool, so a campaign-blast pixel firehose can no longer drain the main
+pool and starve login / dashboard / imports.
+
+### Post-deploy verification
+
+1. Confirm pool sizing in the web log on boot:
+
+   ```bash
+   pm2 logs critsend-web --lines 200 | grep -E 'TRACKING POOL|CONNECTION BUDGET'
+   ```
+
+   Expect: `Main pool: 14 | Tracking pool: 6 | Total allocated: 25`.
+
+2. Run the load test against the live host. Either paste a real signed
+   pixel URL from a recent send, or pass `TRACKING_SECRET` so the script
+   can sign one for you:
+
+   ```bash
+   PIXEL_URL='https://send.example.com/api/track/open/<cid>/<sid>?sig=...' \
+     RPS=200 DURATION=60 BASE_URL=https://send.example.com \
+     ./scripts/load-test-tracking.sh
+   ```
+
+   Acceptance: `[OK] Health p99(...) below threshold (1000ms)`.
+
+3. Snapshot the tracking metrics during the test:
+
+   ```bash
+   curl -s https://send.example.com/metrics \
+     | grep -E '^critsend_tracking_(buffer|pool|link)_'
+   ```
+
+   Expect `critsend_tracking_buffer_enqueued` and `_flushed` to climb
+   together, `_dropped{reason="queue_full"}` to stay at 0, and
+   `critsend_tracking_pool_in_use` to peak well below 6.
+
+4. Tail for warnings — none should appear under nominal load:
+
+   ```bash
+   pm2 logs critsend-web --lines 0 | grep -E 'TRACKING BUFFER|TRACKING POOL'
+   ```

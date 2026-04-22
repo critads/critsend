@@ -32,13 +32,32 @@ log_ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
 
+CAMPAIGN_ID="${CAMPAIGN_ID:-loadtest-campaign}"
+SUBSCRIBER_ID="${SUBSCRIBER_ID:-loadtest-subscriber}"
+ALLOW_INVALID_SIG="${ALLOW_INVALID_SIG:-0}"
+
 if [ -z "$PIXEL_URL" ]; then
-  # Synthetic — invalid sig will be rejected at the signature check, but the
-  # whole point of this test is to measure pool/buffer impact, and the
-  # signature path itself does no DB IO. For a *real* end-to-end test, paste
-  # a valid signed URL into PIXEL_URL.
-  PIXEL_URL="${BASE_URL}/api/track/open/loadtest-campaign/loadtest-subscriber?sig=invalid-but-uniformly-shaped"
-  log_warn "No PIXEL_URL given — using synthetic invalid-sig URL. Set PIXEL_URL=<full-signed-url> for a true E2E test."
+  # Try to synthesize a valid signed URL from TRACKING_SECRET so the buffer
+  # actually exercises enqueue + flush + DB INSERT (the real "done looks
+  # like" path). Falls back to invalid-sig only if the operator explicitly
+  # opts in via ALLOW_INVALID_SIG=1.
+  if [ -n "${TRACKING_SECRET:-}" ] && command -v openssl >/dev/null; then
+    SIG=$(printf "%s" "${CAMPAIGN_ID}:${SUBSCRIBER_ID}:open" \
+      | openssl dgst -sha256 -hmac "$TRACKING_SECRET" -binary \
+      | xxd -p -c 256)
+    PIXEL_URL="${BASE_URL}/api/track/open/${CAMPAIGN_ID}/${SUBSCRIBER_ID}?sig=${SIG}"
+    log_info "Synthesized signed pixel URL for ${CAMPAIGN_ID}/${SUBSCRIBER_ID}"
+  elif [ "$ALLOW_INVALID_SIG" = "1" ]; then
+    PIXEL_URL="${BASE_URL}/api/track/open/${CAMPAIGN_ID}/${SUBSCRIBER_ID}?sig=invalid-but-uniformly-shaped"
+    log_warn "Using invalid-sig URL (ALLOW_INVALID_SIG=1). Buffer enqueue / flush will NOT be exercised."
+  else
+    log_fail "No PIXEL_URL and no TRACKING_SECRET in env."
+    log_fail "Provide one of:"
+    log_fail "  PIXEL_URL=<full-signed-url>     (paste a real pixel URL from a sent campaign)"
+    log_fail "  TRACKING_SECRET=<secret>        (script will sign \${CAMPAIGN_ID}/\${SUBSCRIBER_ID} for you)"
+    log_fail "  ALLOW_INVALID_SIG=1             (pool-only test; skips buffer/DB exercise)"
+    exit 2
+  fi
 fi
 
 if ! command -v curl >/dev/null; then

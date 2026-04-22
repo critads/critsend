@@ -96,22 +96,27 @@ function pruneDedupe(now: number): void {
  *
  * Always non-blocking and exception-safe so callers can ignore the result.
  */
-export function enqueueTrackingEvent(event: Omit<BaseEvent, "enqueuedAt">): boolean {
+export function enqueueTrackingEvent(
+  event: Omit<BaseEvent, "enqueuedAt">,
+  opts: { skipDedupe?: boolean } = {},
+): boolean {
   try {
     const now = Date.now();
 
-    // Dedupe (non-bot opens are the main offenders; bot complaints are rare
-    // enough that we don't dedupe them — passing { skipDedupe: true } via the
-    // existing complaint path is unnecessary because complaints route through
-    // a different type).
-    const key = dedupeKey(event);
-    const last = dedupe.get(key);
-    if (last !== undefined && now - last < DEDUPE_WINDOW_MS) {
-      trackingBufferDeduped.inc({ type: event.type });
-      return false;
+    // Dedupe collapses Gmail's "fetch the same pixel 4 times in 2 seconds"
+    // pattern. Callers can opt out via { skipDedupe: true } — required for
+    // explicit complaint-bot bypass so a complaint event is never silently
+    // dropped because a normal "open" with the same key was just enqueued.
+    if (!opts.skipDedupe) {
+      const key = dedupeKey(event);
+      const last = dedupe.get(key);
+      if (last !== undefined && now - last < DEDUPE_WINDOW_MS) {
+        trackingBufferDeduped.inc({ type: event.type });
+        return false;
+      }
+      dedupe.set(key, now);
+      pruneDedupe(now);
     }
-    dedupe.set(key, now);
-    pruneDedupe(now);
 
     if (queue.length >= MAX_QUEUE) {
       // Drop oldest to make room — newer events are more useful (closer to

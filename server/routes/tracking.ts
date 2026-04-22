@@ -8,6 +8,10 @@ import { UAParser } from "ua-parser-js";
 import geoip from "geoip-lite";
 import type { TrackingContext } from "../repositories/campaign-repository";
 import { enqueueTrackingEvent, getLinkDestinationCached } from "../tracking-buffer";
+import {
+  resolveTrackingTokenViaTrackingPool,
+  getCampaignTagsViaTrackingPool,
+} from "../tracking-queries";
 
 // Bootstrap: add suppressed_until column and backfill subscribers who unsubscribed
 // in the last 7 days so the 30-day cooling-off window applies to existing data.
@@ -82,12 +86,15 @@ async function getCampaignTagsCached(campaignId: string): Promise<CachedTags | n
   if (cached && Date.now() - cached.fetchedAt < CAMPAIGN_CACHE_TTL) {
     return { openTag: cached.openTag, clickTag: cached.clickTag, unsubscribeTag: cached.unsubscribeTag };
   }
-  const campaign = await storage.getCampaign(campaignId);
-  if (!campaign) return null;
+  // IMPORTANT: cache miss must go through trackingPool, NOT the main pool —
+  // the whole point of the dedicated tracking pool is that pixel-fueled
+  // bursts cannot drain the main pool and starve user-facing requests.
+  const tags = await getCampaignTagsViaTrackingPool(campaignId);
+  if (!tags) return null;
   const entry: CachedTags & { fetchedAt: number } = {
-    openTag: campaign.openTag || null,
-    clickTag: campaign.clickTag || null,
-    unsubscribeTag: campaign.unsubscribeTag || null,
+    openTag: tags.openTag,
+    clickTag: tags.clickTag,
+    unsubscribeTag: tags.unsubscribeTag,
     fetchedAt: Date.now(),
   };
   campaignTagCache.set(campaignId, entry);
@@ -150,7 +157,8 @@ export function registerTrackingRoutes(app: Express) {
   app.get("/c/:token", async (req: Request, res: Response) => {
     const { token } = req.params;
     try {
-      const resolved = await storage.resolveTrackingToken(token);
+      // Token resolution must use trackingPool (not main pool).
+      const resolved = await resolveTrackingTokenViaTrackingPool(token);
       if (!resolved || resolved.type !== "click" || !resolved.linkId) {
         logger.warn(`Short click token not found or invalid: ${token}`);
         return res.status(404).send("Link not found");
@@ -201,30 +209,30 @@ export function registerTrackingRoutes(app: Express) {
   app.get("/u/:token", async (req: Request, res: Response) => {
     const { token } = req.params;
     try {
-      const resolved = await storage.resolveTrackingToken(token);
+      // Token resolution must use trackingPool (not main pool).
+      const resolved = await resolveTrackingTokenViaTrackingPool(token);
       if (!resolved || resolved.type !== "unsubscribe") {
         logger.warn(`Short unsubscribe token not found or invalid: ${token}`);
         return res.status(403).send(renderUnsubscribePage("invalid"));
       }
       const { campaignId, subscriberId } = resolved;
 
-      const subscriber = await storage.getSubscriber(subscriberId);
+      // Respond IMMEDIATELY — do not block the recipient on any DB writes.
+      // The buffer's flusher (against trackingPool) handles the actual
+      // suppressed_until UPDATE + tag enqueue; bad subscriber IDs are a
+      // no-op there (UPDATE … WHERE id = X returns 0 rows).
       res.send(renderUnsubscribePage("success"));
 
-      if (subscriber) {
-        const ctx = extractTrackingContext(req);
-        const tags = await getCampaignTagsCached(campaignId).catch(() => null);
-        enqueueTrackingEvent({
-          type: "unsubscribe",
-          campaignId,
-          subscriberId,
-          ctx,
-          unsubscribeTag: tags?.unsubscribeTag ?? null,
-        });
-        logger.info(`Short unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
-      } else {
-        logger.warn(`Short unsubscribe: subscriber not found: ${subscriberId}`);
-      }
+      const ctx = extractTrackingContext(req);
+      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+      enqueueTrackingEvent({
+        type: "unsubscribe",
+        campaignId,
+        subscriberId,
+        ctx,
+        unsubscribeTag: tags?.unsubscribeTag ?? null,
+      });
+      logger.info(`Short unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
     } catch (error) {
       logger.error("Error in short unsubscribe route:", error);
       if (!res.headersSent) res.status(500).send(renderUnsubscribePage("error", "An error occurred. Please try again."));
@@ -239,31 +247,29 @@ export function registerTrackingRoutes(app: Express) {
   app.post("/u/:token", async (req: Request, res: Response) => {
     const { token } = req.params;
     try {
-      const resolved = await storage.resolveTrackingToken(token);
+      // Token resolution must use trackingPool (not main pool).
+      const resolved = await resolveTrackingTokenViaTrackingPool(token);
       if (!resolved || resolved.type !== "unsubscribe") {
         logger.warn(`POST short unsubscribe token not found or invalid: ${token}`);
         return res.status(404).json({ error: "Unsubscribe token not found" });
       }
       const { campaignId, subscriberId } = resolved;
 
-      const subscriber = await storage.getSubscriber(subscriberId);
-      // Respond immediately with 200 (RFC 8058 requires 200 on success)
+      // Respond immediately with 200 (RFC 8058 requires 200 on success).
+      // No subscriber lookup on the request path — buffer side-effects
+      // (against trackingPool) are a no-op for unknown IDs.
       res.status(200).json({ unsubscribed: true });
 
-      if (subscriber) {
-        const ctx = extractTrackingContext(req);
-        const tags = await getCampaignTagsCached(campaignId).catch(() => null);
-        enqueueTrackingEvent({
-          type: "unsubscribe",
-          campaignId,
-          subscriberId,
-          ctx,
-          unsubscribeTag: tags?.unsubscribeTag ?? null,
-        });
-        logger.info(`POST short unsubscribe (RFC 8058): campaign=${campaignId}, subscriber=${subscriberId}`);
-      } else {
-        logger.warn(`POST short unsubscribe: subscriber not found: ${subscriberId}`);
-      }
+      const ctx = extractTrackingContext(req);
+      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+      enqueueTrackingEvent({
+        type: "unsubscribe",
+        campaignId,
+        subscriberId,
+        ctx,
+        unsubscribeTag: tags?.unsubscribeTag ?? null,
+      });
+      logger.info(`POST short unsubscribe (RFC 8058): campaign=${campaignId}, subscriber=${subscriberId}`);
     } catch (error) {
       logger.error("Error in POST short unsubscribe route:", error);
       res.status(500).json({ error: "Unsubscribe failed" });
@@ -303,13 +309,18 @@ export function registerTrackingRoutes(app: Express) {
       if (isComplaintBot) {
         // Buffer handles setSuppressedUntil + STOP-tag inside processSideEffects.
         // unsubscribeTag comes from the same cached lookup — no second DB roundtrip.
-        enqueueTrackingEvent({
-          type: "complaint",
-          campaignId,
-          subscriberId,
-          ctx,
-          unsubscribeTag: tags?.unsubscribeTag ?? null,
-        });
+        // skipDedupe so a complaint is never silently dropped because a normal
+        // open with the same (campaign, subscriber) was just enqueued.
+        enqueueTrackingEvent(
+          {
+            type: "complaint",
+            campaignId,
+            subscriberId,
+            ctx,
+            unsubscribeTag: tags?.unsubscribeTag ?? null,
+          },
+          { skipDedupe: true },
+        );
         logger.info(`[COMPLAINT] Bot open from ${ctx.ipAddress}: campaign=${campaignId}, subscriber=${subscriberId}`);
       } else {
         enqueueTrackingEvent({
@@ -435,26 +446,22 @@ export function registerTrackingRoutes(app: Express) {
     logger.info(`Unsubscribe request: campaign=${campaignId}, subscriber=${subscriberId}`);
     
     try {
-      const subscriber = await storage.getSubscriber(subscriberId);
-
+      // Respond immediately — buffer side-effects against trackingPool
+      // are no-ops for unknown subscriber IDs, so no main-pool lookup needed.
       res.send(renderUnsubscribePage("success"));
 
-      if (subscriber) {
-        const ctx = extractTrackingContext(req);
-        const tags = await getCampaignTagsCached(campaignId).catch(() => null);
-        enqueueTrackingEvent({
-          type: "unsubscribe",
-          campaignId,
-          subscriberId,
-          ctx,
-          unsubscribeTag: tags?.unsubscribeTag ?? null,
-        });
-      } else {
-        logger.warn(`Unsubscribe: subscriber not found: ${subscriberId}`);
-      }
+      const ctx = extractTrackingContext(req);
+      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+      enqueueTrackingEvent({
+        type: "unsubscribe",
+        campaignId,
+        subscriberId,
+        ctx,
+        unsubscribeTag: tags?.unsubscribeTag ?? null,
+      });
     } catch (error) {
       logger.error("Error unsubscribing:", error);
-      res.status(500).send("An error occurred");
+      if (!res.headersSent) res.status(500).send("An error occurred");
     }
   });
 }
