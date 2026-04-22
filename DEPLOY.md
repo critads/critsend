@@ -383,9 +383,10 @@ pool and starve login / dashboard / imports.
      | grep -E '^critsend_tracking_(buffer|pool|link)_'
    ```
 
-   Expect `critsend_tracking_buffer_enqueued` and `_flushed` to climb
-   together, `_dropped{reason="queue_full"}` to stay at 0, and
-   `critsend_tracking_pool_in_use` to peak well below 6.
+   Expect `critsend_tracking_buffer_enqueued_total` and
+   `critsend_tracking_buffer_flushed_total` to climb together,
+   `critsend_tracking_buffer_dropped_total{reason="queue_full"}` to
+   stay at 0, and `critsend_tracking_pool_in_use` to peak well below 6.
 
 4. Tail for warnings — none should appear under nominal load:
 

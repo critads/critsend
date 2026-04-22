@@ -505,6 +505,10 @@ export async function stopTrackingBufferFlusher(): Promise<void> {
     clearInterval(flushTimer);
     flushTimer = null;
   }
+  if (poolSampleTimer) {
+    clearInterval(poolSampleTimer);
+    poolSampleTimer = null;
+  }
   // Final drain so we don't lose buffered events on graceful shutdown.
   // We also need to drain side-effect promises from previous cycles AND
   // from this final flush — otherwise the tracking pool can be closed
