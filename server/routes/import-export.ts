@@ -240,7 +240,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       const { id } = req.params;
 
       const [existingJob] = await db
-        .select({ status: importJobs.status })
+        .select({ status: importJobs.status, csvFilePath: importJobs.csvFilePath })
         .from(importJobs)
         .where(eq(importJobs.id, id))
         .limit(1);
@@ -251,6 +251,17 @@ export function registerImportExportRoutes(app: Express, helpers: {
       const currentStatus = existingJob.status;
       if (!["queued", "failed", "cancelled"].includes(currentStatus)) {
         return res.status(400).json({ error: `Import cannot be requeued from status '${currentStatus}'` });
+      }
+
+      // Refuse requeue if the source CSV is gone (e.g. server restart wiped /uploads).
+      // Without this check the worker would just fail again with the same "file not found"
+      // error, and the user would be stuck in a Requeue loop.
+      const csvPath = existingJob.csvFilePath;
+      if (!csvPath || !fs.existsSync(csvPath)) {
+        return res.status(409).json({
+          error: "csv_file_missing",
+          message: "The original CSV file is no longer on the server. Please re-upload it to retry this import.",
+        });
       }
 
       let requeued = false;

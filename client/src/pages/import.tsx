@@ -451,7 +451,19 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
       toast({ title: "Import requeued", description: "The import will begin processing shortly." });
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : "Could not requeue the import.";
+      let msg = err instanceof Error ? err.message : "Could not requeue the import.";
+      // apiRequest throws errors like `409: {"error":"csv_file_missing","message":"..."}`.
+      // Extract the human-readable `message` field when present.
+      const jsonMatch = msg.match(/^\d+:\s*(\{.*\})$/);
+      if (jsonMatch) {
+        try {
+          const body = JSON.parse(jsonMatch[1]);
+          if (typeof body?.message === "string") msg = body.message;
+          else if (typeof body?.error === "string") msg = body.error;
+        } catch {
+          /* fall back to raw message */
+        }
+      }
       toast({ title: "Requeue failed", description: msg, variant: "destructive" });
     },
   });
@@ -543,19 +555,38 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
               </Button>
             </>
           )}
-          {(job.status === "queued" || job.status === "failed" || job.status === "cancelled") && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleForceRequeue}
-              disabled={forceRequeueMutation.isPending}
-              data-testid={`button-requeue-${job.id}`}
-              className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
-            >
-              <RefreshCw className="h-4 w-4 mr-1" />
-              Requeue
-            </Button>
-          )}
+          {(() => {
+            const canRequeue = job.status === "queued" || job.status === "failed" || job.status === "cancelled";
+            if (!canRequeue) return null;
+            const errMsg = (job.errorMessage || "").toLowerCase();
+            const fileMissing = errMsg.includes("csv file not found") || errMsg.includes("no longer on the server");
+            if (fileMissing) {
+              return (
+                <Badge
+                  variant="outline"
+                  className="text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-300"
+                  data-testid={`badge-reupload-required-${job.id}`}
+                  title="The original CSV file is no longer on the server. Please re-upload it from the Upload tab."
+                >
+                  <Upload className="h-3 w-3 mr-1" />
+                  Re-upload required
+                </Badge>
+              );
+            }
+            return (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceRequeue}
+                disabled={forceRequeueMutation.isPending}
+                data-testid={`button-requeue-${job.id}`}
+                className="text-blue-600 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Requeue
+              </Button>
+            );
+          })()}
           {getStatusBadge(job.status)}
         </div>
       </div>
