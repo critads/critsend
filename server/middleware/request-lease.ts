@@ -163,18 +163,13 @@ export function installRequestLeaseTracker(): void {
         if (err || !client) return cb(err, client, release);
         const ctx = leaseStore.getStore();
         if (!ctx) return cb(err, client, release);
-        ctx.count++;
-        if (ctx.count > ctx.peak) ctx.peak = ctx.count;
-        poolRequestHolding.inc({ route: ctx.route });
-        let released = false;
-        const wrappedRelease: ReleaseFn = (e) => {
-          if (released) return release(e);
-          released = true;
-          ctx.count = Math.max(0, ctx.count - 1);
-          poolRequestHolding.dec({ route: ctx.route });
-          return release(e);
-        };
-        return cb(err, client, wrappedRelease);
+        // Wrap `client.release` (same as the promise path) so the lease
+        // is decremented regardless of whether the consumer calls
+        // `client.release()` (drizzle, sequential pool.query in modern pg)
+        // or the third callback arg (legacy patterns). Both end up at the
+        // same wrapper which uses an internal `released` flag for idempotency.
+        attribute(ctx, client);
+        return cb(err, client, client.release.bind(client) as ReleaseFn);
       });
     }
 
