@@ -606,6 +606,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const { startBounceBufferFlusher } = await import("./bounce-buffer");
   startBounceBufferFlusher();
 
+  // Periodic counter-drift reconciler. Source-of-truth tables are
+  // campaign_sends + campaign_stats; derived counter columns are kept in
+  // sync incrementally by the live send/track paths. If a write is ever
+  // dropped (process restart, pool error), this worker fills the gap and
+  // surfaces the rate of drift via a Prometheus metric.
+  const { startCounterReconciler } = await import("./workers/counter-reconciler");
+  startCounterReconciler();
+
   initQueues();
 
   // Subscribe to worker-process progress events and forward them to SSE clients.

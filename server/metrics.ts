@@ -247,6 +247,30 @@ export const trackingPoolInUse = new client.Gauge({
   registers: [register],
 });
 
+// ── Counter-drift reconciliation ──────────────────────────────────────────
+// Number of rows the periodic reconciler had to fix because a derived
+// counter (campaigns.sent_count, campaign_sends.first_open_at, etc.) had
+// drifted from its source-of-truth table. A non-zero value points to a
+// bug in the live counter-write path. Should be ~0 in steady state.
+export const counterDriftFixedTotal = new client.Counter({
+  name: 'critsend_counter_drift_fixed_total',
+  help: 'Rows fixed by the counter-drift reconciler, by counter name',
+  labelNames: ['counter'] as const,
+  registers: [register],
+});
+
+export const counterDriftRunDurationMs = new client.Gauge({
+  name: 'critsend_counter_drift_run_duration_ms',
+  help: 'Duration of the most recent counter-drift reconciler run, in ms',
+  registers: [register],
+});
+
+export const counterDriftLastRunAt = new client.Gauge({
+  name: 'critsend_counter_drift_last_run_timestamp_seconds',
+  help: 'Unix timestamp of the most recent successful counter-drift reconciler run',
+  registers: [register],
+});
+
 export const trackingLinkCacheHits = new client.Counter({
   name: 'critsend_tracking_link_cache_hits_total',
   help: 'getCampaignLinkDestination LRU cache outcomes',

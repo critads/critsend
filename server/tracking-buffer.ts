@@ -268,12 +268,31 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
   }
 
   try {
-    await insertBatch(type, toWrite);
+    // ── Atomic raw-insert + first-mark (open/click only) ────────────────
+    // For open/click we run the campaign_stats INSERT and the
+    // campaign_sends.first_open_at / first_click_at UPDATE in the SAME
+    // transaction. Without this, a process crash, pool error, or thrown
+    // exception between the two writes would land raw events in
+    // campaign_stats while the headline counters (which read first_open_at
+    // / first_click_at on campaign_sends) silently stayed at 0 forever.
+    //
+    // For unsubscribe/complaint, the first-mark equivalent is the
+    // suppressed_until update which lives in processSideEffects below;
+    // it is lower-volume and is reconciled by the counter-drift worker.
+    let firsts: Set<string> | null = null;
+    if (type === "open" || type === "click") {
+      firsts = await insertBatchAndMarkFirsts(type, toWrite);
+    } else {
+      await insertBatch(type, toWrite);
+    }
     trackingBufferFlushed.inc({ type }, toWrite.length);
-    // Side effects (first-open/click marker + tag ops + suppressed_until) —
-    // tracked in pendingSideEffects so graceful shutdown can await them
-    // before the tracking pool is closed.
-    const sideEffectPromise: Promise<unknown> = processSideEffects(type, toWrite)
+
+    // Post-commit side effects (tag enqueues, suppressed_until for
+    // unsub/complaint). These are intentionally NOT in the txn — a tag
+    // enqueue failure must not roll back the raw event row. Tracked in
+    // pendingSideEffects so graceful shutdown can await them before the
+    // tracking pool is closed.
+    const sideEffectPromise: Promise<unknown> = processSideEffects(type, toWrite, firsts)
       .catch((err) => {
         logger.error(`[TRACKING BUFFER] side-effects (${type}) failed: ${err?.message || err}`);
       })
@@ -293,6 +312,37 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
 }
 
 /**
+ * Atomic combined insert + first-mark for open/click.
+ *
+ * Single trackingPool client, single BEGIN/COMMIT, two writes:
+ *   1. INSERT INTO campaign_stats   (raw event rows)
+ *   2. UPDATE campaign_sends        (first_open_at or first_click_at)
+ *
+ * Returns the set of "campaignId|subscriberId" keys whose row was the
+ * first of its kind for this (campaign, subscriber). Tag enqueues fire
+ * post-commit based on this set.
+ */
+async function insertBatchAndMarkFirsts(
+  type: "open" | "click",
+  events: BaseEvent[],
+): Promise<Set<string>> {
+  if (events.length === 0) return new Set();
+  const client = await trackingPool.connect();
+  try {
+    await client.query("BEGIN");
+    await insertBatchOnClient(client, type, events);
+    const firsts = await markFirstsOnClient(client, type, events);
+    await client.query("COMMIT");
+    return firsts;
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Batched multi-row INSERT into campaign_stats. Builds the parameter list
  * dynamically because pg-node doesn't let us bind an array of ROWs.
  *
@@ -300,13 +350,16 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
  *   id (default uuid), campaign_id, subscriber_id, type, link, timestamp,
  *   ip_address, user_agent, country, city, device_type, browser, os
  */
-async function insertBatch(type: TrackingEventType, events: BaseEvent[]): Promise<void> {
-  if (events.length === 0) return;
+/** Build the INSERT INTO campaign_stats statement + bound parameter list. */
+function buildInsertBatchSql(
+  type: TrackingEventType,
+  events: BaseEvent[],
+): { sql: string; values: Array<string | Date | null> } {
   const columns = [
     "campaign_id", "subscriber_id", "type", "link", "timestamp",
     "ip_address", "user_agent", "country", "city", "device_type", "browser", "os",
   ];
-  const values: any[] = [];
+  const values: Array<string | Date | null> = [];
   const placeholders: string[] = [];
   let p = 1;
   for (const e of events) {
@@ -330,7 +383,24 @@ async function insertBatch(type: TrackingEventType, events: BaseEvent[]): Promis
     );
   }
   const sql = `INSERT INTO campaign_stats (${columns.join(", ")}) VALUES ${placeholders.join(", ")}`;
+  return { sql, values };
+}
+
+async function insertBatch(type: TrackingEventType, events: BaseEvent[]): Promise<void> {
+  if (events.length === 0) return;
+  const { sql, values } = buildInsertBatchSql(type, events);
   await trackingPool.query(sql, values);
+}
+
+/** Same as insertBatch but bound to a specific client (for transactions). */
+async function insertBatchOnClient(
+  client: import("pg").PoolClient,
+  type: TrackingEventType,
+  events: BaseEvent[],
+): Promise<void> {
+  if (events.length === 0) return;
+  const { sql, values } = buildInsertBatchSql(type, events);
+  await client.query(sql, values);
 }
 
 /**
@@ -347,11 +417,17 @@ async function insertBatch(type: TrackingEventType, events: BaseEvent[]): Promis
  * safe on the main pool. We still fire-and-forget to keep the flusher
  * responsive.
  */
-async function processSideEffects(type: TrackingEventType, events: BaseEvent[]): Promise<void> {
+async function processSideEffects(
+  type: TrackingEventType,
+  events: BaseEvent[],
+  precomputedFirsts: Set<string> | null,
+): Promise<void> {
   if (events.length === 0) return;
 
   if (type === "open") {
-    const firsts = await bulkMarkFirstOpen(events);
+    // first-mark already happened atomically inside the txn; only the
+    // tag enqueues remain.
+    const firsts = precomputedFirsts ?? new Set<string>();
     if (firsts.size > 0) {
       const { storage } = await import("./storage");
       for (const ev of events) {
@@ -367,7 +443,7 @@ async function processSideEffects(type: TrackingEventType, events: BaseEvent[]):
   }
 
   if (type === "click") {
-    const firsts = await bulkMarkFirstClick(events);
+    const firsts = precomputedFirsts ?? new Set<string>();
     if (firsts.size > 0) {
       const { storage } = await import("./storage");
       for (const ev of events) {
@@ -410,56 +486,37 @@ async function processSideEffects(type: TrackingEventType, events: BaseEvent[]):
 }
 
 /**
- * Bulk recordFirstOpen via UPDATE…FROM(VALUES…)…RETURNING.
- * Returns the set of "campaignId|subscriberId" keys that were marked first
- * (i.e. first_open_at was previously NULL).
+ * Bulk first-mark for opens or clicks via UPDATE…FROM(VALUES…)…RETURNING,
+ * bound to the supplied client so it can run inside the same transaction
+ * that just inserted into campaign_stats. Returns the set of
+ * "campaignId|subscriberId" keys whose row was previously NULL (i.e.
+ * truly the first event of its kind for that recipient).
  */
-async function bulkMarkFirstOpen(events: BaseEvent[]): Promise<Set<string>> {
+async function markFirstsOnClient(
+  client: import("pg").PoolClient,
+  type: "open" | "click",
+  events: BaseEvent[],
+): Promise<Set<string>> {
   const pairs = uniquePairs(events);
   if (pairs.length === 0) return new Set();
-  // Build VALUES list
-  const values: any[] = [];
+  const values: string[] = [];
   const placeholders: string[] = [];
   let p = 1;
   for (const [c, s] of pairs) {
     placeholders.push(`($${p++}::varchar, $${p++}::varchar)`);
     values.push(c, s);
   }
+  const column = type === "open" ? "first_open_at" : "first_click_at";
   const sql = `
     UPDATE campaign_sends cs
-    SET first_open_at = NOW()
+    SET ${column} = NOW()
     FROM (VALUES ${placeholders.join(", ")}) AS v(campaign_id, subscriber_id)
     WHERE cs.campaign_id = v.campaign_id
       AND cs.subscriber_id = v.subscriber_id
-      AND cs.first_open_at IS NULL
+      AND cs.${column} IS NULL
     RETURNING cs.campaign_id, cs.subscriber_id
   `;
-  const result = await trackingPool.query(sql, values);
-  const out = new Set<string>();
-  for (const row of result.rows) out.add(`${row.campaign_id}|${row.subscriber_id}`);
-  return out;
-}
-
-async function bulkMarkFirstClick(events: BaseEvent[]): Promise<Set<string>> {
-  const pairs = uniquePairs(events);
-  if (pairs.length === 0) return new Set();
-  const values: any[] = [];
-  const placeholders: string[] = [];
-  let p = 1;
-  for (const [c, s] of pairs) {
-    placeholders.push(`($${p++}::varchar, $${p++}::varchar)`);
-    values.push(c, s);
-  }
-  const sql = `
-    UPDATE campaign_sends cs
-    SET first_click_at = NOW()
-    FROM (VALUES ${placeholders.join(", ")}) AS v(campaign_id, subscriber_id)
-    WHERE cs.campaign_id = v.campaign_id
-      AND cs.subscriber_id = v.subscriber_id
-      AND cs.first_click_at IS NULL
-    RETURNING cs.campaign_id, cs.subscriber_id
-  `;
-  const result = await trackingPool.query(sql, values);
+  const result = await client.query(sql, values);
   const out = new Set<string>();
   for (const row of result.rows) out.add(`${row.campaign_id}|${row.subscriber_id}`);
   return out;
