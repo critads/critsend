@@ -432,8 +432,9 @@ export async function getCampaignAnalytics(campaignId: string) {
   const subscriberIds = [...new Set(recentStats.map((s: any) => s.subscriber_id).filter(Boolean))];
   const emailById = new Map<string, string>();
   if (subscriberIds.length > 0) {
+    const arrayLiteral = `{${subscriberIds.map(id => `"${String(id).replace(/"/g, '\\"')}"`).join(',')}}`;
     const emailsResult = await db.execute(sql`
-      SELECT id, email FROM subscribers WHERE id = ANY(${subscriberIds}::text[])
+      SELECT id, email FROM subscribers WHERE id = ANY(${arrayLiteral}::text[])
     `);
     for (const row of emailsResult.rows as any[]) {
       emailById.set(row.id, row.email);
