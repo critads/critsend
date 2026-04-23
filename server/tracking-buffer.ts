@@ -279,11 +279,17 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
     // For unsubscribe/complaint, the first-mark equivalent is the
     // suppressed_until update which lives in processSideEffects below;
     // it is lower-volume and is reconciled by the counter-drift worker.
+    // Insert raw events AND bump the cached campaigns.* counters in the
+    // SAME transaction. The cached counters power the /campaigns list page
+    // — keeping them in lock-step with raw events here means the list view
+    // never disagrees with the analytics aggregate after a flush. For
+    // open/click we also mark first_open_at/first_click_at on
+    // campaign_sends inside the same txn (existing behavior).
     let firsts: Set<string> | null = null;
     if (type === "open" || type === "click") {
       firsts = await insertBatchAndMarkFirsts(type, toWrite);
     } else {
-      await insertBatch(type, toWrite);
+      await insertBatchAndBumpCounters(type, toWrite);
     }
     trackingBufferFlushed.inc({ type }, toWrite.length);
 
@@ -332,6 +338,9 @@ async function insertBatchAndMarkFirsts(
     await client.query("BEGIN");
     await insertBatchOnClient(client, type, events);
     const firsts = await markFirstsOnClient(client, type, events);
+    // Cached counter bump — same txn so the /campaigns list view stays in
+    // lock-step with the raw events written above.
+    await bumpCampaignCountersOnClient(client, type, events, firsts);
     await client.query("COMMIT");
     return firsts;
   } catch (err) {
@@ -340,6 +349,113 @@ async function insertBatchAndMarkFirsts(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Atomic insert + cached counter bump for unsubscribe / complaint events.
+ *
+ * For these types we don't have a per-(campaign,subscriber) "first" column
+ * on campaign_sends, so the dedupe window plus per-batch collapse already
+ * makes events approximately one-per-recipient. We bump unique by the
+ * batch's distinct (campaign,subscriber) count and total by event count.
+ * The reconciler keeps unique counts honest against COUNT(DISTINCT) of
+ * campaign_stats every 15 minutes.
+ */
+async function insertBatchAndBumpCounters(
+  type: "unsubscribe" | "complaint",
+  events: BaseEvent[],
+): Promise<void> {
+  if (events.length === 0) return;
+  const client = await trackingPool.connect();
+  try {
+    await client.query("BEGIN");
+    await insertBatchOnClient(client, type, events);
+    await bumpCampaignCountersOnClient(client, type, events, null);
+    await client.query("COMMIT");
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Bump the cached campaigns.* engagement counters for a batch of events,
+ * inside the supplied transaction client.
+ *
+ * For open/click: total_*_count += events grouped by campaign;
+ *                 unique_*_count += first-marked rows grouped by campaign.
+ * For unsubscribe/complaint: counter += distinct (campaign,subscriber) in batch.
+ */
+async function bumpCampaignCountersOnClient(
+  client: import("pg").PoolClient,
+  type: TrackingEventType,
+  events: BaseEvent[],
+  firsts: Set<string> | null,
+): Promise<void> {
+  if (events.length === 0) return;
+
+  const totalByCampaign = new Map<string, number>();
+  const uniqueByCampaign = new Map<string, number>();
+
+  if (type === "open" || type === "click") {
+    for (const e of events) {
+      totalByCampaign.set(e.campaignId, (totalByCampaign.get(e.campaignId) ?? 0) + 1);
+    }
+    if (firsts) {
+      for (const key of firsts) {
+        const sep = key.indexOf("|");
+        if (sep <= 0) continue;
+        const cid = key.slice(0, sep);
+        uniqueByCampaign.set(cid, (uniqueByCampaign.get(cid) ?? 0) + 1);
+      }
+    }
+  } else {
+    // unsubscribe / complaint — collapse to distinct (campaign,subscriber)
+    const seenPair = new Set<string>();
+    for (const e of events) {
+      const k = `${e.campaignId}|${e.subscriberId}`;
+      if (seenPair.has(k)) continue;
+      seenPair.add(k);
+      uniqueByCampaign.set(e.campaignId, (uniqueByCampaign.get(e.campaignId) ?? 0) + 1);
+    }
+  }
+
+  const campaignIds = new Set<string>([...totalByCampaign.keys(), ...uniqueByCampaign.keys()]);
+  if (campaignIds.size === 0) return;
+
+  let totalCol: string | null = null;
+  let uniqueCol: string | null = null;
+  if (type === "open") { totalCol = "total_opens_count"; uniqueCol = "unique_opens_count"; }
+  else if (type === "click") { totalCol = "total_clicks_count"; uniqueCol = "unique_clicks_count"; }
+  else if (type === "unsubscribe") { uniqueCol = "unsubscribes_count"; }
+  else if (type === "complaint") { uniqueCol = "complaints_count"; }
+  if (!totalCol && !uniqueCol) return;
+
+  // Single UPDATE … FROM (VALUES …) so we issue one round-trip per type.
+  const placeholders: string[] = [];
+  const values: Array<string | number> = [];
+  let p = 1;
+  for (const cid of campaignIds) {
+    const total = totalByCampaign.get(cid) ?? 0;
+    const unique = uniqueByCampaign.get(cid) ?? 0;
+    placeholders.push(`($${p++}::varchar, $${p++}::int, $${p++}::int)`);
+    values.push(cid, total, unique);
+  }
+
+  const setParts: string[] = [];
+  if (totalCol) setParts.push(`${totalCol} = c.${totalCol} + v.total_delta`);
+  if (uniqueCol) setParts.push(`${uniqueCol} = c.${uniqueCol} + v.unique_delta`);
+
+  const sql = `
+    UPDATE campaigns c
+       SET ${setParts.join(", ")}
+      FROM (VALUES ${placeholders.join(", ")})
+        AS v(campaign_id, total_delta, unique_delta)
+     WHERE c.id = v.campaign_id
+  `;
+  await client.query(sql, values);
 }
 
 /**

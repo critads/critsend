@@ -6,6 +6,8 @@
  *   - campaigns.sent_count             from campaign_sends.status='sent'
  *   - campaign_sends.first_open_at     from MIN(timestamp) campaign_stats opens
  *   - campaign_sends.first_click_at    from MIN(timestamp) campaign_stats clicks
+ *   - campaigns.{unique,total}_opens_count, {unique,total}_clicks_count,
+ *     unsubscribes_count, complaints_count   from COUNT/COUNT(DISTINCT) over campaign_stats
  *
  * Idempotent. Only touches rows that disagree with the source-of-truth.
  *
@@ -33,10 +35,11 @@ async function main() {
   const elapsed = Date.now() - t0;
 
   console.log("[reconcile-counters] done:");
-  console.log(`  sent_count fixed:      ${result.sentCountFixed}`);
-  console.log(`  first_open_at fixed:   ${result.firstOpenFixed}`);
-  console.log(`  first_click_at fixed:  ${result.firstClickFixed}`);
-  console.log(`  total elapsed:         ${elapsed}ms`);
+  console.log(`  sent_count fixed:           ${result.sentCountFixed}`);
+  console.log(`  first_open_at fixed:        ${result.firstOpenFixed}`);
+  console.log(`  first_click_at fixed:       ${result.firstClickFixed}`);
+  console.log(`  engagement counters fixed:  ${result.engagementCountersFixed}`);
+  console.log(`  total elapsed:              ${elapsed}ms`);
 }
 
 main()

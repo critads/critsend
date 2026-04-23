@@ -43,6 +43,7 @@ export interface ReconcileResult {
   sentCountFixed: number;
   firstOpenFixed: number;
   firstClickFixed: number;
+  engagementCountersFixed: number;
   durationMs: number;
 }
 
@@ -126,23 +127,64 @@ export async function reconcileCounters(
   );
   const firstClickFixed = clickRes.rowCount ?? 0;
 
+  // 4. Cached engagement counters on campaigns.* — single UPDATE that re-derives
+  //    all six counters from campaign_stats. Fill-only: only writes a column when
+  //    the cached value is strictly LESS than the source-of-truth count, so the
+  //    reconciler can never destroy real data on demo or partial-restore DBs.
+  //
+  //    The aggregate is heavy (full GROUP BY over campaign_stats) but it runs
+  //    on the trackingPool every 15 min in the recent-window mode and only
+  //    once per recovery in scope:"all" mode, so it never affects request-path
+  //    latency.
+  const engagementRes = await trackingPool.query(
+    `WITH truth AS (
+       SELECT campaign_id,
+              COUNT(*) FILTER (WHERE type = 'open')::bigint                          AS total_opens,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')::bigint     AS unique_opens,
+              COUNT(*) FILTER (WHERE type = 'click')::bigint                         AS total_clicks,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click')::bigint    AS unique_clicks,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')::bigint AS unsubscribes,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints
+         FROM campaign_stats
+        GROUP BY campaign_id
+     )${recentCampaignsCte}
+     UPDATE campaigns c
+        SET total_opens_count   = GREATEST(c.total_opens_count,   truth.total_opens),
+            unique_opens_count  = GREATEST(c.unique_opens_count,  truth.unique_opens),
+            total_clicks_count  = GREATEST(c.total_clicks_count,  truth.total_clicks),
+            unique_clicks_count = GREATEST(c.unique_clicks_count, truth.unique_clicks),
+            unsubscribes_count  = GREATEST(c.unsubscribes_count,  truth.unsubscribes),
+            complaints_count    = GREATEST(c.complaints_count,    truth.complaints)
+       FROM truth
+      WHERE c.id = truth.campaign_id
+        AND ( c.total_opens_count   < truth.total_opens
+           OR c.unique_opens_count  < truth.unique_opens
+           OR c.total_clicks_count  < truth.total_clicks
+           OR c.unique_clicks_count < truth.unique_clicks
+           OR c.unsubscribes_count  < truth.unsubscribes
+           OR c.complaints_count    < truth.complaints )
+        ${inRecentCampaign}`,
+  );
+  const engagementCountersFixed = engagementRes.rowCount ?? 0;
+
   const durationMs = Date.now() - start;
 
   if (sentCountFixed > 0) counterDriftFixedTotal.inc({ counter: "sent_count" }, sentCountFixed);
   if (firstOpenFixed > 0) counterDriftFixedTotal.inc({ counter: "first_open_at" }, firstOpenFixed);
   if (firstClickFixed > 0) counterDriftFixedTotal.inc({ counter: "first_click_at" }, firstClickFixed);
+  if (engagementCountersFixed > 0) counterDriftFixedTotal.inc({ counter: "engagement_counters" }, engagementCountersFixed);
   counterDriftRunDurationMs.set(durationMs);
   counterDriftLastRunAt.set(Math.floor(Date.now() / 1000));
 
-  if (sentCountFixed + firstOpenFixed + firstClickFixed > 0) {
+  if (sentCountFixed + firstOpenFixed + firstClickFixed + engagementCountersFixed > 0) {
     logger.warn(
-      `[COUNTER RECONCILER] fixed drift (scope=${scope}): sent_count=${sentCountFixed} first_open_at=${firstOpenFixed} first_click_at=${firstClickFixed} in ${durationMs}ms`,
+      `[COUNTER RECONCILER] fixed drift (scope=${scope}): sent_count=${sentCountFixed} first_open_at=${firstOpenFixed} first_click_at=${firstClickFixed} engagement=${engagementCountersFixed} in ${durationMs}ms`,
     );
   } else {
     logger.info(`[COUNTER RECONCILER] no drift (scope=${scope}, ${durationMs}ms)`);
   }
 
-  return { sentCountFixed, firstOpenFixed, firstClickFixed, durationMs };
+  return { sentCountFixed, firstOpenFixed, firstClickFixed, engagementCountersFixed, durationMs };
 }
 
 let timer: NodeJS.Timeout | null = null;

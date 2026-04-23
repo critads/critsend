@@ -112,6 +112,17 @@ export const campaigns = pgTable("campaigns", {
   pendingCount: integer("pending_count").notNull().default(0),
   failedCount: integer("failed_count").notNull().default(0),
   autoRetryCount: integer("auto_retry_count").notNull().default(0),
+  // Cached engagement counters — maintained by the tracking-buffer flush
+  // transaction (live increments) and re-derived by the counter-drift
+  // reconciler. Powers the /campaigns list page so it can render real
+  // Opens/Clicks/Unsubs/Plaintes without aggregating campaign_stats on every
+  // page load. See server/tracking-buffer.ts and server/workers/counter-reconciler.ts.
+  uniqueOpensCount: integer("unique_opens_count").notNull().default(0),
+  totalOpensCount: integer("total_opens_count").notNull().default(0),
+  uniqueClicksCount: integer("unique_clicks_count").notNull().default(0),
+  totalClicksCount: integer("total_clicks_count").notNull().default(0),
+  unsubscribesCount: integer("unsubscribes_count").notNull().default(0),
+  complaintsCount: integer("complaints_count").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),

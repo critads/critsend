@@ -20,9 +20,18 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
 (async () => {
   try {
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS auto_retry_count integer NOT NULL DEFAULT 0`);
-    logger.info("[CAMPAIGNS] Bootstrap migration: auto_retry_count column ready");
+    // Cached engagement counters for fast /campaigns list rendering.
+    // Maintained by server/tracking-buffer.ts (live txn-bumped) and
+    // server/workers/counter-reconciler.ts (15-min reconciliation).
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS unique_opens_count  integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS total_opens_count   integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS unique_clicks_count integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS total_clicks_count  integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS unsubscribes_count  integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS complaints_count    integer NOT NULL DEFAULT 0`);
+    logger.info("[CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters ready");
   } catch (err: any) {
-    logger.error(`[CAMPAIGNS] Bootstrap migration FAILED (auto_retry_count): ${err?.message || err}`);
+    logger.error(`[CAMPAIGNS] Bootstrap migration FAILED: ${err?.message || err}`);
   }
 })();
 
@@ -177,25 +186,33 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
   app.get("/api/campaigns/stats", async (_req: Request, res: Response) => {
     try {
+      // Fast read of the cached counters maintained by the tracking-buffer
+      // flush transaction (server/tracking-buffer.ts) and re-derived by the
+      // counter-drift reconciler (server/workers/counter-reconciler.ts).
+      // Replaces the previous COUNT(DISTINCT)…GROUP BY over the full
+      // campaign_stats event table, which became unscalable past a few
+      // million rows and caused the /campaigns list to timeout-and-render-zeros.
       const result = await pool.query(`
-        SELECT
-          campaign_id,
-          COUNT(*) FILTER (WHERE type = 'open')         AS total_opens,
-          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')  AS unique_opens,
-          COUNT(*) FILTER (WHERE type = 'click')        AS total_clicks,
-          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click') AS unique_clicks,
-          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')  AS unsubscribes,
-          COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint') AS complaints
-        FROM campaign_stats
-        GROUP BY campaign_id
+        SELECT id,
+               unique_opens_count,
+               unique_clicks_count,
+               unsubscribes_count,
+               complaints_count
+          FROM campaigns
       `);
       const statsMap: Record<string, { opens: number; clicks: number; unsubscribes: number; complaints: number }> = {};
-      for (const row of result.rows as any[]) {
-        statsMap[row.campaign_id] = {
-          opens: parseInt(row.unique_opens, 10) || 0,
-          clicks: parseInt(row.unique_clicks, 10) || 0,
-          unsubscribes: parseInt(row.unsubscribes, 10) || 0,
-          complaints: parseInt(row.complaints, 10) || 0,
+      for (const row of result.rows as Array<{
+        id: string;
+        unique_opens_count: number | string;
+        unique_clicks_count: number | string;
+        unsubscribes_count: number | string;
+        complaints_count: number | string;
+      }>) {
+        statsMap[row.id] = {
+          opens: Number(row.unique_opens_count) || 0,
+          clicks: Number(row.unique_clicks_count) || 0,
+          unsubscribes: Number(row.unsubscribes_count) || 0,
+          complaints: Number(row.complaints_count) || 0,
         };
       }
       res.json(statsMap);
