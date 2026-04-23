@@ -1,0 +1,47 @@
+ubuntu@ns3102288:~/critsend$ cd ~/critsend && git pull && npm run build && pm2 restart all --update-env && sleep 3 && pm2 logs --err --lines 30 --nostream | grep -E "42846|Error fetching campaign analytics" | tail -20 || echo "no analytics errors after restart"
+Already up to date.
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (8) src/components/ui/tooltip.tsx
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2493 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-BEyD2ltS.css     87.68 kB │ gzip:  14.20 kB
+../dist/public/assets/index-BWinUK-t.js   1,250.33 kB │ gzip: 333.39 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.89s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 58ms
+building import worker...
+
+  dist/import-worker.cjs  193.4kb
+
+⚡ Done in 16ms
+building background worker...
+
+  dist/worker-main.cjs  910.9kb
+
+⚡ Done in 34ms
+[PM2] Applying action restartProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 16   │ online    │ 0%       │ 294.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 16   │ online    │ 0%       │ 16.7mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
