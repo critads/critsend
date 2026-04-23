@@ -1,0 +1,31 @@
+ubuntu@ns3102288:~$ # In the second window — re-load env first
+cd /home/ubuntu/critsend
+eval "$(pm2 jlist | node -e '
+const d = JSON.parse(require("fs").readFileSync(0));
+const env = d[0]?.pm2_env || {};
+for (const k of ["DATABASE_URL","NEON_DATABASE_URL"]) {
+  if (env[k]) console.log(`export ${k}=${JSON.stringify(env[k])}`);
+}')"
+
+# Show currently-running queries on Neon
+node --input-type=module -e '
+import pg from "pg";
+const url = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
+const p = new pg.Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
+const { rows } = await p.query(`
+  SELECT pid, now() - query_start AS dur, state, LEFT(query, 120) AS q
+  FROM pg_stat_activity
+  WHERE state != $1 AND query NOT LIKE $2
+  ORDER BY dur DESC LIMIT 10
+`, ["idle", "%pg_stat_activity%"]);
+console.table(rows);
+await p.end();
+'
+┌─────────┬───────┬────────────────────────────────────────────────────────┬──────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ (index) │ pid   │ dur                                                    │ state    │ q                                                                                                                              │
+├─────────┼───────┼────────────────────────────────────────────────────────┼──────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ 0       │ 25789 │ PostgresInterval { seconds: 5, milliseconds: 719.875 } │ 'active' │ '\n    WITH truth AS (\n      SELECT subscriber_id, MIN("timestamp") AS first_ts\n        FROM campaign_stats WHERE type=$1 '  │
+│ 1       │ 25333 │ PostgresInterval { seconds: 1, milliseconds: 581.648 } │ 'active' │ "\n        SELECT\n          campaign_id,\n          COUNT(*) FILTER (WHERE type = 'open')         AS total_opens,\n         " │
+│ 2       │ 30082 │ PostgresInterval { seconds: 1, milliseconds: 581.648 } │ 'active' │ "\n        SELECT\n          campaign_id,\n          COUNT(*) FILTER (WHERE type = 'open')         AS total_opens,\n         " │
+│ 3       │ 30083 │ PostgresInterval { seconds: 1, milliseconds: 581.648 } │ 'active' │ "\n        SELECT\n          campaign_id,\n          COUNT(*) FILTER (WHERE type = 'open')         AS total_opens,\n         " │
+└─────────┴───────┴────────────────────────────────────────────────────────┴──────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
