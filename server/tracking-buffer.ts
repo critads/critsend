@@ -355,11 +355,14 @@ async function insertBatchAndMarkFirsts(
  * Atomic insert + cached counter bump for unsubscribe / complaint events.
  *
  * For these types we don't have a per-(campaign,subscriber) "first" column
- * on campaign_sends, so the dedupe window plus per-batch collapse already
- * makes events approximately one-per-recipient. We bump unique by the
- * batch's distinct (campaign,subscriber) count and total by event count.
- * The reconciler keeps unique counts honest against COUNT(DISTINCT) of
- * campaign_stats every 15 minutes.
+ * on campaign_sends. To keep `unsubscribes_count` / `complaints_count`
+ * truly equal to COUNT(DISTINCT subscriber_id), we query — inside the same
+ * txn, BEFORE the INSERT — which (campaign,subscriber) pairs from this
+ * batch already have a row of this type in campaign_stats. Those pairs
+ * are *not* counted as new uniques. This makes the live bump exactly
+ * idempotent against the source-of-truth, so the fill-only reconciler
+ * (which can only RAISE counters via GREATEST) never has to repair
+ * overcounts — overcounts simply cannot occur.
  */
 async function insertBatchAndBumpCounters(
   type: "unsubscribe" | "complaint",
@@ -369,8 +372,57 @@ async function insertBatchAndBumpCounters(
   const client = await trackingPool.connect();
   try {
     await client.query("BEGIN");
+
+    // Collapse to distinct (campaign,subscriber) pairs in this batch.
+    const batchPairs: Array<{ cid: string; sid: string; key: string }> = [];
+    const seenInBatch = new Set<string>();
+    for (const ev of events) {
+      const key = `${ev.campaignId}|${ev.subscriberId}`;
+      if (seenInBatch.has(key)) continue;
+      seenInBatch.add(key);
+      batchPairs.push({ cid: ev.campaignId, sid: ev.subscriberId, key });
+    }
+
+    // Find pairs that ALREADY have a row of this type in campaign_stats.
+    // Those must NOT bump the unique counter (they are duplicates from a
+    // previous flush whose dedupe window has long since expired).
+    const alreadyCounted = new Set<string>();
+    if (batchPairs.length > 0) {
+      const placeholders: string[] = [];
+      const params: string[] = [];
+      let p = 1;
+      for (const pair of batchPairs) {
+        placeholders.push(`($${p++}::varchar, $${p++}::varchar)`);
+        params.push(pair.cid, pair.sid);
+      }
+      params.push(type);
+      const existingSql = `
+        SELECT campaign_id, subscriber_id
+          FROM campaign_stats
+         WHERE (campaign_id, subscriber_id) IN (${placeholders.join(", ")})
+           AND type = $${p}
+      `;
+      const result = await client.query<{ campaign_id: string; subscriber_id: string }>(
+        existingSql,
+        params,
+      );
+      for (const row of result.rows) {
+        alreadyCounted.add(`${row.campaign_id}|${row.subscriber_id}`);
+      }
+    }
+
     await insertBatchOnClient(client, type, events);
-    await bumpCampaignCountersOnClient(client, type, events, null);
+
+    // Build the per-campaign unique delta from ONLY first-time pairs.
+    const newPairsByCampaign = new Map<string, number>();
+    for (const pair of batchPairs) {
+      if (alreadyCounted.has(pair.key)) continue;
+      newPairsByCampaign.set(pair.cid, (newPairsByCampaign.get(pair.cid) ?? 0) + 1);
+    }
+    if (newPairsByCampaign.size > 0) {
+      await bumpUnsubComplaintCountersOnClient(client, type, newPairsByCampaign);
+    }
+
     await client.query("COMMIT");
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch { /* swallow */ }
@@ -378,6 +430,37 @@ async function insertBatchAndBumpCounters(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Single UPDATE … FROM (VALUES …) bumping unsubscribes_count / complaints_count
+ * by the supplied per-campaign delta map. Caller must have already filtered
+ * out pairs that were already counted in a previous flush.
+ */
+async function bumpUnsubComplaintCountersOnClient(
+  client: import("pg").PoolClient,
+  type: "unsubscribe" | "complaint",
+  deltaByCampaign: Map<string, number>,
+): Promise<void> {
+  if (deltaByCampaign.size === 0) return;
+  const col = type === "unsubscribe" ? "unsubscribes_count" : "complaints_count";
+  const placeholders: string[] = [];
+  const values: Array<string | number> = [];
+  let p = 1;
+  for (const [cid, delta] of deltaByCampaign) {
+    if (delta <= 0) continue;
+    placeholders.push(`($${p++}::varchar, $${p++}::int)`);
+    values.push(cid, delta);
+  }
+  if (placeholders.length === 0) return;
+  const sql = `
+    UPDATE campaigns c
+       SET ${col} = c.${col} + v.delta
+      FROM (VALUES ${placeholders.join(", ")})
+        AS v(campaign_id, delta)
+     WHERE c.id = v.campaign_id
+  `;
+  await client.query(sql, values);
 }
 
 /**
