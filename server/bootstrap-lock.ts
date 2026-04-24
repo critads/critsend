@@ -68,7 +68,7 @@ export async function indexExistsAndValid(indexName: string): Promise<boolean> {
     if (result.rows.length === 0) return false;
     if (!result.rows[0].valid) {
       logger.warn(`[BOOTSTRAP_LOCK] Index ${indexName} exists but is INVALID — will be dropped and rebuilt`);
-      await pool.query(`DROP INDEX IF EXISTS "${indexName}"`);
+      await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS "${indexName}"`);
       return false;
     }
     return true;
