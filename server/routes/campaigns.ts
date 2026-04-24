@@ -109,8 +109,14 @@ async function deleteCampaignWithFollowUpCleanup(id: string): Promise<void> {
     }
   }
   if (target?.parentCampaignId) {
+    // Sticky cancel: also disable follow_up_enabled on the parent so the
+    // spawner does not immediately recreate the child on its next poll
+    // (the candidate predicate is enabled=true AND child_id IS NULL).
     await db.execute(sql`
-      UPDATE campaigns SET follow_up_campaign_id = NULL
+      UPDATE campaigns
+      SET follow_up_campaign_id = NULL,
+          follow_up_enabled = false,
+          follow_up_scheduled_at = NULL
       WHERE id = ${target.parentCampaignId}
     `).catch((err: any) =>
       logger.warn(`[CAMPAIGN_DELETE] Parent unlink failed: ${err?.message || err}`),

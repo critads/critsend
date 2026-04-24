@@ -831,22 +831,9 @@ async function pollFollowUpCampaigns() {
     logger.info(`[FOLLOWUP_POLL] Found ${candidates.length} parent campaign(s) ready for follow-up`);
     for (const parent of candidates) {
       try {
-        // Always spawn the child as 'scheduled' regardless of current opener
-        // count. Spawn happens immediately at parent completion, but openers
-        // can keep arriving for the entire delay window — late-loading email
-        // clients, prefetchers, devices coming online — and a zero-opener
-        // snapshot taken now would permanently suppress legitimate follow-up
-        // sends to those late openers. The standard pollScheduledCampaigns
-        // worker promotes scheduled→sending at the right time, and the
-        // sender (campaign-sender.ts) re-evaluates the actual opener
-        // audience at send time via countOpenersForParentCampaign and
-        // marks the child completed at execution if total openers is 0
-        // by then. This also gives the user the full delay window to
-        // pause / edit / cancel the child via the normal scheduled-
-        // campaign controls.
         const child = await storage.spawnFollowUpCampaign(parent);
         if (!child) continue; // race loser; another worker handled it
-        logger.info(`[FOLLOWUP_POLL] Spawned scheduled follow-up child=${child.id} for parent=${parent.id} (${parent.name}) — will send at ${child.scheduledAt?.toISOString()} (audience evaluated at send time)`);
+        logger.info(`[FOLLOWUP_POLL] Spawned follow-up child=${child.id} for parent=${parent.id} (${parent.name}) — sends at ${child.scheduledAt?.toISOString()}`);
       } catch (err: any) {
         logger.error(`[FOLLOWUP_POLL] Failed to spawn follow-up for parent=${parent.id}: ${err?.message || err}`);
       }

@@ -158,32 +158,9 @@ export async function spawnFollowUpCampaign(
   parent: Campaign,
   options: { openerCount?: number } = {},
 ): Promise<Campaign | undefined> {
-  // Build the child from parent's settings using the REAL campaigns schema
-  // columns. Per spec, the child is created in 'scheduled' state with
-  // scheduled_at = parent.completedAt + delayHours so the user can pause /
-  // edit / cancel via existing scheduled-campaign controls. The standard
-  // pollScheduledCampaigns worker promotes scheduled→sending at the right
-  // time, exactly the same path as a normally-scheduled campaign.
-  //
-  // IMPORTANT: We do NOT short-circuit to status='completed' for zero-opener
-  // parents at spawn time. Spawn happens immediately at parent completion,
-  // but openers can (and do) keep arriving for the entire delay window —
-  // late-loading email clients, prefetchers, mobile devices coming online,
-  // etc. Marking the child completed at spawn would permanently suppress
-  // legitimate follow-up sends for those late openers. Instead, we always
-  // create the child as 'scheduled' and let the sender evaluate the actual
-  // opener audience at send time (campaign-sender.ts already does this via
-  // countOpenersForParentCampaign at line ~123); it can mark the child
-  // completed at execution if total openers is genuinely 0 by then.
-  //
-  // Schedule source-of-truth = parent.followUpScheduledAt. That column is
-  // stamped to NOW() + delayHours at completion (see markFollowUpScheduled),
-  // so the child's send time is fully determined by the parent's COMPLETION,
-  // not by when the spawner happens to wake up. If the column is somehow
-  // missing (very old campaigns or partial restore) fall back to
-  // completedAt + delay, then now + delay as a last-ditch safety net so we
-  // never silently push the schedule out by an extra full window.
-  void options; // openerCount accepted for API compat but no longer used at spawn
+  // Child is created as 'scheduled' so the standard scheduled-campaign
+  // poller promotes it at scheduledAt and the user can edit/cancel during
+  // the delay window. Audience is resolved at send time by the sender.
   const delayMs = (parent.followUpDelayHours ?? 36) * 60 * 60 * 1000;
   const scheduledAt =
     parent.followUpScheduledAt ??

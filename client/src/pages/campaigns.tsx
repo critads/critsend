@@ -555,10 +555,6 @@ export default function Campaigns() {
                               <Copy className="h-4 w-4 mr-2" />
                               Copy
                             </DropdownMenuItem>
-                            {/* Auto-resend follow-up children + user-scheduled campaigns:
-                                expose Edit while in 'scheduled' status so users can adjust
-                                subject / preheader / html during the delay window before
-                                the scheduledCampaignPoller promotes the row to 'sending'. */}
                             {campaign.status === "scheduled" && (
                               <Link href={`/campaigns/${campaign.id}/edit`}>
                                 <DropdownMenuItem data-testid={`button-edit-scheduled-${campaign.id}`}>
@@ -567,11 +563,6 @@ export default function Campaigns() {
                                 </DropdownMenuItem>
                               </Link>
                             )}
-                            {/* Cancel a scheduled campaign by deleting it. The
-                                deleteCampaignWithFollowUpCleanup guard on the server
-                                blocks deletion of a parent that has a pending child
-                                (FollowUpPendingError → 409); deleting a follow-up child
-                                directly is allowed and effectively cancels it. */}
                             {campaign.status === "scheduled" && (
                               <DropdownMenuItem
                                 onClick={() => setDeleteConfirm(campaign)}
