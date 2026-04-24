@@ -71,7 +71,13 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     }
   }
 
-  if (!campaign.segmentId) {
+  // Auto-resend (Task #56): a follow-up child has parentCampaignId set and
+  // gets its audience from the parent's openers, NOT from a segment query.
+  // Originals require a segmentId; children inherit segmentId from parent for
+  // display only, so we don't strictly require it on the child but most will
+  // still have it set.
+  const isFollowUp = !!campaign.parentCampaignId;
+  if (!isFollowUp && !campaign.segmentId) {
     logger.error(`${logPrefix} No segment assigned - marking as failed`);
     await storage.updateCampaignStatusAtomic(campaignId, "failed");
     return;
@@ -111,8 +117,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     logger.info(`${logPrefix} Recovered ${recovered} orphaned pending sends`);
   }
 
-  const total = await storage.countSubscribersForSegment(campaign.segmentId);
-  logger.info(`${logPrefix} Segment '${campaign.segmentId}' has ${total} subscribers`);
+  // Audience size: openers-of-parent for follow-up children, segment count
+  // for everything else.
+  const total = isFollowUp
+    ? await storage.countOpenersForParentCampaign(campaign.parentCampaignId!)
+    : await storage.countSubscribersForSegment(campaign.segmentId!);
+  if (isFollowUp) {
+    logger.info(`${logPrefix} Follow-up of parent '${campaign.parentCampaignId}' — ${total} openers eligible`);
+  } else {
+    logger.info(`${logPrefix} Segment '${campaign.segmentId}' has ${total} subscribers`);
+  }
 
   if (total === 0) {
     logger.warn(`${logPrefix} Segment has 0 subscribers - marking as completed`);
@@ -314,11 +328,21 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
   let prefetchPromise: Promise<Subscriber[]> | null = null;
 
-  function startPrefetch(segmentId: string, cursor: string | undefined): void {
-    prefetchPromise = storage.getSubscribersForSegmentCursor(segmentId, BATCH_SIZE, cursor);
+  // Audience iterator: openers-of-parent for follow-ups, segment cursor
+  // otherwise. Both share the (subscriber.id ASC, afterId cursor) contract so
+  // the rest of the loop is unchanged.
+  function fetchAudienceBatch(cursor: string | undefined): Promise<Subscriber[]> {
+    if (isFollowUp) {
+      return storage.getOpenersForParentCampaignCursor(campaign!.parentCampaignId!, BATCH_SIZE, cursor);
+    }
+    return storage.getSubscribersForSegmentCursor(campaign!.segmentId!, BATCH_SIZE, cursor);
   }
 
-  async function getNextBatch(segmentId: string, cursor: string | undefined): Promise<Subscriber[]> {
+  function startPrefetch(cursor: string | undefined): void {
+    prefetchPromise = fetchAudienceBatch(cursor);
+  }
+
+  async function getNextBatch(cursor: string | undefined): Promise<Subscriber[]> {
     if (prefetchPromise) {
       try {
         const batch = await prefetchPromise;
@@ -329,7 +353,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         throw err;
       }
     }
-    return storage.getSubscribersForSegmentCursor(segmentId, BATCH_SIZE, cursor);
+    return fetchAudienceBatch(cursor);
   }
 
   let batchNumber = 0;
@@ -350,7 +374,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         break;
       }
 
-      const batch = await retryDbOp(() => getNextBatch(campaign.segmentId!, cursorId), `${logPrefix} getNextBatch`);
+      const batch = await retryDbOp(() => getNextBatch(cursorId), `${logPrefix} getNextBatch`);
       if (batch.length === 0) {
         logger.info(`${logPrefix} No more subscribers to process (batchNumber: ${batchNumber})`);
         break;
@@ -365,7 +389,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       if (flushPromise) {
         try { await flushPromise; } catch { /* swallowed; doFlush already logs */ }
       }
-      startPrefetch(campaign.segmentId, cursorId);
+      startPrefetch(cursorId);
 
       const subscriberIds = batch.map(s => s.id);
       let reservedIds: string[];
@@ -796,6 +820,18 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
       const finalCampaign = await storage.getCampaign(campaignId);
       logger.info(`${logPrefix} COMPLETED: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
+      // Auto-resend (Task #56): an ORIGINAL parent that has follow-up enabled
+      // gets followUpScheduledAt stamped at completion. The spawner worker
+      // (server/workers.ts pollFollowUpCampaigns) will pick it up after the
+      // configured delay. Children skip this branch (parentCampaignId set).
+      if (!isFollowUp && campaign.followUpEnabled) {
+        try {
+          await storage.markFollowUpScheduled(campaignId, campaign.followUpDelayHours ?? 36);
+          logger.info(`${logPrefix} Follow-up scheduled in ${campaign.followUpDelayHours ?? 36}h`);
+        } catch (err: any) {
+          logger.warn(`${logPrefix} markFollowUpScheduled failed (non-fatal): ${err?.message || err}`);
+        }
+      }
       jobEvents.emitProgress({
         jobType: "campaign",
         jobId: campaignId,

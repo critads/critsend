@@ -29,11 +29,61 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS total_clicks_count  integer NOT NULL DEFAULT 0`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS unsubscribes_count  integer NOT NULL DEFAULT 0`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS complaints_count    integer NOT NULL DEFAULT 0`);
-    logger.info("[CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters ready");
+    // Auto-resend to openers (Task #56). All five columns are nullable / have
+    // safe defaults so existing campaigns become "no follow-up" rows without
+    // any data backfill required. See shared/schema.ts campaigns block for the
+    // full design notes.
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS parent_campaign_id     varchar`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_enabled      boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_delay_hours  integer NOT NULL DEFAULT 36`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_scheduled_at timestamp`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_campaign_id  varchar`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS campaigns_parent_campaign_unique_idx
+      ON campaigns (parent_campaign_id)
+      WHERE parent_campaign_id IS NOT NULL
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS campaigns_follow_up_schedule_idx
+      ON campaigns (follow_up_scheduled_at)
+      WHERE follow_up_enabled = true
+        AND follow_up_campaign_id IS NULL
+        AND follow_up_scheduled_at IS NOT NULL
+    `);
+    logger.info("[CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready");
   } catch (err: any) {
     logger.error(`[CAMPAIGNS] Bootstrap migration FAILED: ${err?.message || err}`);
   }
 })();
+
+/**
+ * Auto-resend (Task #56) cleanup. Used by both the single-id and bulk DELETE
+ * routes so they apply the SAME cascade behavior:
+ *   - If we're deleting an ORIGINAL parent that has a follow-up child,
+ *     cascade-delete the child first.
+ *   - If we're deleting a CHILD, clear the parent's follow_up_campaign_id
+ *     pointer so the UI stops showing a broken link. We intentionally leave
+ *     parent.followUpEnabled alone — if the user wants to re-spawn, the
+ *     spawner will pick it up on the next poll (the partial-unique index is
+ *     no longer blocked).
+ */
+async function deleteCampaignWithFollowUpCleanup(id: string): Promise<void> {
+  const target = await storage.getCampaign(id);
+  if (target?.followUpCampaignId) {
+    await storage.deleteCampaign(target.followUpCampaignId).catch((err: any) =>
+      logger.warn(`[CAMPAIGN_DELETE] Cascade child delete failed: ${err?.message || err}`),
+    );
+  }
+  if (target?.parentCampaignId) {
+    await db.execute(sql`
+      UPDATE campaigns SET follow_up_campaign_id = NULL
+      WHERE id = ${target.parentCampaignId}
+    `).catch((err: any) =>
+      logger.warn(`[CAMPAIGN_DELETE] Parent unlink failed: ${err?.message || err}`),
+    );
+  }
+  await storage.deleteCampaign(id);
+}
 
 export function registerCampaignRoutes(app: Express, helpers: {
   parsePagination: (query: any) => { page: number; limit: number };
@@ -506,7 +556,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (ids.some((id) => !validateId(id))) {
         return res.status(400).json({ error: "One or more invalid ID formats" });
       }
-      await Promise.all(ids.map((id) => storage.deleteCampaign(id)));
+      await Promise.all(ids.map((id) => deleteCampaignWithFollowUpCleanup(id)));
       res.status(204).send();
     } catch (error) {
       logger.error("Error bulk-deleting campaigns:", error);
@@ -519,7 +569,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
-      await storage.deleteCampaign(req.params.id);
+      await deleteCampaignWithFollowUpCleanup(req.params.id);
       res.status(204).send();
     } catch (error) {
       logger.error("Error deleting campaign:", error);

@@ -240,6 +240,45 @@ export default function CampaignDetail() {
         </div>
       </div>
 
+      {/* Auto-resend (Task #56) — show linked counterpart when present so the
+          user can jump between parent and follow-up child in one click. */}
+      {(campaign.parentCampaignId || campaign.followUpCampaignId) && (
+        <Card data-testid="card-followup-link">
+          <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+            {campaign.parentCampaignId && (
+              <>
+                <div>
+                  <Badge variant="secondary" className="mb-1">Follow-up to opener</Badge>
+                  <p className="text-sm text-muted-foreground">
+                    This campaign was auto-sent to people who opened the original.
+                  </p>
+                </div>
+                <Link href={`/campaigns/${campaign.parentCampaignId}`}>
+                  <Button variant="outline" size="sm" data-testid="link-parent-campaign">
+                    View original
+                  </Button>
+                </Link>
+              </>
+            )}
+            {campaign.followUpCampaignId && !campaign.parentCampaignId && (
+              <>
+                <div>
+                  <Badge variant="outline" className="mb-1">Follow-up scheduled</Badge>
+                  <p className="text-sm text-muted-foreground">
+                    A follow-up to openers has been spawned for this campaign.
+                  </p>
+                </div>
+                <Link href={`/campaigns/${campaign.followUpCampaignId}`}>
+                  <Button variant="outline" size="sm" data-testid="link-followup-campaign">
+                    View follow-up
+                  </Button>
+                </Link>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>

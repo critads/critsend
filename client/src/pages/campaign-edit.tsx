@@ -95,6 +95,9 @@ export default function CampaignEdit() {
     unsubscribeTag: "",
     scheduledAt: null,
     status: "draft",
+    // Auto-resend to openers (Task #56)
+    followUpEnabled: false,
+    followUpDelayHours: 36,
   });
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
   const [htmlLoaded, setHtmlLoaded] = useState(false);
@@ -168,6 +171,8 @@ export default function CampaignEdit() {
         unsubscribeTag: campaign.unsubscribeTag || "",
         scheduledAt: campaign.scheduledAt,
         status: campaign.status || "draft",
+        followUpEnabled: campaign.followUpEnabled ?? false,
+        followUpDelayHours: campaign.followUpDelayHours ?? 36,
       });
       if (campaign.htmlContent) {
         setHtmlLoaded(true);
@@ -985,6 +990,45 @@ export default function CampaignEdit() {
                 Leave empty to send immediately, or pick a date and time (Paris timezone)
               </p>
             </div>
+
+            {/* Auto-resend to openers (Task #56). Hidden when editing a
+                follow-up child — children cannot themselves spawn another. */}
+            {!campaign?.parentCampaignId && (
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="follow-up-enabled" className="text-base">Auto-resend to openers</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Automatically re-send this campaign to people who opened it.
+                    </p>
+                  </div>
+                  <Switch
+                    id="follow-up-enabled"
+                    checked={!!formData.followUpEnabled}
+                    onCheckedChange={(v) => updateField("followUpEnabled", v)}
+                    data-testid="switch-follow-up-enabled"
+                  />
+                </div>
+                {formData.followUpEnabled && (
+                  <div className="space-y-2">
+                    <Label htmlFor="follow-up-delay-hours">Delay (hours)</Label>
+                    <Input
+                      id="follow-up-delay-hours"
+                      type="number"
+                      min={1}
+                      max={720}
+                      value={formData.followUpDelayHours ?? 36}
+                      onChange={(e) => updateField("followUpDelayHours", Number(e.target.value) || 36)}
+                      className="w-32"
+                      data-testid="input-follow-up-delay-hours"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Default 36 hours. Counted from when this campaign finishes sending.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <Card>
               <CardContent className="p-4 space-y-3">

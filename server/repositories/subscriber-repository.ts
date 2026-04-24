@@ -261,6 +261,61 @@ export async function getSubscribersForSegmentCursor(segmentId: string, limit: n
   return db.select().from(subscribers).where(baseCondition).orderBy(subscribers.id).limit(limit);
 }
 
+// ─── Auto-resend to openers (Task #56) ───────────────────────────────────
+// The follow-up child campaign sends only to subscribers who actually opened
+// the parent. We page over campaign_sends.first_open_at IS NOT NULL joined
+// to subscribers, applying the same suppressed/cooldown/BCK filter as the
+// segment iterator so the audience matches what a fresh send would target.
+//
+// `afterId` is the subscribers.id cursor (matches getSubscribersForSegmentCursor's
+// contract) so the sender's prefetch + reservation loop works unchanged.
+export async function getOpenersForParentCampaignCursor(
+  parentCampaignId: string,
+  limit: number,
+  afterId?: string,
+): Promise<Subscriber[]> {
+  // Subscribers table has no `unsubscribed` boolean — suppression is encoded
+  // via `suppressed_until` (cooling-off period) and the BCK tag for
+  // hard-bounce/complaint exclusions. Filter accordingly.
+  const baseSql = `
+    SELECT s.*
+    FROM campaign_sends cs
+    JOIN subscribers s ON s.id = cs.subscriber_id
+    WHERE cs.campaign_id = $1
+      AND cs.first_open_at IS NOT NULL
+      AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW())
+      AND NOT ('BCK' = ANY(s.tags))
+  `;
+  if (afterId) {
+    const result = await pool.query(
+      `${baseSql} AND s.id > $2 ORDER BY s.id LIMIT $3`,
+      [parentCampaignId, afterId, limit],
+    );
+    return result.rows as Subscriber[];
+  }
+  const result = await pool.query(
+    `${baseSql} ORDER BY s.id LIMIT $2`,
+    [parentCampaignId, limit],
+  );
+  return result.rows as Subscriber[];
+}
+
+export async function countOpenersForParentCampaign(parentCampaignId: string): Promise<number> {
+  const result = await pool.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM campaign_sends cs
+      JOIN subscribers s ON s.id = cs.subscriber_id
+      WHERE cs.campaign_id = $1
+        AND cs.first_open_at IS NOT NULL
+        AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW())
+        AND NOT ('BCK' = ANY(s.tags))
+    `,
+    [parentCampaignId],
+  );
+  return Number((result.rows[0] as any)?.count ?? 0);
+}
+
 export async function countSubscribersForSegment(segmentId: string): Promise<number> {
   const segment = await getSegment(segmentId);
   if (!segment) return 0;

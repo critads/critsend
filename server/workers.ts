@@ -809,6 +809,77 @@ function stopScheduledCampaignPoller() {
   }
 }
 
+// ─── Auto-resend follow-up spawner (Task #56) ────────────────────────────
+// Polls campaigns with follow_up_enabled=true and follow_up_scheduled_at<=NOW()
+// (capped via the partial index) and spawns the child draft, atomically
+// linking parent→child. The child is immediately promoted to 'sending' and a
+// campaign_jobs row is created so the existing worker pipeline picks it up
+// — exactly the same path as a scheduled campaign reaching its time.
+//
+// Worker-only: gated by the same DISABLE_WORKERS / PROCESS_TYPE check as
+// startScheduledCampaignPoller (called from startJobProcessor below). Safe to
+// run on every worker because spawnFollowUpCampaign uses an INSERT against a
+// partial-unique index, so race losers no-op.
+const FOLLOWUP_POLL_INTERVAL_MS = Number(process.env.FOLLOWUP_POLL_INTERVAL_MS ?? 60_000);
+let followUpInterval: NodeJS.Timeout | null = null;
+
+async function pollFollowUpCampaigns() {
+  if (!isPoolHealthy()) return;
+  try {
+    const candidates = await storage.findFollowUpCandidates(25);
+    if (candidates.length === 0) return;
+    logger.info(`[FOLLOWUP_POLL] Found ${candidates.length} parent campaign(s) ready for follow-up`);
+    for (const parent of candidates) {
+      try {
+        // Skip parents with zero openers — spawning a child for them would
+        // produce a zero-audience send that completes immediately and clutters
+        // the campaign list. We DO leave the schedule stamp in place so a
+        // late-arriving open (very rare past 36h) still gets picked up on a
+        // future poll.
+        const openerCount = await storage.countOpenersForParentCampaign(parent.id);
+        if (openerCount === 0) {
+          logger.info(`[FOLLOWUP_POLL] Skipping parent=${parent.id} (${parent.name}): 0 openers`);
+          continue;
+        }
+        const child = await storage.spawnFollowUpCampaign(parent);
+        if (!child) continue; // race loser; another worker handled it
+        // Promote the child draft straight to 'sending' and queue a job.
+        await storage.updateCampaignStatusAtomic(child.id, "sending", "draft");
+        await db.execute(sql`
+          INSERT INTO campaign_jobs (campaign_id, status)
+          SELECT ${child.id}, 'pending'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM campaign_jobs cj
+            WHERE cj.campaign_id = ${child.id}
+              AND cj.status IN ('pending', 'processing')
+          )
+        `);
+        await messageQueue.notify("campaign_jobs", { campaignId: child.id }).catch(() => {});
+        logger.info(`[FOLLOWUP_POLL] Spawned follow-up child=${child.id} for parent=${parent.id} (${parent.name})`);
+      } catch (err: any) {
+        logger.error(`[FOLLOWUP_POLL] Failed to spawn follow-up for parent=${parent.id}: ${err?.message || err}`);
+      }
+    }
+  } catch (error) {
+    logger.error("[FOLLOWUP_POLL] Error polling follow-up candidates:", error);
+  }
+}
+
+function startFollowUpSpawner() {
+  if (followUpInterval) return;
+  logger.info(`[FOLLOWUP_POLL] Starting follow-up spawner (${FOLLOWUP_POLL_INTERVAL_MS}ms interval)`);
+  followUpInterval = setInterval(pollFollowUpCampaigns, FOLLOWUP_POLL_INTERVAL_MS);
+  pollFollowUpCampaigns();
+}
+
+function stopFollowUpSpawner() {
+  if (followUpInterval) {
+    clearInterval(followUpInterval);
+    followUpInterval = null;
+    logger.info("[FOLLOWUP_POLL] Follow-up spawner stopped");
+  }
+}
+
 async function startJobProcessor() {
   if (jobPollingInterval) {
     return;
@@ -1498,6 +1569,7 @@ export async function startAllWorkers() {
   startTagQueueWorker();
   startMaintenanceWorker();
   startScheduledCampaignPoller();
+  startFollowUpSpawner();
   startWorkerHeartbeat();
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
@@ -1512,6 +1584,7 @@ export function stopAllBackgroundWorkers() {
   stopTagQueueWorker();
   stopMaintenanceWorker();
   stopScheduledCampaignPoller();
+  stopFollowUpSpawner();
   closeNullsinkTransporter();
   logger.info("[SHUTDOWN] All background workers stopped");
 }

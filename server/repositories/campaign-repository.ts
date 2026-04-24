@@ -75,7 +75,149 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     name: `${original.name} (Copy)`,
     status: "draft",
     sendingSpeed: original.sendingSpeed as "drip" | "very_slow" | "slow" | "medium" | "fast" | "godzilla",
+    // A copy is a brand-new original — never inherit follow-up linkage. The
+    // user can re-enable the toggle on the copy if they want.
+    parentCampaignId: null as any,
+    followUpCampaignId: null as any,
+    followUpScheduledAt: null as any,
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTO-RESEND TO OPENERS — Task #56 helpers
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Stamp followUpScheduledAt = now() + delayHours on the parent. Called from
+ * campaign-sender.ts when the parent transitions to "completed". Idempotent:
+ * only stamps if the column is currently NULL so a manual rerun cannot
+ * accidentally double-trigger the spawner.
+ */
+export async function markFollowUpScheduled(parentCampaignId: string, delayHours: number): Promise<void> {
+  await db.execute(sql`
+    UPDATE campaigns
+    SET follow_up_scheduled_at = NOW() + (${delayHours} || ' hours')::interval
+    WHERE id = ${parentCampaignId}
+      AND follow_up_enabled = true
+      AND follow_up_campaign_id IS NULL
+      AND follow_up_scheduled_at IS NULL
+  `);
+}
+
+/**
+ * Returns parents whose follow-up window has elapsed and that have not yet
+ * spawned a child. Polled by the worker every 60s. Caps at `limit` so a
+ * massive backlog (e.g. after a multi-day worker outage) drains over time
+ * rather than overwhelming the queue in one tick.
+ */
+export async function findFollowUpCandidates(limit: number = 25): Promise<Campaign[]> {
+  return db.select().from(campaigns).where(
+    and(
+      eq(campaigns.followUpEnabled, true),
+      sql`${campaigns.followUpCampaignId} IS NULL`,
+      sql`${campaigns.followUpScheduledAt} IS NOT NULL`,
+      sql`${campaigns.followUpScheduledAt} <= NOW()`,
+      // Only originals — a child cannot itself spawn a follow-up.
+      sql`${campaigns.parentCampaignId} IS NULL`,
+      // Parent must have FINISHED sending. We refuse to follow-up a
+      // paused/aborted parent because openers would be a partial sample.
+      sql`${campaigns.status} IN ('completed', 'sent')`,
+    ),
+  ).limit(limit);
+}
+
+/**
+ * Spawn the follow-up child campaign for `parent`. The child is created in
+ * "draft" state and linked back via `followUpCampaignId`. Audience iteration
+ * for the child is handled by the sender (see parentCampaignId branch in
+ * campaign-sender.ts). Returns the new child, or undefined when the parent
+ * already has a child (race-safe via the partial-unique index on
+ * parent_campaign_id).
+ */
+export async function spawnFollowUpCampaign(parent: Campaign): Promise<Campaign | undefined> {
+  // Build the child draft from parent's settings using the REAL campaigns
+  // schema columns (fromName/fromEmail/replyEmail/trackOpens/trackClicks).
+  // Strip status/timing/counters and explicitly clear follow-up fields so
+  // the child doesn't itself try to spawn another follow-up.
+  const child = {
+    name: `${parent.name} (Follow-up)`,
+    mtaId: parent.mtaId,
+    segmentId: parent.segmentId, // copied for display only — sender ignores
+    fromName: parent.fromName,
+    fromEmail: parent.fromEmail,
+    replyEmail: parent.replyEmail ?? null,
+    subject: parent.subject,
+    preheader: parent.preheader ?? null,
+    htmlContent: parent.htmlContent,
+    trackOpens: parent.trackOpens,
+    trackClicks: parent.trackClicks,
+    unsubscribeText: parent.unsubscribeText ?? "Unsubscribe",
+    companyAddress: parent.companyAddress ?? null,
+    sendingSpeed: parent.sendingSpeed,
+    openTag: parent.openTag ?? null,
+    clickTag: parent.clickTag ?? null,
+    unsubscribeTag: parent.unsubscribeTag ?? null,
+    parentCampaignId: parent.id,
+    followUpEnabled: false,
+    followUpDelayHours: 36,
+    status: "draft",
+  } as typeof campaigns.$inferInsert;
+
+  // Atomic spawn + parent-link. We do the INSERT and the parent UPDATE in a
+  // single transaction so we never end up with an orphan child + unset
+  // parent.followUpCampaignId (which would deadlock subsequent polls because
+  // the partial unique index on parent_campaign_id would block re-spawn).
+  try {
+    return await db.transaction(async (tx) => {
+      const [created] = await tx.insert(campaigns).values(child).returning();
+      await tx.execute(sql`
+        UPDATE campaigns
+        SET follow_up_campaign_id = ${created.id}
+        WHERE id = ${parent.id} AND follow_up_campaign_id IS NULL
+      `);
+      return created;
+    });
+  } catch (err: any) {
+    // Unique-violation on the partial index = another worker already
+    // spawned the child. Find the existing child and ensure the parent
+    // link points to it (defensive: heals a stale partial-failure state).
+    if (err?.code === "23505") {
+      logger.warn(`[FOLLOWUP] Child already exists for parent=${parent.id}, healing link`);
+      const [existing] = await db
+        .select()
+        .from(campaigns)
+        .where(eq(campaigns.parentCampaignId, parent.id))
+        .limit(1);
+      if (existing) {
+        await db.execute(sql`
+          UPDATE campaigns
+          SET follow_up_campaign_id = ${existing.id}
+          WHERE id = ${parent.id} AND follow_up_campaign_id IS NULL
+        `);
+        return existing;
+      }
+      return undefined;
+    }
+    throw err;
+  }
+}
+
+/**
+ * For a given campaign, return its linked counterpart (parent if this is a
+ * child, child if this is a parent). Used by the campaign-detail UI.
+ */
+export async function getLinkedFollowUp(campaignId: string): Promise<{ parent: Campaign | null; child: Campaign | null }> {
+  const c = await getCampaign(campaignId);
+  if (!c) return { parent: null, child: null };
+  let parent: Campaign | null = null;
+  let child: Campaign | null = null;
+  if (c.parentCampaignId) {
+    parent = (await getCampaign(c.parentCampaignId)) ?? null;
+  }
+  if (c.followUpCampaignId) {
+    child = (await getCampaign(c.followUpCampaignId)) ?? null;
+  }
+  return { parent, child };
 }
 
 // ═══════════════════════════════════════════════════════════════

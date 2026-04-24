@@ -88,6 +88,9 @@ export default function Campaigns() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  // Auto-resend (Task #56): hide follow-up children from the list to keep the
+  // headline view focused on the originals the user actually configured.
+  const [originalsOnly, setOriginalsOnly] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -258,10 +261,13 @@ export default function Campaigns() {
 
   const PAGE_SIZE = 20;
 
-  const filteredCampaigns = campaigns?.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.subject.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredCampaigns = campaigns?.filter((c) => {
+    if (originalsOnly && c.parentCampaignId) return false;
+    return (
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.subject.toLowerCase().includes(search.toLowerCase())
+    );
+  });
 
   const totalPages = Math.ceil((filteredCampaigns?.length ?? 0) / PAGE_SIZE);
   const paginatedCampaigns = filteredCampaigns?.slice(
@@ -304,6 +310,14 @@ export default function Campaigns() {
                 Delete {selectedIds.size} selected
               </Button>
             )}
+            <label className="flex items-center gap-2 text-sm" data-testid="toggle-originals-only">
+              <Checkbox
+                checked={originalsOnly}
+                onCheckedChange={(v) => { setOriginalsOnly(!!v); setCurrentPage(1); }}
+                aria-label="Originals only"
+              />
+              Originals only
+            </label>
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -387,7 +401,19 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          <span className="font-medium">{campaign.name}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{campaign.name}</span>
+                            {campaign.parentCampaignId && (
+                              <Badge variant="secondary" className="text-xs" data-testid={`badge-followup-${campaign.id}`}>
+                                Follow-up
+                              </Badge>
+                            )}
+                            {campaign.followUpEnabled && !campaign.parentCampaignId && (
+                              <Badge variant="outline" className="text-xs" data-testid={`badge-has-followup-${campaign.id}`}>
+                                Has follow-up
+                              </Badge>
+                            )}
+                          </div>
                           <span className="text-sm text-muted-foreground truncate max-w-[300px]">
                             {campaign.subject}
                           </span>

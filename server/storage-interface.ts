@@ -50,6 +50,10 @@ export interface IStorage {
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string): Promise<number>;
+  // Auto-resend (Task #56) audience iteration — same contract shape as the
+  // segment-cursor pair so the sender can swap iterators with one branch.
+  getOpenersForParentCampaignCursor(parentCampaignId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
+  countOpenersForParentCampaign(parentCampaignId: string): Promise<number>;
   countSubscribersForRules(rules: any[]): Promise<number>;
   getSegments(): Promise<Segment[]>;
   getSegment(id: string): Promise<Segment | undefined>;
@@ -90,6 +94,11 @@ export interface IStorage {
   updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign | undefined>;
   deleteCampaign(id: string): Promise<void>;
   copyCampaign(id: string): Promise<Campaign | undefined>;
+  // Auto-resend (Task #56) helpers
+  markFollowUpScheduled(parentCampaignId: string, delayHours: number): Promise<void>;
+  findFollowUpCandidates(limit?: number): Promise<Campaign[]>;
+  spawnFollowUpCampaign(parent: Campaign): Promise<Campaign | undefined>;
+  getLinkedFollowUp(campaignId: string): Promise<{ parent: Campaign | null; child: Campaign | null }>;
 
   // ═══════════════════════════════════════════════════════════════
   // CAMPAIGN SENDING & TRACKING

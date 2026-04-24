@@ -123,10 +123,40 @@ export const campaigns = pgTable("campaigns", {
   totalClicksCount: integer("total_clicks_count").notNull().default(0),
   unsubscribesCount: integer("unsubscribes_count").notNull().default(0),
   complaintsCount: integer("complaints_count").notNull().default(0),
+  // ── Auto-resend to openers (36h follow-up) ──────────────────────────
+  // parentCampaignId: when set, this campaign is a follow-up child sent only
+  //   to subscribers who opened the parent. Audience iteration in
+  //   server/services/campaign-sender.ts uses this column to switch from a
+  //   segment-cursor scan to an openers-of-parent scan.
+  // followUpEnabled / followUpDelayHours: configured on the ORIGINAL/parent
+  //   campaign in the wizard (Step 5). Default delay = 36h.
+  // followUpScheduledAt: stamped by campaign-sender.ts when the parent
+  //   completes (now() + delayHours). The follow-up spawner worker
+  //   (server/workers.ts pollFollowUpCampaigns) polls this column.
+  // followUpCampaignId: set after the spawner creates the child, links
+  //   parent→child for fast UI rendering and idempotency.
+  parentCampaignId: varchar("parent_campaign_id"),
+  followUpEnabled: boolean("follow_up_enabled").notNull().default(false),
+  followUpDelayHours: integer("follow_up_delay_hours").notNull().default(36),
+  followUpScheduledAt: timestamp("follow_up_scheduled_at"),
+  followUpCampaignId: varchar("follow_up_campaign_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => ({
+  // Partial unique index: a parent can spawn at most ONE follow-up child.
+  // Used by the spawner to detect dupes via INSERT...ON CONFLICT DO NOTHING
+  // patterns and by the cleanup paths to find the (possibly absent) child.
+  parentCampaignUniqueIdx: uniqueIndex("campaigns_parent_campaign_unique_idx")
+    .on(table.parentCampaignId)
+    .where(sql`parent_campaign_id IS NOT NULL`),
+  // Partial index for the follow-up spawner poll (every 60s on the worker).
+  // Only includes campaigns with the feature ENABLED and no child spawned yet,
+  // so the index stays tiny even at scale.
+  followUpScheduleIdx: index("campaigns_follow_up_schedule_idx")
+    .on(table.followUpScheduledAt)
+    .where(sql`follow_up_enabled = true AND follow_up_campaign_id IS NULL AND follow_up_scheduled_at IS NOT NULL`),
+}));
 
 export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
   mta: one(mtas, {
@@ -532,6 +562,9 @@ export const updateCampaignDraftSchema = z.object({
   openTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   clickTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   unsubscribeTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  // Auto-resend to openers — set on the parent in the wizard.
+  followUpEnabled: z.boolean().optional(),
+  followUpDelayHours: z.coerce.number().int().min(1).max(24 * 30).optional(),
 });
 export const insertImportJobSchema = createInsertSchema(importJobs).omit({ 
   id: true, 
