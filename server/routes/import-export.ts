@@ -48,7 +48,8 @@ export async function runImportBootstrapMigrations(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_tags text[] NOT NULL DEFAULT ARRAY[]::text[]`);
     await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS forced_refs text[] NOT NULL DEFAULT ARRAY[]::text[]`);
-    logger.info("[IMPORT] Bootstrap migration: forced_tags/forced_refs columns ready");
+    await db.execute(sql`ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS remove_mode boolean NOT NULL DEFAULT false`);
+    logger.info("[IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready");
   } catch (err: any) {
     logger.error(`[IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): ${err?.message || err}`);
     throw err;
@@ -76,6 +77,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
     importTarget: "auto" | "refs" | "tags";
     forcedTags: string[];
     forcedRefs: string[];
+    removeMode: boolean;
     totalChunks: number;
     totalSize: number;
     receivedChunks: Set<number>;
@@ -112,8 +114,9 @@ export function registerImportExportRoutes(app: Express, helpers: {
       const importTarget = "auto";
       const forcedTags = parseCommaSeparated(req.body.forcedTags);
       const forcedRefs = parseCommaSeparated(req.body.forcedRefs);
+      const removeMode = req.body.removeMode === "true" || req.body.removeMode === true;
       const fileSizeBytes = req.file.size;
-      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}, forcedTags: [${forcedTags.join(",")}], forcedRefs: [${forcedRefs.join(",")}]`);
+      logger.info(`[IMPORT] File received: ${req.file.originalname}, size: ${fileSizeBytes} bytes (${Math.round(fileSizeBytes / 1024 / 1024)}MB), tagMode: ${tagMode}, removeMode: ${removeMode}, forcedTags: [${forcedTags.join(",")}], forcedRefs: [${forcedRefs.join(",")}]`);
       
       const csvFilePath = req.file.path;
       logger.info(`[IMPORT] File saved to disk: ${csvFilePath}`);
@@ -137,6 +140,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         importTarget: importTarget,
         forcedTags,
         forcedRefs,
+        removeMode,
       });
       logger.info(`[IMPORT] Created import job: ${job.id}`);
 
@@ -470,7 +474,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
   app.post("/api/import/chunked/start", async (req: Request, res: Response) => {
     try {
-      const { filename, tagMode, totalChunks, totalSize, forcedTags: rawForcedTags, forcedRefs: rawForcedRefs } = req.body;
+      const { filename, tagMode, totalChunks, totalSize, forcedTags: rawForcedTags, forcedRefs: rawForcedRefs, removeMode: rawRemoveMode } = req.body;
       
       if (!filename || !totalChunks || !totalSize) {
         return res.status(400).json({ error: "Missing required fields: filename, totalChunks, totalSize" });
@@ -488,6 +492,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         importTarget: "auto",
         forcedTags: parseCommaSeparated(rawForcedTags),
         forcedRefs: parseCommaSeparated(rawForcedRefs),
+        removeMode: rawRemoveMode === true || rawRemoveMode === "true",
         totalChunks: parseInt(totalChunks),
         totalSize: parseInt(totalSize),
         receivedChunks: new Set(),
@@ -627,6 +632,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
         importTarget: upload.importTarget,
         forcedTags: upload.forcedTags,
         forcedRefs: upload.forcedRefs,
+        removeMode: upload.removeMode,
       });
       logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       

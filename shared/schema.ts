@@ -261,6 +261,7 @@ export const importJobs = pgTable("import_jobs", {
   skippedRows: integer("skipped_rows").notNull().default(0),
   forcedTags: text("forced_tags").array().notNull().default(sql`ARRAY[]::text[]`),
   forcedRefs: text("forced_refs").array().notNull().default(sql`ARRAY[]::text[]`),
+  removeMode: boolean("remove_mode").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),

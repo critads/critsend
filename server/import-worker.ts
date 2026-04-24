@@ -133,6 +133,9 @@ interface ImportJob {
   cleanExistingRefs: boolean;
   deleteExistingRefs: boolean;
   errorMessage: string | null;
+  forcedTags: string[];
+  forcedRefs: string[];
+  removeMode: boolean;
 }
 
 async function getImportQueueItem(queueId: string): Promise<ImportQueueItem | null> {
@@ -171,6 +174,9 @@ async function getImportJob(importJobId: string): Promise<ImportJob | null> {
     cleanExistingRefs: row.clean_existing_refs || false,
     deleteExistingRefs: row.delete_existing_refs || false,
     errorMessage: row.error_message,
+    forcedTags: row.forced_tags || [],
+    forcedRefs: row.forced_refs || [],
+    removeMode: row.remove_mode || false,
   };
 }
 
@@ -568,6 +574,121 @@ async function bulkUpsertSubscribers(
   }
 }
 
+async function directBatchRemoveTagsRefs(
+  rows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null }>,
+): Promise<{ inserted: number; updated: number }> {
+  if (rows.length === 0) return { inserted: 0, updated: 0 };
+  const emailToTags = new Map<string, string[]>();
+  const emailToRefs = new Map<string, string[]>();
+  for (const row of rows) {
+    const e = row.email.toLowerCase();
+    const existingTags = emailToTags.get(e) || [];
+    const existingRefs = emailToRefs.get(e) || [];
+    emailToTags.set(e, [...new Set([...existingTags, ...row.tags])]);
+    emailToRefs.set(e, [...new Set([...existingRefs, ...row.refs])]);
+  }
+  const uniqueEmails = [...emailToTags.keys()];
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      CREATE TEMP TABLE remove_staging (
+        email TEXT NOT NULL, tags_to_remove TEXT[] NOT NULL, refs_to_remove TEXT[] NOT NULL
+      ) ON COMMIT DROP
+    `);
+    const valuesClauses: string[] = [];
+    const params: any[] = [];
+    let paramIdx = 1;
+    for (const email of uniqueEmails) {
+      valuesClauses.push(`($${paramIdx}, $${paramIdx + 1}::text[], $${paramIdx + 2}::text[])`);
+      params.push(email, emailToTags.get(email) || [], emailToRefs.get(email) || []);
+      paramIdx += 3;
+    }
+    await client.query(
+      `INSERT INTO remove_staging (email, tags_to_remove, refs_to_remove) VALUES ${valuesClauses.join(", ")}`,
+      params
+    );
+    const result = await client.query(`
+      UPDATE subscribers s
+      SET
+        tags = (
+          SELECT COALESCE(array_agg(t), ARRAY[]::text[])
+          FROM unnest(s.tags) AS t
+          WHERE t != ALL(r.tags_to_remove)
+        ),
+        refs = (
+          SELECT COALESCE(array_agg(rf), ARRAY[]::text[])
+          FROM unnest(s.refs) AS rf
+          WHERE rf != ALL(r.refs_to_remove)
+        )
+      FROM remove_staging r
+      WHERE s.email = r.email
+        AND (s.tags && r.tags_to_remove OR s.refs && r.refs_to_remove)
+    `);
+    const updated = result.rowCount || 0;
+    await client.query("COMMIT");
+    return { inserted: 0, updated };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function singleRemoveTagsRefs(
+  row: { email: string; tags: string[]; refs: string[]; ipAddress: string | null },
+): Promise<"updated" | "skipped"> {
+  if (row.tags.length === 0 && row.refs.length === 0) return "skipped";
+  const result = await pool.query(`
+    UPDATE subscribers
+    SET
+      tags = (
+        SELECT COALESCE(array_agg(t), ARRAY[]::text[])
+        FROM unnest(tags) AS t
+        WHERE t != ALL($2::text[])
+      ),
+      refs = (
+        SELECT COALESCE(array_agg(r), ARRAY[]::text[])
+        FROM unnest(refs) AS r
+        WHERE r != ALL($3::text[])
+      )
+    WHERE email = $1
+      AND (tags && $2::text[] OR refs && $3::text[])
+  `, [row.email.toLowerCase(), row.tags, row.refs]);
+  return (result.rowCount || 0) > 0 ? "updated" : "skipped";
+}
+
+async function bulkRemoveTagsRefs(
+  rows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null; lineNumber: number }>,
+): Promise<{ inserted: number; updated: number; failed: number }> {
+  if (rows.length === 0) return { inserted: 0, updated: 0, failed: 0 };
+  const CHUNK_SIZE = 500;
+  let totalUpdated = 0;
+  let totalFailed = 0;
+
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + CHUNK_SIZE);
+    try {
+      const result = await directBatchRemoveTagsRefs(chunk);
+      totalUpdated += result.updated;
+    } catch (err: any) {
+      log("warn", `Remove batch chunk failed, falling back to single: ${err.message}`);
+      for (const row of chunk) {
+        try {
+          const result = await singleRemoveTagsRefs(row);
+          if (result === "updated") totalUpdated++;
+        } catch (individualErr: any) {
+          totalFailed++;
+          log("error", `Individual remove failed for ${row.email}: ${individualErr.message}`);
+        }
+      }
+    }
+  }
+  return { inserted: 0, updated: totalUpdated, failed: totalFailed };
+}
+
 async function copyBatchUpsertRefs(
   rows: Array<{ email: string; refs: string[]; ipAddress: string | null }>,
 ): Promise<{ inserted: number; updated: number }> {
@@ -894,7 +1015,9 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   const forcedRefs: string[] = importJob?.forcedRefs ?? [];
   const forceMode = forcedTags.length > 0 || forcedRefs.length > 0;
 
-  log("info", `${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, forceMode: ${forceMode}, forcedTags: [${forcedTags.join(",")}], forcedRefs: [${forcedRefs.join(",")}], resume from line: ${resumeFromLine}`);
+  const removeMode = importJob?.removeMode === true;
+
+  log("info", `${importJobId}: File size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB, tag mode: ${tagMode}, removeMode: ${removeMode}, forceMode: ${forceMode}, forcedTags: [${forcedTags.join(",")}], forcedRefs: [${forcedRefs.join(",")}], resume from line: ${resumeFromLine}`);
 
   await updateImportJob(importJobId, { status: "processing", startedAt: new Date() });
 
@@ -948,7 +1071,7 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   const isLargeImport = totalLines > LARGE_IMPORT_THRESHOLD;
   let ginIndexesDropped = false;
 
-  if (isLargeImport && resumeFromLine === 0) {
+  if (isLargeImport && resumeFromLine === 0 && !removeMode) {
     try {
       log("info", `${importJobId}: Large import detected (${totalLines} rows), attempting GIN index drop for faster processing`);
       const beforeDrop = await areGinIndexesPresent();
@@ -1102,7 +1225,10 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
 
     inflightCount++;
     const batchStart = Date.now();
-    bulkUpsertSubscribers(dedupedRows, tagMode)
+    const batchOp = removeMode
+      ? bulkRemoveTagsRefs(dedupedRows)
+      : bulkUpsertSubscribers(dedupedRows, tagMode);
+    batchOp
       .then((result) => {
         pendingResults.push({
           inserted: result.inserted,
@@ -1461,7 +1587,10 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
         const batchAccumulatedNew = newSubscribers;
         const batchAccumulatedUpdated = updatedSubscribers;
 
-        if (resumeFromLine === 0) {
+        if (removeMode) {
+          newSubscribers = 0;
+          log("info", `${importJobId}: Remove mode — no new subscribers, updated: ${updatedSubscribers}`);
+        } else if (resumeFromLine === 0) {
           try {
             const postCountResult = await pool.query("SELECT COUNT(*) AS cnt FROM subscribers");
             const postImportSubscriberCount = parseInt(postCountResult.rows[0]?.cnt || "0", 10);
@@ -2018,7 +2147,12 @@ process.on("message", async (msg: any) => {
         const routingForcedRefs: string[] = routingJob?.forcedRefs ?? [];
         const routingForceMode = routingForcedTags.length > 0 || routingForcedRefs.length > 0;
 
-        if (routingForceMode) {
+        const routingRemoveMode = routingJob?.removeMode === true;
+
+        if (routingRemoveMode) {
+          log("info", `${importJobId}: Remove mode active — bypassing refs-column detection, running direct removal`);
+          await processImport(queueId, importJobId, csvFilePath);
+        } else if (routingForceMode) {
           log("info", `${importJobId}: Force mode active — bypassing refs-column detection, running direct import`);
           await processImport(queueId, importJobId, csvFilePath);
         } else {

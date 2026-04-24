@@ -27,6 +27,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import type { ImportJob } from "@shared/schema";
 
@@ -610,6 +611,7 @@ export default function Import() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [tagMode, setTagMode] = useState<"merge" | "override">("merge");
+  const [removeMode, setRemoveMode] = useState(false);
   const [forcedTagsInput, setForcedTagsInput] = useState("");
   const [forcedRefsInput, setForcedRefsInput] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -663,7 +665,7 @@ export default function Import() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ file, tagMode, forcedTags, forcedRefs }: { file: File; tagMode: "merge" | "override"; forcedTags: string; forcedRefs: string }) => {
+    mutationFn: async ({ file, tagMode, forcedTags, forcedRefs, removeMode }: { file: File; tagMode: "merge" | "override"; forcedTags: string; forcedRefs: string; removeMode: boolean }) => {
       const MAX_FILE_SIZE = 1024 * 1024 * 1024;
       const CHUNK_SIZE = 25 * 1024 * 1024;
       const USE_CHUNKED_THRESHOLD = 25 * 1024 * 1024;
@@ -688,6 +690,7 @@ export default function Import() {
             totalSize: file.size,
             forcedTags: forcedTags || undefined,
             forcedRefs: forcedRefs || undefined,
+            removeMode: removeMode || undefined,
           }),
         });
 
@@ -739,6 +742,7 @@ export default function Import() {
       formData.append("tagMode", tagMode);
       if (forcedTags) formData.append("forcedTags", forcedTags);
       if (forcedRefs) formData.append("forcedRefs", forcedRefs);
+      if (removeMode) formData.append("removeMode", "true");
       const importCsrfToken = await fetchCsrfToken();
       const response = await fetch("/api/import", {
         method: "POST",
@@ -769,9 +773,12 @@ export default function Import() {
       setIsChunkedUpload(false);
       setForcedTagsInput("");
       setForcedRefsInput("");
+      setRemoveMode(false);
       toast({
-        title: "Import started",
-        description: "Your CSV is being processed. If refs are detected, you will be asked to confirm before merging.",
+        title: removeMode ? "Removal started" : "Import started",
+        description: removeMode
+          ? "Your CSV is being processed. Matching tags and refs will be removed from existing subscribers."
+          : "Your CSV is being processed. If refs are detected, you will be asked to confirm before merging.",
       });
     },
     onError: (error: Error) => {
@@ -831,7 +838,7 @@ export default function Import() {
   };
 
   const handleUpload = () => {
-    if (selectedFile) uploadMutation.mutate({ file: selectedFile, tagMode, forcedTags: forcedTagsInput, forcedRefs: forcedRefsInput });
+    if (selectedFile) uploadMutation.mutate({ file: selectedFile, tagMode, forcedTags: forcedTagsInput, forcedRefs: forcedRefsInput, removeMode });
   };
 
   return (
@@ -890,66 +897,99 @@ export default function Import() {
 
           {selectedFile && (
             <div className="space-y-4">
-              <div className="rounded-md border p-4">
-                <h4 className="font-medium mb-3">Tag handling for existing emails</h4>
-                <RadioGroup
-                  value={tagMode}
-                  onValueChange={(value) => setTagMode(value as "merge" | "override")}
-                  className="space-y-2"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="merge" id="merge" data-testid="radio-tag-merge" />
-                    <Label htmlFor="merge" className="font-normal cursor-pointer">
-                      Merge tags - Add new tags to existing ones
-                    </Label>
+              <div className="rounded-md border p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                      Remove Tags/Refs Mode
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Strip specific tags and refs from matching subscribers without creating new ones
+                    </p>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="override" id="override" data-testid="radio-tag-override" />
-                    <Label htmlFor="override" className="font-normal cursor-pointer">
-                      Override tags - Replace all existing tags with new ones
-                    </Label>
+                  <Switch
+                    checked={removeMode}
+                    onCheckedChange={setRemoveMode}
+                    data-testid="switch-remove-mode"
+                  />
+                </div>
+                {removeMode && (
+                  <div className="flex items-start gap-2 rounded bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-800 dark:text-red-300" data-testid="note-remove-mode">
+                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      <strong>Remove mode active.</strong> Tags and refs from the CSV (or forced values below) will be removed from existing subscribers. No new subscribers will be created.
+                    </span>
                   </div>
-                </RadioGroup>
-                <p className="text-xs text-muted-foreground mt-2">
-                  This applies to the tags column only. Refs are always merged (never overridden).
-                </p>
+                )}
               </div>
 
+              {!removeMode && (
+                <div className="rounded-md border p-4">
+                  <h4 className="font-medium mb-3">Tag handling for existing emails</h4>
+                  <RadioGroup
+                    value={tagMode}
+                    onValueChange={(value) => setTagMode(value as "merge" | "override")}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="merge" id="merge" data-testid="radio-tag-merge" />
+                      <Label htmlFor="merge" className="font-normal cursor-pointer">
+                        Merge tags - Add new tags to existing ones
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="override" id="override" data-testid="radio-tag-override" />
+                      <Label htmlFor="override" className="font-normal cursor-pointer">
+                        Override tags - Replace all existing tags with new ones
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    This applies to the tags column only. Refs are always merged (never overridden).
+                  </p>
+                </div>
+              )}
+
               <div className="rounded-md border p-4 space-y-3">
-                <h4 className="font-medium mb-1">Tags &amp; refs to apply (optional)</h4>
+                <h4 className="font-medium mb-1">{removeMode ? "Tags & refs to remove (optional)" : "Tags & refs to apply (optional)"}</h4>
                 <div className="space-y-1.5">
                   <Label htmlFor="forced-tags" className="text-sm flex items-center gap-1.5">
                     <Tag className="h-3.5 w-3.5" />
-                    Tags to apply
+                    {removeMode ? "Tags to remove" : "Tags to apply"}
                   </Label>
                   <Input
                     id="forced-tags"
-                    placeholder="e.g. NEWSLETTER, VIP"
+                    placeholder={removeMode ? "e.g. WRONG_TAG, ACCIDENTAL" : "e.g. NEWSLETTER, VIP"}
                     value={forcedTagsInput}
                     onChange={(e) => setForcedTagsInput(e.target.value)}
                     data-testid="input-forced-tags"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Comma-separated. When set, overrides the tags column for every imported row.
+                    {removeMode
+                      ? "Comma-separated. These tags will be removed from every matching subscriber."
+                      : "Comma-separated. When set, overrides the tags column for every imported row."}
                   </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="forced-refs" className="text-sm flex items-center gap-1.5">
                     <BookmarkCheck className="h-3.5 w-3.5" />
-                    Refs to apply
+                    {removeMode ? "Refs to remove" : "Refs to apply"}
                   </Label>
                   <Input
                     id="forced-refs"
-                    placeholder="e.g. SEGMENT-A, CAMPAIGN-X"
+                    placeholder={removeMode ? "e.g. WRONG-REF, BAD-SEGMENT" : "e.g. SEGMENT-A, CAMPAIGN-X"}
                     value={forcedRefsInput}
                     onChange={(e) => setForcedRefsInput(e.target.value)}
                     data-testid="input-forced-refs"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Comma-separated. When set, overrides the refs column for every imported row.
+                    {removeMode
+                      ? "Comma-separated. These refs will be removed from every matching subscriber."
+                      : "Comma-separated. When set, overrides the refs column for every imported row."}
                   </p>
                 </div>
-                {(forcedTagsInput.trim() || forcedRefsInput.trim()) && (
+                {!removeMode && (forcedTagsInput.trim() || forcedRefsInput.trim()) && (
                   <div className="flex items-start gap-2 rounded bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300" data-testid="note-force-mode">
                     <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                     <span>
@@ -975,6 +1015,7 @@ export default function Import() {
                 <Button
                   onClick={handleUpload}
                   disabled={uploadMutation.isPending}
+                  variant={removeMode ? "destructive" : "default"}
                   className="flex-1"
                   data-testid="button-start-import"
                 >
@@ -982,6 +1023,11 @@ export default function Import() {
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       {isChunkedUpload ? `Uploading... ${uploadProgress}%` : "Uploading..."}
+                    </>
+                  ) : removeMode ? (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Start Removal
                     </>
                   ) : (
                     <>
@@ -992,7 +1038,7 @@ export default function Import() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => { setSelectedFile(null); setForcedTagsInput(""); setForcedRefsInput(""); }}
+                  onClick={() => { setSelectedFile(null); setForcedTagsInput(""); setForcedRefsInput(""); setRemoveMode(false); }}
                   data-testid="button-clear-file"
                 >
                   Clear
