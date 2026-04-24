@@ -93,6 +93,65 @@ const sendingSpeedLabels: Record<string, string> = {
   godzilla: "Godzilla (3,000 emails/min)",
 };
 
+// Auto-resend (Task #56) helper card. Fetches the linked counterpart so we
+// can render contextual labels ("Follow-up of {parent name}", "Follow-up
+// scheduled for {date}"). Renders nothing when there is no link.
+function FollowUpLinkCard({ campaign }: { campaign: Campaign }) {
+  const linkedId = campaign.parentCampaignId ?? campaign.followUpCampaignId;
+  const isParentView = !!campaign.followUpCampaignId && !campaign.parentCampaignId;
+  const { data: linked } = useQuery<Campaign>({
+    queryKey: ["/api/campaigns", linkedId],
+    enabled: !!linkedId,
+  });
+  if (!linkedId) return null;
+  if (campaign.parentCampaignId) {
+    return (
+      <Card data-testid="card-followup-link">
+        <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <Badge variant="secondary" className="mb-1">
+              {linked ? `Follow-up of ${linked.name}` : "Follow-up to opener"}
+            </Badge>
+            <p className="text-sm text-muted-foreground">
+              This campaign was auto-sent to people who opened the original.
+            </p>
+          </div>
+          <Link href={`/campaigns/${campaign.parentCampaignId}`}>
+            <Button variant="outline" size="sm" data-testid="link-parent-campaign">
+              View original
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (isParentView) {
+    const when = linked?.scheduledAt ? new Date(linked.scheduledAt).toLocaleString() : null;
+    return (
+      <Card data-testid="card-followup-link">
+        <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <Badge variant="outline" className="mb-1">
+              {when ? `Follow-up scheduled for ${when}` : "Follow-up scheduled"}
+            </Badge>
+            <p className="text-sm text-muted-foreground">
+              {linked?.status === "completed"
+                ? "The follow-up to openers has finished sending."
+                : "A follow-up to openers has been spawned for this campaign."}
+            </p>
+          </div>
+          <Link href={`/campaigns/${campaign.followUpCampaignId}`}>
+            <Button variant="outline" size="sm" data-testid="link-followup-campaign">
+              View follow-up
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+  return null;
+}
+
 export default function CampaignDetail() {
   const [, params] = useRoute("/campaigns/:id");
   const campaignId = params?.id;
@@ -241,40 +300,20 @@ export default function CampaignDetail() {
       </div>
 
       {/* Auto-resend (Task #56) — show linked counterpart when present so the
-          user can jump between parent and follow-up child in one click. */}
-      {(campaign.parentCampaignId || campaign.followUpCampaignId) && (
-        <Card data-testid="card-followup-link">
-          <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
-            {campaign.parentCampaignId && (
-              <>
-                <div>
-                  <Badge variant="secondary" className="mb-1">Follow-up to opener</Badge>
-                  <p className="text-sm text-muted-foreground">
-                    This campaign was auto-sent to people who opened the original.
-                  </p>
-                </div>
-                <Link href={`/campaigns/${campaign.parentCampaignId}`}>
-                  <Button variant="outline" size="sm" data-testid="link-parent-campaign">
-                    View original
-                  </Button>
-                </Link>
-              </>
-            )}
-            {campaign.followUpCampaignId && !campaign.parentCampaignId && (
-              <>
-                <div>
-                  <Badge variant="outline" className="mb-1">Follow-up scheduled</Badge>
-                  <p className="text-sm text-muted-foreground">
-                    A follow-up to openers has been spawned for this campaign.
-                  </p>
-                </div>
-                <Link href={`/campaigns/${campaign.followUpCampaignId}`}>
-                  <Button variant="outline" size="sm" data-testid="link-followup-campaign">
-                    View follow-up
-                  </Button>
-                </Link>
-              </>
-            )}
+          user can jump between parent and follow-up child in one click. The
+          linked campaign data is fetched on demand so we can render concrete
+          "of {parent name}" / "scheduled for {date}" labels per spec. */}
+      <FollowUpLinkCard campaign={campaign} />
+
+      {/* Auto-resend (Task #56) — surface the configured-but-not-yet-spawned
+          state too so users see the follow-up promise before sending. */}
+      {!campaign.followUpCampaignId && !campaign.parentCampaignId && campaign.followUpEnabled && (
+        <Card data-testid="card-followup-pending">
+          <CardContent className="p-4 flex items-center gap-3">
+            <Badge variant="outline">Follow-up enabled</Badge>
+            <p className="text-sm text-muted-foreground">
+              A follow-up to openers will be created {campaign.followUpDelayHours ?? 36}h after this campaign finishes sending.
+            </p>
           </CardContent>
         </Card>
       )}

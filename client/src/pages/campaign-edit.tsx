@@ -1010,21 +1010,38 @@ export default function CampaignEdit() {
                   />
                 </div>
                 {formData.followUpEnabled && (
-                  <div className="space-y-2">
-                    <Label htmlFor="follow-up-delay-hours">Delay (hours)</Label>
-                    <Input
-                      id="follow-up-delay-hours"
-                      type="number"
-                      min={1}
-                      max={720}
-                      value={formData.followUpDelayHours ?? 36}
-                      onChange={(e) => updateField("followUpDelayHours", Number(e.target.value) || 36)}
-                      className="w-32"
-                      data-testid="input-follow-up-delay-hours"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Default 36 hours. Counted from when this campaign finishes sending.
-                    </p>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="follow-up-delay-hours">Delay (hours)</Label>
+                      <Input
+                        id="follow-up-delay-hours"
+                        type="number"
+                        min={1}
+                        max={168}
+                        value={formData.followUpDelayHours ?? 36}
+                        onChange={(e) => updateField("followUpDelayHours", Number(e.target.value) || 36)}
+                        className="w-32"
+                        data-testid="input-follow-up-delay-hours"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Default 36 hours. Range 1-168 (7 days). Counted from when this campaign finishes sending.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="follow-up-subject">Follow-up subject (optional)</Label>
+                      <Input
+                        id="follow-up-subject"
+                        type="text"
+                        placeholder={formData.subject ? `Defaults to: ${formData.subject}` : "Leave blank to reuse the original subject"}
+                        maxLength={998}
+                        value={formData.followUpSubject ?? ""}
+                        onChange={(e) => updateField("followUpSubject", e.target.value || null)}
+                        data-testid="input-follow-up-subject"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Override the subject line for the follow-up. Leave empty to reuse the original.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>

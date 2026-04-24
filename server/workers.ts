@@ -831,31 +831,22 @@ async function pollFollowUpCampaigns() {
     logger.info(`[FOLLOWUP_POLL] Found ${candidates.length} parent campaign(s) ready for follow-up`);
     for (const parent of candidates) {
       try {
-        // Skip parents with zero openers — spawning a child for them would
-        // produce a zero-audience send that completes immediately and clutters
-        // the campaign list. We DO leave the schedule stamp in place so a
-        // late-arriving open (very rare past 36h) still gets picked up on a
-        // future poll.
+        // Per spec: zero-opener parents get a child created in 'completed'
+        // state with 0 recipients (not skipped indefinitely) so the UI
+        // surfaces the spawn outcome consistently. Non-zero parents get a
+        // 'scheduled' child — the standard pollScheduledCampaigns worker
+        // promotes scheduled→sending at the right time, exactly like a
+        // user-scheduled campaign. We DO NOT auto-promote here, so the user
+        // can pause / edit / cancel the child via the normal scheduled-
+        // campaign controls during the delay window.
         const openerCount = await storage.countOpenersForParentCampaign(parent.id);
-        if (openerCount === 0) {
-          logger.info(`[FOLLOWUP_POLL] Skipping parent=${parent.id} (${parent.name}): 0 openers`);
-          continue;
-        }
-        const child = await storage.spawnFollowUpCampaign(parent);
+        const child = await storage.spawnFollowUpCampaign(parent, { openerCount });
         if (!child) continue; // race loser; another worker handled it
-        // Promote the child draft straight to 'sending' and queue a job.
-        await storage.updateCampaignStatusAtomic(child.id, "sending", "draft");
-        await db.execute(sql`
-          INSERT INTO campaign_jobs (campaign_id, status)
-          SELECT ${child.id}, 'pending'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM campaign_jobs cj
-            WHERE cj.campaign_id = ${child.id}
-              AND cj.status IN ('pending', 'processing')
-          )
-        `);
-        await messageQueue.notify("campaign_jobs", { campaignId: child.id }).catch(() => {});
-        logger.info(`[FOLLOWUP_POLL] Spawned follow-up child=${child.id} for parent=${parent.id} (${parent.name})`);
+        if (openerCount === 0) {
+          logger.info(`[FOLLOWUP_POLL] Spawned zero-audience follow-up child=${child.id} for parent=${parent.id} (${parent.name}) — marked completed`);
+        } else {
+          logger.info(`[FOLLOWUP_POLL] Spawned scheduled follow-up child=${child.id} (audience=${openerCount}) for parent=${parent.id} (${parent.name}) — will send at ${child.scheduledAt?.toISOString()}`);
+        }
       } catch (err: any) {
         logger.error(`[FOLLOWUP_POLL] Failed to spawn follow-up for parent=${parent.id}: ${err?.message || err}`);
       }

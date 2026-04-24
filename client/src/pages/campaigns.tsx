@@ -83,6 +83,22 @@ function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; 
   );
 }
 
+// apiRequest throws `${status}: ${body}` on non-2xx (see queryClient.ts).
+// When the server blocks a delete because of a pending follow-up (Task #56)
+// it returns 409 with `{ error: "follow_up_pending", message, ... }`. Pull
+// that message out so we can show it instead of a generic toast.
+function parseFollowUpPendingError(err: Error): string | null {
+  const m = err?.message?.match(/^409:\s*(\{.*\})$/);
+  if (!m) return null;
+  try {
+    const body = JSON.parse(m[1]);
+    if (body?.error === "follow_up_pending") return body.message ?? "A follow-up is pending for this campaign.";
+  } catch {
+    // body wasn't JSON — fall back to generic toast
+  }
+  return null;
+}
+
 export default function Campaigns() {
   useJobStream();
   const [, navigate] = useLocation();
@@ -148,10 +164,14 @@ export default function Campaigns() {
         description: "The campaign has been removed.",
       });
     },
-    onError: () => {
+    onError: (err: Error) => {
+      // Server returns 409 with `error: "follow_up_pending"` when an active
+      // follow-up is blocking the delete (Task #56). Surface that text so the
+      // user knows which action to take next.
+      const parsed = parseFollowUpPendingError(err);
       toast({
-        title: "Error",
-        description: "Failed to delete campaign. Please try again.",
+        title: parsed ? "Follow-up pending" : "Error",
+        description: parsed ?? "Failed to delete campaign. Please try again.",
         variant: "destructive",
       });
     },
@@ -168,10 +188,11 @@ export default function Campaigns() {
         description: "The selected campaigns have been removed.",
       });
     },
-    onError: () => {
+    onError: (err: Error) => {
+      const parsed = parseFollowUpPendingError(err);
       toast({
-        title: "Error",
-        description: "Failed to delete campaigns. Please try again.",
+        title: parsed ? "Follow-up pending" : "Error",
+        description: parsed ?? "Failed to delete campaigns. Please try again.",
         variant: "destructive",
       });
     },
@@ -403,16 +424,29 @@ export default function Campaigns() {
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{campaign.name}</span>
-                            {campaign.parentCampaignId && (
-                              <Badge variant="secondary" className="text-xs" data-testid={`badge-followup-${campaign.id}`}>
-                                Follow-up
-                              </Badge>
-                            )}
-                            {campaign.followUpEnabled && !campaign.parentCampaignId && (
-                              <Badge variant="outline" className="text-xs" data-testid={`badge-has-followup-${campaign.id}`}>
-                                Has follow-up
-                              </Badge>
-                            )}
+                            {campaign.parentCampaignId && (() => {
+                              // Look up the parent in the same campaigns list
+                              // so we can render a contextual label.
+                              const parent = campaigns?.find((p) => p.id === campaign.parentCampaignId);
+                              return (
+                                <Badge variant="secondary" className="text-xs" data-testid={`badge-followup-${campaign.id}`}>
+                                  {parent ? `Follow-up of ${parent.name}` : "Follow-up"}
+                                </Badge>
+                              );
+                            })()}
+                            {campaign.followUpEnabled && !campaign.parentCampaignId && (() => {
+                              const child = campaign.followUpCampaignId
+                                ? campaigns?.find((c) => c.id === campaign.followUpCampaignId)
+                                : null;
+                              const when = child?.scheduledAt
+                                ? new Date(child.scheduledAt).toLocaleString()
+                                : null;
+                              return (
+                                <Badge variant="outline" className="text-xs" data-testid={`badge-has-followup-${campaign.id}`}>
+                                  {when ? `Follow-up scheduled for ${when}` : `Follow-up: ${campaign.followUpDelayHours ?? 36}h after send`}
+                                </Badge>
+                              );
+                            })()}
                           </div>
                           <span className="text-sm text-muted-foreground truncate max-w-[300px]">
                             {campaign.subject}

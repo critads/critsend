@@ -138,6 +138,9 @@ export const campaigns = pgTable("campaigns", {
   parentCampaignId: varchar("parent_campaign_id"),
   followUpEnabled: boolean("follow_up_enabled").notNull().default(false),
   followUpDelayHours: integer("follow_up_delay_hours").notNull().default(36),
+  // Optional override for the follow-up child's subject. If null, the spawner
+  // copies the parent's subject (often prefixed by the user via the wizard).
+  followUpSubject: text("follow_up_subject"),
   followUpScheduledAt: timestamp("follow_up_scheduled_at"),
   followUpCampaignId: varchar("follow_up_campaign_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -502,6 +505,11 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   preheader: z.string().max(500, "Preheader too long").nullable().optional(),
   htmlContent: z.string().min(1, "HTML content required").max(5000000, "Content too large"),
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
+  // Auto-resend to openers — settable on the parent at create time. Match
+  // the same 1-168h range enforced on the wizard input and on PATCH.
+  followUpEnabled: z.boolean().optional(),
+  followUpDelayHours: z.coerce.number().int().min(1).max(168).optional(),
+  followUpSubject: z.preprocess((v) => (v === "" ? null : v), z.string().max(998).nullable().optional()),
 });
 
 export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
@@ -563,8 +571,10 @@ export const updateCampaignDraftSchema = z.object({
   clickTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   unsubscribeTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   // Auto-resend to openers — set on the parent in the wizard.
+  // Delay range is 1h-168h (= 7 days) per product spec.
   followUpEnabled: z.boolean().optional(),
-  followUpDelayHours: z.coerce.number().int().min(1).max(24 * 30).optional(),
+  followUpDelayHours: z.coerce.number().int().min(1).max(168).optional(),
+  followUpSubject: z.preprocess((v) => (v === "" ? null : v), z.string().max(998).nullable().optional()),
 });
 export const insertImportJobSchema = createInsertSchema(importJobs).omit({ 
   id: true, 

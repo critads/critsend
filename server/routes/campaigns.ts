@@ -36,6 +36,7 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS parent_campaign_id     varchar`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_enabled      boolean NOT NULL DEFAULT false`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_delay_hours  integer NOT NULL DEFAULT 36`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_subject      text`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_scheduled_at timestamp`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_campaign_id  varchar`);
     await db.execute(sql`
@@ -57,22 +58,46 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
 })();
 
 /**
- * Auto-resend (Task #56) cleanup. Used by both the single-id and bulk DELETE
- * routes so they apply the SAME cascade behavior:
- *   - If we're deleting an ORIGINAL parent that has a follow-up child,
- *     cascade-delete the child first.
- *   - If we're deleting a CHILD, clear the parent's follow_up_campaign_id
- *     pointer so the UI stops showing a broken link. We intentionally leave
- *     parent.followUpEnabled alone — if the user wants to re-spawn, the
- *     spawner will pick it up on the next poll (the partial-unique index is
- *     no longer blocked).
+ * Custom error thrown by the auto-resend (Task #56) delete guard when the
+ * target campaign is a parent with a pending (scheduled / sending) follow-up
+ * child. Per spec the user must cancel/delete the child first — blind
+ * cascade would silently throw away a queued send.
  */
+class FollowUpPendingError extends Error {
+  constructor(public readonly childId: string, public readonly childStatus: string) {
+    super(`Cannot delete campaign with a ${childStatus} follow-up (child ${childId})`);
+    this.name = "FollowUpPendingError";
+  }
+}
+
+/**
+ * Auto-resend (Task #56) cleanup. Used by both the single-id and bulk DELETE
+ * routes so they apply the SAME safety behavior:
+ *   - If the target is a PARENT with a pending follow-up child (status =
+ *     scheduled/sending/draft) we BLOCK the delete and surface a 409 to the
+ *     UI. The user must cancel or delete the child first.
+ *   - If the parent's child is already in a terminal state (completed/
+ *     failed/cancelled) we cascade-delete it because there's nothing
+ *     destructive to lose.
+ *   - If the target is a CHILD, we clear the parent's follow_up_campaign_id
+ *     pointer so the UI stops showing a broken link. parent.followUpEnabled
+ *     is intentionally left alone — the spawner will re-spawn on the next
+ *     poll if appropriate.
+ */
+const PENDING_CHILD_STATUSES = new Set(["draft", "scheduled", "sending", "paused"]);
+
 async function deleteCampaignWithFollowUpCleanup(id: string): Promise<void> {
   const target = await storage.getCampaign(id);
   if (target?.followUpCampaignId) {
-    await storage.deleteCampaign(target.followUpCampaignId).catch((err: any) =>
-      logger.warn(`[CAMPAIGN_DELETE] Cascade child delete failed: ${err?.message || err}`),
-    );
+    const child = await storage.getCampaign(target.followUpCampaignId);
+    if (child && PENDING_CHILD_STATUSES.has(child.status)) {
+      throw new FollowUpPendingError(child.id, child.status);
+    }
+    if (child) {
+      await storage.deleteCampaign(child.id).catch((err: any) =>
+        logger.warn(`[CAMPAIGN_DELETE] Cascade child delete failed: ${err?.message || err}`),
+      );
+    }
   }
   if (target?.parentCampaignId) {
     await db.execute(sql`
@@ -556,7 +581,24 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (ids.some((id) => !validateId(id))) {
         return res.status(400).json({ error: "One or more invalid ID formats" });
       }
-      await Promise.all(ids.map((id) => deleteCampaignWithFollowUpCleanup(id)));
+      const results = await Promise.allSettled(
+        ids.map((id) => deleteCampaignWithFollowUpCleanup(id)),
+      );
+      const blocked = results
+        .map((r, i) => ({ r, id: ids[i] }))
+        .filter(({ r }) => r.status === "rejected" && (r as any).reason instanceof FollowUpPendingError);
+      if (blocked.length > 0) {
+        return res.status(409).json({
+          error: "follow_up_pending",
+          message: `${blocked.length} campaign(s) have a pending follow-up. Cancel or delete the follow-up first.`,
+          blockedIds: blocked.map((b) => b.id),
+        });
+      }
+      const otherFailures = results.filter((r) => r.status === "rejected");
+      if (otherFailures.length > 0) {
+        logger.error("Error bulk-deleting campaigns:", (otherFailures[0] as any).reason);
+        return res.status(500).json({ error: "Failed to delete campaigns" });
+      }
       res.status(204).send();
     } catch (error) {
       logger.error("Error bulk-deleting campaigns:", error);
@@ -571,7 +613,14 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
       await deleteCampaignWithFollowUpCleanup(req.params.id);
       res.status(204).send();
-    } catch (error) {
+    } catch (error: any) {
+      if (error instanceof FollowUpPendingError) {
+        return res.status(409).json({
+          error: "follow_up_pending",
+          message: `Cannot delete: this campaign has a ${error.childStatus} follow-up. Cancel or delete the follow-up first.`,
+          childId: error.childId,
+        });
+      }
       logger.error("Error deleting campaign:", error);
       res.status(500).json({ error: "Failed to delete campaign" });
     }

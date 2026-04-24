@@ -69,17 +69,28 @@ export async function deleteCampaign(id: string): Promise<void> {
 export async function copyCampaign(id: string): Promise<Campaign | undefined> {
   const original = await getCampaign(id);
   if (!original) return undefined;
-  const { id: _, createdAt, startedAt, completedAt, sentCount, pendingCount, failedCount, ...copyData } = original;
+  // Strip identity, timing, counters, AND follow-up linkage. A copy is a
+  // brand-new original — never inherit parent/child references because the
+  // partial-unique index on parent_campaign_id would block the insert if
+  // the parent already had its single child spawned.
+  const {
+    id: _,
+    createdAt,
+    startedAt,
+    completedAt,
+    sentCount,
+    pendingCount,
+    failedCount,
+    parentCampaignId: _p,
+    followUpCampaignId: _fc,
+    followUpScheduledAt: _fs,
+    ...copyData
+  } = original;
   return createCampaign({
     ...copyData,
     name: `${original.name} (Copy)`,
     status: "draft",
     sendingSpeed: original.sendingSpeed as "drip" | "very_slow" | "slow" | "medium" | "fast" | "godzilla",
-    // A copy is a brand-new original — never inherit follow-up linkage. The
-    // user can re-enable the toggle on the copy if they want.
-    parentCampaignId: null as any,
-    followUpCampaignId: null as any,
-    followUpScheduledAt: null as any,
   });
 }
 
@@ -134,11 +145,34 @@ export async function findFollowUpCandidates(limit: number = 25): Promise<Campai
  * already has a child (race-safe via the partial-unique index on
  * parent_campaign_id).
  */
-export async function spawnFollowUpCampaign(parent: Campaign): Promise<Campaign | undefined> {
-  // Build the child draft from parent's settings using the REAL campaigns
-  // schema columns (fromName/fromEmail/replyEmail/trackOpens/trackClicks).
-  // Strip status/timing/counters and explicitly clear follow-up fields so
-  // the child doesn't itself try to spawn another follow-up.
+export async function spawnFollowUpCampaign(
+  parent: Campaign,
+  options: { openerCount?: number } = {},
+): Promise<Campaign | undefined> {
+  // Build the child from parent's settings using the REAL campaigns schema
+  // columns. Per spec, the child is created in 'scheduled' state with
+  // scheduled_at = parent.completedAt + delayHours so the user can pause /
+  // edit / cancel via existing scheduled-campaign controls. The standard
+  // pollScheduledCampaigns worker promotes scheduled→sending at the right
+  // time, exactly the same path as a normally-scheduled campaign.
+  //
+  // Edge case: when the parent has zero openers we still create the child
+  // (so the UI shows the spawn outcome), but in 'completed' status with all
+  // counters at 0 — there's nothing to send.
+  //
+  // Schedule source-of-truth = parent.followUpScheduledAt. That column is
+  // stamped to NOW() + delayHours at completion (see markFollowUpScheduled),
+  // so the child's send time is fully determined by the parent's COMPLETION,
+  // not by when the spawner happens to wake up. If the column is somehow
+  // missing (very old campaigns or partial restore) fall back to
+  // completedAt + delay, then now + delay as a last-ditch safety net so we
+  // never silently push the schedule out by an extra full window.
+  const delayMs = (parent.followUpDelayHours ?? 36) * 60 * 60 * 1000;
+  const scheduledAt =
+    parent.followUpScheduledAt ??
+    (parent.completedAt ? new Date(parent.completedAt.getTime() + delayMs) : new Date(Date.now() + delayMs));
+  const zeroAudience = (options.openerCount ?? null) === 0;
+
   const child = {
     name: `${parent.name} (Follow-up)`,
     mtaId: parent.mtaId,
@@ -146,7 +180,7 @@ export async function spawnFollowUpCampaign(parent: Campaign): Promise<Campaign 
     fromName: parent.fromName,
     fromEmail: parent.fromEmail,
     replyEmail: parent.replyEmail ?? null,
-    subject: parent.subject,
+    subject: parent.followUpSubject ?? parent.subject,
     preheader: parent.preheader ?? null,
     htmlContent: parent.htmlContent,
     trackOpens: parent.trackOpens,
@@ -160,7 +194,9 @@ export async function spawnFollowUpCampaign(parent: Campaign): Promise<Campaign 
     parentCampaignId: parent.id,
     followUpEnabled: false,
     followUpDelayHours: 36,
-    status: "draft",
+    scheduledAt: zeroAudience ? null : scheduledAt,
+    status: zeroAudience ? "completed" : "scheduled",
+    completedAt: zeroAudience ? new Date() : null,
   } as typeof campaigns.$inferInsert;
 
   // Atomic spawn + parent-link. We do the INSERT and the parent UPDATE in a
