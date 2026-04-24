@@ -276,6 +276,7 @@ function ActiveJobDisplay({ job }: { job: ImportJob }) {
 }
 
 function CompletedJobDisplay({ job }: { job: ImportJob }) {
+  const isRemoval = job.removeMode === true;
   const reasons = ((job as any).failureReasons || {}) as Record<string, any>;
   const dupCount = reasons["duplicate_in_file"] || (job as any).duplicatesInFile || 0;
   const sampleFails = reasons["_sample_failures"] as Record<string, string> | undefined;
@@ -306,15 +307,17 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
         </div>
       )}
 
-      <div className={`grid gap-3 text-sm ${dupCount > 0 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
-        <div className="p-2.5 rounded bg-green-50 dark:bg-green-950/20 text-center" data-testid="stat-new">
-          <p className="text-xs text-muted-foreground mb-0.5">New</p>
-          <p className="font-semibold text-green-600" data-testid="text-new-count">
-            {job.newSubscribers.toLocaleString()}
-          </p>
-        </div>
+      <div className={`grid gap-3 text-sm ${dupCount > 0 ? "grid-cols-2 sm:grid-cols-4" : isRemoval ? "grid-cols-2" : "grid-cols-3"}`}>
+        {!isRemoval && (
+          <div className="p-2.5 rounded bg-green-50 dark:bg-green-950/20 text-center" data-testid="stat-new">
+            <p className="text-xs text-muted-foreground mb-0.5">New</p>
+            <p className="font-semibold text-green-600" data-testid="text-new-count">
+              {job.newSubscribers.toLocaleString()}
+            </p>
+          </div>
+        )}
         <div className="p-2.5 rounded bg-blue-50 dark:bg-blue-950/20 text-center" data-testid="stat-updated">
-          <p className="text-xs text-muted-foreground mb-0.5">Updated</p>
+          <p className="text-xs text-muted-foreground mb-0.5">{isRemoval ? "Cleaned" : "Updated"}</p>
           <p className="font-semibold text-blue-600" data-testid="text-updated-count">
             {job.updatedSubscribers.toLocaleString()}
           </p>
@@ -341,9 +344,9 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
           <span className="font-medium">{job.totalRows.toLocaleString()}</span>
         </div>
         <div className="flex justify-between">
-          <span>Successfully imported (new + updated)</span>
+          <span>{isRemoval ? "Subscribers cleaned" : "Successfully imported (new + updated)"}</span>
           <span className="font-medium text-green-700 dark:text-green-400">
-            {displayImported.toLocaleString()}
+            {isRemoval ? job.updatedSubscribers.toLocaleString() : displayImported.toLocaleString()}
           </span>
         </div>
         {skippedRows > 0 && (
@@ -365,14 +368,14 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
           {forcedTags.length > 0 && (
             <div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
               <Tag className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Forced tags:</span>
+              <span className="text-muted-foreground">{isRemoval ? "Removed tags:" : "Forced tags:"}</span>
               {forcedTags.map((t) => <Badge key={t} variant="secondary" className="text-xs py-0 h-4">{t}</Badge>)}
             </div>
           )}
           {forcedRefs.length > 0 && (
             <div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
               <BookmarkCheck className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Forced refs:</span>
+              <span className="text-muted-foreground">{isRemoval ? "Removed refs:" : "Forced refs:"}</span>
               {forcedRefs.map((r) => <Badge key={r} variant="outline" className="text-xs py-0 h-4">{r}</Badge>)}
             </div>
           )}
