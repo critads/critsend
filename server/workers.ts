@@ -767,6 +767,31 @@ async function resumeInterruptedCampaigns() {
 async function pollScheduledCampaigns() {
   if (!isPoolHealthy()) return;
   try {
+    // Step 1: terminate due follow-up children with zero opener audience
+    // immediately as 'completed' (count 0) so they never enter the send
+    // loop. This honors the spec's "if zero recipients, mark completed
+    // immediately" requirement at promotion time, while still allowing
+    // late opens to accumulate during the entire delay window.
+    const dueFollowUps = await db.execute(sql`
+      SELECT id, name, parent_campaign_id
+      FROM campaigns
+      WHERE status = 'scheduled'
+        AND scheduled_at <= NOW()
+        AND parent_campaign_id IS NOT NULL
+    `);
+    for (const row of (dueFollowUps.rows as Array<{ id: string; name: string; parent_campaign_id: string }>)) {
+      const openerCount = await storage.countOpenersForParentCampaign(row.parent_campaign_id);
+      if (openerCount === 0) {
+        await db.execute(sql`
+          UPDATE campaigns
+          SET status = 'completed', completed_at = NOW(), pending_count = 0
+          WHERE id = ${row.id} AND status = 'scheduled'
+        `);
+        logger.info(`[SCHEDULE_POLL] Follow-up ${row.id} (${row.name}) had 0 openers at promotion time — marked completed without sending`);
+      }
+    }
+
+    // Step 2: promote remaining due 'scheduled' campaigns to 'sending'.
     const result = await db.execute(sql`
       WITH promoted AS (
         UPDATE campaigns

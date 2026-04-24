@@ -704,21 +704,34 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.info(`[CAMPAIGN_RESUME] Reset ${resetCount} orphaned failed sends for campaign ${req.params.id}`);
       }
       
+      // If the campaign was paused before its scheduledAt fired, resume it
+      // back to 'scheduled' (no job insert) so the scheduled-poller picks it
+      // up at the original time. Otherwise resume to 'sending' immediately.
+      const existing = await storage.getCampaign(req.params.id);
+      const futureScheduled = !!(existing?.scheduledAt && new Date(existing.scheduledAt).getTime() > Date.now());
+
       const campaign = await db.transaction(async (tx) => {
-        const [updated] = await tx.update(campaigns).set({ status: "sending", pauseReason: null }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
+        const targetStatus = futureScheduled ? "scheduled" : "sending";
+        const [updated] = await tx.update(campaigns).set({ status: targetStatus, pauseReason: null }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
         if (!updated) return null;
-        await tx.insert(campaignJobs).values({
-          campaignId: updated.id,
-          status: "pending",
-        });
+        if (!futureScheduled) {
+          await tx.insert(campaignJobs).values({
+            campaignId: updated.id,
+            status: "pending",
+          });
+        }
         return updated;
       });
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      
-      await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
-      logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
+
+      if (!futureScheduled) {
+        await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
+        logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
+      } else {
+        logger.info(`[CAMPAIGN_RESUME] Campaign ${req.params.id} returned to 'scheduled' (scheduledAt in future)`);
+      }
       
       res.json(campaign);
     } catch (error) {

@@ -156,7 +156,6 @@ export async function findFollowUpCandidates(limit: number = 25): Promise<Campai
  */
 export async function spawnFollowUpCampaign(
   parent: Campaign,
-  options: { openerCount?: number } = {},
 ): Promise<Campaign | undefined> {
   // Child is created as 'scheduled' so the standard scheduled-campaign
   // poller promotes it at scheduledAt and the user can edit/cancel during

@@ -565,6 +565,15 @@ export default function Campaigns() {
                             )}
                             {campaign.status === "scheduled" && (
                               <DropdownMenuItem
+                                onClick={() => pauseResumeMutation.mutate({ id: campaign.id, action: "pause" })}
+                                data-testid={`button-pause-scheduled-${campaign.id}`}
+                              >
+                                <Pause className="h-4 w-4 mr-2" />
+                                Pause
+                              </DropdownMenuItem>
+                            )}
+                            {campaign.status === "scheduled" && (
+                              <DropdownMenuItem
                                 onClick={() => setDeleteConfirm(campaign)}
                                 data-testid={`button-cancel-scheduled-${campaign.id}`}
                               >

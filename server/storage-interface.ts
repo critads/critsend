@@ -97,7 +97,7 @@ export interface IStorage {
   // Auto-resend (Task #56) helpers
   markFollowUpScheduled(parentCampaignId: string, delayHours: number): Promise<void>;
   findFollowUpCandidates(limit?: number): Promise<Campaign[]>;
-  spawnFollowUpCampaign(parent: Campaign, options?: { openerCount?: number }): Promise<Campaign | undefined>;
+  spawnFollowUpCampaign(parent: Campaign): Promise<Campaign | undefined>;
   getLinkedFollowUp(campaignId: string): Promise<{ parent: Campaign | null; child: Campaign | null }>;
 
   // ═══════════════════════════════════════════════════════════════
