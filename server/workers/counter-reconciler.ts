@@ -29,12 +29,16 @@
  */
 
 import { trackingPool } from "../tracking-pool";
+import { pool as mainPool } from "../db";
+import { TRACKING_POOL_MAX } from "../connection-budget";
 import { logger } from "../logger";
 import {
   counterDriftFixedTotal,
   counterDriftRunDurationMs,
   counterDriftLastRunAt,
 } from "../metrics";
+
+const effectivePool = TRACKING_POOL_MAX > 0 ? trackingPool : mainPool;
 
 const RECONCILE_INTERVAL_MS = Number(process.env.COUNTER_RECONCILE_INTERVAL_MS || 15 * 60 * 1000);
 const RECONCILE_WINDOW_HOURS = Number(process.env.COUNTER_RECONCILE_WINDOW_HOURS || 24);
@@ -75,7 +79,7 @@ export async function reconcileCounters(
   const inRecentCampaign = scope === "all" ? "" : `AND c.id IN (SELECT campaign_id FROM recent_campaigns)`;
 
   // 1. campaigns.sent_count (fill-only — never reduces)
-  const sentRes = await trackingPool.query(
+  const sentRes = await effectivePool.query(
     `WITH truth AS (
        SELECT campaign_id, COUNT(*)::bigint AS cnt
          FROM campaign_sends
@@ -92,7 +96,7 @@ export async function reconcileCounters(
   const sentCountFixed = sentRes.rowCount ?? 0;
 
   // 2. campaign_sends.first_open_at
-  const openRes = await trackingPool.query(
+  const openRes = await effectivePool.query(
     `WITH truth AS (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
          FROM campaign_stats
@@ -110,7 +114,7 @@ export async function reconcileCounters(
   const firstOpenFixed = openRes.rowCount ?? 0;
 
   // 3. campaign_sends.first_click_at
-  const clickRes = await trackingPool.query(
+  const clickRes = await effectivePool.query(
     `WITH truth AS (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
          FROM campaign_stats
@@ -136,7 +140,7 @@ export async function reconcileCounters(
   //    on the trackingPool every 15 min in the recent-window mode and only
   //    once per recovery in scope:"all" mode, so it never affects request-path
   //    latency.
-  const engagementRes = await trackingPool.query(
+  const engagementRes = await effectivePool.query(
     `WITH truth AS (
        SELECT campaign_id,
               COUNT(*) FILTER (WHERE type = 'open')::bigint                          AS total_opens,

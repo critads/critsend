@@ -53,6 +53,11 @@ const REQUIRED_INDEXES: Array<{ name: string; ddl: string }> = [
     ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS subscribers_engaged_partial_idx
           ON subscribers (last_engaged_at) WHERE last_engaged_at IS NOT NULL`,
   },
+  {
+    name: "campaign_sends_campaign_first_open_idx",
+    ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_campaign_first_open_idx
+          ON campaign_sends (campaign_id, first_open_at) WHERE first_open_at IS NOT NULL`,
+  },
 ];
 
 let bootstrapStarted = false;
@@ -123,6 +128,28 @@ export function runAnalyticsBootstrapMigrations(): void {
 // ─────────────────────────────────────────────────────────────────────────────
 // Rollup
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Smart startup rollup: checks the most recent date in analytics_daily and
+ * only rolls up the gap since then (plus a 1-day overlap for safety). Falls
+ * back to a full `fallbackDays` backfill only when the table is completely
+ * empty. This avoids the multi-minute full-table scan that previously ran
+ * on every PM2 restart, saturating Neon's compute budget.
+ */
+export async function runAnalyticsRollupSmart(fallbackDays: number = 3650): Promise<void> {
+  const result = await pool.query(`SELECT MAX(date) AS max_date FROM analytics_daily`);
+  const maxDate = result.rows[0]?.max_date;
+  if (!maxDate) {
+    logger.info(`[ANALYTICS_ROLLUP] analytics_daily is empty — full ${fallbackDays}-day backfill`);
+    return runAnalyticsRollup(fallbackDays);
+  }
+  const lastDate = new Date(maxDate);
+  const now = new Date();
+  const gapDays = Math.ceil((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const effectiveDays = Math.max(2, Math.min(gapDays, fallbackDays));
+  logger.info(`[ANALYTICS_ROLLUP] Last rollup date: ${lastDate.toISOString().slice(0, 10)} — gap-filling ${effectiveDays} days`);
+  return runAnalyticsRollup(effectiveDays);
+}
 
 /**
  * Aggregate the last `days` days of campaign_sends + campaign_stats into the

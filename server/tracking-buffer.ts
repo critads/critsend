@@ -412,20 +412,12 @@ async function insertBatchAndMarkFirsts(
     client.release();
     throw err;
   }
-  // Post-commit short bump: NOT in the same txn so the campaigns row lock
-  // is held only for the duration of one UPDATE statement (~ms), never
-  // across the long INSERT above.
-  try {
-    await bumpCampaignCountersPostCommit(client, type, events, firsts);
-  } catch (err: any) {
-    // Counter-drift reconciler will fill any gap on the next 15-min cycle,
-    // so a missed live bump is degraded telemetry, not lost data.
-    logger.warn(
-      `[TRACKING BUFFER] post-commit counter bump (${type}) failed (reconciler will fill): ${err?.message || err}`,
-    );
-  } finally {
-    client.release();
-  }
+  // Accumulate deltas for the coalesced counter flush instead of bumping
+  // per flush cycle. The coalesced timer fires every ~8s, reducing campaigns
+  // table write contention by ~5x. The 15-min reconciler self-heals any
+  // drift from a crash between accumulation and flush.
+  accumulateCounterDeltas(type, events, firsts);
+  client.release();
   return firsts;
 }
 
@@ -512,13 +504,7 @@ async function insertBatchAndBumpCounters(
   }
 
   if (newPairsByCampaign.size > 0) {
-    try {
-      await bumpUnsubComplaintCountersPostCommit(client, type, newPairsByCampaign);
-    } catch (err: any) {
-      logger.warn(
-        `[TRACKING BUFFER] post-commit ${type} counter bump failed (reconciler will fill): ${err?.message || err}`,
-      );
-    }
+    accumulateUnsubComplaintDeltas(type, newPairsByCampaign);
   }
   client.release();
 }
@@ -852,6 +838,116 @@ function uniquePairs(events: BaseEvent[]): Array<[string, string]> {
   return out;
 }
 
+// ── Coalesced campaign counter bumps ──────────────────────────────────────
+// Instead of running a campaigns UPDATE on every 1.5s flush cycle, accumulate
+// deltas in memory and flush them on a longer interval (COUNTER_COALESCE_MS,
+// default 8s). This reduces contention on the campaigns table by ~5x while
+// the 15-min counter-drift reconciler self-heals any gap from a crash.
+
+const COUNTER_COALESCE_MS = Number(process.env.TRACKING_COUNTER_COALESCE_MS || 8_000);
+
+interface CampaignCounterDeltas {
+  totalOpens: number;
+  uniqueOpens: number;
+  totalClicks: number;
+  uniqueClicks: number;
+  unsubscribes: number;
+  complaints: number;
+}
+
+const pendingCounterDeltas = new Map<string, CampaignCounterDeltas>();
+let counterCoalesceTimer: NodeJS.Timeout | null = null;
+
+function ensureDelta(campaignId: string): CampaignCounterDeltas {
+  let d = pendingCounterDeltas.get(campaignId);
+  if (!d) {
+    d = { totalOpens: 0, uniqueOpens: 0, totalClicks: 0, uniqueClicks: 0, unsubscribes: 0, complaints: 0 };
+    pendingCounterDeltas.set(campaignId, d);
+  }
+  return d;
+}
+
+function accumulateCounterDeltas(
+  type: TrackingEventType,
+  events: BaseEvent[],
+  firsts: Set<string> | null,
+): void {
+  if (type === "open" || type === "click") {
+    const totalByCampaign = new Map<string, number>();
+    const uniqueByCampaign = new Map<string, number>();
+    for (const e of events) {
+      totalByCampaign.set(e.campaignId, (totalByCampaign.get(e.campaignId) ?? 0) + 1);
+    }
+    if (firsts) {
+      for (const key of firsts) {
+        const sep = key.indexOf("|");
+        if (sep <= 0) continue;
+        const cid = key.slice(0, sep);
+        uniqueByCampaign.set(cid, (uniqueByCampaign.get(cid) ?? 0) + 1);
+      }
+    }
+    for (const [cid, total] of totalByCampaign) {
+      const d = ensureDelta(cid);
+      if (type === "open") {
+        d.totalOpens += total;
+        d.uniqueOpens += (uniqueByCampaign.get(cid) ?? 0);
+      } else {
+        d.totalClicks += total;
+        d.uniqueClicks += (uniqueByCampaign.get(cid) ?? 0);
+      }
+    }
+  }
+}
+
+function accumulateUnsubComplaintDeltas(
+  type: "unsubscribe" | "complaint",
+  deltaByCampaign: Map<string, number>,
+): void {
+  for (const [cid, delta] of deltaByCampaign) {
+    if (delta <= 0) continue;
+    const d = ensureDelta(cid);
+    if (type === "unsubscribe") d.unsubscribes += delta;
+    else d.complaints += delta;
+  }
+}
+
+async function flushCoalescedCounters(): Promise<void> {
+  if (pendingCounterDeltas.size === 0) return;
+  const snapshot = new Map(pendingCounterDeltas);
+  pendingCounterDeltas.clear();
+
+  const placeholders: string[] = [];
+  const values: Array<string | number> = [];
+  let p = 1;
+  for (const [cid, d] of snapshot) {
+    placeholders.push(
+      `($${p++}::varchar, $${p++}::int, $${p++}::int, $${p++}::int, $${p++}::int, $${p++}::int, $${p++}::int)`,
+    );
+    values.push(cid, d.totalOpens, d.uniqueOpens, d.totalClicks, d.uniqueClicks, d.unsubscribes, d.complaints);
+  }
+  if (placeholders.length === 0) return;
+
+  const sql = `
+    UPDATE campaigns c
+       SET total_opens_count   = c.total_opens_count   + v.d_total_opens,
+           unique_opens_count  = c.unique_opens_count  + v.d_unique_opens,
+           total_clicks_count  = c.total_clicks_count  + v.d_total_clicks,
+           unique_clicks_count = c.unique_clicks_count + v.d_unique_clicks,
+           unsubscribes_count  = c.unsubscribes_count  + v.d_unsubs,
+           complaints_count    = c.complaints_count    + v.d_complaints
+      FROM (VALUES ${placeholders.join(", ")})
+        AS v(campaign_id, d_total_opens, d_unique_opens, d_total_clicks, d_unique_clicks, d_unsubs, d_complaints)
+     WHERE c.id = v.campaign_id
+  `;
+  try {
+    await trackingPool.query(sql, values);
+  } catch (err: any) {
+    logger.warn(
+      `[TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): ${err?.message || err}`,
+    );
+  }
+}
+
 // ── Lifecycle ────────────────────────────────────────────────────────────
 
 export function startTrackingBufferFlusher(): void {
@@ -860,6 +956,12 @@ export function startTrackingBufferFlusher(): void {
     flush().catch((err) => logger.error(`[TRACKING BUFFER] tick failed: ${err?.message || err}`));
   }, FLUSH_INTERVAL_MS);
   flushTimer.unref();
+  counterCoalesceTimer = setInterval(() => {
+    flushCoalescedCounters().catch((err) =>
+      logger.error(`[TRACKING BUFFER] coalesced counter tick failed: ${err?.message || err}`),
+    );
+  }, COUNTER_COALESCE_MS);
+  counterCoalesceTimer.unref();
   // Sample tracking-pool in-use every 250 ms so the gauge captures real
   // peaks during short bursts (the flush-only update under-reports
   // request-path checkout activity that doesn't coincide with a flush).
@@ -871,7 +973,7 @@ export function startTrackingBufferFlusher(): void {
   }, 250);
   poolSampleTimer.unref();
   logger.info(
-    `[TRACKING BUFFER] flusher started: interval=${FLUSH_INTERVAL_MS}ms, maxQueue=${MAX_QUEUE}, maxBatchPerType=${MAX_BATCH_PER_TYPE}, dedupeWindow=${DEDUPE_WINDOW_MS}ms`,
+    `[TRACKING BUFFER] flusher started: interval=${FLUSH_INTERVAL_MS}ms, counterCoalesce=${COUNTER_COALESCE_MS}ms, maxQueue=${MAX_QUEUE}, maxBatchPerType=${MAX_BATCH_PER_TYPE}, dedupeWindow=${DEDUPE_WINDOW_MS}ms`,
   );
 }
 
@@ -880,9 +982,19 @@ export async function stopTrackingBufferFlusher(): Promise<void> {
     clearInterval(flushTimer);
     flushTimer = null;
   }
+  if (counterCoalesceTimer) {
+    clearInterval(counterCoalesceTimer);
+    counterCoalesceTimer = null;
+  }
   if (poolSampleTimer) {
     clearInterval(poolSampleTimer);
     poolSampleTimer = null;
+  }
+  // Final drain of coalesced counter deltas before shutdown.
+  try {
+    await flushCoalescedCounters();
+  } catch (err: any) {
+    logger.warn(`[TRACKING BUFFER] final coalesced counter flush failed: ${err?.message || err}`);
   }
   // Final drain so we don't lose buffered events on graceful shutdown.
   // We also need to drain side-effect promises from previous cycles AND

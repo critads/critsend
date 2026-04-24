@@ -662,18 +662,26 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     // (gated by the same DISABLE_WORKERS check) — otherwise the rollup never
     // refreshes and analytics queries that depend on analytics_daily would
     // gradually go stale.
-    const { runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
-    runEngagementBackfillOnce().catch((err) =>
-      logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
-    );
-    runAnalyticsRollup(3650).catch((err) =>
-      logger.error("[ANALYTICS_ROLLUP] Initial backfill failed", { error: String(err) })
-    );
-    setInterval(() => {
-      runAnalyticsRollup(7).catch((err) =>
-        logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
-      );
-    }, 15 * 60 * 1000).unref();
+    const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 30_000);
+    logger.info(`[MONOLITH] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
+    setTimeout(async () => {
+      try {
+        const { runAnalyticsRollupSmart, runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
+        runEngagementBackfillOnce().catch((err) =>
+          logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
+        );
+        runAnalyticsRollupSmart().catch((err) =>
+          logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
+        );
+        setInterval(() => {
+          runAnalyticsRollup(7).catch((err) =>
+            logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
+          );
+        }, 15 * 60 * 1000).unref();
+      } catch (err) {
+        logger.error("[MONOLITH] Deferred analytics startup failed", { error: String(err) });
+      }
+    }, STARTUP_DELAY_MS);
   } else if (process.env.DISABLE_WORKERS === 'true') {
     logger.info("[MONOLITH] DISABLE_WORKERS=true — background workers disabled on this instance");
   }

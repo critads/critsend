@@ -129,22 +129,32 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
   startBullMQWorkers();
 
   // Schedule analytics_daily rollup. The web process never runs this — only
-  // the worker — so we don't double-write. Initial backfill covers all
-  // history; subsequent incremental rollups overwrite the last 7 days.
-  const { runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
-  // One-shot last_engaged_at backfill — guarded by a marker row so the
-  // expensive scan only runs the first time after the column ships.
-  runEngagementBackfillOnce().catch((err) =>
-    logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
-  );
-  runAnalyticsRollup(3650).catch((err) =>
-    logger.error("[ANALYTICS_ROLLUP] Initial backfill failed", { error: String(err) })
-  );
-  setInterval(() => {
-    runAnalyticsRollup(7).catch((err) =>
-      logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
-    );
-  }, 15 * 60 * 1000).unref();
+  // the worker — so we don't double-write.
+  //
+  // Delayed startup: wait 30s before running the initial rollup + backfill so
+  // the web process has time to become healthy and serve requests. Without
+  // this delay, every PM2 restart would fire heavy aggregation queries that
+  // saturate Neon's compute budget and trigger service_busy on the web process.
+  const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 30_000);
+  logger.info(`[WORKER] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
+  setTimeout(async () => {
+    try {
+      const { runAnalyticsRollupSmart, runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
+      runEngagementBackfillOnce().catch((err) =>
+        logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
+      );
+      runAnalyticsRollupSmart().catch((err) =>
+        logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
+      );
+      setInterval(() => {
+        runAnalyticsRollup(7).catch((err) =>
+          logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
+        );
+      }, 15 * 60 * 1000).unref();
+    } catch (err) {
+      logger.error("[WORKER] Deferred analytics startup failed", { error: String(err) });
+    }
+  }, STARTUP_DELAY_MS);
 
   logger.info("[WORKER] All workers running");
 })();
