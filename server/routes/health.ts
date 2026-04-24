@@ -6,6 +6,8 @@ import { getWorkerHealth, WORKER_HEARTBEAT_KEY } from "../workers";
 import { redisConnection, isRedisConfigured } from "../redis";
 import { trackingPool, isTrackingPoolHealthy } from "../tracking-pool";
 import { MAIN_POOL_MAX, TRACKING_POOL_MAX } from "../connection-budget";
+import { register } from "../metrics";
+import { logger } from "../logger";
 
 type WorkerHealthFlags = ReturnType<typeof getWorkerHealth>;
 type WorkerHealthReport = WorkerHealthFlags & {
@@ -265,6 +267,129 @@ export function registerHealthRoutes(app: Express) {
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch tag queue stats" });
+    }
+  });
+
+  app.get("/api/system-metrics", async (_req: Request, res: Response) => {
+    try {
+      const metricsJson = await register.getMetricsAsJSON();
+      const lookup = new Map<string, any>();
+      for (const m of metricsJson) lookup.set(m.name, m);
+
+      function counterValue(name: string, labels?: Record<string, string>): number {
+        const m = lookup.get(name);
+        if (!m?.values) return 0;
+        if (!labels) return m.values.reduce((s: number, v: any) => s + (v.value ?? 0), 0);
+        return m.values
+          .filter((v: any) => Object.entries(labels).every(([k, val]) => v.labels?.[k] === val))
+          .reduce((s: number, v: any) => s + (v.value ?? 0), 0);
+      }
+      function gaugeValue(name: string, labels?: Record<string, string>): number {
+        const m = lookup.get(name);
+        if (!m?.values) return 0;
+        if (!labels) return m.values[0]?.value ?? 0;
+        const match = m.values.find((v: any) =>
+          Object.entries(labels).every(([k, val]) => v.labels?.[k] === val)
+        );
+        return match?.value ?? 0;
+      }
+      function labeledValues(name: string): Array<{ labels: Record<string, string>; value: number }> {
+        const m = lookup.get(name);
+        if (!m?.values) return [];
+        return m.values.map((v: any) => ({ labels: v.labels ?? {}, value: v.value ?? 0 }));
+      }
+
+      const http5xx = (lookup.get("critsend_http_requests_total")?.values ?? [])
+        .filter((v: any) => v.labels?.status_code && parseInt(v.labels.status_code) >= 500)
+        .map((v: any) => ({
+          method: v.labels?.method,
+          route: v.labels?.route,
+          statusCode: v.labels?.status_code,
+          count: v.value ?? 0,
+        }))
+        .filter((v: any) => v.count > 0);
+
+      const totalRequests = counterValue("critsend_http_requests_total");
+      const total5xx = http5xx.reduce((s: number, v: any) => s + v.count, 0);
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        uptimeSeconds: process.uptime(),
+
+        errors: {
+          loadShedTotal: counterValue("critsend_db_pool_load_shed_total"),
+          loadShedByReason: labeledValues("critsend_db_pool_load_shed_total"),
+          checkoutTimeouts: counterValue("critsend_db_pool_checkout_timeout_total"),
+          leaseExceeded: labeledValues("critsend_db_pool_request_lease_exceeded_total"),
+          poolSaturationEvents: counterValue("critsend_db_pool_saturation_total"),
+          totalErrors: counterValue("critsend_errors_total"),
+          errorsByType: labeledValues("critsend_errors_total"),
+          http5xx,
+          total5xx,
+          totalRequests,
+          errorRate5xx: totalRequests > 0 ? ((total5xx / totalRequests) * 100) : 0,
+        },
+
+        pools: {
+          main: {
+            total: pool.totalCount,
+            idle: pool.idleCount,
+            waiting: pool.waitingCount,
+            max: MAIN_POOL_MAX,
+            saturation: MAIN_POOL_MAX > 0 ? ((pool.totalCount - pool.idleCount) / MAIN_POOL_MAX) : 0,
+          },
+          tracking: {
+            inUse: gaugeValue("critsend_tracking_pool_in_use"),
+            max: TRACKING_POOL_MAX,
+            total: trackingPool.totalCount,
+            idle: trackingPool.idleCount,
+            waiting: trackingPool.waitingCount,
+          },
+        },
+
+        tracking: {
+          bufferDepth: gaugeValue("critsend_tracking_buffer_queue_depth"),
+          enqueued: counterValue("critsend_tracking_buffer_enqueued_total"),
+          flushed: counterValue("critsend_tracking_buffer_flushed_total"),
+          dropped: counterValue("critsend_tracking_buffer_dropped_total"),
+          droppedByReason: labeledValues("critsend_tracking_buffer_dropped_total"),
+          deduped: counterValue("critsend_tracking_buffer_deduped_total"),
+        },
+
+        bounces: {
+          bufferDepth: gaugeValue("critsend_bounce_buffer_queue_depth"),
+          enqueued: counterValue("critsend_bounce_buffer_enqueued_total"),
+          flushed: counterValue("critsend_bounce_buffer_flushed_total"),
+          dropped: counterValue("critsend_bounce_buffer_dropped_total"),
+          deduped: counterValue("critsend_bounce_buffer_deduped_total"),
+          partialFailures: counterValue("critsend_bounce_buffer_flush_partial_failure_total"),
+          totalByType: labeledValues("critsend_bounces_total"),
+        },
+
+        counterDrift: {
+          fixed: labeledValues("critsend_counter_drift_fixed_total"),
+          lastRunMs: gaugeValue("critsend_counter_drift_run_duration_ms"),
+          lastRunAt: gaugeValue("critsend_counter_drift_last_run_timestamp_seconds"),
+        },
+
+        system: {
+          heapUsedMB: Math.round(gaugeValue("critsend_memory_usage_bytes", { type: "heapUsed" }) / 1048576),
+          heapTotalMB: Math.round(gaugeValue("critsend_memory_usage_bytes", { type: "heapTotal" }) / 1048576),
+          rssMB: Math.round(gaugeValue("critsend_memory_usage_bytes", { type: "rss" }) / 1048576),
+          activeCampaigns: gaugeValue("critsend_active_campaigns"),
+          emailsSent: counterValue("critsend_emails_sent_total"),
+          workerRestarts: counterValue("critsend_worker_restarts_total"),
+        },
+
+        queues: {
+          campaign: gaugeValue("critsend_queue_depth", { queue_name: "campaign" }),
+          import: gaugeValue("critsend_queue_depth", { queue_name: "import" }),
+          tag: gaugeValue("critsend_queue_depth", { queue_name: "tag" }),
+        },
+      });
+    } catch (error) {
+      logger.error("[SYSTEM_METRICS] Failed to serialize metrics", { error: String(error) });
+      res.status(500).json({ error: "Failed to fetch system metrics" });
     }
   });
 }

@@ -18,6 +18,7 @@ import {
   HelpCircle,
   LogOut,
   Database,
+  Activity,
 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -97,6 +98,11 @@ const settingsNavItems = [
     title: "Database Health",
     url: "/database-health",
     icon: Database,
+  },
+  {
+    title: "System Metrics",
+    url: "/system-metrics",
+    icon: Activity,
   },
 ];
 

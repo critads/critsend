@@ -32,7 +32,7 @@ The UI/UX follows Material Design 3 principles, featuring a clean, modern aesthe
 - **Job Queues:** Dual-mode system: PostgreSQL-backed queues with SKIP LOCKED and LISTEN/NOTIFY, and optional BullMQ + Redis for advanced features.
 - **Automation Workflows:** Trigger-based email sequences with a multi-step workflow builder.
 - **Advanced Analytics:** Comprehensive analytics including engagement trends, cohort analysis, deliverability, and subscriber growth.
-- **Prometheus Metrics:** Full observability via a `/metrics` endpoint covering key platform operations.
+- **Prometheus Metrics:** Full observability via a `/metrics` endpoint covering key platform operations. An in-app **System Metrics** dashboard (`/system-metrics`) reads from `/api/system-metrics` (JSON projection of the Prometheus registry) and displays 5xx errors, load-shed counts, pool health, tracking/bounce buffer stats, counter-drift, and system info with 10s auto-refresh.
 - **Security:** CSRF protection, Helmet.js security headers with CSP, CORS, extensive input validation, HTML sanitization, 5-tier rate limiting, secure session management, and webhook authentication.
 - **Robustness:** Includes graceful shutdown, memory monitoring with load shedding, automated campaign auto-resume, bounce webhook idempotency, and bulk-optimized batch webhook processing. Web-process guardians rescue stuck import and campaign jobs.
 - **Repository Pattern:** Storage layer decomposed into focused repository modules for subscriber, campaign, import, MTA, job, and system management.
