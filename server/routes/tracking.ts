@@ -7,7 +7,12 @@ import { verifyTrackingSignature } from "../tracking";
 import { UAParser } from "ua-parser-js";
 import geoip from "geoip-lite";
 import type { TrackingContext } from "../repositories/campaign-repository";
-import { enqueueTrackingEvent, getLinkDestinationCached } from "../tracking-buffer";
+import {
+  enqueueTrackingEvent,
+  getLinkDestinationCached,
+  isTrackingPoolUnavailable,
+} from "../tracking-buffer";
+import { isPoolCheckoutError } from "../db";
 import {
   resolveTrackingTokenViaTrackingPool,
   getCampaignTagsViaTrackingPool,
@@ -37,6 +42,25 @@ import {
     logger.info("[TRACKING] Bootstrap migration: suppressed_until column ready, recent unsubscribers backfilled");
   } catch (err: any) {
     logger.error(`[TRACKING] Bootstrap migration FAILED (suppressed_until): ${err?.message || err}`);
+  }
+
+  // Task #57 fix — covering index for the unsub/complaint flusher's
+  // "already counted?" pre-INSERT SELECT in server/tracking-buffer.ts
+  // (insertBatchAndBumpCounters). Without this index that SELECT degrades
+  // to an index lookup on (campaign_id) + filter on type, which under
+  // sustained complaint/unsub bursts holds tracking-pool clients long
+  // enough to contribute to the lock-contention cascade Task #57 fixed.
+  // CREATE INDEX IF NOT EXISTS is idempotent; CONCURRENTLY isn't valid
+  // inside a txn block, so we run it plain — first-deploy cost is one
+  // table scan, every subsequent boot is a no-op.
+  try {
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS campaign_stats_campaign_subscriber_type_idx
+        ON campaign_stats (campaign_id, subscriber_id, type)
+    `);
+    logger.info("[TRACKING] Bootstrap migration: campaign_stats(campaign_id, subscriber_id, type) covering index ready");
+  } catch (err: any) {
+    logger.error(`[TRACKING] Bootstrap migration FAILED (campaign_stats covering index): ${err?.message || err}`);
   }
 })();
 
@@ -197,6 +221,17 @@ export function registerTrackingRoutes(app: Express) {
         clickTag: tags?.clickTag ?? null,
       });
     } catch (error) {
+      // Task #57 fix: tracking-pool checkout failures (saturation) become
+      // 503 + Retry-After:1 so the recipient's browser auto-retries instead
+      // of receiving a generic 500 "Tracking error" page.
+      if (isTrackingPoolUnavailable(error) || isPoolCheckoutError(error)) {
+        logger.warn(`Short click /c/${token}: tracking pool unavailable, returning 503`);
+        if (!res.headersSent) {
+          res.setHeader("Retry-After", "1");
+          res.status(503).json({ error: "service_busy" });
+        }
+        return;
+      }
       logger.error("Error in short click route:", error);
       if (!res.headersSent) res.status(500).send("Tracking error");
     }
@@ -354,6 +389,14 @@ export function registerTrackingRoutes(app: Express) {
       try {
         destinationUrl = await getLinkDestinationCached(lid);
       } catch (err: any) {
+        // Task #57 fix: tracking-pool checkout failures (saturation) become
+        // 503 + Retry-After:1 so the recipient's browser auto-retries instead
+        // of receiving a generic 500 "Tracking error" page.
+        if (isTrackingPoolUnavailable(err) || isPoolCheckoutError(err)) {
+          logger.warn(`Click lid=${lid}: tracking pool unavailable, returning 503`);
+          res.setHeader("Retry-After", "1");
+          return res.status(503).json({ error: "service_busy" });
+        }
         logger.error(`Error looking up link destination lid=${lid}: ${err.message}`);
         return res.status(500).json({ error: "Tracking error" });
       }

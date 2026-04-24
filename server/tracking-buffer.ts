@@ -21,6 +21,7 @@
  */
 import type { TrackingContext } from "./repositories/campaign-repository";
 import { trackingPool, getTrackingPoolStats } from "./tracking-pool";
+import { isPoolCheckoutError } from "./db";
 import { logger } from "./logger";
 import {
   trackingBufferEnqueued,
@@ -149,8 +150,37 @@ export function enqueueTrackingEvent(
 // ── Link destination cache ───────────────────────────────────────────────
 
 /**
+ * Sentinel thrown by getLinkDestinationCached when the tracking pool was
+ * saturated (checkout timeout) on every attempt. The click route detects
+ * this and translates it into 503 + Retry-After:1 so the recipient's
+ * browser auto-retries instead of receiving a generic 500 "Tracking error".
+ */
+export class TrackingPoolUnavailableError extends Error {
+  readonly code = "TRACKING_POOL_UNAVAILABLE";
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = "TrackingPoolUnavailableError";
+  }
+}
+
+export function isTrackingPoolUnavailable(err: unknown): err is TrackingPoolUnavailableError {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "TRACKING_POOL_UNAVAILABLE"
+  );
+}
+
+/**
  * LRU lookup for campaign_links.destination_url. On a miss, fetches from the
  * tracking pool (so the main pool is never touched by tracking traffic).
+ *
+ * Resilience: a single transient tracking-pool checkout timeout is retried
+ * once after a small backoff before surfacing as TrackingPoolUnavailableError.
+ * Most tracking-pool saturation events are short bursts (a flush cycle
+ * holding all 6 slots for a fraction of a second), so the retry usually
+ * succeeds without the recipient ever noticing. When BOTH attempts fail,
+ * the route returns 503 + Retry-After:1 instead of a generic 500.
  */
 export async function getLinkDestinationCached(linkId: string): Promise<string | null> {
   if (linkCache.has(linkId)) {
@@ -162,18 +192,37 @@ export async function getLinkDestinationCached(linkId: string): Promise<string |
     return url;
   }
   trackingLinkCacheHits.inc({ result: "miss" });
-  const result = await trackingPool.query(
-    `SELECT destination_url FROM campaign_links WHERE id = $1`,
-    [linkId],
-  );
-  if (result.rows.length === 0) return null;
-  const url = result.rows[0].destination_url as string;
-  linkCache.set(linkId, url);
-  if (linkCache.size > LINK_CACHE_MAX) {
-    const oldest = linkCache.keys().next().value;
-    if (oldest !== undefined) linkCache.delete(oldest);
+
+  const sql = `SELECT destination_url FROM campaign_links WHERE id = $1`;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await trackingPool.query(sql, [linkId]);
+      if (result.rows.length === 0) return null;
+      const url = result.rows[0].destination_url as string;
+      linkCache.set(linkId, url);
+      if (linkCache.size > LINK_CACHE_MAX) {
+        const oldest = linkCache.keys().next().value;
+        if (oldest !== undefined) linkCache.delete(oldest);
+      }
+      return url;
+    } catch (err) {
+      lastErr = err;
+      if (!isPoolCheckoutError(err)) throw err;
+      if (attempt === 0) {
+        // Brief backoff so the in-flight flush has a chance to release a slot.
+        await new Promise((r) => setTimeout(r, 100));
+        logger.warn(
+          `[TRACKING BUFFER] getLinkDestinationCached(${linkId}) tracking-pool checkout timeout — retrying once`,
+        );
+        continue;
+      }
+    }
   }
-  return url;
+  throw new TrackingPoolUnavailableError(
+    `Tracking pool unavailable resolving link ${linkId} after retry`,
+    lastErr,
+  );
 }
 
 export function primeLinkCache(entries: Iterable<[string, string]>): void {
@@ -321,12 +370,26 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
  * Atomic combined insert + first-mark for open/click.
  *
  * Single trackingPool client, single BEGIN/COMMIT, two writes:
- *   1. INSERT INTO campaign_stats   (raw event rows)
+ *   1. INSERT INTO campaign_stats   (raw event rows — can be 1–5000 rows)
  *   2. UPDATE campaign_sends        (first_open_at or first_click_at)
  *
  * Returns the set of "campaignId|subscriberId" keys whose row was the
  * first of its kind for this (campaign, subscriber). Tag enqueues fire
  * post-commit based on this set.
+ *
+ * NOTE (Task #57 fix): the cached campaigns.* engagement-counter bump used
+ * to live INSIDE this transaction. That meant the per-campaigns row lock
+ * was held for the full duration of the INSERT (up to ~thousands of rows),
+ * deadlocking against the campaign-sender's `UPDATE campaigns SET sent_count
+ * = sent_count + 1` on the main pool. Under sustained click traffic this
+ * cascaded into tracking-pool exhaustion (max=6 → 500 "Tracking error" on
+ * /api/track/click) and main-pool starvation (load-shed → 503
+ * "service_busy" on /campaigns). The bump now runs as a SHORT post-commit
+ * UPDATE in its own tiny transaction with `lock_timeout = 2s` (see
+ * bumpCampaignCountersPostCommit). Drift between live and source-of-truth
+ * is still self-healed by the 15-min counter-drift reconciler (fill-only
+ * via GREATEST), so the worst-case observable effect is a brief stale read
+ * on /campaigns, never lost data.
  */
 async function insertBatchAndMarkFirsts(
   type: "open" | "click",
@@ -334,21 +397,36 @@ async function insertBatchAndMarkFirsts(
 ): Promise<Set<string>> {
   if (events.length === 0) return new Set();
   const client = await trackingPool.connect();
+  let firsts: Set<string>;
   try {
     await client.query("BEGIN");
+    // Cap how long we'll wait for any row lock inside this txn. If a sender
+    // batch is holding a campaign_sends row lock we'd rather fail fast and
+    // retry next tick than monopolize a tracking-pool slot for 30s+.
+    await client.query("SET LOCAL lock_timeout = '2s'");
     await insertBatchOnClient(client, type, events);
-    const firsts = await markFirstsOnClient(client, type, events);
-    // Cached counter bump — same txn so the /campaigns list view stays in
-    // lock-step with the raw events written above.
-    await bumpCampaignCountersOnClient(client, type, events, firsts);
+    firsts = await markFirstsOnClient(client, type, events);
     await client.query("COMMIT");
-    return firsts;
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+    client.release();
     throw err;
+  }
+  // Post-commit short bump: NOT in the same txn so the campaigns row lock
+  // is held only for the duration of one UPDATE statement (~ms), never
+  // across the long INSERT above.
+  try {
+    await bumpCampaignCountersPostCommit(client, type, events, firsts);
+  } catch (err: any) {
+    // Counter-drift reconciler will fill any gap on the next 15-min cycle,
+    // so a missed live bump is degraded telemetry, not lost data.
+    logger.warn(
+      `[TRACKING BUFFER] post-commit counter bump (${type}) failed (reconciler will fill): ${err?.message || err}`,
+    );
   } finally {
     client.release();
   }
+  return firsts;
 }
 
 /**
@@ -370,8 +448,10 @@ async function insertBatchAndBumpCounters(
 ): Promise<void> {
   if (events.length === 0) return;
   const client = await trackingPool.connect();
+  let newPairsByCampaign = new Map<string, number>();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '2s'");
 
     // Collapse to distinct (campaign,subscriber) pairs in this batch.
     const batchPairs: Array<{ cid: string; sid: string; key: string }> = [];
@@ -386,6 +466,8 @@ async function insertBatchAndBumpCounters(
     // Find pairs that ALREADY have a row of this type in campaign_stats.
     // Those must NOT bump the unique counter (they are duplicates from a
     // previous flush whose dedupe window has long since expired).
+    // Uses the (campaign_id, subscriber_id, type) covering index added by
+    // the bootstrap migration in server/routes/tracking.ts.
     const alreadyCounted = new Set<string>();
     if (batchPairs.length > 0) {
       const placeholders: string[] = [];
@@ -413,23 +495,32 @@ async function insertBatchAndBumpCounters(
 
     await insertBatchOnClient(client, type, events);
 
-    // Build the per-campaign unique delta from ONLY first-time pairs.
-    const newPairsByCampaign = new Map<string, number>();
+    // Build the per-campaign unique delta from ONLY first-time pairs. The
+    // actual UPDATE campaigns runs OUTSIDE this txn (post-commit) so the
+    // campaigns row lock isn't held across the INSERT above. See the
+    // long comment on insertBatchAndMarkFirsts for the full root-cause story.
     for (const pair of batchPairs) {
       if (alreadyCounted.has(pair.key)) continue;
       newPairsByCampaign.set(pair.cid, (newPairsByCampaign.get(pair.cid) ?? 0) + 1);
-    }
-    if (newPairsByCampaign.size > 0) {
-      await bumpUnsubComplaintCountersOnClient(client, type, newPairsByCampaign);
     }
 
     await client.query("COMMIT");
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch { /* swallow */ }
-    throw err;
-  } finally {
     client.release();
+    throw err;
   }
+
+  if (newPairsByCampaign.size > 0) {
+    try {
+      await bumpUnsubComplaintCountersPostCommit(client, type, newPairsByCampaign);
+    } catch (err: any) {
+      logger.warn(
+        `[TRACKING BUFFER] post-commit ${type} counter bump failed (reconciler will fill): ${err?.message || err}`,
+      );
+    }
+  }
+  client.release();
 }
 
 /**
@@ -437,7 +528,7 @@ async function insertBatchAndBumpCounters(
  * by the supplied per-campaign delta map. Caller must have already filtered
  * out pairs that were already counted in a previous flush.
  */
-async function bumpUnsubComplaintCountersOnClient(
+async function bumpUnsubComplaintCountersPostCommit(
   client: import("pg").PoolClient,
   type: "unsubscribe" | "complaint",
   deltaByCampaign: Map<string, number>,
@@ -453,25 +544,43 @@ async function bumpUnsubComplaintCountersOnClient(
     values.push(cid, delta);
   }
   if (placeholders.length === 0) return;
-  const sql = `
-    UPDATE campaigns c
-       SET ${col} = c.${col} + v.delta
-      FROM (VALUES ${placeholders.join(", ")})
-        AS v(campaign_id, delta)
-     WHERE c.id = v.campaign_id
-  `;
-  await client.query(sql, values);
+  // Tiny tx so SET LOCAL lock_timeout takes effect. If a sender batch is
+  // currently holding the campaigns row lock we'd rather fail fast (and
+  // let the 15-min reconciler fill the gap) than starve the tracking pool.
+  await client.query("BEGIN");
+  try {
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query(
+      `UPDATE campaigns c
+          SET ${col} = c.${col} + v.delta
+         FROM (VALUES ${placeholders.join(", ")})
+           AS v(campaign_id, delta)
+        WHERE c.id = v.campaign_id`,
+      values,
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+    throw err;
+  }
 }
 
 /**
- * Bump the cached campaigns.* engagement counters for a batch of events,
- * inside the supplied transaction client.
+ * Bump the cached campaigns.* engagement counters for a batch of events as
+ * a SHORT post-commit UPDATE on the supplied client. Caller is responsible
+ * for releasing the client.
+ *
+ * Runs in its own tiny transaction with `lock_timeout = 2s`, so the
+ * campaigns row lock is only held for the duration of one UPDATE statement
+ * (~milliseconds) and we can never starve the tracking pool waiting on a
+ * row lock held by the campaign-sender. See the long comment on
+ * insertBatchAndMarkFirsts for the full Task #57 root-cause story.
  *
  * For open/click: total_*_count += events grouped by campaign;
  *                 unique_*_count += first-marked rows grouped by campaign.
  * For unsubscribe/complaint: counter += distinct (campaign,subscriber) in batch.
  */
-async function bumpCampaignCountersOnClient(
+async function bumpCampaignCountersPostCommit(
   client: import("pg").PoolClient,
   type: TrackingEventType,
   events: BaseEvent[],
@@ -538,7 +647,17 @@ async function bumpCampaignCountersOnClient(
         AS v(campaign_id, total_delta, unique_delta)
      WHERE c.id = v.campaign_id
   `;
-  await client.query(sql, values);
+  // Tiny tx so SET LOCAL lock_timeout takes effect. Caps blocking on a
+  // sender-held campaigns row lock at 2s — never the full statement_timeout.
+  await client.query("BEGIN");
+  try {
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query(sql, values);
+    await client.query("COMMIT");
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+    throw err;
+  }
 }
 
 /**
