@@ -51,6 +51,15 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
         AND follow_up_campaign_id IS NULL
         AND follow_up_scheduled_at IS NOT NULL
     `);
+    // Self-FK on parent_campaign_id with ON DELETE RESTRICT — declared in
+    // shared/schema.ts via `.references((): any => campaigns.id, {
+    // onDelete: "restrict" })`. We do NOT add it here at runtime: ALTER
+    // TABLE ADD CONSTRAINT FOREIGN KEY on a self-reference takes an
+    // AccessExclusive lock and would wedge boot if any other session
+    // touches campaigns. The schema declaration is the canonical contract
+    // applied via `npm run db:push`; the application-level
+    // FollowUpPendingError check in deleteCampaignWithFollowUpCleanup
+    // enforces RESTRICT semantics in the meantime.
     logger.info("[CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready");
   } catch (err: any) {
     logger.error(`[CAMPAIGNS] Bootstrap migration FAILED: ${err?.message || err}`);

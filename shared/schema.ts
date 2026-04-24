@@ -135,7 +135,13 @@ export const campaigns = pgTable("campaigns", {
   //   (server/workers.ts pollFollowUpCampaigns) polls this column.
   // followUpCampaignId: set after the spawner creates the child, links
   //   parent→child for fast UI rendering and idempotency.
-  parentCampaignId: varchar("parent_campaign_id"),
+  // Self-FK with ON DELETE RESTRICT — Drizzle requires a callback for
+  // self-references so the table object exists at the time of resolution.
+  // RESTRICT (vs CASCADE) is intentional: deleting a parent that still
+  // has a child must be blocked at the DB level too, not only by the
+  // FollowUpPendingError check in routes/campaigns.ts. This guarantees
+  // referential integrity even if a future code path bypasses the route.
+  parentCampaignId: varchar("parent_campaign_id").references((): any => campaigns.id, { onDelete: "restrict" }),
   followUpEnabled: boolean("follow_up_enabled").notNull().default(false),
   followUpDelayHours: integer("follow_up_delay_hours").notNull().default(36),
   // Optional override for the follow-up child's subject. If null, the spawner

@@ -116,10 +116,20 @@ export async function markFollowUpScheduled(parentCampaignId: string, delayHours
 }
 
 /**
- * Returns parents whose follow-up window has elapsed and that have not yet
- * spawned a child. Polled by the worker every 60s. Caps at `limit` so a
- * massive backlog (e.g. after a multi-day worker outage) drains over time
- * rather than overwhelming the queue in one tick.
+ * Returns parents whose follow-up should be SPAWNED (not yet sent — the
+ * spawn happens immediately after the parent completes). The child is
+ * created in `scheduled` state with scheduledAt = parent.completedAt +
+ * delayHours so it lives in the campaigns list for the entire delay
+ * window and the user can pause / edit / cancel it through the standard
+ * scheduled-campaign controls. Promotion to `sending` is then handled by
+ * `pollScheduledCampaigns` when the scheduled time arrives.
+ *
+ * We deliberately DO NOT require `follow_up_scheduled_at <= NOW()` — that
+ * would defer creation until the very moment of send and rob users of
+ * the ability to interact with the queued follow-up beforehand.
+ *
+ * Caps at `limit` so a massive backlog (e.g. after a multi-day worker
+ * outage) drains over time rather than overwhelming the queue in one tick.
  */
 export async function findFollowUpCandidates(limit: number = 25): Promise<Campaign[]> {
   return db.select().from(campaigns).where(
@@ -127,7 +137,6 @@ export async function findFollowUpCandidates(limit: number = 25): Promise<Campai
       eq(campaigns.followUpEnabled, true),
       sql`${campaigns.followUpCampaignId} IS NULL`,
       sql`${campaigns.followUpScheduledAt} IS NOT NULL`,
-      sql`${campaigns.followUpScheduledAt} <= NOW()`,
       // Only originals — a child cannot itself spawn a follow-up.
       sql`${campaigns.parentCampaignId} IS NULL`,
       // Parent must have FINISHED sending. We refuse to follow-up a
@@ -156,9 +165,16 @@ export async function spawnFollowUpCampaign(
   // pollScheduledCampaigns worker promotes scheduled→sending at the right
   // time, exactly the same path as a normally-scheduled campaign.
   //
-  // Edge case: when the parent has zero openers we still create the child
-  // (so the UI shows the spawn outcome), but in 'completed' status with all
-  // counters at 0 — there's nothing to send.
+  // IMPORTANT: We do NOT short-circuit to status='completed' for zero-opener
+  // parents at spawn time. Spawn happens immediately at parent completion,
+  // but openers can (and do) keep arriving for the entire delay window —
+  // late-loading email clients, prefetchers, mobile devices coming online,
+  // etc. Marking the child completed at spawn would permanently suppress
+  // legitimate follow-up sends for those late openers. Instead, we always
+  // create the child as 'scheduled' and let the sender evaluate the actual
+  // opener audience at send time (campaign-sender.ts already does this via
+  // countOpenersForParentCampaign at line ~123); it can mark the child
+  // completed at execution if total openers is genuinely 0 by then.
   //
   // Schedule source-of-truth = parent.followUpScheduledAt. That column is
   // stamped to NOW() + delayHours at completion (see markFollowUpScheduled),
@@ -167,11 +183,11 @@ export async function spawnFollowUpCampaign(
   // missing (very old campaigns or partial restore) fall back to
   // completedAt + delay, then now + delay as a last-ditch safety net so we
   // never silently push the schedule out by an extra full window.
+  void options; // openerCount accepted for API compat but no longer used at spawn
   const delayMs = (parent.followUpDelayHours ?? 36) * 60 * 60 * 1000;
   const scheduledAt =
     parent.followUpScheduledAt ??
     (parent.completedAt ? new Date(parent.completedAt.getTime() + delayMs) : new Date(Date.now() + delayMs));
-  const zeroAudience = (options.openerCount ?? null) === 0;
 
   const child = {
     name: `${parent.name} (Follow-up)`,
