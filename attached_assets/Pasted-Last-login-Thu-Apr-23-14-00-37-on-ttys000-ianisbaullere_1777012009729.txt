@@ -1,0 +1,163 @@
+Last login: Thu Apr 23 14:00:37 on ttys000
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@54.36.173.140
+ubuntu@54.36.173.140's password: 
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 5.15.0-174-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Fri Apr 24 05:32:30 UTC 2026
+
+  System load:  0.19               Processes:               325
+  Usage of /:   1.8% of 466.29GB   Users logged in:         0
+  Memory usage: 2%                 IPv4 address for enp6s0: 54.36.173.140
+  Swap usage:   0%                 IPv6 address for enp6s0: 2001:41d0:602:c8c::
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+16 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+6 additional security updates can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+*** System restart required ***
+Last login: Thu Apr 23 10:00:52 2026 from 102.209.96.7
+ubuntu@ns3102288:~$ cd ~/critsend
+ubuntu@ns3102288:~/critsend$ git pull
+remote: Enumerating objects: 156, done.
+remote: Counting objects: 100% (156/156), done.
+remote: Compressing objects: 100% (17/17), done.
+remote: Total 129 (delta 107), reused 128 (delta 106), pack-reused 0 (from 0)
+Receiving objects: 100% (129/129), 402.47 KiB | 5.03 MiB/s, done.
+Resolving deltas: 100% (107/107), completed with 25 local objects.
+From https://github.com/critads/critsend
+   2ebae03..4ceaf40  main       -> origin/main
+Updating 2ebae03..4ceaf40
+Fast-forward
+ ...cd-critsend-git-pull-npm-run-_1776938592020.txt |  47 +++
+ ...shot_2026-04-23_at_2.06.16_PM_1776938786616.png | Bin 0 -> 254100 bytes
+ ...shot_2026-04-24_at_8.39.15_AM_1777006397004.png | Bin 0 -> 75466 bytes
+ ...shot_2026-04-24_at_8.44.09_AM_1777006397003.png | Bin 0 -> 20557 bytes
+ ...shot_2026-04-24_at_8.49.26_AM_1777006397003.png | Bin 0 -> 106815 bytes
+ client/src/pages/campaign-detail.tsx               |  78 +++++
+ client/src/pages/campaign-edit.tsx                 |  72 ++++-
+ client/src/pages/campaign-new.tsx                  |  59 ++++
+ client/src/pages/campaigns.tsx                     | 110 ++++++-
+ replit.md                                          |   4 +-
+ scripts/reconcile-counters.ts                      |  11 +-
+ server/repositories/campaign-repository.ts         | 179 ++++++++++-
+ server/repositories/subscriber-repository.ts       |  55 ++++
+ server/routes/campaigns.ts                         | 221 +++++++++++--
+ server/routes/tracking.ts                          |  45 ++-
+ server/services/campaign-sender.ts                 |  54 +++-
+ server/storage-interface.ts                        |   9 +
+ server/tracking-buffer.ts                          | 348 ++++++++++++++++++++-
+ server/workers.ts                                  |  76 +++++
+ server/workers/counter-reconciler.ts               |  48 ++-
+ shared/schema.ts                                   |  64 +++-
+ 21 files changed, 1401 insertions(+), 79 deletions(-)
+ create mode 100644 attached_assets/Pasted-ubuntu-ns3102288-critsend-cd-critsend-git-pull-npm-run-_1776938592020.txt
+ create mode 100644 attached_assets/Screenshot_2026-04-23_at_2.06.16_PM_1776938786616.png
+ create mode 100644 attached_assets/Screenshot_2026-04-24_at_8.39.15_AM_1777006397004.png
+ create mode 100644 attached_assets/Screenshot_2026-04-24_at_8.44.09_AM_1777006397003.png
+ create mode 100644 attached_assets/Screenshot_2026-04-24_at_8.49.26_AM_1777006397003.png
+ubuntu@ns3102288:~/critsend$ npm run build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2493 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-BEyD2ltS.css     87.68 kB │ gzip:  14.20 kB
+../dist/public/assets/index-BQKK2OIg.js   1,259.56 kB │ gzip: 335.47 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.87s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 59ms
+building import worker...
+
+  dist/import-worker.cjs  193.4kb
+
+⚡ Done in 16ms
+building background worker...
+
+  dist/worker-main.cjs  917.3kb
+
+⚡ Done in 32ms
+ubuntu@ns3102288:~/critsend$ pm2 restart
+
+  error: missing required argument `id|name|namespace|all|json|stdin'
+
+ubuntu@ns3102288:~/critsend$ cd ~/critsend && git pull && npm run build && pm2 restart all --update-env
+Already up to date.
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (8) src/components/theme-provider.tsx
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2493 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-BEyD2ltS.css     87.68 kB │ gzip:  14.20 kB
+../dist/public/assets/index-BQKK2OIg.js   1,259.56 kB │ gzip: 335.47 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.83s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 55ms
+building import worker...
+
+  dist/import-worker.cjs  193.4kb
+
+⚡ Done in 17ms
+building background worker...
+
+  dist/worker-main.cjs  917.3kb
+
+⚡ Done in 34ms
+[PM2] Applying action restartProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 17   │ online    │ 8.8%     │ 368.2mb  │
+│ 1  │ critsend-worker    │ fork     │ 17   │ online    │ 0%       │ 16.6mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@ns3102288:~/critsend$ 
