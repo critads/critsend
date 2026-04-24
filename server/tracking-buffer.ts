@@ -390,6 +390,12 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
  * is still self-healed by the 15-min counter-drift reconciler (fill-only
  * via GREATEST), so the worst-case observable effect is a brief stale read
  * on /campaigns, never lost data.
+ *
+ * NOTE (Task #64 fix): INSERT (campaign_stats) and UPDATE (campaign_sends
+ * first_open_at/first_click_at) are now separate transactions. If the
+ * mark-firsts UPDATE hits a lock timeout, raw events are still persisted.
+ * The 15-min counter-drift reconciler backfills first_open_at/first_click_at
+ * from campaign_stats, so the gap self-heals.
  */
 async function insertBatchAndMarkFirsts(
   type: "open" | "click",
@@ -397,25 +403,26 @@ async function insertBatchAndMarkFirsts(
 ): Promise<Set<string>> {
   if (events.length === 0) return new Set();
   const client = await trackingPool.connect();
-  let firsts: Set<string>;
   try {
     await client.query("BEGIN");
-    // Cap how long we'll wait for any row lock inside this txn. If a sender
-    // batch is holding a campaign_sends row lock we'd rather fail fast and
-    // retry next tick than monopolize a tracking-pool slot for 30s+.
     await client.query("SET LOCAL lock_timeout = '2s'");
     await insertBatchOnClient(client, type, events);
-    firsts = await markFirstsOnClient(client, type, events);
     await client.query("COMMIT");
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch { /* swallow */ }
     client.release();
     throw err;
   }
-  // Accumulate deltas for the coalesced counter flush instead of bumping
-  // per flush cycle. The coalesced timer fires every ~8s, reducing campaigns
-  // table write contention by ~5x. The 15-min reconciler self-heals any
-  // drift from a crash between accumulation and flush.
+  let firsts = new Set<string>();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    firsts = await markFirstsOnClient(client, type, events);
+    await client.query("COMMIT");
+  } catch (err: any) {
+    try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+    logger.warn(`[TRACKING BUFFER] markFirsts(${type}) failed (raw events saved): ${err?.message || err}`);
+  }
   accumulateCounterDeltas(type, events, firsts);
   client.release();
   return firsts;

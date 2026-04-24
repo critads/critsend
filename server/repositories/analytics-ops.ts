@@ -14,6 +14,7 @@
  */
 import { pool } from "../db";
 import { logger } from "../logger";
+import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS } from "../bootstrap-lock";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Index bootstrap
@@ -75,51 +76,54 @@ export function runAnalyticsBootstrapMigrations(): void {
   bootstrapStarted = true;
 
   (async () => {
-    // Idempotent DDL for the new analytics fast-path objects. These run
-    // before the index loop so that writer paths (rollup, totals refresh,
-    // engagement backfill) never see "relation does not exist" if code
-    // ships ahead of `npm run db:push`. ALTER/CREATE IF NOT EXISTS are
-    // cheap no-ops on already-migrated databases.
-    try {
-      await pool.query(
-        `CREATE TABLE IF NOT EXISTS analytics_totals (
-           id VARCHAR PRIMARY KEY DEFAULT 'global',
-           total_subscribers INT NOT NULL DEFAULT 0,
-           total_campaigns INT NOT NULL DEFAULT 0,
-           total_sent INT NOT NULL DEFAULT 0,
-           total_bounces INT NOT NULL DEFAULT 0,
-           total_opens INT NOT NULL DEFAULT 0,
-           total_clicks INT NOT NULL DEFAULT 0,
-           total_unsubscribes INT NOT NULL DEFAULT 0,
-           updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-         )`
-      );
-      await pool.query(
-        `ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_engaged_at TIMESTAMP`
-      );
-      logger.info("[ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at");
-    } catch (err: any) {
-      logger.error(`[ANALYTICS_BOOTSTRAP] DDL bootstrap FAILED: ${err?.message || err}`);
-    }
-
-    for (const idx of REQUIRED_INDEXES) {
-      const t0 = Date.now();
-      try {
-        await pool.query(idx.ddl);
-        const ms = Date.now() - t0;
-        logger.info(`[ANALYTICS_BOOTSTRAP] Index ready: ${idx.name} (${ms}ms)`);
-      } catch (err: any) {
-        // A previous failed CONCURRENTLY can leave an INVALID index behind.
-        // Drop it and let the next startup retry. Don't crash the process.
-        logger.warn(`[ANALYTICS_BOOTSTRAP] Failed to create ${idx.name}: ${err?.message || err}`);
+    await withAdvisoryLock(
+      LOCK_KEYS.ANALYTICS_BOOTSTRAP,
+      "ANALYTICS_BOOTSTRAP",
+      async (_lockClient) => {
         try {
-          await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS ${idx.name}`);
-        } catch {
-          /* ignore */
+          await pool.query(
+            `CREATE TABLE IF NOT EXISTS analytics_totals (
+               id VARCHAR PRIMARY KEY DEFAULT 'global',
+               total_subscribers INT NOT NULL DEFAULT 0,
+               total_campaigns INT NOT NULL DEFAULT 0,
+               total_sent INT NOT NULL DEFAULT 0,
+               total_bounces INT NOT NULL DEFAULT 0,
+               total_opens INT NOT NULL DEFAULT 0,
+               total_clicks INT NOT NULL DEFAULT 0,
+               total_unsubscribes INT NOT NULL DEFAULT 0,
+               updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+             )`
+          );
+          await pool.query(
+            `ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_engaged_at TIMESTAMP`
+          );
+          logger.info("[ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at");
+        } catch (err: any) {
+          logger.error(`[ANALYTICS_BOOTSTRAP] DDL bootstrap FAILED: ${err?.message || err}`);
         }
-      }
-    }
-    logger.info("[ANALYTICS_BOOTSTRAP] All required analytics indexes processed");
+
+        for (const idx of REQUIRED_INDEXES) {
+          if (await indexExistsAndValid(idx.name)) {
+            logger.info(`[ANALYTICS_BOOTSTRAP] Index already exists: ${idx.name} — skipping`);
+            continue;
+          }
+          const t0 = Date.now();
+          try {
+            await pool.query(idx.ddl);
+            const ms = Date.now() - t0;
+            logger.info(`[ANALYTICS_BOOTSTRAP] Index ready: ${idx.name} (${ms}ms)`);
+          } catch (err: any) {
+            logger.warn(`[ANALYTICS_BOOTSTRAP] Failed to create ${idx.name}: ${err?.message || err}`);
+            try {
+              await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS ${idx.name}`);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        logger.info("[ANALYTICS_BOOTSTRAP] All required analytics indexes processed");
+      },
+    );
   })().catch((err) => {
     logger.error("[ANALYTICS_BOOTSTRAP] Unexpected bootstrap error", { error: String(err) });
   });

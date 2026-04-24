@@ -12,56 +12,58 @@ import {
   getLinkDestinationCached,
   isTrackingPoolUnavailable,
 } from "../tracking-buffer";
-import { isPoolCheckoutError } from "../db";
+import { isPoolCheckoutError, pool } from "../db";
+import { withAdvisoryLock, indexExistsAndValid, columnHasData, LOCK_KEYS } from "../bootstrap-lock";
 import {
   resolveTrackingTokenViaTrackingPool,
   getCampaignTagsViaTrackingPool,
 } from "../tracking-queries";
 
-// Bootstrap: add suppressed_until column and backfill subscribers who unsubscribed
-// in the last 7 days so the 30-day cooling-off window applies to existing data.
 (async () => {
-  try {
-    await db.execute(sql`ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS suppressed_until TIMESTAMP`);
-    // Retroactively suppress anyone who clicked unsubscribe in the last 7 days.
-    // Uses MAX(timestamp) so a subscriber who unsubscribed multiple times gets
-    // the most recent event as the start of their 30-day window.
-    await db.execute(sql`
-      UPDATE subscribers s
-      SET suppressed_until = cs.last_unsub + INTERVAL '30 days'
-      FROM (
-        SELECT subscriber_id, MAX(timestamp) AS last_unsub
-        FROM campaign_stats
-        WHERE type = 'unsubscribe'
-          AND timestamp > NOW() - INTERVAL '7 days'
-        GROUP BY subscriber_id
-      ) cs
-      WHERE s.id = cs.subscriber_id
-        AND (s.suppressed_until IS NULL OR s.suppressed_until < cs.last_unsub + INTERVAL '30 days')
-    `);
-    logger.info("[TRACKING] Bootstrap migration: suppressed_until column ready, recent unsubscribers backfilled");
-  } catch (err: any) {
-    logger.error(`[TRACKING] Bootstrap migration FAILED (suppressed_until): ${err?.message || err}`);
-  }
+  await withAdvisoryLock(
+    LOCK_KEYS.TRACKING_BOOTSTRAP,
+    "TRACKING",
+    async (_lockClient) => {
+      try {
+        await db.execute(sql`ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS suppressed_until TIMESTAMP`);
+        const alreadyBackfilled = await columnHasData("subscribers", "suppressed_until");
+        if (!alreadyBackfilled) {
+          await db.execute(sql`
+            UPDATE subscribers s
+            SET suppressed_until = cs.last_unsub + INTERVAL '30 days'
+            FROM (
+              SELECT subscriber_id, MAX(timestamp) AS last_unsub
+              FROM campaign_stats
+              WHERE type = 'unsubscribe'
+                AND timestamp > NOW() - INTERVAL '7 days'
+              GROUP BY subscriber_id
+            ) cs
+            WHERE s.id = cs.subscriber_id
+              AND (s.suppressed_until IS NULL OR s.suppressed_until < cs.last_unsub + INTERVAL '30 days')
+          `);
+          logger.info("[TRACKING] Bootstrap migration: suppressed_until column ready, recent unsubscribers backfilled");
+        } else {
+          logger.info("[TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill");
+        }
+      } catch (err: any) {
+        logger.error(`[TRACKING] Bootstrap migration FAILED (suppressed_until): ${err?.message || err}`);
+      }
 
-  // Task #57 fix — covering index for the unsub/complaint flusher's
-  // "already counted?" pre-INSERT SELECT in server/tracking-buffer.ts
-  // (insertBatchAndBumpCounters). Without this index that SELECT degrades
-  // to an index lookup on (campaign_id) + filter on type, which under
-  // sustained complaint/unsub bursts holds tracking-pool clients long
-  // enough to contribute to the lock-contention cascade Task #57 fixed.
-  // CREATE INDEX IF NOT EXISTS is idempotent; CONCURRENTLY isn't valid
-  // inside a txn block, so we run it plain — first-deploy cost is one
-  // table scan, every subsequent boot is a no-op.
-  try {
-    await db.execute(sql`
-      CREATE INDEX IF NOT EXISTS campaign_stats_campaign_subscriber_type_idx
-        ON campaign_stats (campaign_id, subscriber_id, type)
-    `);
-    logger.info("[TRACKING] Bootstrap migration: campaign_stats(campaign_id, subscriber_id, type) covering index ready");
-  } catch (err: any) {
-    logger.error(`[TRACKING] Bootstrap migration FAILED (campaign_stats covering index): ${err?.message || err}`);
-  }
+      if (!(await indexExistsAndValid("campaign_stats_campaign_subscriber_type_idx"))) {
+        try {
+          await pool.query(`
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_stats_campaign_subscriber_type_idx
+              ON campaign_stats (campaign_id, subscriber_id, type)
+          `);
+          logger.info("[TRACKING] Bootstrap migration: campaign_stats(campaign_id, subscriber_id, type) covering index ready");
+        } catch (err: any) {
+          logger.error(`[TRACKING] Bootstrap migration FAILED (campaign_stats covering index): ${err?.message || err}`);
+        }
+      } else {
+        logger.info("[TRACKING] Bootstrap migration: campaign_stats covering index already exists — skipping");
+      }
+    },
+  );
 })();
 
 function extractTrackingContext(req: Request): TrackingContext {

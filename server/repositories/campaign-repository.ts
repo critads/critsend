@@ -20,6 +20,7 @@ import { logger } from "../logger";
 import { campaignQueue } from "../queues";
 import { mapWithConcurrency } from "../utils";
 import { classifyDbError, isDiskFullError } from "../db-errors";
+import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS } from "../bootstrap-lock";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -795,74 +796,104 @@ export function getTrackingTokensBootstrapState(): {
 }
 
 export async function runTrackingTokensBootstrap(): Promise<"ready" | "deferred"> {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS tracking_tokens (
-        token       varchar(8)   PRIMARY KEY,
-        type        varchar(11)  NOT NULL CHECK (type IN ('click', 'unsubscribe')),
-        campaign_id varchar      NOT NULL REFERENCES campaigns(id)       ON DELETE CASCADE,
-        subscriber_id varchar    NOT NULL,
-        link_id     varchar      NULL     REFERENCES campaign_links(id)  ON DELETE CASCADE,
-        created_at  timestamptz  NOT NULL DEFAULT now()
-      )
-    `);
-    // Unique expression index required for ON CONFLICT … DO NOTHING below.
-    await pool.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS tracking_tokens_unique_idx
-        ON tracking_tokens (type, campaign_id, subscriber_id, COALESCE(link_id, ''))
-    `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS tracking_tokens_campaign_idx   ON tracking_tokens (campaign_id)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS tracking_tokens_subscriber_idx ON tracking_tokens (subscriber_id)`);
-    // created_at index powers the retention purge job (DELETE … WHERE created_at < cutoff).
-    // Without it, batched deletes on a 300M-row table do a sequential scan and are unusable.
-    // CREATE INDEX CONCURRENTLY runs on its own connection (autocommit per pool.query),
-    // so it does not block live writes; on a fresh DB it returns instantly via IF NOT EXISTS.
-    // CONCURRENTLY only — a blocking CREATE INDEX on a 300M+ row table would
-    // lock writes for many minutes and stall live tracking. If it fails (e.g.
-    // a previous attempt left an INVALID index behind), drop and let the next
-    // process restart retry. Never fall back to a blocking CREATE INDEX here.
-    try {
-      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_created_at_idx ON tracking_tokens (created_at)`);
-    } catch (idxErr: any) {
-      if (isDiskFullError(idxErr)) {
-        const reason = `Disk pressure during created_at index build: ${idxErr?.message || idxErr}`;
-        logger.warn(
-          `[tracking_tokens] Bootstrap deferred (created_at index): ${reason}. ` +
-          `Web server will continue starting; rerun reclamation (see docs/reclaim-tracking-tokens.md), ` +
-          `then restart or call runTrackingTokensBootstrap() to retry.`
-        );
-        trackingTokensBootstrapState = "deferred";
-        trackingTokensBootstrapDeferReason = reason;
-        return "deferred";
-      }
-      logger.warn(`[tracking_tokens] CONCURRENTLY created_at index build failed, will retry on next start: ${idxErr?.message || idxErr}`);
+  let result: "ready" | "deferred" = "ready";
+
+  const lockAcquired = await withAdvisoryLock(
+    LOCK_KEYS.TRACKING_TOKENS,
+    "tracking_tokens",
+    async (_lockClient) => {
       try {
-        await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_created_at_idx`);
-      } catch { /* ignore */ }
-    }
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS tracking_tokens (
+            token       varchar(8)   PRIMARY KEY,
+            type        varchar(11)  NOT NULL CHECK (type IN ('click', 'unsubscribe')),
+            campaign_id varchar      NOT NULL REFERENCES campaigns(id)       ON DELETE CASCADE,
+            subscriber_id varchar    NOT NULL,
+            link_id     varchar      NULL     REFERENCES campaign_links(id)  ON DELETE CASCADE,
+            created_at  timestamptz  NOT NULL DEFAULT now()
+          )
+        `);
+        if (!(await indexExistsAndValid("tracking_tokens_unique_idx"))) {
+          try {
+            await pool.query(`
+              CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_unique_idx
+                ON tracking_tokens (type, campaign_id, subscriber_id, COALESCE(link_id, ''))
+            `);
+          } catch (idxErr: any) {
+            if (isDiskFullError(idxErr)) {
+              const reason = `Disk pressure during unique_idx build: ${idxErr?.message || idxErr}`;
+              logger.warn(`[tracking_tokens] Bootstrap deferred (unique_idx): ${reason}`);
+              trackingTokensBootstrapState = "deferred";
+              trackingTokensBootstrapDeferReason = reason;
+              result = "deferred";
+              return;
+            }
+            logger.warn(`[tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: ${idxErr?.message || idxErr}`);
+            try {
+              await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_unique_idx`);
+            } catch { /* ignore */ }
+          }
+        }
+        if (!(await indexExistsAndValid("tracking_tokens_campaign_idx"))) {
+          await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_campaign_idx ON tracking_tokens (campaign_id)`);
+        }
+        if (!(await indexExistsAndValid("tracking_tokens_subscriber_idx"))) {
+          await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_subscriber_idx ON tracking_tokens (subscriber_id)`);
+        }
+        if (!(await indexExistsAndValid("tracking_tokens_created_at_idx"))) {
+          try {
+            await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_created_at_idx ON tracking_tokens (created_at)`);
+          } catch (idxErr: any) {
+            if (isDiskFullError(idxErr)) {
+              const reason = `Disk pressure during created_at index build: ${idxErr?.message || idxErr}`;
+              logger.warn(
+                `[tracking_tokens] Bootstrap deferred (created_at index): ${reason}. ` +
+                `Web server will continue starting; rerun reclamation (see docs/reclaim-tracking-tokens.md), ` +
+                `then restart or call runTrackingTokensBootstrap() to retry.`
+              );
+              trackingTokensBootstrapState = "deferred";
+              trackingTokensBootstrapDeferReason = reason;
+              result = "deferred";
+              return;
+            }
+            logger.warn(`[tracking_tokens] CONCURRENTLY created_at index build failed, will retry on next start: ${idxErr?.message || idxErr}`);
+            try {
+              await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_created_at_idx`);
+            } catch { /* ignore */ }
+          }
+        }
+        trackingTokensBootstrapState = "ready";
+        trackingTokensBootstrapDeferReason = null;
+        result = "ready";
+      } catch (err: any) {
+        const classified = classifyDbError(err);
+        if (classified.kind === "disk_full") {
+          const reason = `Database is out of disk space: ${classified.message}`;
+          logger.warn(
+            `[tracking_tokens] Bootstrap deferred — database disk pressure. ` +
+            `code=${classified.code ?? "n/a"} reason="${classified.message}". ` +
+            `Web server will continue starting; reclaim tracking_tokens space ` +
+            `(see docs/reclaim-tracking-tokens.md) and restart, or call ` +
+            `runTrackingTokensBootstrap() to retry without a restart.`
+          );
+          trackingTokensBootstrapState = "deferred";
+          trackingTokensBootstrapDeferReason = reason;
+          result = "deferred";
+          return;
+        }
+        logger.error('[tracking_tokens] Table bootstrap failed:', err.message);
+        trackingTokensBootstrapState = "deferred";
+        trackingTokensBootstrapDeferReason = err?.message || String(err);
+        result = "deferred";
+      }
+    },
+  );
+
+  if (!lockAcquired) {
     trackingTokensBootstrapState = "ready";
-    trackingTokensBootstrapDeferReason = null;
-    return "ready";
-  } catch (err: any) {
-    const classified = classifyDbError(err);
-    if (classified.kind === "disk_full") {
-      const reason = `Database is out of disk space: ${classified.message}`;
-      logger.warn(
-        `[tracking_tokens] Bootstrap deferred — database disk pressure. ` +
-        `code=${classified.code ?? "n/a"} reason="${classified.message}". ` +
-        `Web server will continue starting; reclaim tracking_tokens space ` +
-        `(see docs/reclaim-tracking-tokens.md) and restart, or call ` +
-        `runTrackingTokensBootstrap() to retry without a restart.`
-      );
-      trackingTokensBootstrapState = "deferred";
-      trackingTokensBootstrapDeferReason = reason;
-      return "deferred";
-    }
-    logger.error('[tracking_tokens] Table bootstrap failed:', err.message);
-    trackingTokensBootstrapState = "deferred";
-    trackingTokensBootstrapDeferReason = err?.message || String(err);
-    return "deferred";
+    result = "ready";
   }
+  return result;
 }
 
 // Fire-and-forget bootstrap on module load. Errors never crash the boot —

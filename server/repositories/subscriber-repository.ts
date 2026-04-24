@@ -10,6 +10,7 @@ import {
 import { db, pool } from "../db";
 import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { logger } from "../logger";
+import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS } from "../bootstrap-lock";
 import { compileSegmentRules } from "../services/segment-compiler";
 import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
 import { redisConnection, isRedisConfigured } from "../redis";
@@ -457,8 +458,18 @@ export async function areGinIndexesPresent(): Promise<boolean> {
 }
 
 export async function ensureTrigramIndex(): Promise<void> {
-  await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
-  await db.execute(sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS email_trgm_idx ON subscribers USING gin (email gin_trgm_ops)`);
+  if (await indexExistsAndValid("email_trgm_idx")) {
+    logger.info("[TRIGRAM] email_trgm_idx already exists — skipping");
+    return;
+  }
+  await withAdvisoryLock(
+    LOCK_KEYS.TRIGRAM_INDEX,
+    "TRIGRAM",
+    async (_lockClient) => {
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS email_trgm_idx ON subscribers USING gin (email gin_trgm_ops)`);
+    },
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
