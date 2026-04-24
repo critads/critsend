@@ -271,6 +271,14 @@ export function registerTrackingRoutes(app: Express) {
       });
       logger.info(`Short unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
     } catch (error) {
+      if (isTrackingPoolUnavailable(error) || isPoolCheckoutError(error)) {
+        logger.warn(`Short unsubscribe /u/${token}: tracking pool unavailable, returning 503`);
+        if (!res.headersSent) {
+          res.setHeader("Retry-After", "1");
+          res.status(503).json({ error: "service_busy" });
+        }
+        return;
+      }
       logger.error("Error in short unsubscribe route:", error);
       if (!res.headersSent) res.status(500).send(renderUnsubscribePage("error", "An error occurred. Please try again."));
     }
@@ -308,6 +316,14 @@ export function registerTrackingRoutes(app: Express) {
       });
       logger.info(`POST short unsubscribe (RFC 8058): campaign=${campaignId}, subscriber=${subscriberId}`);
     } catch (error) {
+      if (isTrackingPoolUnavailable(error) || isPoolCheckoutError(error)) {
+        logger.warn(`POST short unsubscribe /u/${token}: tracking pool unavailable, returning 503`);
+        if (!res.headersSent) {
+          res.setHeader("Retry-After", "1");
+          res.status(503).json({ error: "service_busy" });
+        }
+        return;
+      }
       logger.error("Error in POST short unsubscribe route:", error);
       res.status(500).json({ error: "Unsubscribe failed" });
     }
@@ -505,6 +521,14 @@ export function registerTrackingRoutes(app: Express) {
         unsubscribeTag: tags?.unsubscribeTag ?? null,
       });
     } catch (error) {
+      if (isTrackingPoolUnavailable(error) || isPoolCheckoutError(error)) {
+        logger.warn(`Unsubscribe: tracking pool unavailable, returning 503`);
+        if (!res.headersSent) {
+          res.setHeader("Retry-After", "1");
+          res.status(503).json({ error: "service_busy" });
+        }
+        return;
+      }
       logger.error("Error unsubscribing:", error);
       if (!res.headersSent) res.status(500).send("An error occurred");
     }
