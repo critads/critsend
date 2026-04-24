@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -141,7 +141,7 @@ export const campaigns = pgTable("campaigns", {
   // has a child must be blocked at the DB level too, not only by the
   // FollowUpPendingError check in routes/campaigns.ts. This guarantees
   // referential integrity even if a future code path bypasses the route.
-  parentCampaignId: varchar("parent_campaign_id").references((): any => campaigns.id, { onDelete: "restrict" }),
+  parentCampaignId: varchar("parent_campaign_id").references((): AnyPgColumn => campaigns.id, { onDelete: "restrict" }),
   followUpEnabled: boolean("follow_up_enabled").notNull().default(false),
   followUpDelayHours: integer("follow_up_delay_hours").notNull().default(36),
   // Optional override for the follow-up child's subject. If null, the spawner

@@ -192,7 +192,14 @@ export async function spawnFollowUpCampaign(
   const child = {
     name: `${parent.name} (Follow-up)`,
     mtaId: parent.mtaId,
-    segmentId: parent.segmentId, // copied for display only — sender ignores
+    // Per spec: follow-up children are NOT segment-sourced — their audience
+    // is the openers of the parent campaign (resolved at send time via
+    // countOpenersForParentCampaign / getOpenersForParentCampaignCursor in
+    // campaign-sender.ts). Setting segmentId=null avoids any UI/code path
+    // that would otherwise try to resolve recipients from a segment for a
+    // follow-up. List/detail rendering already labels follow-up rows by
+    // their parentCampaignId rather than by segment.
+    segmentId: null,
     fromName: parent.fromName,
     fromEmail: parent.fromEmail,
     replyEmail: parent.replyEmail ?? null,
