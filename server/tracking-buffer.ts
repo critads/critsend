@@ -421,7 +421,13 @@ async function insertBatchAndMarkFirsts(
     await client.query("COMMIT");
   } catch (err: any) {
     try { await client.query("ROLLBACK"); } catch { /* swallow */ }
-    logger.warn(`[TRACKING BUFFER] markFirsts(${type}) failed (raw events saved): ${err?.message || err}`);
+    const code = err?.code;
+    const isLockTimeout = code === "55P03";
+    if (isLockTimeout) {
+      logger.warn(`[TRACKING BUFFER] markFirsts(${type}) lock timeout (raw events saved, reconciler will backfill): ${err?.message || err}`);
+    } else {
+      logger.error(`[TRACKING BUFFER] markFirsts(${type}) unexpected error (raw events saved): code=${code} ${err?.message || err}`);
+    }
   }
   accumulateCounterDeltas(type, events, firsts);
   client.release();

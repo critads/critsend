@@ -14,11 +14,13 @@ export const LOCK_KEYS = {
   TRIGRAM_INDEX: ADVISORY_LOCK_KEY_TRIGRAM_INDEX,
 } as const;
 
+export type LockResult = "ran" | "skipped" | "error";
+
 export async function withAdvisoryLock(
   lockKey: number,
   label: string,
   fn: (client: PoolClient) => Promise<void>,
-): Promise<boolean> {
+): Promise<LockResult> {
   let client: PoolClient | null = null;
   try {
     client = await pool.connect();
@@ -30,7 +32,7 @@ export async function withAdvisoryLock(
     if (!acquired) {
       logger.info(`[${label}] Another process is running bootstrap — skipping`);
       client.release();
-      return false;
+      return "skipped";
     }
     try {
       await fn(client);
@@ -42,13 +44,13 @@ export async function withAdvisoryLock(
       }
       client.release();
     }
-    return true;
+    return "ran";
   } catch (err: any) {
     logger.warn(`[${label}] Bootstrap lock error: ${err?.message || err}`);
     if (client) {
       try { client.release(); } catch {}
     }
-    return false;
+    return "error";
   }
 }
 

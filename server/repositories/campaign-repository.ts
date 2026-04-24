@@ -20,7 +20,7 @@ import { logger } from "../logger";
 import { campaignQueue } from "../queues";
 import { mapWithConcurrency } from "../utils";
 import { classifyDbError, isDiskFullError } from "../db-errors";
-import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS } from "../bootstrap-lock";
+import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -798,7 +798,7 @@ export function getTrackingTokensBootstrapState(): {
 export async function runTrackingTokensBootstrap(): Promise<"ready" | "deferred"> {
   let result: "ready" | "deferred" = "ready";
 
-  const lockAcquired = await withAdvisoryLock(
+  const lockResult = await withAdvisoryLock(
     LOCK_KEYS.TRACKING_TOKENS,
     "tracking_tokens",
     async (_lockClient) => {
@@ -889,9 +889,13 @@ export async function runTrackingTokensBootstrap(): Promise<"ready" | "deferred"
     },
   );
 
-  if (!lockAcquired) {
+  if (lockResult === "skipped") {
     trackingTokensBootstrapState = "ready";
     result = "ready";
+  } else if (lockResult === "error") {
+    trackingTokensBootstrapState = "deferred";
+    trackingTokensBootstrapDeferReason = "Failed to acquire bootstrap lock";
+    result = "deferred";
   }
   return result;
 }
