@@ -210,9 +210,9 @@ export async function spawnFollowUpCampaign(
     parentCampaignId: parent.id,
     followUpEnabled: false,
     followUpDelayHours: 36,
-    scheduledAt: zeroAudience ? null : scheduledAt,
-    status: zeroAudience ? "completed" : "scheduled",
-    completedAt: zeroAudience ? new Date() : null,
+    scheduledAt,
+    status: "scheduled",
+    completedAt: null,
   } as typeof campaigns.$inferInsert;
 
   // Atomic spawn + parent-link. We do the INSERT and the parent UPDATE in a
