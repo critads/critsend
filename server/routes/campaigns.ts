@@ -537,6 +537,25 @@ export function registerCampaignRoutes(app: Express, helpers: {
         if ('replyEmail' in normalizedBody && !normalizedBody.replyEmail) {
           normalizedBody.replyEmail = null;
         }
+        // Auto-resend (Task #56): even on non-draft PATCH we must enforce
+        // the same constraints we'd enforce on insert/draft. Without this
+        // guard a client could PATCH followUpDelayHours=99999 or
+        // followUpSubject=<10 KB blob> on a scheduled/sending campaign and
+        // bypass the wizard validation. We only validate the follow-up
+        // subset (everything else on a non-draft is intentionally trusted).
+        const followUpPatchSchema = z.object({
+          followUpEnabled: z.boolean().optional(),
+          followUpDelayHours: z.coerce.number().int().min(1).max(168).optional(),
+          followUpSubject: z.preprocess((v) => (v === "" ? null : v), z.string().max(998).nullable().optional()),
+        });
+        const fu = followUpPatchSchema.parse({
+          followUpEnabled: normalizedBody.followUpEnabled,
+          followUpDelayHours: normalizedBody.followUpDelayHours,
+          followUpSubject: normalizedBody.followUpSubject,
+        });
+        if (fu.followUpEnabled !== undefined) normalizedBody.followUpEnabled = fu.followUpEnabled;
+        if (fu.followUpDelayHours !== undefined) normalizedBody.followUpDelayHours = fu.followUpDelayHours;
+        if (fu.followUpSubject !== undefined) normalizedBody.followUpSubject = fu.followUpSubject;
       }
 
       if (normalizedBody.scheduledAt && typeof normalizedBody.scheduledAt === 'string') {

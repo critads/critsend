@@ -506,7 +506,14 @@ export default function CampaignEdit() {
     );
   }
 
-  if (campaign && campaign.status !== "draft") {
+  // Auto-resend follow-up children spawn into 'scheduled' status at parent
+  // completion and live there for the full delay window (default 36h). The
+  // user must be able to edit subject / preheader / htmlContent during that
+  // window — that's a core spec requirement of Task #56. Other scheduled
+  // campaigns (user-scheduled future sends) get the same treatment for
+  // consistency. Only sending/paused/completed/failed/cancelled stay locked.
+  const isScheduledEditable = campaign && campaign.status === "scheduled";
+  if (campaign && campaign.status !== "draft" && !isScheduledEditable) {
     return (
       <div className="p-6 lg:p-8">
         <Card>
@@ -515,7 +522,7 @@ export default function CampaignEdit() {
             <h2 className="text-2xl font-bold mb-2">Campaign Cannot Be Edited</h2>
             <p className="text-muted-foreground mb-6">
               This campaign has a status of "{campaign.status}" and can no longer be edited.
-              Only draft campaigns can be modified.
+              Only draft and scheduled campaigns can be modified.
             </p>
             <div className="flex justify-center gap-4">
               <Button variant="outline" asChild>
