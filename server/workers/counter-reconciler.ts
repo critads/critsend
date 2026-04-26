@@ -19,7 +19,9 @@
  * data is intact. The /campaigns analytics page then shows zeros.
  *
  * This worker periodically re-derives the counters from the source-of-truth
- * tables and fills in any gaps. It is idempotent and read-mostly: rows that
+ * tables and corrects any drift. For engagement counters (unique_opens_count,
+ * etc.) it uses direct assignment from campaign_stats so it can correct both
+ * undercounts AND overcounts. It is idempotent and read-mostly: rows that
  * already match are not touched.
  *
  * Scope: by default we only reconcile campaigns whose latest tracking
@@ -132,14 +134,12 @@ export async function reconcileCounters(
   const firstClickFixed = clickRes.rowCount ?? 0;
 
   // 4. Cached engagement counters on campaigns.* — single UPDATE that re-derives
-  //    all six counters from campaign_stats. Fill-only: only writes a column when
-  //    the cached value is strictly LESS than the source-of-truth count, so the
-  //    reconciler can never destroy real data on demo or partial-restore DBs.
-  //
-  //    The aggregate is heavy (full GROUP BY over campaign_stats) but it runs
-  //    on the trackingPool every 15 min in the recent-window mode and only
-  //    once per recovery in scope:"all" mode, so it never affects request-path
-  //    latency.
+  //    all six counters from campaign_stats via direct assignment. The truth
+  //    from campaign_stats is always authoritative; if the cached counter
+  //    drifted above truth (e.g. a bug in an earlier code version inflated
+  //    unique_opens_count), this corrects it downward. Previous versions used
+  //    GREATEST() (fill-only) which could never fix overcounts — resulting in
+  //    >100% open rates on the /campaigns list.
   const engagementRes = await effectivePool.query(
     `WITH truth AS (
        SELECT campaign_id,
@@ -153,20 +153,20 @@ export async function reconcileCounters(
         GROUP BY campaign_id
      )${recentCampaignsCte}
      UPDATE campaigns c
-        SET total_opens_count   = GREATEST(c.total_opens_count,   truth.total_opens),
-            unique_opens_count  = GREATEST(c.unique_opens_count,  truth.unique_opens),
-            total_clicks_count  = GREATEST(c.total_clicks_count,  truth.total_clicks),
-            unique_clicks_count = GREATEST(c.unique_clicks_count, truth.unique_clicks),
-            unsubscribes_count  = GREATEST(c.unsubscribes_count,  truth.unsubscribes),
-            complaints_count    = GREATEST(c.complaints_count,    truth.complaints)
+        SET total_opens_count   = truth.total_opens,
+            unique_opens_count  = truth.unique_opens,
+            total_clicks_count  = truth.total_clicks,
+            unique_clicks_count = truth.unique_clicks,
+            unsubscribes_count  = truth.unsubscribes,
+            complaints_count    = truth.complaints
        FROM truth
       WHERE c.id = truth.campaign_id
-        AND ( c.total_opens_count   < truth.total_opens
-           OR c.unique_opens_count  < truth.unique_opens
-           OR c.total_clicks_count  < truth.total_clicks
-           OR c.unique_clicks_count < truth.unique_clicks
-           OR c.unsubscribes_count  < truth.unsubscribes
-           OR c.complaints_count    < truth.complaints )
+        AND ( c.total_opens_count   IS DISTINCT FROM truth.total_opens
+           OR c.unique_opens_count  IS DISTINCT FROM truth.unique_opens
+           OR c.total_clicks_count  IS DISTINCT FROM truth.total_clicks
+           OR c.unique_clicks_count IS DISTINCT FROM truth.unique_clicks
+           OR c.unsubscribes_count  IS DISTINCT FROM truth.unsubscribes
+           OR c.complaints_count    IS DISTINCT FROM truth.complaints )
         ${inRecentCampaign}`,
   );
   const engagementCountersFixed = engagementRes.rowCount ?? 0;
