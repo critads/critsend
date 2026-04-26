@@ -33,9 +33,11 @@ const HEADROOM_RESERVE = Number(process.env.PG_HEADROOM_RESERVE || 12);
 // Carved out of the web budget so a campaign-burst open-pixel firehose can
 // never starve the user-facing main pool (login, dashboard, imports).
 // Only meaningful in the web process; worker inherits 0.
+// Default raised from 6 → 10 to handle campaign open/click bursts without
+// saturation (30+ waiting was common at 6 during active campaigns).
 export const TRACKING_POOL_MAX = (() => {
   if (processType === 'worker') return 0;
-  return Number(process.env.PG_TRACKING_POOL_MAX || 6);
+  return Number(process.env.PG_TRACKING_POOL_MAX || 10);
 })();
 
 export const MAIN_POOL_MAX = (() => {
@@ -45,7 +47,9 @@ export const MAIN_POOL_MAX = (() => {
   if (processType === 'web') {
     // Tracking pool slots are subtracted from the configured web budget so
     // total Neon connections stay inside the existing limit.
-    const webBudget = parseInt(process.env.WEB_PG_POOL_MAX || '20', 10);
+    // Default raised from 20 → 24 to accommodate the larger tracking pool
+    // (10) while keeping main pool at 14 for dashboard/import traffic.
+    const webBudget = parseInt(process.env.WEB_PG_POOL_MAX || '24', 10);
     return Math.max(2, webBudget - TRACKING_POOL_MAX);
   }
   // Monolith fallback — leave HEADROOM_RESERVE connections free at all times
@@ -70,14 +74,14 @@ export function validateConnectionBudget(): void {
   if (processType === 'web' || processType === 'worker') {
     const webMain = processType === 'web'
       ? MAIN_POOL_MAX
-      : Math.max(2, parseInt(process.env.WEB_PG_POOL_MAX || '20', 10) - TRACKING_POOL_MAX_HINT());
+      : Math.max(2, parseInt(process.env.WEB_PG_POOL_MAX || '24', 10) - TRACKING_POOL_MAX_HINT());
     const workerMain = processType === 'worker'
       ? MAIN_POOL_MAX
       : parseInt(process.env.WORKER_PG_POOL_MAX || '18', 10);
-    const trackingMain = processType === 'web' ? TRACKING_POOL_MAX : Number(process.env.PG_TRACKING_POOL_MAX || 6);
+    const trackingMain = processType === 'web' ? TRACKING_POOL_MAX : Number(process.env.PG_TRACKING_POOL_MAX || 10);
     const importBudget = IMPORT_POOL_MAX;
     const notify = NOTIFY_CONNECTIONS * 2; // web + worker each open one LISTEN/NOTIFY conn
-    const safetyHeadroom = Number(process.env.PG_SPLIT_PROCESS_HEADROOM || 6);
+    const safetyHeadroom = Number(process.env.PG_SPLIT_PROCESS_HEADROOM || 2);
     const combined = webMain + workerMain + trackingMain + importBudget + notify;
     if (combined + safetyHeadroom > PG_CONNECTION_LIMIT) {
       logger.error(`[CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(${webMain})+worker(${workerMain})+tracking(${trackingMain})+import(${importBudget})+notify(${notify})=${combined} + headroom ${safetyHeadroom} = ${combined + safetyHeadroom} exceeds Neon limit ${PG_CONNECTION_LIMIT}. Reduce WEB_PG_POOL_MAX or WORKER_PG_POOL_MAX, or raise PG_CONNECTION_LIMIT.`);
@@ -91,5 +95,5 @@ export function validateConnectionBudget(): void {
 // reads PG_TRACKING_POOL_MAX directly; this mirrors that for the worker
 // process so it can still calculate the web side's tracking footprint.
 function TRACKING_POOL_MAX_HINT(): number {
-  return Number(process.env.PG_TRACKING_POOL_MAX || 6);
+  return Number(process.env.PG_TRACKING_POOL_MAX || 10);
 }
