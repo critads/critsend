@@ -22,7 +22,7 @@
  */
 import pg from "pg";
 import { logger } from "./logger";
-import { isExternalDb, TRACKING_POOL_MAX, TRACKING_POOL_USE_POOLER, derivePooledUrl } from "./connection-budget";
+import { isExternalDb, TRACKING_POOL_MAX, TRACKING_POOL_USE_POOLER, derivePooledUrl, isPoolerUrl } from "./connection-budget";
 
 const { Pool } = pg;
 
@@ -35,6 +35,10 @@ function resolveTrackingConnectionString(): { url: string; mode: "explicit-overr
 
   if (process.env.NEON_TRACKING_DATABASE_URL) {
     return { url: process.env.NEON_TRACKING_DATABASE_URL, mode: "explicit-override" };
+  }
+
+  if (isPoolerUrl(baseUrl)) {
+    return { url: baseUrl, mode: "auto-pooler" };
   }
 
   const pooled = derivePooledUrl(baseUrl);

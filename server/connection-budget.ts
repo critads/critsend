@@ -70,7 +70,7 @@ export const TRACKING_POOL_USE_POOLER: boolean = (() => {
     return isPoolerUrl(process.env.NEON_TRACKING_DATABASE_URL);
   }
   const baseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || "";
-  return derivePooledUrl(baseUrl) !== null;
+  return isPoolerUrl(baseUrl) || derivePooledUrl(baseUrl) !== null;
 })();
 
 export const TRACKING_POOL_MAX = (() => {
@@ -137,5 +137,5 @@ function TRACKING_POOL_USE_POOLER_HINT(): boolean {
     return isPoolerUrl(process.env.NEON_TRACKING_DATABASE_URL);
   }
   const baseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || "";
-  return derivePooledUrl(baseUrl) !== null;
+  return isPoolerUrl(baseUrl) || derivePooledUrl(baseUrl) !== null;
 }
