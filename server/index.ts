@@ -594,9 +594,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   validateConnectionBudget();
 
-  // Start the in-memory tracking buffer flusher (web process only — tracking
-  // routes are registered here, not in worker-main.ts). Flushes every
-  // TRACKING_FLUSH_INTERVAL_MS to the dedicated tracking pool.
+  const { probeTrackingPool } = await import("./tracking-pool");
+  probeTrackingPool();
+
   const { startTrackingBufferFlusher } = await import("./tracking-buffer");
   startTrackingBufferFlusher();
 

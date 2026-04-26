@@ -30,7 +30,7 @@ function resolveTrackingConnectionString(): { url: string; mode: "explicit-overr
   const baseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || "";
 
   if (process.env.TRACKING_POOL_USE_DIRECT === "true") {
-    return { url: process.env.NEON_TRACKING_DATABASE_URL || baseUrl, mode: "direct" };
+    return { url: baseUrl, mode: "direct" };
   }
 
   if (process.env.NEON_TRACKING_DATABASE_URL) {
@@ -100,6 +100,22 @@ const modeLabel = resolved.mode === "explicit-override"
 logger.info(
   `[TRACKING POOL] configured: max=${TRACKING_POOL_MAX}, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}, mode=${modeLabel}, pooler=${TRACKING_POOL_USE_POOLER}`,
 );
+
+export async function probeTrackingPool(): Promise<void> {
+  if (TRACKING_POOL_MAX <= 0) return;
+  try {
+    const result = await trackingPool.query("SELECT 1 AS ok");
+    if (result.rows[0]?.ok === 1) {
+      logger.info(`[TRACKING POOL] startup probe OK (mode=${modeLabel})`);
+    }
+  } catch (err: any) {
+    logger.error(
+      `[TRACKING POOL] startup probe FAILED — tracking events will not persist until connectivity is restored. ` +
+      `mode=${modeLabel}, error=${err?.message || err}. ` +
+      `Fix: set NEON_TRACKING_DATABASE_URL to a valid pooled/direct URL, or set TRACKING_POOL_USE_DIRECT=true to bypass auto-derivation.`
+    );
+  }
+}
 
 export function getTrackingPoolStats() {
   return {

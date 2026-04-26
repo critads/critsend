@@ -89,7 +89,8 @@ export const MAIN_POOL_MAX = (() => {
     const webBudget = parseInt(process.env.WEB_PG_POOL_MAX || '24', 10);
     return Math.max(2, webBudget - TRACKING_POOL_MAX);
   }
-  return Number(process.env.PG_POOL_MAX || Math.max(2, PG_CONNECTION_LIMIT - NOTIFY_CONNECTIONS - IMPORT_POOL_MAX - TRACKING_POOL_MAX - HEADROOM_RESERVE));
+  const trackingDirect = TRACKING_POOL_USE_POOLER ? 0 : TRACKING_POOL_MAX;
+  return Number(process.env.PG_POOL_MAX || Math.max(2, PG_CONNECTION_LIMIT - NOTIFY_CONNECTIONS - IMPORT_POOL_MAX - trackingDirect - HEADROOM_RESERVE));
 })();
 
 const TOTAL_ALLOCATED = MAIN_POOL_MAX + IMPORT_POOL_MAX + NOTIFY_CONNECTIONS + (TRACKING_POOL_USE_POOLER ? 0 : TRACKING_POOL_MAX);
