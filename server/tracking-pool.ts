@@ -8,16 +8,46 @@
  *
  * This pool is only created in the web process. The flusher in tracking-buffer.ts
  * uses it for batched INSERTs; the click route uses it for cache-miss link
- * lookups. Sized via PG_TRACKING_POOL_MAX (default 6) and accounted for in the
- * connection budget.
+ * lookups. Sized via PG_TRACKING_POOL_MAX (default 20 with pooler, 10 direct).
+ *
+ * Connection strategy:
+ *   1. NEON_TRACKING_DATABASE_URL env var (explicit override)
+ *   2. Auto-derived Neon pooled endpoint (ep-xxx-pooler.*.neon.tech)
+ *   3. Fallback to NEON_DATABASE_URL / DATABASE_URL (direct endpoint)
+ *
+ * The pooled endpoint uses PgBouncer (transaction mode) and supports up to
+ * 10,000 concurrent connections — its connections do NOT count against the
+ * direct-connection limit (default 50). This effectively removes tracking
+ * traffic from the connection budget entirely.
  */
 import pg from "pg";
 import { logger } from "./logger";
-import { isExternalDb, TRACKING_POOL_MAX } from "./connection-budget";
+import { isExternalDb, TRACKING_POOL_MAX, TRACKING_POOL_USE_POOLER, derivePooledUrl } from "./connection-budget";
 
 const { Pool } = pg;
 
-let connectionString = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+function resolveTrackingConnectionString(): { url: string; mode: "explicit-override" | "auto-pooler" | "direct" } {
+  const baseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || "";
+
+  if (process.env.TRACKING_POOL_USE_DIRECT === "true") {
+    return { url: process.env.NEON_TRACKING_DATABASE_URL || baseUrl, mode: "direct" };
+  }
+
+  if (process.env.NEON_TRACKING_DATABASE_URL) {
+    return { url: process.env.NEON_TRACKING_DATABASE_URL, mode: "explicit-override" };
+  }
+
+  const pooled = derivePooledUrl(baseUrl);
+  if (pooled) {
+    return { url: pooled, mode: "auto-pooler" };
+  }
+
+  return { url: baseUrl, mode: "direct" };
+}
+
+const resolved = resolveTrackingConnectionString();
+let connectionString = resolved.url;
+
 if (!connectionString) {
   throw new Error(
     "NEON_DATABASE_URL or DATABASE_URL must be set for tracking pool",
@@ -62,8 +92,13 @@ trackingPool.on("connect", (client) => {
   }
 });
 
+const modeLabel = resolved.mode === "explicit-override"
+  ? `explicit override (NEON_TRACKING_DATABASE_URL, ${TRACKING_POOL_USE_POOLER ? "pooler" : "direct"})`
+  : resolved.mode === "auto-pooler"
+  ? "auto-derived pooler"
+  : "direct";
 logger.info(
-  `[TRACKING POOL] configured: max=${TRACKING_POOL_MAX}, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}`,
+  `[TRACKING POOL] configured: max=${TRACKING_POOL_MAX}, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}, mode=${modeLabel}, pooler=${TRACKING_POOL_USE_POOLER}`,
 );
 
 export function getTrackingPoolStats() {

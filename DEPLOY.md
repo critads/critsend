@@ -106,7 +106,7 @@ openssl rand -hex 32
 Key variables to set:
 
 ```dotenv
-NEON_DATABASE_URL=postgres://user:password@host/dbname?sslmode=require
+NEON_DATABASE_URL=postgres://user:password@ep-xyz-123.us-east-2.aws.neon.tech/neondb?sslmode=require
 REDIS_URL=rediss://default:password@host.upstash.io:6379
 SESSION_SECRET=<64-char hex>
 TRACKING_SECRET=<64-char hex>
@@ -114,6 +114,12 @@ MTA_ENCRYPTION_KEY=<64-char hex>
 NODE_ENV=production
 STORAGE_BACKEND=local
 ```
+
+The tracking pool automatically derives a pooled connection URL from `NEON_DATABASE_URL`
+by inserting `-pooler` into the Neon hostname (e.g. `ep-xyz-123-pooler.us-east-2.aws.neon.tech`).
+Pooled connections use PgBouncer and do not count against the 50-connection direct limit.
+To override the auto-derived URL, set `NEON_TRACKING_DATABASE_URL` explicitly.
+To force the tracking pool to use the direct endpoint instead, set `TRACKING_POOL_USE_DIRECT=true`.
 
 ---
 
