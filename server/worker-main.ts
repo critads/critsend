@@ -81,6 +81,11 @@ async function gracefulShutdown(signal: string) {
 
     await closeRedisConnections();
 
+    try {
+      const { closeImportPool } = await import("./import-pool");
+      await closeImportPool();
+    } catch {}
+
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     await pool.end();
@@ -108,8 +113,9 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   validateConnectionBudget();
 
-  // Run bootstrap migrations so forced_tags/forced_refs columns are present
-  // even when the worker starts independently of the web server.
+  const { probeImportPool } = await import("./import-pool");
+  probeImportPool();
+
   const { runImportBootstrapMigrations } = await import("./routes/import-export");
   await runImportBootstrapMigrations();
 

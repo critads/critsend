@@ -132,6 +132,10 @@ async function gracefulShutdown(signal: string) {
       const { closeTrackingPool } = await import("./tracking-pool");
       await closeTrackingPool();
     } catch {}
+    try {
+      const { closeImportPool } = await import("./import-pool");
+      await closeImportPool();
+    } catch {}
 
     const { pool } = await import("./db");
     await pool.end();
@@ -595,7 +599,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   validateConnectionBudget();
 
   const { probeTrackingPool } = await import("./tracking-pool");
+  const { probeImportPool } = await import("./import-pool");
   probeTrackingPool();
+  probeImportPool();
 
   const { startTrackingBufferFlusher } = await import("./tracking-buffer");
   startTrackingBufferFlusher();

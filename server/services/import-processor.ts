@@ -2,7 +2,7 @@ import * as readline from "readline";
 import * as fs from "fs";
 import { from as copyFrom } from "pg-copy-streams";
 import { sql } from "drizzle-orm";
-import { pool, db } from "../db";
+import { importPool as pool, importDb as db } from "../import-pool";
 import { logger } from "../logger";
 import { storage } from "../storage";
 import { jobEvents, JobProgressEvent } from "../job-events";
