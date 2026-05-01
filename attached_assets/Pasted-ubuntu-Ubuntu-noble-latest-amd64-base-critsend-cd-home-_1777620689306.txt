@@ -1,0 +1,143 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && git checkout -- deploy/ecosystem.config.cjs && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+remote: Enumerating objects: 15, done.
+remote: Counting objects: 100% (15/15), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 9 (delta 6), reused 9 (delta 6), pack-reused 0 (from 0)
+Unpacking objects: 100% (9/9), 129.87 KiB | 1.75 MiB/s, done.
+From https://github.com/critads/critsend
+   7f38a72..0c4a6f2  main       -> origin/main
+Updating d8ab013..0c4a6f2
+Fast-forward
+ ...vailable-mail-mastery-replit-_1777439666850.txt | 494 ++++++++++++++++
+ ...5-03-on-ttys000-ianisbaullere_1777447452643.txt | 636 +++++++++++++++++++++
+ ...buntu-critsend-env-head-5-NEO_1777446551970.txt | 168 ++++++
+ ...-amd64-base-cat-home-ubuntu-c_1777616277179.txt | 101 ++++
+ ...-amd64-base-critsend-cat-home_1777617177623.txt |  95 +++
+ ...-amd64-base-critsend-cd-home-_1777453094439.txt |  92 +++
+ ...-amd64-base-critsend-cd-home-_1777616471195.txt | 114 ++++
+ ...-amd64-base-critsend-ls-home-_1777454380275.txt | 115 ++++
+ ...-amd64-base-critsend-pm2-logs_1777453407066.txt |  67 +++
+ ...-amd64-base-critsend-pm2-logs_1777616314577.txt |  31 +
+ ...-amd64-base-critsend-pm2-logs_1777616415676.txt |  53 ++
+ ...-amd64-base-critsend-pm2-logs_1777616883791.txt |  72 +++
+ ...-amd64-base-critsend-pm2-stat_1777455562715.txt |  24 +
+ ...-amd64-base-critsend-pm2-stat_1777455570186.txt |  24 +
+ ...-amd64-base-critsend-pm2-stat_1777616954575.txt |  43 ++
+ ...-amd64-base-critsend-pm2-stat_1777616968750.txt |  43 ++
+ ...-amd64-base-critsend-ssh-root_1777452360957.txt |  95 +++
+ ...-amd64-base-critsend-sudo-cer_1777453613590.txt |  27 +
+ ...-amd64-base-critsend-sudo-tee_1777455362943.txt | 186 ++++++
+ ...-amd64-base-ls-la-home-ubuntu_1777615819873.txt |  86 +++
+ ...-amd64-base-pm2-logs-critsend_1777616016734.txt | 102 ++++
+ ...-amd64-base-pm2-logs-critsend_1777616218478.txt | 182 ++++++
+ ...-cd-home-ubuntu-critsend-pm2-_1777449817310.txt |  28 +
+ ...-echo-PG-CONNECTION-TIMEOUT-M_1777450041389.txt |  25 +
+ ...-pm2-logs-critsend-web-lines-_1777449405407.txt | 106 ++++
+ ...-pm2-logs-lines-40-TAILING-Ta_1777447586108.txt | 212 +++++++
+ ...-pm2-status-pm2-logs-lines-50_1777446387275.txt | 145 +++++
+ ...-sleep-15-curl-localhost-5000_1777449047870.txt | 215 +++++++
+ ...-sudo-certbot-nginx-d-critsen_1777450583755.txt |  34 ++
+ ...-sudo-certbot-nginx-d-critsen_1777450737302.txt |  29 +
+ ...art-all-pm2-logs-lines-30-Use_1777446727777.txt | 213 +++++++
+ ...temctl-start-redis-server-sud_1777447318823.txt | 236 ++++++++
+ ...shot_2026-04-29_at_1.43.26_PM_1777455811052.png | Bin 0 -> 95169 bytes
+ ...hot_2026-04-29_at_11.23.15_AM_1777447398391.png | Bin 0 -> 73431 bytes
+ ...shot_2026-04-29_at_6.27.36_PM_1777472859517.png | Bin 0 -> 60247 bytes
+ ...shot_2026-04-29_at_6.31.29_PM_1777473091158.png | Bin 0 -> 282118 bytes
+ ...shot_2026-04-29_at_7.25.46_AM_1777433149219.png | Bin 0 -> 53323 bytes
+ ...shot_2026-04-29_at_7.33.01_AM_1777433584537.png | Bin 0 -> 28082 bytes
+ ...shot_2026-04-29_at_8.00.59_AM_1777435263857.png | Bin 0 -> 37534 bytes
+ ...shot_2026-04-29_at_9.10.57_AM_1777439458685.png | Bin 0 -> 343054 bytes
+ ...hot_2026-05-01_at_10.06.22_AM_1777615709520.png | Bin 0 -> 290120 bytes
+ ...hot_2026-05-01_at_10.52.32_AM_1777618354321.png | Bin 0 -> 124938 bytes
+ ...hot_2026-05-01_at_10.53.31_AM_1777618413072.png | Bin 0 -> 79119 bytes
+ ...hot_2026-05-01_at_10.53.42_AM_1777618424032.png | Bin 0 -> 108858 bytes
+ deploy/ecosystem.config.cjs                        |  61 +-
+ replit.md                                          |   2 +-
+ server/services/import-processor.ts                |  10 +
+ server/workers.ts                                  |   3 +
+ 48 files changed, 4142 insertions(+), 27 deletions(-)
+ create mode 100644 attached_assets/Pasted--Publish-your-app-Domain-Available-mail-mastery-replit-_1777439666850.txt
+ create mode 100644 attached_assets/Pasted-Last-login-Wed-Apr-29-11-15-03-on-ttys000-ianisbaullere_1777447452643.txt
+ create mode 100644 attached_assets/Pasted-root-vmi3267117-cat-home-ubuntu-critsend-env-head-5-NEO_1777446551970.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-cat-home-ubuntu-c_1777616277179.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-cat-home_1777617177623.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-cd-home-_1777453094439.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-cd-home-_1777616471195.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-ls-home-_1777454380275.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1777453407066.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1777616314577.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1777616415676.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1777616883791.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-stat_1777455562715.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-stat_1777455570186.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-stat_1777616954575.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-stat_1777616968750.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-ssh-root_1777452360957.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-sudo-cer_1777453613590.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-sudo-tee_1777455362943.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-ls-la-home-ubuntu_1777615819873.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-pm2-logs-critsend_1777616016734.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-pm2-logs-critsend_1777616218478.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-cd-home-ubuntu-critsend-pm2-_1777449817310.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-echo-PG-CONNECTION-TIMEOUT-M_1777450041389.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-pm2-logs-critsend-web-lines-_1777449405407.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-pm2-logs-lines-40-TAILING-Ta_1777447586108.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-pm2-status-pm2-logs-lines-50_1777446387275.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-sleep-15-curl-localhost-5000_1777449047870.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-sudo-certbot-nginx-d-critsen_1777450583755.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-critsend-sudo-certbot-nginx-d-critsen_1777450737302.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-pm2-restart-all-pm2-logs-lines-30-Use_1777446727777.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-vmi3267117-sudo-systemctl-start-redis-server-sud_1777447318823.txt
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_1.43.26_PM_1777455811052.png
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_11.23.15_AM_1777447398391.png
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_6.27.36_PM_1777472859517.png
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_6.31.29_PM_1777473091158.png
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_7.25.46_AM_1777433149219.png
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_7.33.01_AM_1777433584537.png
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_8.00.59_AM_1777435263857.png
+ create mode 100644 attached_assets/Screenshot_2026-04-29_at_9.10.57_AM_1777439458685.png
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_10.06.22_AM_1777615709520.png
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_10.52.32_AM_1777618354321.png
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_10.53.31_AM_1777618413072.png
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_10.53.42_AM_1777618424032.png
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2497 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-D1DPO-E_.css     88.36 kB │ gzip:  14.32 kB
+../dist/public/assets/index-B17Uuli2.js   1,283.03 kB │ gzip: 339.99 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.95s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 100ms
+building import worker...
+
+  dist/import-worker.cjs  196.1kb
+
+⚡ Done in 27ms
+building background worker...
+
+  dist/worker-main.cjs  927.7kb
+
+⚡ Done in 74ms
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓

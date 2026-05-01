@@ -951,7 +951,7 @@ export async function batchCreateClickTokens(
     await pool.query(
       `INSERT INTO tracking_tokens (token, type, campaign_id, subscriber_id, link_id)
        SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
-       ON CONFLICT (type, campaign_id, subscriber_id, COALESCE(link_id, '')) DO NOTHING`,
+       ON CONFLICT (token) DO NOTHING`,
       [chunk, types, camps, subs, links]
     );
   }
@@ -996,7 +996,7 @@ export async function batchCreateUnsubscribeTokens(
     await pool.query(
       `INSERT INTO tracking_tokens (token, type, campaign_id, subscriber_id)
        SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[])
-       ON CONFLICT (type, campaign_id, subscriber_id, COALESCE(link_id, '')) DO NOTHING`,
+       ON CONFLICT (token) DO NOTHING`,
       [chunk, typChunk, campChunk, subChunk]
     );
   }

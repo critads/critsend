@@ -1,0 +1,41 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status && pm2 logs --lines 5 --nostream
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 1    │ online    │ 0%       │ 319.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 1    │ online    │ 0%       │ 690.1mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 5 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 5 lines:
+PM2        | 2026-05-01T09:26:41: PM2 log: pid=41909 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-01T09:26:41: PM2 log: App [critsend-worker:1] exited with code [1] via signal [SIGINT]
+PM2        | 2026-05-01T09:26:42: PM2 log: pid=41909 msg=process killed
+PM2        | 2026-05-01T09:26:42: PM2 log: App [critsend-worker:1] starting in -fork mode-
+PM2        | 2026-05-01T09:26:42: PM2 log: App [critsend-worker:1] online
+
+/var/log/critsend/worker-err.log last 5 lines:
+1|critsend | CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:66eadb0a] Batch 13: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 09:30:19 +02:00: 2026-05-01T07:30:19.101Z [WARN] [CAMPAIGN 26ae1c54-f13c-4081-9c46-0590dda36d18 job:f2dd6ae8] Batch 5: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 09:30:19 +02:00: 2026-05-01T07:30:19.154Z [WARN] [CAMPAIGN 2d7639fe-2353-4fe7-93c8-d8a9b09954c1 job:694f5717] Batch 9: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 09:30:21 +02:00: 2026-05-01T07:30:21.260Z [WARN] [CAMPAIGN 681e8c89-6664-49cd-a03f-00725079436a job:13a2d0ac] Batch 9: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+
+/var/log/critsend/web-err.log last 5 lines:
+0|critsend | 2026-05-01 09:29:34 +02:00: 2026-05-01T07:29:34.377Z [WARN] [POOL SAFETY] Load-shedding GET /favicon.ico: pool active=20/20, waiting=1 (for 0ms), saturation=1.00 (reason=saturation)
+0|critsend | 2026-05-01 09:29:55 +02:00: 2026-05-01T07:29:55.347Z [WARN] [POOL SAFETY] Load-shedding GET /favicon.ico: pool active=18/20, waiting=0 (for 0ms), saturation=0.90 (reason=saturation)
+0|critsend | 2026-05-01 09:30:28 +02:00: 2026-05-01T07:30:28.492Z [WARN] [POOL SAFETY] Load-shedding GET /api/campaigns: pool active=20/20, waiting=2 (for 0ms), saturation=1.00 (reason=saturation)
+0|critsend | 2026-05-01 09:31:27 +02:00: 2026-05-01T07:31:27.700Z [WARN] Short unsubscribe token not found or invalid: Cm0b8EsH,
+0|critsend | 2026-05-01 09:31:49 +02:00: 2026-05-01T07:31:49.631Z [WARN] Invalid tracking signature for unsubscribe: campaign=20042514-8cba-4905-89dd-664f5b88e86e, subscriber=0750e987-bf6d-462c-83b4-16b955a7b5b0, sig=7b5af642...
+
+/var/log/critsend/worker-out.log last 5 lines:
+1|critsend | 2026-05-01 09:31:44 +02:00: 2026-05-01T07:31:44.261Z [INFO] Processed 17 tag operations in 13 bulk groups
+1|critsend | 2026-05-01 09:31:47 +02:00: 2026-05-01T07:31:47.282Z [INFO] Processed 37 tag operations in 18 bulk groups
+1|critsend | 2026-05-01 09:31:48 +02:00: 2026-05-01T07:31:48.137Z [INFO] Processed 15 tag operations in 10 bulk groups
+1|critsend | 2026-05-01 09:31:50 +02:00: 2026-05-01T07:31:50.166Z [INFO] Processed 16 tag operations in 10 bulk groups
+1|critsend | 2026-05-01 09:31:52 +02:00: 2026-05-01T07:31:52.707Z [INFO] Processed 24 tag operations in 14 bulk groups
+
+/var/log/critsend/web-out.log last 5 lines:
+0|critsend | 2026-05-01 09:31:46 +02:00: 2026-05-01T07:31:46.224Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=9aa834b7-f5ae-4279-872b-03a0b33a9c94
+0|critsend | 2026-05-01 09:31:49 +02:00: 2026-05-01T07:31:49.438Z [INFO] Unsubscribe request: campaign=aff2087a-f8ab-47e6-9e26-817845352208, subscriber=e03524f6-b79c-4924-807c-9222d1750551
+0|critsend | 2026-05-01 09:31:51 +02:00: 2026-05-01T07:31:51.177Z [INFO] Unsubscribe request: campaign=1eeb5433-2083-4f31-a81e-b6572f17846f, subscriber=f292ff2b-de4f-497b-9c11-505a271bd725
+0|critsend | 2026-05-01 09:31:52 +02:00: 2026-05-01T07:31:52.367Z [INFO] Unsubscribe request: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=521c70e1-4bd3-4751-9206-49a90ebf7176
+0|critsend | 2026-05-01 09:31:53 +02:00: 2026-05-01T07:31:53.763Z [INFO] Unsubscribe request: campaign=046e90b1-a67d-40de-8d8c-9768fe84b769, subscriber=f93f1ec2-f8d2-4fde-905d-808d2e17f726
