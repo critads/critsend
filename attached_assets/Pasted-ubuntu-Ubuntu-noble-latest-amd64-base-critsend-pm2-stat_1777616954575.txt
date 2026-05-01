@@ -1,0 +1,43 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status
+pm2 logs --lines 5 --nostream
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 279.0mb  │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 120.6mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 5 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 5 lines:
+PM2        | 2026-05-01T08:28:46: PM2 log: pid=41487 msg=process killed
+PM2        | 2026-05-01T08:28:53: PM2 log: App [critsend-web:0] starting in -fork mode-
+PM2        | 2026-05-01T08:28:53: PM2 log: App [critsend-worker:1] starting in -fork mode-
+PM2        | 2026-05-01T08:28:53: PM2 log: App [critsend-web:0] online
+PM2        | 2026-05-01T08:28:53: PM2 log: App [critsend-worker:1] online
+
+/var/log/critsend/web-err.log last 5 lines:
+0|critsend | 2026-05-01 08:27:41 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-05-01 08:27:41 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend | 2026-05-01 08:27:41 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-05-01 08:27:41 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-05-01 08:27:41 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+
+/var/log/critsend/worker-err.log last 5 lines:
+1|critsend | 2026-05-01 08:26:28 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+1|critsend | 2026-05-01 08:26:28 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+1|critsend | 2026-05-01 08:26:28 +02:00:     at Module._load (node:internal/modules/cjs/loader:1091:12)
+1|critsend | 2026-05-01 08:26:28 +02:00:     at cjsLoader (node:internal/modules/esm/translators:298:15)
+1|critsend | 2026-05-01 08:28:54 +02:00: 2026-05-01T06:28:54.367Z [WARN] [BOOTSTRAP_LOCK] Index tracking_tokens_unique_idx exists but is INVALID — will be dropped and rebuilt
+
+/var/log/critsend/worker-out.log last 5 lines:
+1|critsend | 2026-05-01 08:28:54 +02:00: 2026-05-01T06:28:54.439Z [INFO] [TRIGRAM] email_trgm_idx already exists — skipping
+1|critsend | 2026-05-01 08:28:54 +02:00: 2026-05-01T06:28:54.439Z [INFO] [IMPORT] Email trigram index verified
+1|critsend | 2026-05-01 08:28:54 +02:00: 2026-05-01T06:28:54.445Z [INFO] [IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)
+1|critsend | 2026-05-01 08:28:54 +02:00: 2026-05-01T06:28:54.463Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+1|critsend | 2026-05-01 08:28:54 +02:00: 2026-05-01T06:28:54.853Z [INFO] [MAINTENANCE] Default maintenance rules seeded
+
+/var/log/critsend/web-out.log last 5 lines:
+0|critsend | 2026-05-01 08:28:55 +02:00: 2026-05-01T06:28:55.143Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+0|critsend | 2026-05-01 08:28:55 +02:00: 2026-05-01T06:28:55.158Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+0|critsend | 2026-05-01 08:28:56 +02:00: 2026-05-01T06:28:56.906Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=046e90b1-a67d-40de-8d8c-9768fe84b769, subscriber=d32004fc-33f1-464b-bf90-f314112ad1dd
+0|critsend | 2026-05-01 08:28:57 +02:00: 2026-05-01T06:28:57.917Z [INFO] Unsubscribe request: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=672a2ec7-1085-4210-893d-610ce25e49c0
+0|critsend | 2026-05-01 08:28:58 +02:00: 2026-05-01T06:28:58.798Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=2dfe78e4-3fb2-47d7-aef1-5bcf2b57976d

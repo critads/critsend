@@ -1,0 +1,67 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 30
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-04-29 11:00:23 +02:00: 2026-04-29T09:00:23.822Z [INFO] [Redis/bullmq] Connected
+0|critsend | 2026-04-29 11:00:23 +02:00: 2026-04-29T09:00:23.825Z [INFO] [Redis/main] Connected
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.013Z [INFO] [TRACKING] Another process is running bootstrap — skipping
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.017Z [INFO] [tracking_tokens] Another process is running bootstrap — skipping
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.152Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.162Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 20 | Tracking pool: 20 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.162Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.164Z [INFO] [TRACKING BUFFER] flusher started: interval=1500ms, counterCoalesce=8000ms, maxQueue=50000, maxBatchPerType=5000, dedupeWindow=60000ms
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.164Z [INFO] [BOUNCE BUFFER] flusher started: interval=1500ms, maxQueue=25000, maxBatch=2000, dedupeWindow=60000ms
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.164Z [INFO] [COUNTER RECONCILER] started: interval=900000ms, window=24h
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.166Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.167Z [INFO] [SSE] Redis progress bridge started
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.170Z [INFO] [ANALYTICS] Cache invalidation subscriber started
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.171Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.172Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian started (polls every 30 s for stale pending jobs)
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.172Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian started (polls every 60 s for stuck campaigns)
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.237Z [INFO] [Redis/sse-subscriber] Connected
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.414Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.421Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.495Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.714Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.743Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_campaign_type_idx — skipping
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.771Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.800Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_sent_at_idx — skipping
+0|critsend | 2026-04-29 11:00:24 +02:00: 2026-04-29T09:00:24.831Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_import_date_idx — skipping
+0|critsend | 2026-04-29 11:00:25 +02:00: 2026-04-29T09:00:25.048Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_suppressed_partial_idx — skipping
+0|critsend | 2026-04-29 11:00:25 +02:00: 2026-04-29T09:00:25.049Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+0|critsend | 2026-04-29 11:00:25 +02:00: 2026-04-29T09:00:25.078Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+0|critsend | 2026-04-29 11:00:25 +02:00: 2026-04-29T09:00:25.111Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_campaign_first_open_idx — skipping
+0|critsend | 2026-04-29 11:00:25 +02:00: 2026-04-29T09:00:25.111Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-04-29 10:58:09 +02:00: Error [ERR_HTTP_HEADERS_SENT]: Cannot set headers after they are sent to the client
+0|critsend | 2026-04-29 10:58:09 +02:00:     at ServerResponse.setHeader (node:_http_outgoing:655:11)
+0|critsend | 2026-04-29 10:58:09 +02:00:     at gt.set.gt.header (/home/ubuntu/critsend/dist/index.cjs:53:25031)
+0|critsend | 2026-04-29 10:58:09 +02:00:     at gt.send (/home/ubuntu/critsend/dist/index.cjs:53:20570)
+0|critsend | 2026-04-29 10:58:09 +02:00:     at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7828)
+0|critsend | 2026-04-29 10:58:09 +02:00:     at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)
+0|critsend | 2026-04-29 10:58:09 +02:00:     at ServerResponse.u (/home/ubuntu/critsend/dist/index.cjs:1446:7792)
+0|critsend | 2026-04-29 10:58:09 +02:00:     at e.json (/home/ubuntu/critsend/dist/index.cjs:1446:18590)
+0|critsend | 2026-04-29 10:58:09 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1426:8257
+0|critsend | 2026-04-29 10:58:09 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+0|critsend | 2026-04-29 10:58:09 +02:00:   code: 'ERR_HTTP_HEADERS_SENT'
+0|critsend | 2026-04-29 10:58:09 +02:00: }
+0|critsend | 2026-04-29 10:58:09 +02:00: 2026-04-29T08:58:09.392Z [ERROR] Unhandled Promise Rejection {"reason":"Cannot set headers after they are sent to the client"}
+0|critsend | 2026-04-29 10:58:43 +02:00: 2026-04-29T08:58:43.768Z [ERROR] [IMPORT_GUARDIAN] Error in guardian poll: {"value":"This IP address 2a01:4f9:3070:28cb::2 is not allowed to connect to this endpoint. Please add it to the allowed list in the Neon console. Make sure to check for IPv4 or IPv6 addresses."}
+0|critsend | 2026-04-29 10:59:13 +02:00: 2026-04-29T08:59:13.945Z [WARN] [CAMPAIGN_GUARDIAN] Found 4 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-04-29 11:00:12 +02:00: 2026-04-29T09:00:12.143Z [ERROR] [COUNTER RECONCILER] initial run failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-04-29 11:01:13 +02:00: 2026-04-29T09:01:13.261Z [ERROR] Request timed out {"method":"GET","path":"/api/health","timeout":30000}
+0|critsend | 2026-04-29 11:01:23 +02:00: Error [ERR_HTTP_HEADERS_SENT]: Cannot set headers after they are sent to the client
+0|critsend | 2026-04-29 11:01:23 +02:00:     at ServerResponse.setHeader (node:_http_outgoing:655:11)
+0|critsend | 2026-04-29 11:01:23 +02:00:     at gt.set.gt.header (/home/ubuntu/critsend/dist/index.cjs:53:25031)
+0|critsend | 2026-04-29 11:01:23 +02:00:     at gt.send (/home/ubuntu/critsend/dist/index.cjs:53:20570)
+0|critsend | 2026-04-29 11:01:23 +02:00:     at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7828)
+0|critsend | 2026-04-29 11:01:23 +02:00:     at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)
+0|critsend | 2026-04-29 11:01:23 +02:00:     at ServerResponse.u (/home/ubuntu/critsend/dist/index.cjs:1446:7792)
+0|critsend | 2026-04-29 11:01:23 +02:00:     at e.json (/home/ubuntu/critsend/dist/index.cjs:1446:18590)
+0|critsend | 2026-04-29 11:01:23 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1426:8257
+0|critsend | 2026-04-29 11:01:23 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+0|critsend | 2026-04-29 11:01:23 +02:00:   code: 'ERR_HTTP_HEADERS_SENT'
+0|critsend | 2026-04-29 11:01:23 +02:00: }
+0|critsend | 2026-04-29 11:01:23 +02:00: 2026-04-29T09:01:23.515Z [ERROR] Unhandled Promise Rejection {"reason":"Cannot set headers after they are sent to the client"}
+
+

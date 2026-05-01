@@ -1,0 +1,636 @@
+Last login: Wed Apr 29 11:15:03 on ttys000
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@62.171.170.92
+ubuntu@62.171.170.92's password: 
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 5.15.0-173-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Wed Apr 29 09:15:57 CEST 2026
+
+  System load:  0.0              Processes:             259
+  Usage of /:   0.3% of 1.32TB   Users logged in:       0
+  Memory usage: 0%               IPv4 address for eth0: 62.171.170.92
+  Swap usage:   0%               IPv6 address for eth0: 2a02:c207:2326:7117::1
+
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+5 additional security updates can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+New release '24.04.4 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+*** System restart required ***
+  _____
+ / ___/___  _  _ _____ _   ___  ___
+| |   / _ \| \| |_   _/ \ | _ )/ _ \
+| |__| (_) | .` | | |/ _ \| _ \ (_) |
+ \____\___/|_|\_| |_/_/ \_|___/\___/
+
+Welcome!
+
+This server is hosted by Contabo. If you have any questions or need help,
+please raise a support ticket from your customer control panel.
+Last login: Wed Apr 29 09:11:26 2026 from 196.20.186.236
+ubuntu@vmi3267117:~$ redis-cli -u "rediss://default:AZSLAAIncDE1M2M1NDVmNzE3Nzg0Y2IyYWJkYzFlMjYyZWI0MzYyY3AxMzgwMjc@mature-antelope-38027.upstash.io:6379" ping
+Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe.
+^C
+ubuntu@vmi3267117:~$ curl -v --max-time 5 https://mature-antelope-38027.upstash.io:6379
+* Resolving timed out after 5000 milliseconds
+* Closing connection 0
+curl: (28) Resolving timed out after 5000 milliseconds
+ubuntu@vmi3267117:~$ redis-cli --tls -u redis://default:gQAAAAAAAapUAAIgcDFlYTQ1YmIwN2EyNzk0YzJjODViYTQ5OTc2MzMxM2IzYg@pleasant-bonefish-109140.upstash.io:6379 ping
+Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe.
+^C
+ubuntu@vmi3267117:~$ sudo systemctl start redis-server
+sudo systemctl enable redis-server
+sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://localhost:6379|' /home/ubuntu/critsend/.env
+cd /home/ubuntu/critsend
+pm2 kill
+dotenv -- pm2 start deploy/ecosystem.config.cjs --env production
+pm2 save
+pm2 logs --lines 30
+[sudo] password for ubuntu: 
+Synchronizing state of redis-server.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install enable redis-server
+[PM2] Applying action deleteProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-worker](1) ✓
+[PM2] [critsend-web](0) ✓
+[PM2] [v] All Applications Stopped
+[PM2] [v] PM2 Daemon Stopped
+[PM2] Spawning PM2 daemon with pm2_home=/home/ubuntu/.pm2
+[PM2] PM2 Successfully daemonized
+[PM2][WARN] Applications critsend-web, critsend-worker not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 46.6mb   │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 47.1mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[TAILING] Tailing last 30 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 30 lines:
+PM2        | 2026-04-29T09:21:29: PM2 log: pid=19339 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:21:30: PM2 log: pid=19339 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:21:30: PM2 log: pid=19339 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:21:30: PM2 log: pid=19339 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:21:30: PM2 log: pid=19339 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:21:30: PM2 log: pid=19339 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:21:30: PM2 log: App [critsend-web:0] exited with code [0] via signal [SIGINT]
+PM2        | 2026-04-29T09:21:30: PM2 log: pid=19339 msg=process killed
+PM2        | 2026-04-29T09:21:30: PM2 log: PM2 successfully stopped
+PM2        | 2026-04-29T09:21:31: PM2 log: ===============================================================================
+PM2        | 2026-04-29T09:21:31: PM2 log: --- New PM2 Daemon started ----------------------------------------------------
+PM2        | 2026-04-29T09:21:31: PM2 log: Time                 : Wed Apr 29 2026 09:21:31 GMT+0200 (Central European Summer Time)
+PM2        | 2026-04-29T09:21:31: PM2 log: PM2 version          : 6.0.14
+PM2        | 2026-04-29T09:21:31: PM2 log: Node.js version      : 20.20.2
+PM2        | 2026-04-29T09:21:31: PM2 log: Current arch         : x64
+PM2        | 2026-04-29T09:21:31: PM2 log: PM2 home             : /home/ubuntu/.pm2
+PM2        | 2026-04-29T09:21:31: PM2 log: PM2 PID file         : /home/ubuntu/.pm2/pm2.pid
+PM2        | 2026-04-29T09:21:31: PM2 log: RPC socket file      : /home/ubuntu/.pm2/rpc.sock
+PM2        | 2026-04-29T09:21:31: PM2 log: BUS socket file      : /home/ubuntu/.pm2/pub.sock
+PM2        | 2026-04-29T09:21:31: PM2 log: Application log path : /home/ubuntu/.pm2/logs
+PM2        | 2026-04-29T09:21:31: PM2 log: Worker Interval      : 30000
+PM2        | 2026-04-29T09:21:31: PM2 log: Process dump file    : /home/ubuntu/.pm2/dump.pm2
+PM2        | 2026-04-29T09:21:31: PM2 log: Concurrent actions   : 2
+PM2        | 2026-04-29T09:21:31: PM2 log: SIGTERM timeout      : 1600
+PM2        | 2026-04-29T09:21:31: PM2 log: Runtime Binary       : /home/ubuntu/.nvm/versions/node/v20.20.2/bin/node
+PM2        | 2026-04-29T09:21:31: PM2 log: ===============================================================================
+PM2        | 2026-04-29T09:21:32: PM2 log: App [critsend-web:0] starting in -fork mode-
+PM2        | 2026-04-29T09:21:32: PM2 log: App [critsend-worker:1] starting in -fork mode-
+PM2        | 2026-04-29T09:21:32: PM2 log: App [critsend-web:0] online
+PM2        | 2026-04-29T09:21:32: PM2 log: App [critsend-worker:1] online
+
+/var/log/critsend/worker-err.log last 30 lines:
+1|critsend | 2026-04-29 09:11:44 +02:00: 2026-04-29T07:11:44.251Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): Connection terminated due to connection timeout
+1|critsend | 2026-04-29 09:11:44 +02:00: Error: Connection terminated due to connection timeout
+1|critsend | 2026-04-29 09:11:44 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326
+1|critsend | 2026-04-29 09:11:44 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+1|critsend | 2026-04-29 09:11:44 +02:00:     at async yB (/home/ubuntu/critsend/dist/worker-main.cjs:914:78)
+1|critsend | 2026-04-29 09:11:44 +02:00:     at async /home/ubuntu/critsend/dist/worker-main.cjs:963:3610 {
+1|critsend | 2026-04-29 09:11:44 +02:00:   [cause]: Error: Connection terminated unexpectedly
+1|critsend | 2026-04-29 09:11:44 +02:00:       at Yu.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:2:4601)
+1|critsend | 2026-04-29 09:11:44 +02:00:       at Object.onceWrapper (node:events:638:28)
+1|critsend | 2026-04-29 09:11:44 +02:00:       at Yu.emit (node:events:524:28)
+1|critsend | 2026-04-29 09:11:44 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:1:53037)
+1|critsend | 2026-04-29 09:11:44 +02:00:       at Socket.emit (node:events:524:28)
+1|critsend | 2026-04-29 09:11:44 +02:00:       at TCP.<anonymous> (node:net:343:12)
+1|critsend | 2026-04-29 09:11:44 +02:00: }
+1|critsend | 2026-04-29 09:11:44 +02:00: 2026-04-29T07:11:44.263Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+1|critsend | 2026-04-29 09:11:50 +02:00: 2026-04-29T07:11:50.877Z [ERROR] [IMPORT POOL] startup probe FAILED — CSV imports will not work until connectivity is restored. mode=auto-derived pooler, error=This IP address 2a02:c207:2326:7117::1 is not allowed to connect to this endpoint. Please add it to the allowed list in the Neon console. Make sure to check for IPv4 or IPv6 addresses.. Fix: check NEON_DATABASE_URL, or set IMPORT_POOL_USE_DIRECT=true to bypass pooler auto-derivation.
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.309Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.310Z [WARN] [Redis/main] Reconnecting...
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.311Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.311Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.369Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.369Z [WARN] [Redis/main] Reconnecting...
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.372Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.372Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:12:15 +02:00: 2026-04-29T07:12:15.960Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:15 +02:00: 2026-04-29T07:12:15.961Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:12:26 +02:00: 2026-04-29T07:12:26.115Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:26 +02:00: 2026-04-29T07:12:26.116Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:15:43 +02:00: 2026-04-29T07:15:43.631Z [WARN] Pool keepalive query failed {"error":"Connection terminated due to connection timeout"}
+1|critsend | 2026-04-29 09:19:41 +02:00: 2026-04-29T07:19:41.714Z [WARN] Pool keepalive query failed {"error":"This IP address 2a02:c207:2326:7117::1 is not allowed to connect to this endpoint. Please add it to the allowed list in the Neon console. Make sure to check for IPv4 or IPv6 addresses."}
+
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-04-29 09:11:47 +02:00:     at async Dme (/home/ubuntu/critsend/dist/index.cjs:1057:79)
+0|critsend | 2026-04-29 09:11:47 +02:00:     at async /home/ubuntu/critsend/dist/index.cjs:1453:284 {
+0|critsend | 2026-04-29 09:11:47 +02:00:   [cause]: Error: Connection terminated unexpectedly
+0|critsend | 2026-04-29 09:11:47 +02:00:       at Zv.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:70:4623)
+0|critsend | 2026-04-29 09:11:47 +02:00:       at Object.onceWrapper (node:events:638:28)
+0|critsend | 2026-04-29 09:11:47 +02:00:       at Zv.emit (node:events:524:28)
+0|critsend | 2026-04-29 09:11:47 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:69:53624)
+0|critsend | 2026-04-29 09:11:47 +02:00:       at Socket.emit (node:events:524:28)
+0|critsend | 2026-04-29 09:11:47 +02:00:       at TCP.<anonymous> (node:net:343:12)
+0|critsend | 2026-04-29 09:11:47 +02:00: }
+0|critsend | 2026-04-29 09:11:47 +02:00: 2026-04-29T07:11:47.776Z [ERROR] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+0|critsend | 2026-04-29 09:11:51 +02:00: 2026-04-29T07:11:51.801Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:11:51 +02:00: 2026-04-29T07:11:51.802Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:11:51 +02:00: 2026-04-29T07:11:51.803Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:11:51 +02:00: 2026-04-29T07:11:51.803Z [WARN] [Redis/main] Reconnecting...
+0|critsend | 2026-04-29 09:12:01 +02:00: 2026-04-29T07:12:01.858Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:01 +02:00: 2026-04-29T07:12:01.859Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:12:01 +02:00: 2026-04-29T07:12:01.862Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:01 +02:00: 2026-04-29T07:12:01.863Z [WARN] [Redis/main] Reconnecting...
+0|critsend | 2026-04-29 09:12:15 +02:00: 2026-04-29T07:12:15.961Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:15 +02:00: 2026-04-29T07:12:15.964Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:12:26 +02:00: 2026-04-29T07:12:26.117Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:26 +02:00: 2026-04-29T07:12:26.117Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:12:41 +02:00: 2026-04-29T07:12:41.404Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:41 +02:00: 2026-04-29T07:12:41.405Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:12:51 +02:00: 2026-04-29T07:12:51.659Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:51 +02:00: 2026-04-29T07:12:51.659Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:15:42 +02:00: 2026-04-29T07:15:42.714Z [WARN] Pool keepalive query failed {"error":"Connection terminated due to connection timeout"}
+0|critsend | 2026-04-29 09:19:40 +02:00: 2026-04-29T07:19:40.798Z [WARN] Pool keepalive query failed {"error":"This IP address 2a02:c207:2326:7117::1 is not allowed to connect to this endpoint. Please add it to the allowed list in the Neon console. Make sure to check for IPv4 or IPv6 addresses."}
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.384Z [ERROR] Error closing HTTP server {"error":"Error [ERR_SERVER_NOT_RUNNING]: Server is not running."}
+
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-04-29 09:11:37 +02:00: 2026-04-29T07:11:37.755Z [INFO] Background workers stopped
+0|critsend | 2026-04-29 09:11:37 +02:00: 2026-04-29T07:11:37.755Z [INFO] NotifyQueue shut down
+0|critsend | 2026-04-29 09:11:37 +02:00: 2026-04-29T07:11:37.755Z [INFO] [BullMQ] Workers closed
+0|critsend | 2026-04-29 09:11:37 +02:00: 2026-04-29T07:11:37.755Z [INFO] [BullMQ] Queues closed
+0|critsend | 2026-04-29 09:11:37 +02:00: 2026-04-29T07:11:37.795Z [INFO] [Redis] Connections closed
+0|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.797Z [INFO] [TRACKING POOL] closed
+0|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.798Z [INFO] [IMPORT POOL] closed
+0|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.829Z [INFO] Database pool closed
+0|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.830Z [INFO] Graceful shutdown complete
+0|critsend | 2026-04-29 09:11:40 +02:00: 2026-04-29T07:11:40.708Z [INFO] Database SSL enabled for external connection (Neon)
+0|critsend | 2026-04-29 09:11:40 +02:00: 2026-04-29T07:11:40.710Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.284Z [INFO] [TRACKING POOL] configured: max=20, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.362Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.736Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.744Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":19339,"nodeVersion":"v20.20.2","gcExposed":true}
+0|critsend | 2026-04-29 09:12:06 +02:00: 2026-04-29T07:12:06.262Z [INFO] [Redis/main] Connected
+0|critsend | 2026-04-29 09:12:57 +02:00: 2026-04-29T07:12:57.025Z [INFO] [Redis/bullmq] Connected
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.362Z [INFO] Received SIGINT, starting graceful shutdown... {"signal":"SIGINT"}
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.366Z [INFO] [SHUTDOWN] Stopping all background workers...
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.375Z [INFO] Tag queue worker stopped
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.377Z [INFO] [SHUTDOWN] All background workers stopped
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.377Z [INFO] Background workers stopped
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.377Z [INFO] NotifyQueue shut down
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.390Z [INFO] [BullMQ] Workers closed
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.391Z [INFO] [BullMQ] Queues closed
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.411Z [INFO] [Redis] Connections closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.412Z [INFO] [TRACKING POOL] closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.413Z [INFO] [IMPORT POOL] closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.413Z [INFO] Database pool closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.413Z [INFO] Graceful shutdown complete
+
+/var/log/critsend/worker-out.log last 30 lines:
+1|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.942Z [INFO] NotifyQueue shut down
+1|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.943Z [INFO] [BullMQ] Workers closed
+1|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.943Z [INFO] [BullMQ] Queues closed
+1|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.966Z [INFO] [Redis] Connections closed
+1|critsend | 2026-04-29 09:11:39 +02:00: 2026-04-29T07:11:39.970Z [INFO] [IMPORT POOL] closed
+1|critsend | 2026-04-29 09:11:40 +02:00: 2026-04-29T07:11:40.971Z [INFO] [WORKER] Database pool closed
+1|critsend | 2026-04-29 09:11:40 +02:00: 2026-04-29T07:11:40.972Z [INFO] [WORKER] Graceful shutdown complete
+1|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.621Z [INFO] Database SSL enabled for external connection (Neon)
+1|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.626Z [INFO] PG pool configured: max=18, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:41.999Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:42.163Z [INFO] [WORKER] Worker process starting...
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:42.164Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:42.164Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:42.250Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":19351,"nodeVersion":"v20.20.2","processType":"worker"}
+1|critsend | 2026-04-29 09:12:06 +02:00: 2026-04-29T07:12:06.245Z [INFO] [Redis/main] Connected
+1|critsend | 2026-04-29 09:12:31 +02:00: 2026-04-29T07:12:31.439Z [INFO] [Redis/bullmq] Connected
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.401Z [INFO] [WORKER] Received SIGINT, starting graceful shutdown...
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.402Z [INFO] [SHUTDOWN] Stopping all background workers...
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.404Z [INFO] Tag queue worker stopped
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.405Z [INFO] [SHUTDOWN] All background workers stopped
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.405Z [INFO] [WORKER] Background workers stopped
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.405Z [INFO] NotifyQueue shut down
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.406Z [INFO] [BullMQ] Workers closed
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.406Z [INFO] [BullMQ] Queues closed
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.423Z [INFO] [Redis] Connections closed
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.425Z [INFO] [IMPORT POOL] closed
+1|critsend | 2026-04-29 09:21:29 +02:00: 2026-04-29T07:21:29.427Z [INFO] [WORKER] Database pool closed
+1|critsend | 2026-04-29 09:21:29 +02:00: 2026-04-29T07:21:29.427Z [INFO] [WORKER] Graceful shutdown complete
+1|critsend | 2026-04-29 09:21:32 +02:00: 2026-04-29T07:21:32.856Z [INFO] Database SSL enabled for external connection (Neon)
+1|critsend | 2026-04-29 09:21:32 +02:00: 2026-04-29T07:21:32.861Z [INFO] PG pool configured: max=18, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+
+0|critsend-web  | 2026-04-29 09:21:33 +02:00: 2026-04-29T07:21:33.285Z [INFO] Database SSL enabled for external connection (Neon)
+0|critsend-web  | 2026-04-29 09:21:33 +02:00: 2026-04-29T07:21:33.290Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+1|critsend-worker  | 2026-04-29 09:21:34 +02:00: 2026-04-29T07:21:34.525Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend-web     | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.056Z [INFO] [TRACKING POOL] configured: max=20, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend-web     | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.107Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend-worker  | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.202Z [INFO] [WORKER] Worker process starting...
+1|critsend-worker  | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.203Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+1|critsend-worker  | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.204Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+1|critsend-worker  | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.293Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":19820,"nodeVersion":"v20.20.2","processType":"worker"}
+1|critsend-worker  | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.303Z [WARN] [tracking_tokens] Bootstrap lock error: Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:21:36 +02:00: 2026-04-29T07:21:36.206Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend-web     | 2026-04-29 09:21:36 +02:00: 2026-04-29T07:21:36.214Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":19818,"nodeVersion":"v20.20.2","gcExposed":true}
+0|critsend-web     | 2026-04-29 09:21:36 +02:00: 2026-04-29T07:21:36.228Z [WARN] [tracking_tokens] Bootstrap lock error: Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:21:37 +02:00: 2026-04-29T07:21:37.102Z [WARN] [TRACKING] Bootstrap lock error: Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00: 2026-04-29T07:21:37.293Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00: Error: Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:     at async yB (/home/ubuntu/critsend/dist/worker-main.cjs:914:78)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:     at async /home/ubuntu/critsend/dist/worker-main.cjs:963:3610 {
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:   [cause]: Error: Connection terminated unexpectedly
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:       at Yu.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:2:4601)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:       at Object.onceWrapper (node:events:638:28)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:       at Yu.emit (node:events:524:28)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:1:53037)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:       at Socket.emit (node:events:524:28)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00:       at TCP.<anonymous> (node:net:343:12)
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00: }
+1|critsend-worker  | 2026-04-29 09:21:37 +02:00: 2026-04-29T07:21:37.306Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+0|critsend-web     | 2026-04-29 09:21:38 +02:00: 2026-04-29T07:21:38.218Z [ERROR] [CAMPAIGNS] Bootstrap migration FAILED: Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:21:38 +02:00: 2026-04-29T07:21:38.223Z [WARN] [SESSION] CREATE TABLE failed (likely already exists): Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:21:42 +02:00: 2026-04-29T07:21:42.227Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:21:42 +02:00: Error: Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13352
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:     at async Dme (/home/ubuntu/critsend/dist/index.cjs:1057:79)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:     at async /home/ubuntu/critsend/dist/index.cjs:1453:284 {
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:   [cause]: Error: Connection terminated unexpectedly
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:       at Zv.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:70:4623)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:       at Object.onceWrapper (node:events:638:28)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:       at Zv.emit (node:events:524:28)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:69:53624)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:       at Socket.emit (node:events:524:28)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00:       at TCP.<anonymous> (node:net:343:12)
+0|critsend-web     | 2026-04-29 09:21:42 +02:00: }
+0|critsend-web     | 2026-04-29 09:21:42 +02:00: 2026-04-29T07:21:42.246Z [ERROR] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+1|critsend-worker  | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.298Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+1|critsend-worker  | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.298Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend-worker  | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.299Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend-worker  | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.299Z [WARN] [Redis/main] Reconnecting...
+0|critsend-web     | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.222Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.225Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.226Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend-web     | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.227Z [WARN] [Redis/main] Reconnecting...
+1|critsend-worker  | 2026-04-29 09:21:50 +02:00: 2026-04-29T07:21:50.205Z [ERROR] [IMPORT POOL] startup probe FAILED — CSV imports will not work until connectivity is restored. mode=auto-derived pooler, error=Connection terminated due to connection timeout. Fix: check NEON_DATABASE_URL, or set IMPORT_POOL_USE_DIRECT=true to bypass pooler auto-derivation.
+1|critsend-worker  | 2026-04-29 09:21:55 +02:00: 2026-04-29T07:21:55.233Z [INFO] [Redis/bullmq] Connected
+1|critsend-worker  | 2026-04-29 09:21:55 +02:00: 2026-04-29T07:21:55.235Z [INFO] [Redis/main] Connected
+0|critsend-web     | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.278Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.279Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.280Z [WARN] [Redis/main] Reconnecting...
+0|critsend-web     | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.280Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend-web     | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.382Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.383Z [WARN] [Redis/main] Reconnecting...
+0|critsend-web     | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.386Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.387Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend-web     | 2026-04-29 09:22:13 +02:00: 2026-04-29T07:22:13.587Z [INFO] [Redis/main] Connected
+0|critsend-web     | 2026-04-29 09:22:13 +02:00: 2026-04-29T07:22:13.590Z [INFO] [Redis/bullmq] Connected
+^C
+ubuntu@vmi3267117:~/critsend$ cd /home/ubuntu/critsend
+pm2 kill
+dotenv -- pm2 start deploy/ecosystem.config.cjs --env production
+pm2 save
+pm2 logs --lines 40
+[PM2] Applying action deleteProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-worker](1) ✓
+[PM2] [critsend-web](0) ✓
+[PM2] [v] All Applications Stopped
+[PM2] [v] PM2 Daemon Stopped
+[PM2] Spawning PM2 daemon with pm2_home=/home/ubuntu/.pm2
+[PM2] PM2 Successfully daemonized
+[PM2][WARN] Applications critsend-web, critsend-worker not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 29.6mb   │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 27.3mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[TAILING] Tailing last 40 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 40 lines:
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19820 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19820 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:52: PM2 log: App [critsend-worker:1] exited with code [0] via signal [SIGINT]
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19820 msg=process killed
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:52: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:53: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:53: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:53: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:53: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:53: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:53: PM2 log: pid=19818 msg=failed to kill - retrying in 100ms
+PM2        | 2026-04-29T09:23:53: PM2 log: App [critsend-web:0] exited with code [0] via signal [SIGINT]
+PM2        | 2026-04-29T09:23:53: PM2 log: pid=19818 msg=process killed
+PM2        | 2026-04-29T09:23:53: PM2 log: PM2 successfully stopped
+PM2        | 2026-04-29T09:23:54: PM2 log: ===============================================================================
+PM2        | 2026-04-29T09:23:54: PM2 log: --- New PM2 Daemon started ----------------------------------------------------
+PM2        | 2026-04-29T09:23:54: PM2 log: Time                 : Wed Apr 29 2026 09:23:54 GMT+0200 (Central European Summer Time)
+PM2        | 2026-04-29T09:23:54: PM2 log: PM2 version          : 6.0.14
+PM2        | 2026-04-29T09:23:54: PM2 log: Node.js version      : 20.20.2
+PM2        | 2026-04-29T09:23:54: PM2 log: Current arch         : x64
+PM2        | 2026-04-29T09:23:54: PM2 log: PM2 home             : /home/ubuntu/.pm2
+PM2        | 2026-04-29T09:23:54: PM2 log: PM2 PID file         : /home/ubuntu/.pm2/pm2.pid
+PM2        | 2026-04-29T09:23:54: PM2 log: RPC socket file      : /home/ubuntu/.pm2/rpc.sock
+PM2        | 2026-04-29T09:23:54: PM2 log: BUS socket file      : /home/ubuntu/.pm2/pub.sock
+PM2        | 2026-04-29T09:23:54: PM2 log: Application log path : /home/ubuntu/.pm2/logs
+PM2        | 2026-04-29T09:23:54: PM2 log: Worker Interval      : 30000
+PM2        | 2026-04-29T09:23:54: PM2 log: Process dump file    : /home/ubuntu/.pm2/dump.pm2
+PM2        | 2026-04-29T09:23:54: PM2 log: Concurrent actions   : 2
+PM2        | 2026-04-29T09:23:54: PM2 log: SIGTERM timeout      : 1600
+PM2        | 2026-04-29T09:23:54: PM2 log: Runtime Binary       : /home/ubuntu/.nvm/versions/node/v20.20.2/bin/node
+PM2        | 2026-04-29T09:23:54: PM2 log: ===============================================================================
+PM2        | 2026-04-29T09:23:55: PM2 log: App [critsend-web:0] starting in -fork mode-
+PM2        | 2026-04-29T09:23:55: PM2 log: App [critsend-worker:1] starting in -fork mode-
+PM2        | 2026-04-29T09:23:55: PM2 log: App [critsend-web:0] online
+PM2        | 2026-04-29T09:23:55: PM2 log: App [critsend-worker:1] online
+
+/var/log/critsend/worker-err.log last 40 lines:
+1|critsend | 2026-04-29 09:11:44 +02:00:       at Socket.emit (node:events:524:28)
+1|critsend | 2026-04-29 09:11:44 +02:00:       at TCP.<anonymous> (node:net:343:12)
+1|critsend | 2026-04-29 09:11:44 +02:00: }
+1|critsend | 2026-04-29 09:11:44 +02:00: 2026-04-29T07:11:44.263Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+1|critsend | 2026-04-29 09:11:50 +02:00: 2026-04-29T07:11:50.877Z [ERROR] [IMPORT POOL] startup probe FAILED — CSV imports will not work until connectivity is restored. mode=auto-derived pooler, error=This IP address 2a02:c207:2326:7117::1 is not allowed to connect to this endpoint. Please add it to the allowed list in the Neon console. Make sure to check for IPv4 or IPv6 addresses.. Fix: check NEON_DATABASE_URL, or set IMPORT_POOL_USE_DIRECT=true to bypass pooler auto-derivation.
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.309Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.310Z [WARN] [Redis/main] Reconnecting...
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.311Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:11:52 +02:00: 2026-04-29T07:11:52.311Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.369Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.369Z [WARN] [Redis/main] Reconnecting...
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.372Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:02 +02:00: 2026-04-29T07:12:02.372Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:12:15 +02:00: 2026-04-29T07:12:15.960Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:15 +02:00: 2026-04-29T07:12:15.961Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:12:26 +02:00: 2026-04-29T07:12:26.115Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:12:26 +02:00: 2026-04-29T07:12:26.116Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:15:43 +02:00: 2026-04-29T07:15:43.631Z [WARN] Pool keepalive query failed {"error":"Connection terminated due to connection timeout"}
+1|critsend | 2026-04-29 09:19:41 +02:00: 2026-04-29T07:19:41.714Z [WARN] Pool keepalive query failed {"error":"This IP address 2a02:c207:2326:7117::1 is not allowed to connect to this endpoint. Please add it to the allowed list in the Neon console. Make sure to check for IPv4 or IPv6 addresses."}
+1|critsend | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.303Z [WARN] [tracking_tokens] Bootstrap lock error: Connection terminated due to connection timeout
+1|critsend | 2026-04-29 09:21:37 +02:00: 2026-04-29T07:21:37.293Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): Connection terminated due to connection timeout
+1|critsend | 2026-04-29 09:21:37 +02:00: Error: Connection terminated due to connection timeout
+1|critsend | 2026-04-29 09:21:37 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326
+1|critsend | 2026-04-29 09:21:37 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+1|critsend | 2026-04-29 09:21:37 +02:00:     at async yB (/home/ubuntu/critsend/dist/worker-main.cjs:914:78)
+1|critsend | 2026-04-29 09:21:37 +02:00:     at async /home/ubuntu/critsend/dist/worker-main.cjs:963:3610 {
+1|critsend | 2026-04-29 09:21:37 +02:00:   [cause]: Error: Connection terminated unexpectedly
+1|critsend | 2026-04-29 09:21:37 +02:00:       at Yu.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:2:4601)
+1|critsend | 2026-04-29 09:21:37 +02:00:       at Object.onceWrapper (node:events:638:28)
+1|critsend | 2026-04-29 09:21:37 +02:00:       at Yu.emit (node:events:524:28)
+1|critsend | 2026-04-29 09:21:37 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:1:53037)
+1|critsend | 2026-04-29 09:21:37 +02:00:       at Socket.emit (node:events:524:28)
+1|critsend | 2026-04-29 09:21:37 +02:00:       at TCP.<anonymous> (node:net:343:12)
+1|critsend | 2026-04-29 09:21:37 +02:00: }
+1|critsend | 2026-04-29 09:21:37 +02:00: 2026-04-29T07:21:37.306Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+1|critsend | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.298Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.298Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.299Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend | 2026-04-29 09:21:45 +02:00: 2026-04-29T07:21:45.299Z [WARN] [Redis/main] Reconnecting...
+1|critsend | 2026-04-29 09:21:50 +02:00: 2026-04-29T07:21:50.205Z [ERROR] [IMPORT POOL] startup probe FAILED — CSV imports will not work until connectivity is restored. mode=auto-derived pooler, error=Connection terminated due to connection timeout. Fix: check NEON_DATABASE_URL, or set IMPORT_POOL_USE_DIRECT=true to bypass pooler auto-derivation.
+
+/var/log/critsend/web-err.log last 40 lines:
+0|critsend | 2026-04-29 09:12:26 +02:00: 2026-04-29T07:12:26.117Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:12:41 +02:00: 2026-04-29T07:12:41.404Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:41 +02:00: 2026-04-29T07:12:41.405Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:12:51 +02:00: 2026-04-29T07:12:51.659Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:12:51 +02:00: 2026-04-29T07:12:51.659Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:15:42 +02:00: 2026-04-29T07:15:42.714Z [WARN] Pool keepalive query failed {"error":"Connection terminated due to connection timeout"}
+0|critsend | 2026-04-29 09:19:40 +02:00: 2026-04-29T07:19:40.798Z [WARN] Pool keepalive query failed {"error":"This IP address 2a02:c207:2326:7117::1 is not allowed to connect to this endpoint. Please add it to the allowed list in the Neon console. Make sure to check for IPv4 or IPv6 addresses."}
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.384Z [ERROR] Error closing HTTP server {"error":"Error [ERR_SERVER_NOT_RUNNING]: Server is not running."}
+0|critsend | 2026-04-29 09:21:36 +02:00: 2026-04-29T07:21:36.228Z [WARN] [tracking_tokens] Bootstrap lock error: Connection terminated due to connection timeout
+0|critsend | 2026-04-29 09:21:37 +02:00: 2026-04-29T07:21:37.102Z [WARN] [TRACKING] Bootstrap lock error: Connection terminated due to connection timeout
+0|critsend | 2026-04-29 09:21:38 +02:00: 2026-04-29T07:21:38.218Z [ERROR] [CAMPAIGNS] Bootstrap migration FAILED: Connection terminated due to connection timeout
+0|critsend | 2026-04-29 09:21:38 +02:00: 2026-04-29T07:21:38.223Z [WARN] [SESSION] CREATE TABLE failed (likely already exists): Connection terminated due to connection timeout
+0|critsend | 2026-04-29 09:21:42 +02:00: 2026-04-29T07:21:42.227Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): Connection terminated due to connection timeout
+0|critsend | 2026-04-29 09:21:42 +02:00: Error: Connection terminated due to connection timeout
+0|critsend | 2026-04-29 09:21:42 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13352
+0|critsend | 2026-04-29 09:21:42 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|critsend | 2026-04-29 09:21:42 +02:00:     at async Dme (/home/ubuntu/critsend/dist/index.cjs:1057:79)
+0|critsend | 2026-04-29 09:21:42 +02:00:     at async /home/ubuntu/critsend/dist/index.cjs:1453:284 {
+0|critsend | 2026-04-29 09:21:42 +02:00:   [cause]: Error: Connection terminated unexpectedly
+0|critsend | 2026-04-29 09:21:42 +02:00:       at Zv.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:70:4623)
+0|critsend | 2026-04-29 09:21:42 +02:00:       at Object.onceWrapper (node:events:638:28)
+0|critsend | 2026-04-29 09:21:42 +02:00:       at Zv.emit (node:events:524:28)
+0|critsend | 2026-04-29 09:21:42 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:69:53624)
+0|critsend | 2026-04-29 09:21:42 +02:00:       at Socket.emit (node:events:524:28)
+0|critsend | 2026-04-29 09:21:42 +02:00:       at TCP.<anonymous> (node:net:343:12)
+0|critsend | 2026-04-29 09:21:42 +02:00: }
+0|critsend | 2026-04-29 09:21:42 +02:00: 2026-04-29T07:21:42.246Z [ERROR] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+0|critsend | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.222Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.225Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.226Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:21:46 +02:00: 2026-04-29T07:21:46.227Z [WARN] [Redis/main] Reconnecting...
+0|critsend | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.278Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.279Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.280Z [WARN] [Redis/main] Reconnecting...
+0|critsend | 2026-04-29 09:21:56 +02:00: 2026-04-29T07:21:56.280Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.382Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.383Z [WARN] [Redis/main] Reconnecting...
+0|critsend | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.386Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend | 2026-04-29 09:22:06 +02:00: 2026-04-29T07:22:06.387Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.583Z [ERROR] Error closing HTTP server {"error":"Error [ERR_SERVER_NOT_RUNNING]: Server is not running."}
+
+/var/log/critsend/web-out.log last 40 lines:
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.284Z [INFO] [TRACKING POOL] configured: max=20, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.362Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.736Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend | 2026-04-29 09:11:41 +02:00: 2026-04-29T07:11:41.744Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":19339,"nodeVersion":"v20.20.2","gcExposed":true}
+0|critsend | 2026-04-29 09:12:06 +02:00: 2026-04-29T07:12:06.262Z [INFO] [Redis/main] Connected
+0|critsend | 2026-04-29 09:12:57 +02:00: 2026-04-29T07:12:57.025Z [INFO] [Redis/bullmq] Connected
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.362Z [INFO] Received SIGINT, starting graceful shutdown... {"signal":"SIGINT"}
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.366Z [INFO] [SHUTDOWN] Stopping all background workers...
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.375Z [INFO] Tag queue worker stopped
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.377Z [INFO] [SHUTDOWN] All background workers stopped
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.377Z [INFO] Background workers stopped
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.377Z [INFO] NotifyQueue shut down
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.390Z [INFO] [BullMQ] Workers closed
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.391Z [INFO] [BullMQ] Queues closed
+0|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.411Z [INFO] [Redis] Connections closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.412Z [INFO] [TRACKING POOL] closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.413Z [INFO] [IMPORT POOL] closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.413Z [INFO] Database pool closed
+0|critsend | 2026-04-29 09:21:30 +02:00: 2026-04-29T07:21:30.413Z [INFO] Graceful shutdown complete
+0|critsend | 2026-04-29 09:21:33 +02:00: 2026-04-29T07:21:33.285Z [INFO] Database SSL enabled for external connection (Neon)
+0|critsend | 2026-04-29 09:21:33 +02:00: 2026-04-29T07:21:33.290Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+0|critsend | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.056Z [INFO] [TRACKING POOL] configured: max=20, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.107Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-04-29 09:21:36 +02:00: 2026-04-29T07:21:36.206Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend | 2026-04-29 09:21:36 +02:00: 2026-04-29T07:21:36.214Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":19818,"nodeVersion":"v20.20.2","gcExposed":true}
+0|critsend | 2026-04-29 09:22:13 +02:00: 2026-04-29T07:22:13.587Z [INFO] [Redis/main] Connected
+0|critsend | 2026-04-29 09:22:13 +02:00: 2026-04-29T07:22:13.590Z [INFO] [Redis/bullmq] Connected
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.576Z [INFO] Received SIGINT, starting graceful shutdown... {"signal":"SIGINT"}
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.577Z [INFO] [SHUTDOWN] Stopping all background workers...
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.582Z [INFO] Tag queue worker stopped
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.582Z [INFO] [SHUTDOWN] All background workers stopped
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.582Z [INFO] Background workers stopped
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.582Z [INFO] NotifyQueue shut down
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.583Z [INFO] [BullMQ] Workers closed
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.583Z [INFO] [BullMQ] Queues closed
+0|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.594Z [INFO] [Redis] Connections closed
+0|critsend | 2026-04-29 09:23:53 +02:00: 2026-04-29T07:23:53.595Z [INFO] [TRACKING POOL] closed
+0|critsend | 2026-04-29 09:23:53 +02:00: 2026-04-29T07:23:53.596Z [INFO] [IMPORT POOL] closed
+0|critsend | 2026-04-29 09:23:53 +02:00: 2026-04-29T07:23:53.596Z [INFO] Database pool closed
+0|critsend | 2026-04-29 09:23:53 +02:00: 2026-04-29T07:23:53.596Z [INFO] Graceful shutdown complete
+
+/var/log/critsend/worker-out.log last 40 lines:
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:42.164Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:42.164Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+1|critsend | 2026-04-29 09:11:42 +02:00: 2026-04-29T07:11:42.250Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":19351,"nodeVersion":"v20.20.2","processType":"worker"}
+1|critsend | 2026-04-29 09:12:06 +02:00: 2026-04-29T07:12:06.245Z [INFO] [Redis/main] Connected
+1|critsend | 2026-04-29 09:12:31 +02:00: 2026-04-29T07:12:31.439Z [INFO] [Redis/bullmq] Connected
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.401Z [INFO] [WORKER] Received SIGINT, starting graceful shutdown...
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.402Z [INFO] [SHUTDOWN] Stopping all background workers...
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.404Z [INFO] Tag queue worker stopped
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.405Z [INFO] [SHUTDOWN] All background workers stopped
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.405Z [INFO] [WORKER] Background workers stopped
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.405Z [INFO] NotifyQueue shut down
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.406Z [INFO] [BullMQ] Workers closed
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.406Z [INFO] [BullMQ] Queues closed
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.423Z [INFO] [Redis] Connections closed
+1|critsend | 2026-04-29 09:21:28 +02:00: 2026-04-29T07:21:28.425Z [INFO] [IMPORT POOL] closed
+1|critsend | 2026-04-29 09:21:29 +02:00: 2026-04-29T07:21:29.427Z [INFO] [WORKER] Database pool closed
+1|critsend | 2026-04-29 09:21:29 +02:00: 2026-04-29T07:21:29.427Z [INFO] [WORKER] Graceful shutdown complete
+1|critsend | 2026-04-29 09:21:32 +02:00: 2026-04-29T07:21:32.856Z [INFO] Database SSL enabled for external connection (Neon)
+1|critsend | 2026-04-29 09:21:32 +02:00: 2026-04-29T07:21:32.861Z [INFO] PG pool configured: max=18, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+1|critsend | 2026-04-29 09:21:34 +02:00: 2026-04-29T07:21:34.525Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.202Z [INFO] [WORKER] Worker process starting...
+1|critsend | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.203Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+1|critsend | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.204Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+1|critsend | 2026-04-29 09:21:35 +02:00: 2026-04-29T07:21:35.293Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":19820,"nodeVersion":"v20.20.2","processType":"worker"}
+1|critsend | 2026-04-29 09:21:55 +02:00: 2026-04-29T07:21:55.233Z [INFO] [Redis/bullmq] Connected
+1|critsend | 2026-04-29 09:21:55 +02:00: 2026-04-29T07:21:55.235Z [INFO] [Redis/main] Connected
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.605Z [INFO] [WORKER] Received SIGINT, starting graceful shutdown...
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.608Z [INFO] [SHUTDOWN] Stopping all background workers...
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.614Z [INFO] Tag queue worker stopped
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.616Z [INFO] [SHUTDOWN] All background workers stopped
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.619Z [INFO] [WORKER] Background workers stopped
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.619Z [INFO] NotifyQueue shut down
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.619Z [INFO] [BullMQ] Workers closed
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.621Z [INFO] [BullMQ] Queues closed
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.626Z [INFO] [Redis] Connections closed
+1|critsend | 2026-04-29 09:23:51 +02:00: 2026-04-29T07:23:51.628Z [INFO] [IMPORT POOL] closed
+1|critsend | 2026-04-29 09:23:52 +02:00: 2026-04-29T07:23:52.629Z [INFO] [WORKER] Database pool closed
+1|critsend | 2026-04-29 09:23:52 +02:00: 2026-04-29T07:23:52.629Z [INFO] [WORKER] Graceful shutdown complete
+1|critsend | 2026-04-29 09:23:55 +02:00: 2026-04-29T07:23:55.641Z [INFO] Database SSL enabled for external connection (Neon)
+1|critsend | 2026-04-29 09:23:55 +02:00: 2026-04-29T07:23:55.646Z [INFO] PG pool configured: max=18, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+
+0|critsend-web  | 2026-04-29 09:23:55 +02:00: 2026-04-29T07:23:55.782Z [INFO] Database SSL enabled for external connection (Neon)
+0|critsend-web  | 2026-04-29 09:23:55 +02:00: 2026-04-29T07:23:55.785Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.056Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.227Z [INFO] [WORKER] Worker process starting...
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.228Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.228Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+0|critsend-web     | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.300Z [INFO] [TRACKING POOL] configured: max=20, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.314Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":19900,"nodeVersion":"v20.20.2","processType":"worker"}
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.331Z [INFO] [Redis/main] Connected
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.337Z [INFO] [Redis/bullmq] Connected
+0|critsend-web     | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.347Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend-web     | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.716Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend-web     | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.728Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":19899,"nodeVersion":"v20.20.2","gcExposed":true}
+0|critsend-web     | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.740Z [INFO] [Redis/bullmq] Connected
+0|critsend-web     | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.741Z [INFO] [Redis/main] Connected
+1|critsend-worker  | 2026-04-29 09:23:56 +02:00: 2026-04-29T07:23:56.755Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend-web     | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.499Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+0|critsend-web     | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.540Z [INFO] [TRACKING] Bootstrap migration: campaign_stats covering index already exists — skipping
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.718Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.725Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.727Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.728Z [INFO] [JOB_POLL] Starting job processor with worker ID: worker-19900-1777447436226, max concurrent campaigns: 12
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+0|critsend-web     | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.819Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.831Z [INFO] [JOB_POLL] Startup: cleaned up 4 orphaned processing jobs
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.832Z [INFO] Starting import job processor with worker ID: worker-19900-1777447436226
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.833Z [INFO] Starting flush job processor with worker ID: worker-19900-1777447436226
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.834Z [INFO] MTA recovery checker started (30s interval)
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.834Z [INFO] Stuck campaign recovery checker started (60s interval)
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.834Z [INFO] Starting tag queue worker...
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.835Z [INFO] [MAINTENANCE] Starting maintenance worker (6h interval)
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.835Z [INFO] [SCHEDULE_POLL] Starting scheduled campaign poller (30s interval)
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.835Z [INFO] [FOLLOWUP_POLL] Starting follow-up spawner (60000ms interval)
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.836Z [INFO] [WORKER_HEARTBEAT] Started (every 10s, TTL 30s)
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.842Z [INFO] [BullMQ] Workers started: campaigns, imports, flushes
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.842Z [INFO] [WORKER] Deferring analytics rollup/backfill by 30000ms to avoid startup storm
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.842Z [INFO] [WORKER] All workers running
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+0|critsend-web     | 2026-04-29 09:23:57 +02:00: 2026-04-29T07:23:57.860Z [WARN] [tracking_tokens] Bootstrap lock error: Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+1|critsend-worker  | 2026-04-29 09:23:57 +02:00:              Current: 6.0.16
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.203Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.222Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 20 | Tracking pool: 20 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.223Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.225Z [INFO] [TRACKING BUFFER] flusher started: interval=1500ms, counterCoalesce=8000ms, maxQueue=50000, maxBatchPerType=5000, dedupeWindow=60000ms
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.225Z [INFO] [BOUNCE BUFFER] flusher started: interval=1500ms, maxQueue=25000, maxBatch=2000, dedupeWindow=60000ms
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.226Z [INFO] [COUNTER RECONCILER] started: interval=900000ms, window=24h
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.228Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.229Z [INFO] [SSE] Redis progress bridge started
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.233Z [INFO] [ANALYTICS] Cache invalidation subscriber started
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.235Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.236Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian started (polls every 30 s for stale pending jobs)
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.236Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian started (polls every 60 s for stuck campaigns)
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+0|critsend-web     | 2026-04-29 09:23:58 +02:00:              Current: 6.0.16
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+0|critsend-web     | 2026-04-29 09:23:58 +02:00:              Current: 6.0.16
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: It is highly recommended to use a minimum Redis version of 6.2.0
+0|critsend-web     | 2026-04-29 09:23:58 +02:00:              Current: 6.0.16
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.244Z [INFO] [Redis/sse-subscriber] Connected
+1|critsend-worker  | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.252Z [INFO] [IMPORT] GIN indexes integrity check passed
+1|critsend-worker  | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.254Z [INFO] [TRIGRAM] email_trgm_idx already exists — skipping
+1|critsend-worker  | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.254Z [INFO] [IMPORT] Email trigram index verified
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.562Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.581Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.701Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.713Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_campaign_type_idx — skipping
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.726Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.739Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_sent_at_idx — skipping
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.750Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_import_date_idx — skipping
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.759Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_suppressed_partial_idx — skipping
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.769Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.777Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_campaign_first_open_idx — skipping
+0|critsend-web     | 2026-04-29 09:23:58 +02:00: 2026-04-29T07:23:58.777Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+1|critsend-worker  | 2026-04-29 09:23:59 +02:00: 2026-04-29T07:23:59.262Z [INFO] [IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)
+1|critsend-worker  | 2026-04-29 09:23:59 +02:00: 2026-04-29T07:23:59.835Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend-worker  | 2026-04-29 09:23:59 +02:00: 2026-04-29T07:23:59.840Z [ERROR] [MAINTENANCE] Failed to seed default rules:
+1|critsend-worker  | 2026-04-29 09:24:00 +02:00: 2026-04-29T07:24:00.478Z [INFO] Processed 16 tag operations in 9 bulk groups
+0|critsend-web     | 2026-04-29 09:24:03 +02:00: 2026-04-29T07:24:03.226Z [ERROR] [TRACKING POOL] startup probe FAILED — tracking events will not persist until connectivity is restored. mode=auto-derived pooler, error=Connection terminated due to connection timeout. Fix: set NEON_TRACKING_DATABASE_URL to a valid pooled/direct URL, or set TRACKING_POOL_USE_DIRECT=true to bypass auto-derivation.
+

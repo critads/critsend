@@ -1,0 +1,27 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo certbot --nginx -d critsender.mahlesoldes.com -d critsender.mayasoldes.com -d critsender.mayesale.com -d critsender.rndamailing.com -d critsender.verysent.com -d critsender.rndaserver.com -d critsender.kammaspeed.com --non-interactive --agree-tos -m ianis@critads.com
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+Account registered.
+Requesting a certificate for critsender.mahlesoldes.com and 6 more domains
+
+Successfully received certificate.
+Certificate is saved at: /etc/letsencrypt/live/critsender.mahlesoldes.com/fullchain.pem
+Key is saved at:         /etc/letsencrypt/live/critsender.mahlesoldes.com/privkey.pem
+This certificate expires on 2026-07-28.
+These files will be updated when the certificate renews.
+Certbot has set up a scheduled task to automatically renew this certificate in the background.
+
+Deploying certificate
+Successfully deployed certificate for critsender.mahlesoldes.com to /etc/nginx/sites-enabled/critsend
+Successfully deployed certificate for critsender.mayasoldes.com to /etc/nginx/sites-enabled/critsend
+Successfully deployed certificate for critsender.mayesale.com to /etc/nginx/sites-enabled/critsend
+Successfully deployed certificate for critsender.rndamailing.com to /etc/nginx/sites-enabled/critsend
+Successfully deployed certificate for critsender.verysent.com to /etc/nginx/sites-enabled/critsend
+Successfully deployed certificate for critsender.rndaserver.com to /etc/nginx/sites-enabled/critsend
+Successfully deployed certificate for critsender.kammaspeed.com to /etc/nginx/sites-enabled/critsend
+Congratulations! You have successfully enabled HTTPS on https://critsender.mahlesoldes.com, https://critsender.mayasoldes.com, https://critsender.mayesale.com, https://critsender.rndamailing.com, https://critsender.verysent.com, https://critsender.rndaserver.com, and https://critsender.kammaspeed.com
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+If you like Certbot, please consider supporting our work by:
+ * Donating to ISRG / Let's Encrypt:   https://letsencrypt.org/donate
+ * Donating to EFF:                    https://eff.org/donate-le
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

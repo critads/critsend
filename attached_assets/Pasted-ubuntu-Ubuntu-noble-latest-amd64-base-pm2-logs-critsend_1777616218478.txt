@@ -1,0 +1,182 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ pm2 logs critsend-worker --lines 200 --nostream 2>&1 | grep -i -E "import|startup|start|error|fail|ready"
+1|critsend | 2026-05-01 00:07:03 +02:00: 2026-04-30T22:07:03.248Z [WARN] [CAMPAIGN 6a3c1e46-0c60-4bdb-afd6-8114a6cfcf13 job:9f735682] Batch 22: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 00:15:40 +02:00: 2026-04-30T22:15:40.660Z [WARN] [CAMPAIGN 5fbc7f62-f009-4cb7-a44d-f84b92f3d844 job:277b481f] Batch 21: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 00:35:30 +02:00: 2026-04-30T22:35:30.281Z [WARN] [CAMPAIGN 6a3c1e46-0c60-4bdb-afd6-8114a6cfcf13 job:9f735682] Batch 23: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 00:44:20 +02:00: 2026-04-30T22:44:20.836Z [WARN] [CAMPAIGN 5fbc7f62-f009-4cb7-a44d-f84b92f3d844 job:277b481f] Batch 22: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 01:12:33 +02:00: 2026-04-30T23:12:33.689Z [WARN] [CAMPAIGN 5fbc7f62-f009-4cb7-a44d-f84b92f3d844 job:277b481f] Batch 23: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 04:00:29 +02:00: 2026-05-01T02:00:29.071Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 1: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 04:27:59 +02:00: 2026-05-01T02:27:59.053Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 2: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 04:55:24 +02:00: 2026-05-01T02:55:24.141Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 3: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 05:00:31 +02:00: 2026-05-01T03:00:31.320Z [WARN] [CAMPAIGN e30c3b6b-1901-481b-9308-387f0473da48 job:541b1f5f] Batch 1: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 05:13:32 +02:00: 2026-05-01T03:13:32.421Z [ERROR] [MAINTENANCE] Error processing rule for campaign_jobs:
+1|critsend | 2026-05-01 05:13:32 +02:00: 2026-05-01T03:13:32.482Z [ERROR] [MAINTENANCE] Error processing rule for campaign_sends:
+1|critsend | 2026-05-01 05:13:32 +02:00: 2026-05-01T03:13:32.550Z [ERROR] [MAINTENANCE] Error processing rule for error_logs:
+1|critsend | 2026-05-01 05:13:32 +02:00: 2026-05-01T03:13:32.611Z [ERROR] [MAINTENANCE] Error processing rule for import_job_queue:
+1|critsend | 2026-05-01 05:13:32 +02:00: 2026-05-01T03:13:32.674Z [ERROR] [MAINTENANCE] Error processing rule for nullsink_captures:
+1|critsend | 2026-05-01 05:13:39 +02:00: 2026-05-01T03:13:39.254Z [ERROR] [MAINTENANCE] Error processing rule for pending_tag_operations:
+1|critsend | 2026-05-01 05:13:39 +02:00: 2026-05-01T03:13:39.313Z [ERROR] [MAINTENANCE] Error processing rule for session:
+1|critsend | 2026-05-01 05:13:39 +02:00: 2026-05-01T03:13:39.387Z [ERROR] [MAINTENANCE] Error processing rule for tracking_tokens:
+1|critsend | 2026-05-01 05:23:13 +02:00: 2026-05-01T03:23:13.641Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 4: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 05:28:39 +02:00: 2026-05-01T03:28:39.992Z [WARN] [CAMPAIGN e30c3b6b-1901-481b-9308-387f0473da48 job:541b1f5f] Batch 2: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 05:51:00 +02:00: 2026-05-01T03:51:00.592Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 5: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 05:56:53 +02:00: 2026-05-01T03:56:53.782Z [WARN] [CAMPAIGN e30c3b6b-1901-481b-9308-387f0473da48 job:541b1f5f] Batch 3: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:00:31 +02:00: 2026-05-01T04:00:31.519Z [WARN] [CAMPAIGN 681e8c89-6664-49cd-a03f-00725079436a job:65fd0982] Batch 1: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:00:33 +02:00: 2026-05-01T04:00:33.350Z [WARN] [CAMPAIGN 2d7639fe-2353-4fe7-93c8-d8a9b09954c1 job:f53c4697] Batch 1: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:18:59 +02:00: 2026-05-01T04:18:59.801Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 6: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:25:33 +02:00: 2026-05-01T04:25:33.978Z [WARN] [CAMPAIGN e30c3b6b-1901-481b-9308-387f0473da48 job:541b1f5f] Batch 4: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:28:08 +02:00: 2026-05-01T04:28:08.658Z [WARN] [CAMPAIGN 681e8c89-6664-49cd-a03f-00725079436a job:65fd0982] Batch 2: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:29:28 +02:00: 2026-05-01T04:29:28.397Z [WARN] [CAMPAIGN 2d7639fe-2353-4fe7-93c8-d8a9b09954c1 job:f53c4697] Batch 2: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:47:17 +02:00: 2026-05-01T04:47:17.325Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 7: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:54:10 +02:00: 2026-05-01T04:54:10.962Z [WARN] [CAMPAIGN e30c3b6b-1901-481b-9308-387f0473da48 job:541b1f5f] Batch 5: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:55:40 +02:00: 2026-05-01T04:55:40.857Z [WARN] [CAMPAIGN 681e8c89-6664-49cd-a03f-00725079436a job:65fd0982] Batch 3: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 06:58:08 +02:00: 2026-05-01T04:58:08.493Z [WARN] [CAMPAIGN 2d7639fe-2353-4fe7-93c8-d8a9b09954c1 job:f53c4697] Batch 3: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:00:40 +02:00: 2026-05-01T05:00:40.466Z [WARN] [CAMPAIGN f0451c52-e487-498a-a9ba-565fadf10632 job:7ed5e5d5] Batch 1: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:00:42 +02:00: 2026-05-01T05:00:42.967Z [WARN] [CAMPAIGN 3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb job:4ca959ec] Batch 1: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:15:58 +02:00: 2026-05-01T05:15:58.242Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 8: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:23:41 +02:00: 2026-05-01T05:23:41.880Z [WARN] [CAMPAIGN 681e8c89-6664-49cd-a03f-00725079436a job:65fd0982] Batch 4: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:23:48 +02:00: 2026-05-01T05:23:48.029Z [WARN] [CAMPAIGN e30c3b6b-1901-481b-9308-387f0473da48 job:541b1f5f] Batch 6: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:27:47 +02:00: 2026-05-01T05:27:47.807Z [WARN] [CAMPAIGN 2d7639fe-2353-4fe7-93c8-d8a9b09954c1 job:f53c4697] Batch 4: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:30:30 +02:00: 2026-05-01T05:30:30.095Z [WARN] [CAMPAIGN f0451c52-e487-498a-a9ba-565fadf10632 job:7ed5e5d5] Batch 2: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:30:31 +02:00: 2026-05-01T05:30:31.483Z [WARN] [CAMPAIGN 3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb job:4ca959ec] Batch 2: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:44:58 +02:00: 2026-05-01T05:44:58.703Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 9: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:51:43 +02:00: 2026-05-01T05:51:43.755Z [WARN] [CAMPAIGN 681e8c89-6664-49cd-a03f-00725079436a job:65fd0982] Batch 5: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:53:28 +02:00: 2026-05-01T05:53:28.302Z [WARN] [CAMPAIGN e30c3b6b-1901-481b-9308-387f0473da48 job:541b1f5f] Batch 7: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 07:57:21 +02:00: 2026-05-01T05:57:21.971Z [WARN] [CAMPAIGN 2d7639fe-2353-4fe7-93c8-d8a9b09954c1 job:f53c4697] Batch 5: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 08:00:14 +02:00: 2026-05-01T06:00:14.838Z [WARN] [CAMPAIGN f0451c52-e487-498a-a9ba-565fadf10632 job:7ed5e5d5] Batch 3: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 08:00:16 +02:00: 2026-05-01T06:00:16.325Z [WARN] [CAMPAIGN 3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb job:4ca959ec] Batch 3: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 08:00:34 +02:00: 2026-05-01T06:00:34.674Z [WARN] [CAMPAIGN 26ae1c54-f13c-4081-9c46-0590dda36d18 job:b777fb91] Batch 1: token generationfailed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 08:14:13 +02:00: 2026-05-01T06:14:13.118Z [WARN] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Batch 10: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-01 08:13:57 +02:00: 2026-05-01T06:13:57.502Z [INFO] [CAMPAIGN 917885f7-5018-4ca4-8169-f5e82cda26b7 job:e87bbc87] Progress 90000/185041 (355/min) - Sent: 90000, Failed: 0
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cat /home/ubuntu/critsend/deploy/ecosystem.config.cjs
+/**
+ * PM2 Ecosystem Config — Critsend
+ *
+ * Starts two isolated processes from compiled production artifacts (dist/):
+ *   critsend-web    — HTTP server, SSE, API        (dist/index.cjs)
+ *   critsend-worker — Background job engine         (dist/worker-main.cjs)
+ *
+ * Prerequisites: run `npm run build` before starting PM2 (deploy.sh does this).
+ *
+ * Usage:
+ *   pm2 start deploy/ecosystem.config.cjs --env production
+ *   pm2 reload deploy/ecosystem.config.cjs --env production   # zero-downtime reload
+ *   pm2 save                                                  # persist across reboots
+ *   pm2 startup                                               # generate systemd service
+ *
+ * Environment variables are loaded from .env (repo root).
+ * Set all [REQUIRED] vars there before first deploy — see .env.example.
+ */
+
+"use strict";
+
+module.exports = {
+  apps: [
+    {
+      name: "critsend-web",
+      script: "dist/index.cjs",
+      cwd: "/home/ubuntu/critsend",
+
+      // Load secrets and runtime config from the .env file at the repo root
+      env_file: ".env",
+
+      // Production-specific overrides (applied on top of .env when --env production)
+      env_production: {
+        NODE_ENV: "production",
+        PROCESS_TYPE: "web",
+        NODE_OPTIONS: "--max-old-space-size=4096 --expose-gc --dns-result-order=ipv4first",
+      },
+
+      max_restarts: 10,
+      restart_delay: 5000,
+      min_uptime: "10s",
+
+      out_file: "/var/log/critsend/web-out.log",
+      error_file: "/var/log/critsend/web-err.log",
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+
+      max_memory_restart: "2G",
+      kill_timeout: 30000,
+      wait_ready: false,
+      listen_timeout: 30000,
+    },
+    {
+      name: "critsend-worker",
+      script: "dist/worker-main.cjs",
+      cwd: "/home/ubuntu/critsend",
+
+      // Load secrets and runtime config from the .env file at the repo root
+      env_file: ".env",
+
+      // Production-specific overrides
+      env_production: {
+        NODE_ENV: "production",
+        PROCESS_TYPE: "worker",
+        NODE_OPTIONS: "--max-old-space-size=6144 --expose-gc --dns-result-order=ipv4first",
+        // Sized for ≥1.5× MAX_CONCURRENT_CAMPAIGNS. With campaign-sender now
+        // serializing prefetch + finalize, each in-flight campaign holds at
+        // most 1 main-pool conn at a time, so 18 slots comfortably cover
+        // 12 concurrent campaigns + tag queue + maintenance + heartbeats.
+        WORKER_PG_POOL_MAX: "18",
+        // Bumped 8→12 to realize the 12-concurrent campaign blast profile
+        // the pool safety net was sized for. With prefetch+finalize now
+        // serialized, each campaign holds ≤1 main-pool conn at a time, so
+        // 12 fits well inside the 18-slot worker pool.
+        MAX_CONCURRENT_CAMPAIGNS: "12",
+        // Per-request connection-lease cap. Any single HTTP request may hold
+        // at most this many DB clients concurrently — prevents one slow
+        // route from monopolizing the pool.
+        MAX_CONNECTIONS_PER_REQUEST: "2",
+      },
+
+      // Raised from 10 → 50 so PM2 doesn't give up after a burst of memory-triggered
+      // restarts during large imports (GIN index recreation uses significant RAM).
+      max_restarts: 50,
+      // 5-second pause between restarts to avoid rapid crash loops burning the restart budget.
+      restart_delay: 5000,
+      min_uptime: "10s",
+
+      out_file: "/var/log/critsend/worker-out.log",
+      error_file: "/var/log/critsend/worker-err.log",
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+
+      // Raised from 2G → 4G — large imports (376k+ rows) with GIN index recreation
+      // can use well over 2 GB; frequent memory-restarts deplete the restart budget.
+      max_memory_restart: "4G",
+      kill_timeout: 30000,
+    },
+  ],
+};
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ npx dotenv -e .env -- npx tsx -e "
+const { Pool } = require('pg');
+const pool = new Pool({ connectionString: process.env.NEON_DATABASE_URL || process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+pool.query('SELECT id, status, error, csv_file_path, created_at FROM import_job_queue ORDER BY created_at DESC LIMIT 5').then(r => { console.table(r.rows); pool.end(); });
+"
+Need to install the following packages:
+tsx@4.21.0
+Ok to proceed? (y) y
+
+/home/ubuntu/.npm/_npx/fd45a72a545557e9/node_modules/tsx/dist/register-D46fvsV_.cjs:3
+`)},"createLog"),x=I(g.bgLightYellow(g.black(" CJS "))),ae=I(g.bgBlue(" ESM ")),oe=[".cts",".mts",".ts",".tsx",".jsx"],ie=[".js",".cjs",".mjs"],k=[".ts",".tsx",".jsx"],F=o((s,e,r,n)=>{const t=Object.getOwnPropertyDescriptor(s,e);t?.set?s[e]=r:(!t||t.configurable)&&Object.defineProperty(s,e,{value:r,enumerable:t?.enumerable||n?.enumerable,writable:n?.writable??(t?t.writable:!0),configurable:n?.configurable??(t?t.configurable:!0)})},"safeSet"),ce=o((s,e,r)=>{const n=e[".js"],t=o((a,i)=>{if(s.enabled===!1)return n(a,i);const[c,f]=i.split("?");if((new URLSearchParams(f).get("namespace")??void 0)!==r)return n(a,i);x(2,"load",{filePath:i}),a.id.startsWith("data:text/javascript,")&&(a.path=m.dirname(c)),R.parent?.send&&R.parent.send({type:"dependency",path:c});const p=oe.some(h=>c.endsWith(h)),P=ie.some(h=>c.endsWith(h));if(!p&&!P)return n(a,c);let d=O.readFileSync(c,"utf8");if(c.endsWith(".cjs")){const h=w.transformDynamicImport(i,d);h&&(d=A()?$(h):h.code)}else if(p||w.isESM(d)){const h=w.transformSync(d,i,{tsconfigRaw:exports.fileMatcher?.(c)});d=A()?$(h):h.code}x(1,"loaded",{filePath:c}),a._compile(d,c)},"transformer");F(e,".js",t);for(const a of k)F(e,a,t,{enumerable:!r,writable:!0,configurable:!0});return F(e,".mjs",t,{writable:!0,configurable:!0}),()=>{e[".js"]===t&&(e[".js"]=n);for(const a of[...k,".mjs"])e[a]===t&&delete e[a]}},"createExtensions"),le=o(s=>e=>{if((e==="."||e===".."||e.endsWith("/.."))&&(e+="/"),_.test(e)){let r=m.join(e,"index.js");e.startsWith("./")&&(r=`./${r}`);try{return s(r)}catch{}}try{return s(e)}catch(r){const n=r;if(n.code==="MODULE_NOT_FOUND")try{return s(`${e}${m.sep}index.js`)}catch{}throw n}},"createImplicitResolver"),B=[".js",".json"],G=[".ts",".tsx",".jsx"],fe=[...G,...B],he=[...B,...G],y=Object.create(null);y[".js"]=[".ts",".tsx",".js",".jsx"],y[".jsx"]=[".tsx",".ts",".jsx",".js"],y[".cjs"]=[".cts"],y[".mjs"]=[".mts"];const X=o(s=>{const e=s.split("?"),r=e[1]?`?${e[1]}`:"",[n]=e,t=m.extname(n),a=[],i=y[t];if(i){const f=n.slice(0,-t.length);a.push(...i.map(l=>f+l+r))}const c=!(s.startsWith(v)||j(n))||n.includes(J)||n.includes("/node_modules/")?he:fe;return a.push(...c.map(f=>n+f+r)),a},"mapTsExtensions"),S=o((s,e,r)=>{if(x(3,"resolveTsFilename",{request:e,isDirectory:_.test(e),isTsParent:r,allowJs:exports.allowJs}),_.test(e)||!r&&!exports.allowJs)return;const n=X(e);if(n)for(const t of n)try{return s(t)}catch(a){const{code:i}=a;if(i!=="MODULE_NOT_FOUND"&&i!=="ERR_PACKAGE_PATH_NOT_EXPORTED")throw a}},"resolveTsFilename"),me=o((s,e)=>r=>{if(x(3,"resolveTsFilename",{request:r,isTsParent:e,isFilePath:j(r)}),j(r)){const n=S(s,r,e);if(n)return n}try{return s(r)}catch(n){const t=n;if(t.code==="MODULE_NOT_FOUND"){if(t.path){const i=t.message.match(/^Cannot find module '([^']+)'$/);if(i){const f=i[1],l=S(s,f,e);if(l)return l}const c=t.message.match(/^Cannot find module '([^']+)'. Please verify that the package.json has a valid "main" entry$/);if(c){const f=c[1],l=S(s,f,e);if(l)return l}}const a=S(s,r,e);if(a)return a}throw t}},"createTsExtensionResolver"),z="at cjsPreparseModuleExports (node:internal",de=o(s=>{const e=s.stack.split(`
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+
+Error: Cannot find module 'pg'
+Require stack:
+- /home/ubuntu/[eval]
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1207:15)
+    at nextResolveSimple (/home/ubuntu/.npm/_npx/fd45a72a545557e9/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+    at /home/ubuntu/.npm/_npx/fd45a72a545557e9/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+    at /home/ubuntu/.npm/_npx/fd45a72a545557e9/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+    at resolveTsPaths (/home/ubuntu/.npm/_npx/fd45a72a545557e9/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+    at /home/ubuntu/.npm/_npx/fd45a72a545557e9/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+    at m._resolveFilename (file:///home/ubuntu/.npm/_npx/fd45a72a545557e9/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+    at Module._load (node:internal/modules/cjs/loader:1038:27)
+    at Module.require (node:internal/modules/cjs/loader:1289:19)
+    at require (node:internal/modules/helpers:182:18) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/home/ubuntu/[eval]' ]
+}
+
+Node.js v20.20.2
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

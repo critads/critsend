@@ -1,0 +1,34 @@
+ubuntu@vmi3267117:~/critsend$ sudo certbot --nginx -d critsender.mahlesoldes.com -d critsender.mayasoldes.com -d critsender.mayesale.com -d critsender.rndamailing.com -d critsender.verysent.com -d critsender.rndaserver.com -d critsender.kammaspeed.com --non-interactive --agree-tos -m ianis@critads.com
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+Account registered.
+Requesting a certificate for critsender.mahlesoldes.com and 6 more domains
+
+Certbot failed to authenticate some domains (authenticator: nginx). The Certificate Authority reported these problems:
+  Domain: critsender.kammaspeed.com
+  Type:   connection
+  Detail: 54.36.173.140: Fetching http://critsender.kammaspeed.com/.well-known/acme-challenge/QFqA4etO6Dzi6Gh_ocQTjtCQhfUH9R56rEokWbWtlMQ: Connection refused
+
+  Domain: critsender.mayasoldes.com
+  Type:   connection
+  Detail: 62.171.170.92: Fetching http://critsender.mayasoldes.com/.well-known/acme-challenge/eJBq2fxvPcLydU6uPSp9P-h1e60QGCZ0QP-UCnHqNYg: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.mayesale.com
+  Type:   connection
+  Detail: 62.171.170.92: Fetching http://critsender.mayesale.com/.well-known/acme-challenge/bBJRXbPzJrUeYYyFWvmHd_XFM6yyaAySJHOVAy3E7eQ: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.rndaserver.com
+  Type:   connection
+  Detail: 62.171.170.92: Fetching http://critsender.rndaserver.com/.well-known/acme-challenge/PoJqK21bFZUawe5Cek2Dxe76B8fXLtRsIBcB6tuJRMM: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.verysent.com
+  Type:   connection
+  Detail: 62.171.170.92: Fetching http://critsender.verysent.com/.well-known/acme-challenge/H7o3tmDg3kqupZUKGEE3jnvyVZ0juPl8we5dym6wWBo: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.mahlesoldes.com
+  Type:   connection
+  Detail: During secondary validation: 62.171.170.92: Fetching http://critsender.mahlesoldes.com/.well-known/acme-challenge/PwVMOncZIEHUGqdMYrhmZm_bqOhtjh_jTxkUkmV0-ok: Timeout during connect (likely firewall problem)
+
+Hint: The Certificate Authority failed to verify the temporary nginx configuration changes made by Certbot. Ensure the listed domains point to this nginx server and that it is accessible from the internet.
+
+Some challenges have failed.
+Ask for help or search for solutions at https://community.letsencrypt.org. See the logfile /var/log/letsencrypt/letsencrypt.log or re-run Certbot with -v for more details.

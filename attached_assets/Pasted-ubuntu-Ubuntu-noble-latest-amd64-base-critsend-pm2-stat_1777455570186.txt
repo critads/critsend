@@ -1,0 +1,24 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 243.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 91.3mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ curl -s --max-time 30 localhost:5000/api/health
+{"status":"healthy","timestamp":"2026-04-29T09:38:43.306Z","uptime":1511,"database":{"healthy":true,"status":"connected","latencyMs":28,"pool":{"totalCount":1,"idleCount":1,"waitingCount":0},"pools":{"main":{"status":"healthy","healthy":true,"inUse":0,"idle":1,"waiting":0,"max":20},"tracking":{"status":"healthy","healthy":true,"inUse":1,"idle":0,"waiting":0,"max":20}}},"redis":{"configured":true,"status":"ok"},"bullmq":{"enabled":false},"memory":{"heapUsedMB":39,"heapTotalMB":43,"rssMB":242},"workers":{"jobProcessor":true,"importProcessor":true,"tagQueueWorker":true,"flushProcessor":true,"maintenanceWorker":true,"scheduledCampaignPoller":true,"source":"remote-worker","pid":21402,"processType":"worker","heartbeatAgeSeconds":1},"queues":{"campaignJobs":0,"importJobs":0,"pendingTags":152},"version":"1.0.0"}ubuntu@Ubuntu-nubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ curl -sI --max-time 10 https://critsender.critads.com/ | head -10
+HTTP/2 200 
+server: nginx/1.24.0 (Ubuntu)
+date: Wed, 29 Apr 2026 09:38:48 GMT
+content-type: text/html; charset=UTF-8
+content-length: 2218
+vary: Accept-Encoding
+content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+origin-agent-cluster: ?1
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ curl -sI --max-time 10 https://critsender.mahlesoldes.com/ | head -10
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo tail -20 /var/log/nginx/error.log
+2026/04/29 10:32:19 [notice] 18192#18192: using inherited sockets from "5;6;"
+2026/04/29 11:13:29 [error] 21352#21352: *45719 connect() failed (111: Connection refused) while connecting to upstream, client: 138.68.144.227, server: critsender.critads.com, request: "GET /debug/default/view?panel=config HTTP/1.1", upstream: "http://127.0.0.1:5000/debug/default/view?panel=config", host: "critsender.critads.com"
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

@@ -1,0 +1,186 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo tee /etc/nginx/sites-available/critsend <<'NGINXEOF'
+upstream critsend_app {
+    server 127.0.0.1:5000;
+    keepalive 32;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+server {
+    listen 80;
+    server_name critsender.critads.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com critsender.rndaserver.com critsender.kammaspeed.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name critsender.critads.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.comNGINXEOFproxy_connect_timeout 10s;ed-Proto $scheme;_x_forwarded_for;cript applicati
+upstream critsend_app {
+    server 127.0.0.1:5000;
+    keepalive 32;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+server {
+    listen 80;
+    server_name critsender.critads.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com critsender.rndaserver.com critsender.kammaspeed.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name critsender.critads.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com critsender.rndaserver.com critsender.kammaspeed.com;
+
+    ssl_certificate /etc/letsencrypt/live/critsender.critads.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/critsender.critads.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+    gzip_min_length 256;
+    gzip_types text/plain text/css text/javascript application/javascript application/json application/xml image/svg+xml font/woff font/woff2;
+
+    client_max_body_size 1100m;
+    client_body_timeout 600s;
+
+    location /images/ {
+        alias /home/ubuntu/critsend/images/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        add_header Access-Control-Allow-Origin "*";
+        access_log off;
+    }
+
+    location ~ ^/campaigns/[^/]+/[^/]+/([^/]+)/([a-zA-Z0-9._-]+)$ {
+        alias /home/ubuntu/critsend/images/$1/$2;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        add_header Access-Control-Allow-Origin "*";
+        access_log off;
+    }
+
+    location ~ ^/api/jobs/stream {
+        proxy_pass http://critsend_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        add_header X-Accel-Buffering no;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://critsend_app;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_connect_timeout 10s;
+    }
+}
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo mkdir -p /var/www/certbot
+sudo nginx -t && sudo systemctl reload nginx
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo env PATH=$PATH:/home/ubuntu/.nvm/versions/node/v20.20.2/bin /home/ubuntu/.nvm/versions/node/v20.20.2/lib/node_modules/pm2/bin/pm2 startup systemd -u ubuntu --hp /home/ubuntu
+pm2 save
+[PM2] Init System found: systemd
+Platform systemd
+Template
+[Unit]
+Description=PM2 process manager
+Documentation=https://pm2.keymetrics.io/
+After=network.target
+
+[Service]
+Type=forking
+User=ubuntu
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+Environment=PATH=/home/ubuntu/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/ubuntu/.nvm/versions/node/v20.20.2/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=PM2_HOME=/home/ubuntu/.pm2
+PIDFile=/home/ubuntu/.pm2/pm2.pid
+Restart=on-failure
+
+ExecStart=/home/ubuntu/.nvm/versions/node/v20.20.2/lib/node_modules/pm2/bin/pm2 resurrect
+ExecReload=/home/ubuntu/.nvm/versions/node/v20.20.2/lib/node_modules/pm2/bin/pm2 reload all
+ExecStop=/home/ubuntu/.nvm/versions/node/v20.20.2/lib/node_modules/pm2/bin/pm2 kill
+
+[Install]
+WantedBy=multi-user.target
+
+Target path
+/etc/systemd/system/pm2-ubuntu.service
+Command list
+[ 'systemctl enable pm2-ubuntu' ]
+[PM2] Writing init configuration in /etc/systemd/system/pm2-ubuntu.service
+[PM2] Making script booting at startup...
+[PM2] [-] Executing: systemctl enable pm2-ubuntu...
+[PM2] [v] Command successfully executed.
++---------------------------------------+
+[PM2] Freeze a process list on reboot via:
+$ pm2 save
+
+[PM2] Remove init script via:
+$ pm2 unstartup systemd
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo tee /etc/logrotate.d/critsend <<'EOF'
+/var/log/critsend/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+}
+EOF
+/var/log/critsend/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+}
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

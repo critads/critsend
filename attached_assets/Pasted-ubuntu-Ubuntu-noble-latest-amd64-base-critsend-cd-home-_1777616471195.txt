@@ -1,0 +1,114 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && npx dotenv -e .env -- node -e "
+const { Pool } = require('pg');
+const p = new Pool({ connectionString: process.env.NEON_DATABASE_URL || process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+p.query('SELECT id, status, error_message, csv_file_path, created_at, worker_id FROM import_job_queue ORDER BY created_at DESC LIMIT 10').then(r => { console.log(JSON.stringify(r.rows, null, 2)); p.end(); }).catch(e => { console.error(e.message); p.end(); });
+"
+[
+  {
+    "id": "37497f08-aa09-40c5-aca6-297fdcb44a21",
+    "status": "failed",
+    "error_message": "CSV file not found: /home/ubuntu/critsend/uploads/imports/import-1777615015883-616598977.csv. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.",
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777615015883-616598977.csv",
+    "created_at": "2026-05-01T03:56:56.036Z",
+    "worker_id": "worker-21254-1777449986182"
+  },
+  {
+    "id": "a782c800-73e5-45a6-8b4a-3db13a4c9930",
+    "status": "failed",
+    "error_message": "CSV file not found: /home/ubuntu/critsend/uploads/imports/import-1777579894196-250549780.csv. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.",
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777579894196-250549780.csv",
+    "created_at": "2026-04-30T18:11:34.335Z",
+    "worker_id": "worker-21254-1777449986182"
+  },
+  {
+    "id": "75cc08a6-6ab0-428d-b82e-2196e7d150a2",
+    "status": "failed",
+    "error_message": "CSV file not found: /home/ubuntu/critsend/uploads/imports/import-1777579099463-803280417.csv. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.",
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777579099463-803280417.csv",
+    "created_at": "2026-04-30T17:58:19.596Z",
+    "worker_id": "worker-21254-1777449986182"
+  },
+  {
+    "id": "8df25622-c069-4e9a-8711-81e0dfb91650",
+    "status": "failed",
+    "error_message": "CSV file not found: /home/ubuntu/critsend/uploads/imports/import-1777487273384-977724993.csv. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.",
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777487273384-977724993.csv",
+    "created_at": "2026-04-29T16:27:53.593Z",
+    "worker_id": "worker-21254-1777449986182"
+  },
+  {
+    "id": "35e6caf0-499d-4eea-a841-5570d57ea131",
+    "status": "completed",
+    "error_message": null,
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777467049587-78839812.csv",
+    "created_at": "2026-04-29T10:50:49.661Z",
+    "worker_id": "worker-21402-1777454011891"
+  },
+  {
+    "id": "19090b37-7a68-4fc1-b070-27c1511cbc43",
+    "status": "cancelled",
+    "error_message": "Cancelled by user",
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777466995618-159674650.csv",
+    "created_at": "2026-04-29T10:49:55.706Z",
+    "worker_id": "worker-21402-1777454011891"
+  },
+  {
+    "id": "c64bd43d-5ef8-478f-8ded-ee4f9cd1fcba",
+    "status": "completed",
+    "error_message": null,
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777460572135-316970533.csv",
+    "created_at": "2026-04-29T09:02:52.256Z",
+    "worker_id": "worker-21254-1777449986182"
+  },
+  {
+    "id": "2e718d97-81e8-4b00-bb4d-9f3ab59b8b40",
+    "status": "failed",
+    "error_message": "CSV file not found: /home/ubuntu/critsend/uploads/imports/import-1777218764859-815097667.csv. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.",
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777218764859-815097667.csv",
+    "created_at": "2026-04-26T13:52:44.955Z",
+    "worker_id": "worker-114-1777219852551"
+  },
+  {
+    "id": "d4162cf4-279d-4283-bd66-81eb174f7b47",
+    "status": "completed",
+    "error_message": null,
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777216123503-828870039.csv",
+    "created_at": "2026-04-26T13:08:43.612Z",
+    "worker_id": "worker-1179-1777200523433"
+  },
+  {
+    "id": "6dc03465-b74b-4aa1-aef7-aea5b6182baa",
+    "status": "failed",
+    "error_message": "CSV file not found: /home/ubuntu/critsend/uploads/imports/import-1777195320615-893336254.csv. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.",
+    "csv_file_path": "/home/ubuntu/critsend/uploads/imports/import-1777195320615-893336254.csv",
+    "created_at": "2026-04-26T07:22:00.686Z",
+    "worker_id": "worker-2844-1777194386916"
+  }
+]
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && npx dotenv -e .env -- node -e "
+const { Pool } = require('pg');
+const p = new Pool({ connectionString: process.env.NEON_DATABASE_URL || process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+p.query('SELECT column_name FROM information_schema.columns WHERE table_name = \'import_jobs\' ORDER BY ordinal_position').then(r => { r.rows.forEach(row => console.log(row.column_name)); p.end(); }).catch(e => { console.error(e.message); p.end(); });
+"
+id
+filename
+total_rows
+processed_rows
+new_subscribers
+updated_subscribers
+failed_rows
+status
+tag_mode
+error_message
+created_at
+started_at
+completed_at
+import_target
+detected_refs
+clean_existing_refs
+delete_existing_refs
+failure_reasons
+skipped_rows
+forced_tags
+forced_refs
+remove_mode

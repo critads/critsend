@@ -1,0 +1,86 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ ls -la /home/ubuntu/critsend/uploads/imports/ | tail -10
+total 41344
+drwxrwxr-x 2 ubuntu ubuntu     4096 May  1 07:56 .
+drwxrwxr-x 4 ubuntu ubuntu     4096 Apr 29 10:57 ..
+-rw-rw-r-- 1 ubuntu ubuntu  7525781 Apr 29 10:35 05fd7e95-e117-484c-ac48-8a4167e75406.csv
+-rw-rw-r-- 1 ubuntu ubuntu  7525781 Apr 29 10:35 c7d5e318-891b-48d1-a9cb-cb3a42a164bb.csv
+-rw-rw-r-- 1 ubuntu ubuntu 12696822 Apr 29 20:27 import-1777487273384-977724993.csv
+-rw-rw-r-- 1 ubuntu ubuntu  4854798 Apr 30 21:58 import-1777579099463-803280417.csv
+-rw-rw-r-- 1 ubuntu ubuntu  4854798 Apr 30 22:11 import-1777579894196-250549780.csv
+-rw-rw-r-- 1 ubuntu ubuntu  4854798 May  1 07:56 import-1777615015883-616598977.csv
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ df -h /home/ubuntu/critsend/
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/md3        1.5T  1.5G  1.5T   1% /home
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ ls -la /home/ubuntu/critsend/uploads/
+total 16
+drwxrwxr-x  4 ubuntu ubuntu 4096 Apr 29 10:57 .
+drwxrwxr-x 17 ubuntu ubuntu 4096 Apr 29 11:13 ..
+drwxrwxr-x  2 ubuntu ubuntu 4096 Apr 29 10:57 chunks
+drwxrwxr-x  2 ubuntu ubuntu 4096 May  1 07:56 imports
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ pm2 logs critsend-web --lines 30 --nostream
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-05-01 08:08:42 +02:00: 2026-05-01T06:08:42.625Z [INFO] Unsubscribe request: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=d399a8c4-aef0-42fd-b0ea-a535b0afe53a
+0|critsend | 2026-05-01 08:08:43 +02:00: 2026-05-01T06:08:43.196Z [INFO] Unsubscribe request: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=72b5a24a-e9d7-46c1-964f-178f347208d1
+0|critsend | 2026-05-01 08:08:44 +02:00: 2026-05-01T06:08:44.005Z [INFO] Unsubscribe request: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=80797212-6e8d-4d8b-8db7-eca4db2a7128
+0|critsend | 2026-05-01 08:08:45 +02:00: 2026-05-01T06:08:45.694Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=3f75c015-7f3f-48e7-b7c4-8fb644f1b129
+0|critsend | 2026-05-01 08:08:48 +02:00: 2026-05-01T06:08:48.877Z [INFO] Unsubscribe request: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=69540bd9-1e6a-4c61-a736-3c0dd76117e9
+0|critsend | 2026-05-01 08:08:50 +02:00: 2026-05-01T06:08:50.105Z [INFO] Unsubscribe request: campaign=1eeb5433-2083-4f31-a81e-b6572f17846f, subscriber=a4e8a2ac-6d5f-454f-8e85-5475714b05be
+0|critsend | 2026-05-01 08:08:50 +02:00: 2026-05-01T06:08:50.829Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=3da9d897-3cae-477c-922f-1478f140cdce
+0|critsend | 2026-05-01 08:08:53 +02:00: 2026-05-01T06:08:53.502Z [INFO] Unsubscribe request: campaign=046e90b1-a67d-40de-8d8c-9768fe84b769, subscriber=da320cab-885b-4ceb-939f-bb2b812c20f5
+0|critsend | 2026-05-01 08:08:54 +02:00: 2026-05-01T06:08:54.638Z [INFO] Unsubscribe request: campaign=1eeb5433-2083-4f31-a81e-b6572f17846f, subscriber=f030139c-7fae-4317-afd8-b02327e6b098
+0|critsend | 2026-05-01 08:09:01 +02:00: 2026-05-01T06:09:01.215Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=046e90b1-a67d-40de-8d8c-9768fe84b769, subscriber=da320cab-885b-4ceb-939f-bb2b812c20f5
+0|critsend | 2026-05-01 08:09:03 +02:00: 2026-05-01T06:09:03.724Z [INFO] Unsubscribe request: campaign=899b3ac1-9506-420b-abac-96c33451161e, subscriber=bb54d040-6eae-4355-b43f-00492952861d
+0|critsend | 2026-05-01 08:09:05 +02:00: 2026-05-01T06:09:05.638Z [INFO] Unsubscribe request: campaign=899b3ac1-9506-420b-abac-96c33451161e, subscriber=bb54d040-6eae-4355-b43f-00492952861d
+0|critsend | 2026-05-01 08:09:05 +02:00: 2026-05-01T06:09:05.925Z [INFO] Unsubscribe request: campaign=899b3ac1-9506-420b-abac-96c33451161e, subscriber=bb54d040-6eae-4355-b43f-00492952861d
+0|critsend | 2026-05-01 08:09:06 +02:00: 2026-05-01T06:09:06.296Z [INFO] Unsubscribe request: campaign=899b3ac1-9506-420b-abac-96c33451161e, subscriber=bb54d040-6eae-4355-b43f-00492952861d
+0|critsend | 2026-05-01 08:09:08 +02:00: 2026-05-01T06:09:08.943Z [INFO] Unsubscribe request: campaign=aff2087a-f8ab-47e6-9e26-817845352208, subscriber=f0baa01c-eed2-4a2b-b0c3-b5e8ed8cbce7
+0|critsend | 2026-05-01 08:09:11 +02:00: 2026-05-01T06:09:11.331Z [INFO] Unsubscribe request: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=d6d81ced-140c-4a39-8c2c-a5b561d92eaf
+0|critsend | 2026-05-01 08:09:12 +02:00: 2026-05-01T06:09:12.084Z [INFO] Unsubscribe request: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=da320cab-885b-4ceb-939f-bb2b812c20f5
+0|critsend | 2026-05-01 08:09:13 +02:00: 2026-05-01T06:09:13.650Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=614720cb-e62a-43d2-b56a-a8a2618a6529
+0|critsend | 2026-05-01 08:09:19 +02:00: 2026-05-01T06:09:19.317Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=681e8c89-6664-49cd-a03f-00725079436a, subscriber=36d60f36-f770-4f81-838f-a33044d7afc7
+0|critsend | 2026-05-01 08:09:19 +02:00: 2026-05-01T06:09:19.680Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=da320cab-885b-4ceb-939f-bb2b812c20f5
+0|critsend | 2026-05-01 08:09:21 +02:00: 2026-05-01T06:09:21.625Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=50e72844-d066-4d7c-ab3e-b77339fadd5e
+0|critsend | 2026-05-01 08:09:22 +02:00: 2026-05-01T06:09:22.333Z [INFO] Unsubscribe request: campaign=046e90b1-a67d-40de-8d8c-9768fe84b769, subscriber=b2dc0dfe-a82b-4eff-b997-a927d8c4ac5e
+0|critsend | 2026-05-01 08:09:28 +02:00: 2026-05-01T06:09:28.148Z [INFO] Unsubscribe request: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=13da32f2-2743-445f-9682-8878878b60b5
+0|critsend | 2026-05-01 08:09:28 +02:00: 2026-05-01T06:09:28.624Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=614720cb-e62a-43d2-b56a-a8a2618a6529
+0|critsend | 2026-05-01 08:09:29 +02:00: 2026-05-01T06:09:29.087Z [INFO] Unsubscribe request: campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=13e51764-c119-4b55-80aa-bcab4d365c2e
+0|critsend | 2026-05-01 08:09:34 +02:00: 2026-05-01T06:09:34.137Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=046e90b1-a67d-40de-8d8c-9768fe84b769, subscriber=b2dc0dfe-a82b-4eff-b997-a927d8c4ac5e
+0|critsend | 2026-05-01 08:09:42 +02:00: 2026-05-01T06:09:42.191Z [INFO] Unsubscribe request: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=fa7b03e9-13f6-41bd-a1e8-1e0d0c2fc9db
+0|critsend | 2026-05-01 08:09:51 +02:00: 2026-05-01T06:09:51.838Z [INFO] Unsubscribe request: campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=3a594a02-7e71-4923-b931-3f97dc8cc151
+0|critsend | 2026-05-01 08:09:54 +02:00: 2026-05-01T06:09:54.580Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=e8fe96db-3d13-4511-b920-fc9d440d0c76
+0|critsend | 2026-05-01 08:09:59 +02:00: 2026-05-01T06:09:59.128Z [INFO] Unsubscribe request: campaign=aff2087a-f8ab-47e6-9e26-817845352208, subscriber=bc4a9f0d-85f2-4080-99f4-562351e34903
+
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-05-01 08:02:56 +02:00: 2026-05-01T06:02:56.521Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=000ece240983bd3f908b1229f9f600bf8193
+0|critsend | 2026-05-01 08:02:59 +02:00: 2026-05-01T06:02:59.572Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=000da779-308845ddf0974c3114-fefbc3dd
+0|critsend | 2026-05-01 08:03:00 +02:00: 2026-05-01T06:03:00.655Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=000a0097d452-3d3808-0b-7159d04b53dc2
+0|critsend | 2026-05-01 08:03:15 +02:00: 2026-05-01T06:03:15.282Z [WARN] Invalid tracking signature for unsubscribe: campaign=33ac4b50-d24e-5032-4a80-9276faa72f41, subscriber=6535d10f-16d6-1dd5-c8be-495e7614b888, sig=undefined...
+0|critsend | 2026-05-01 08:03:21 +02:00: 2026-05-01T06:03:21.900Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=000b0802ed7c54-ff-e83425944c0a4f8e57
+0|critsend | 2026-05-01 08:03:28 +02:00: 2026-05-01T06:03:28.777Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=0003535ca2afd4--6cef3a9ea-775bf084f4
+0|critsend | 2026-05-01 08:03:53 +02:00: 2026-05-01T06:03:53.116Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=000fd8e37239c71c099db2d9-45bb-fc304e
+0|critsend | 2026-05-01 08:04:00 +02:00: 2026-05-01T06:04:00.611Z [ERROR] Request timed out {"method":"GET","path":"/api/segments/counts","timeout":300000}
+0|critsend | 2026-05-01 08:04:00 +02:00: RangeError: Maximum call stack size exceeded
+0|critsend | 2026-05-01 08:04:00 +02:00:     at JSON.stringify (<anonymous>)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at zO (/home/ubuntu/critsend/dist/index.cjs:53:27993)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21606)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)
+0|critsend | 2026-05-01 08:04:00 +02:00:     at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)
+0|critsend | 2026-05-01 08:04:00 +02:00: 2026-05-01T06:04:00.629Z [ERROR] Uncaught Exception (non-fatal) {"error":"Maximum call stack size exceeded","stack":"RangeError: Maximum call stack size exceeded\n    at JSON.stringify (<anonymous>)\n    at zO (/home/ubuntu/critsend/dist/index.cjs:53:27993)\n    at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21606)\n    at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)\n    at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)\n    at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)\n    at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)\n    at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)\n    at gt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)\n    at ServerResponse.p [as send] (/home/ubuntu/critsend/dist/index.cjs:1446:7822)"}
+0|critsend | 2026-05-01 08:04:14 +02:00: 2026-05-01T06:04:14.517Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=00059d6ff195f0fc29f0e1345c1b-179063f
+0|critsend | 2026-05-01 08:04:17 +02:00: 2026-05-01T06:04:17.747Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=000d90e7-ba-63f5fad62a59925098a-60b3
+0|critsend | 2026-05-01 08:04:42 +02:00: 2026-05-01T06:04:42.337Z [WARN] Invalid tracking signature for click (lid): campaign=26ae1c54-f13c-4081-9c46-0590dda36d18, subscriber=0003dedd943a-6d-9004db-dd5c34f93fc18
+0|critsend | 2026-05-01 08:06:19 +02:00: 2026-05-01T06:06:19.052Z [WARN] Invalid tracking signature for unsubscribe: campaign=6a3c1e46-0c60-4bdb-afd6-8114a6cfcf13, subscriber=c66dcfc4-2a8a-4cad-b030-f1e1d1da6b57, sig=65e6bad2...
+0|critsend | 2026-05-01 08:06:19 +02:00: 2026-05-01T06:06:19.054Z [WARN] Invalid tracking signature for unsubscribe: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=c66dcfc4-2a8a-4cad-b030-f1e1d1da6b57, sig=a59cf08f...
+0|critsend | 2026-05-01 08:08:36 +02:00: 2026-05-01T06:08:36.664Z [WARN] Invalid tracking signature for unsubscribe: campaign=5fbc7f62-f009-4cb7-a44d-f84b92f3d844, subscriber=65e573b7-2559-48f2-bc0a-b24263433434, sig=e8fb4218...
+0|critsend | 2026-05-01 08:08:36 +02:00: 2026-05-01T06:08:36.686Z [WARN] Invalid tracking signature for unsubscribe: campaign=ca917de7-ad30-480b-9c3f-ee4dd2481380, subscriber=65e573b7-2559-48f2-bc0a-b24263433434, sig=b4ae4eda...
+0|critsend | 2026-05-01 08:08:37 +02:00: 2026-05-01T06:08:37.201Z [WARN] Invalid tracking signature for unsubscribe: campaign=046e90b1-a67d-40de-8d8c-9768fe84b769, subscriber=65e573b7-2559-48f2-bc0a-b24263433434, sig=25a84131...
+0|critsend | 2026-05-01 08:10:08 +02:00: 2026-05-01T06:10:08.064Z [WARN] Invalid tracking signature for unsubscribe: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=6f40e159-4cb5-46a0-8bf0-4ea4d8601084, sig=d98ed1c9...
+0|critsend | 2026-05-01 08:10:10 +02:00: 2026-05-01T06:10:10.749Z [WARN] Invalid tracking signature for unsubscribe: campaign=aff2087a-f8ab-47e6-9e26-817845352208, subscriber=6f40e159-4cb5-46a0-8bf0-4ea4d8601084, sig=a4092f6d...
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

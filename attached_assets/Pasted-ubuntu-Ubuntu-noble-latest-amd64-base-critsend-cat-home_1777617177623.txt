@@ -1,0 +1,95 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cat > /home/ubuntu/critsend/deploy/ecosystem.config.cjs << 'ECOSYSTEMEOF'
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+function loadEnvFile(envPath) {
+  try {
+    const content = fs.readFileSync(envPath, "utf8");
+    const env = {};
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let value = trimmed.slice(eqIdx + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+ECOSYSTEMEOFimeout: 30000,"4G",-DD HH:mm:ss Z",.log",pose-gc",v"));
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 stop all && pm2 delete all 
+pm2 start /home/ubuntu/critsend/deploy/ecosystem.config.cjs --env production
+pm2 save
+[PM2] Applying action stopProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ stopped   │ 0%       │ 0b       │
+│ 1  │ critsend-worker    │ fork     │ 0    │ stopped   │ 0%       │ 0b       │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Applying action deleteProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2][WARN] Applications critsend-web, critsend-worker not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 28.5mb   │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 18.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status && pm2 logs --lines 5 --nostream
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 272.8mb  │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 116.5mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 5 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 5 lines:
+PM2        | 2026-05-01T08:32:32: PM2 log: pid=41728 msg=process killed
+PM2        | 2026-05-01T08:32:32: PM2 log: App [critsend-web:0] starting in -fork mode-
+PM2        | 2026-05-01T08:32:32: PM2 log: App [critsend-worker:1] starting in -fork mode-
+PM2        | 2026-05-01T08:32:32: PM2 log: App [critsend-web:0] online
+PM2        | 2026-05-01T08:32:32: PM2 log: App [critsend-worker:1] online
+
+/var/log/critsend/web-err.log last 5 lines:
+0|critsend | 2026-05-01 08:31:12 +02:00: 2026-05-01T06:31:12.925Z [WARN] Invalid tracking signature for unsubscribe: campaign=0082ae0d-2ef2-461b-8d32-fa3dffd058ab, subscriber=032165a5-23b5-461d-a30f-38df109b34bb, sig=1bf68f3c...
+0|critsend | 2026-05-01 08:31:24 +02:00: 2026-05-01T06:31:24.034Z [WARN] Invalid tracking signature for unsubscribe: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=30ff0bf9-7d2a-4607-96fd-6436bfb0c724, sig=d0215fb7...
+0|critsend | 2026-05-01 08:31:24 +02:00: 2026-05-01T06:31:24.038Z [WARN] Invalid tracking signature for unsubscribe: campaign=e30c3b6b-1901-481b-9308-387f0473da48, subscriber=30ff0bf9-7d2a-4607-96fd-6436bfb0c724, sig=63cb99c1...
+0|critsend | 2026-05-01 08:31:43 +02:00: 2026-05-01T06:31:43.827Z [WARN] Invalid tracking signature for unsubscribe: campaign=95facb7d-6517-4754-9baf-721fcdea4090, subscriber=032165a5-23b5-461d-a30f-38df109b34bb, sig=85ef54bc...
+0|critsend | 2026-05-01 08:32:11 +02:00: 2026-05-01T06:32:11.698Z [ERROR] Graceful shutdown timed out, forcing exit
+
+/var/log/critsend/worker-err.log last 5 lines:
+1|critsend | 2026-05-01 08:32:16 +02:00: 2026-05-01T06:32:16.800Z [ERROR] [JOB_POLL] Failed to mark campaign 3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb as failed (attempt 3):
+1|critsend | 2026-05-01 08:32:16 +02:00: 2026-05-01T06:32:16.871Z [ERROR] [JOB_POLL] Failed to mark campaign 26ae1c54-f13c-4081-9c46-0590dda36d18 as failed (attempt 3):
+1|critsend | 2026-05-01 08:32:16 +02:00: 2026-05-01T06:32:16.968Z [ERROR] [JOB_POLL] Failed to mark campaign 96b92e54-def6-4d03-8ff6-7bf0ea8dd522 as failed (attempt 3):
+1|critsend | 2026-05-01 08:32:17 +02:00: 2026-05-01T06:32:17.115Z [ERROR] [JOB_POLL] Failed to mark campaign f0451c52-e487-498a-a9ba-565fadf10632 as failed (attempt 3):
+1|critsend | 2026-05-01 08:32:32 +02:00: 2026-05-01T06:32:32.269Z [ERROR] [WORKER] Graceful shutdown timed out, forcing exit
+
+/var/log/critsend/worker-out.log last 5 lines:
+1|critsend | 2026-05-01 08:32:33 +02:00: 2026-05-01T06:32:33.667Z [INFO] [TRIGRAM] email_trgm_idx already exists — skipping
+1|critsend | 2026-05-01 08:32:33 +02:00: 2026-05-01T06:32:33.667Z [INFO] [IMPORT] Email trigram index verified
+1|critsend | 2026-05-01 08:32:33 +02:00: 2026-05-01T06:32:33.667Z [INFO] [IMPORT] GIN indexes integrity check passed
+1|critsend | 2026-05-01 08:32:33 +02:00: 2026-05-01T06:32:33.696Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+1|critsend | 2026-05-01 08:32:34 +02:00: 2026-05-01T06:32:34.106Z [INFO] [MAINTENANCE] Default maintenance rules seeded
+
+/var/log/critsend/web-out.log last 5 lines:
+0|critsend | 2026-05-01 08:32:38 +02:00: 2026-05-01T06:32:38.782Z [INFO] Unsubscribe request: campaign=01bf807e-35e5-4605-aa57-18db1ffd0fb0, subscriber=3b6ab523-536e-402c-93fa-8a930c6c3844
+0|critsend | 2026-05-01 08:32:38 +02:00: 2026-05-01T06:32:38.848Z [INFO] Unsubscribe request: campaign=1eeb5433-2083-4f31-a81e-b6572f17846f, subscriber=b249c7b7-91e6-408e-9836-674fe5f1e909
+0|critsend | 2026-05-01 08:32:38 +02:00: 2026-05-01T06:32:38.980Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=553faac6-1f37-4515-a2bc-258dc422e334
+0|critsend | 2026-05-01 08:32:39 +02:00: 2026-05-01T06:32:39.281Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=553faac6-1f37-4515-a2bc-258dc422e334
+0|critsend | 2026-05-01 08:32:39 +02:00: 2026-05-01T06:32:39.287Z [INFO] Unsubscribe request: campaign=917885f7-5018-4ca4-8169-f5e82cda26b7, subscriber=553faac6-1f37-4515-a2bc-258dc422e334

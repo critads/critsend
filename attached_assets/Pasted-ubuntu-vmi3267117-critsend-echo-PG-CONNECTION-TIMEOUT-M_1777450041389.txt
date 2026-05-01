@@ -1,0 +1,25 @@
+ubuntu@vmi3267117:~/critsend$ echo 'PG_CONNECTION_TIMEOUT_MS=10000' >> /home/ubuntu/critsend/.env
+cd /home/ubuntu/critsend
+pm2 kill
+dotenv -- pm2 start deploy/ecosystem.config.cjs --env production
+pm2 save
+sleep 20 && curl localhost:5000/api/health
+[PM2] Applying action deleteProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+[PM2] [v] All Applications Stopped
+[PM2] [v] PM2 Daemon Stopped
+[PM2] Spawning PM2 daemon with pm2_home=/home/ubuntu/.pm2
+[PM2] PM2 Successfully daemonized
+[PM2][WARN] Applications critsend-web, critsend-worker not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 36.1mb   │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 36.2mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+{"status":"degraded","timestamp":"2026-04-29T08:07:02.574Z","uptime":38,"database":{"healthy":true,"status":"connected","latencyMs":9,"pool":{"totalCount":3,"idleCount":3,"waitingCount":0},"pools":{"main":{"status":"healthy","healthy":true,"inUse":0,"idle":3,"waiting":0,"max":20},"tracking":{"status":"healthy","healthy":true,"inUse":0,"idle":1,"waiting":0,"max":20}}},"redis":{"configured":true,"status":"ok"},"bullmq":{"enabled":false},"memory":{"heapUsedMB":38,"heapTotalMB":64,"rssMB":269},"workers":{"jobProcessor":false,"importProcessor":false,"tagQueueWorker":false,"flushProcessor":false,"maintenanceWorker":false,"scheduledCampaignPoller":false,"source":"remote-worker-missing"},"queues":{"campaignJobs":4,"importJobs":0,"pendingTags":152},"version":"1.0.0"}

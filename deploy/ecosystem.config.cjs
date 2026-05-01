@@ -13,11 +13,42 @@
  *   pm2 save                                                  # persist across reboots
  *   pm2 startup                                               # generate systemd service
  *
- * Environment variables are loaded from .env (repo root).
- * Set all [REQUIRED] vars there before first deploy — see .env.example.
+ * Environment variables are loaded from .env (repo root) via the loadEnvFile()
+ * helper below. PM2 does NOT natively support env_file, so we parse .env
+ * ourselves and merge into env_production.
  */
 
 "use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+function loadEnvFile(envPath) {
+  try {
+    const content = fs.readFileSync(envPath, "utf8");
+    const env = {};
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let value = trimmed.slice(eqIdx + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      env[key] = value;
+    }
+    return env;
+  } catch {
+    return {};
+  }
+}
+
+const dotenvVars = loadEnvFile(path.join(__dirname, "..", ".env"));
 
 module.exports = {
   apps: [
@@ -26,11 +57,8 @@ module.exports = {
       script: "dist/index.cjs",
       cwd: "/home/ubuntu/critsend",
 
-      // Load secrets and runtime config from the .env file at the repo root
-      env_file: ".env",
-
-      // Production-specific overrides (applied on top of .env when --env production)
       env_production: {
+        ...dotenvVars,
         NODE_ENV: "production",
         PROCESS_TYPE: "web",
         NODE_OPTIONS: "--max-old-space-size=4096 --expose-gc",
@@ -55,34 +83,17 @@ module.exports = {
       script: "dist/worker-main.cjs",
       cwd: "/home/ubuntu/critsend",
 
-      // Load secrets and runtime config from the .env file at the repo root
-      env_file: ".env",
-
-      // Production-specific overrides
       env_production: {
+        ...dotenvVars,
         NODE_ENV: "production",
         PROCESS_TYPE: "worker",
         NODE_OPTIONS: "--max-old-space-size=6144 --expose-gc",
-        // Sized for ≥1.5× MAX_CONCURRENT_CAMPAIGNS. With campaign-sender now
-        // serializing prefetch + finalize, each in-flight campaign holds at
-        // most 1 main-pool conn at a time, so 18 slots comfortably cover
-        // 12 concurrent campaigns + tag queue + maintenance + heartbeats.
         WORKER_PG_POOL_MAX: "18",
-        // Bumped 8→12 to realize the 12-concurrent campaign blast profile
-        // the pool safety net was sized for. With prefetch+finalize now
-        // serialized, each campaign holds ≤1 main-pool conn at a time, so
-        // 12 fits well inside the 18-slot worker pool.
         MAX_CONCURRENT_CAMPAIGNS: "12",
-        // Per-request connection-lease cap. Any single HTTP request may hold
-        // at most this many DB clients concurrently — prevents one slow
-        // route from monopolizing the pool.
         MAX_CONNECTIONS_PER_REQUEST: "2",
       },
 
-      // Raised from 10 → 50 so PM2 doesn't give up after a burst of memory-triggered
-      // restarts during large imports (GIN index recreation uses significant RAM).
       max_restarts: 50,
-      // 5-second pause between restarts to avoid rapid crash loops burning the restart budget.
       restart_delay: 5000,
       min_uptime: "10s",
 
@@ -91,8 +102,6 @@ module.exports = {
       merge_logs: true,
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
 
-      // Raised from 2G → 4G — large imports (376k+ rows) with GIN index recreation
-      // can use well over 2 GB; frequent memory-restarts deplete the restart budget.
       max_memory_restart: "4G",
       kill_timeout: 30000,
     },

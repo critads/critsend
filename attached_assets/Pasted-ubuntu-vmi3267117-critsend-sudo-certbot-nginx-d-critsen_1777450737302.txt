@@ -1,0 +1,29 @@
+ubuntu@vmi3267117:~/critsend$ sudo certbot --nginx -d critsender.mahlesoldes.com -d critsender.mayasoldes.com -d critsender.mayesale.com -d critsender.rndamailing.com -d critsender.verysent.com -d critsender.rndaserver.com -d critsender.kammaspeed.com --non-interactive --agree-tos -m ianis@critads.com
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+Requesting a certificate for critsender.mahlesoldes.com and 6 more domains
+
+Certbot failed to authenticate some domains (authenticator: nginx). The Certificate Authority reported these problems:
+  Domain: critsender.mahlesoldes.com
+  Type:   connection
+  Detail: 62.171.170.92: Fetching http://critsender.mahlesoldes.com/.well-known/acme-challenge/7fn7yKx2bylg5zddoFVFGrgdUxDtmw7ODqfqAiQHcuI: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.mayasoldes.com
+  Type:   connection
+  Detail: 62.171.170.92: Fetching http://critsender.mayasoldes.com/.well-known/acme-challenge/KEwotwsPZZF5JiVyUEAo9NG8MwXE0WETj-KgT7W4K-w: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.mayesale.com
+  Type:   connection
+  Detail: 62.171.170.92: Fetching http://critsender.mayesale.com/.well-known/acme-challenge/pwqhm--neyP98vUE6yaodQdiPHDA7OXpw8PxzJ5AJkA: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.kammaspeed.com
+  Type:   connection
+  Detail: During secondary validation: 62.171.170.92: Fetching http://critsender.kammaspeed.com/.well-known/acme-challenge/SYh5I3W4tsK-NlFoTRN_YSltA1e4cJRol52r7B-bY00: Timeout during connect (likely firewall problem)
+
+  Domain: critsender.verysent.com
+  Type:   connection
+  Detail: During secondary validation: 62.171.170.92: Fetching http://critsender.verysent.com/.well-known/acme-challenge/Y3sQPAaqxSOhtOcZ7i3sNOY33BqxHaeSTXjQNiOzZnI: Timeout during connect (likely firewall problem)
+
+Hint: The Certificate Authority failed to verify the temporary nginx configuration changes made by Certbot. Ensure the listed domains point to this nginx server and that it is accessible from the internet.
+
+Some challenges have failed.
+Ask for help or search for solutions at https://community.letsencrypt.org. See the logfile /var/log/letsencrypt/letsencrypt.log or re-run Certbot with -v for more details.

@@ -1,0 +1,72 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs --lines 0
+PM2      | App [critsend-web:0] starting in -fork mode-
+PM2      | App [critsend-web:0] online
+0|critsend-web  | 2026-05-01 08:27:09 +02:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:76:142167
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:137:210
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:623:556
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend-web  | 2026-05-01 08:27:09 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+PM2             | App [critsend-web:0] exited with code [0] via signal [SIGINT]
+PM2             | App [critsend-web:0] starting in -fork mode-
+PM2             | App [critsend-web:0] online
+0|critsend-web  | 2026-05-01 08:27:17 +02:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:76:142167
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:137:210
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:623:556
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend-web  | 2026-05-01 08:27:17 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+PM2             | App [critsend-web:0] exited with code [0] via signal [SIGINT]
+PM2             | App [critsend-web:0] starting in -fork mode-
+PM2             | App [critsend-web:0] online
+0|critsend-web  | 2026-05-01 08:27:25 +02:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:76:142167
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:137:210
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:623:556
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend-web  | 2026-05-01 08:27:25 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+PM2             | App [critsend-web:0] exited with code [0] via signal [SIGINT]
+PM2             | App [critsend-web:0] starting in -fork mode-
+PM2             | App [critsend-web:0] online
+0|critsend-web  | 2026-05-01 08:27:33 +02:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:76:142167
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:137:210
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:623:556
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend-web  | 2026-05-01 08:27:33 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+PM2             | App [critsend-web:0] exited with code [0] via signal [SIGINT]
+PM2             | App [critsend-web:0] starting in -fork mode-
+PM2             | App [critsend-web:0] online
+0|critsend-web  | 2026-05-01 08:27:41 +02:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:76:142167
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:137:210
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:623:556
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend-web  | 2026-05-01 08:27:41 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+PM2             | App [critsend-web:0] exited with code [0] via signal [SIGINT]
+PM2             | Script /home/ubuntu/critsend/dist/index.cjs had too many unstable restarts (10). Stopped. "errored"

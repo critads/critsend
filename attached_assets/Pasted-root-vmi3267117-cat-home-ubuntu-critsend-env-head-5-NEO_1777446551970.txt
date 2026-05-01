@@ -1,0 +1,168 @@
+root@vmi3267117:~# cat /home/ubuntu/critsend/.env | head -5
+NEON_DATABASE_URL="postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+REDIS_URL="rediss://default:AZSLAAIncDE1M2M1NDVmNzE3Nzg0Y2IyYWJkYzFlMjYyZWI0MzYyY3AxMzgwMjc@mature-antelope-38027.upstash.io:6379"
+SESSION_SECRET=ae9807a0a3fcbb8c7b3c23fd40455b42d6c75e9e1a3688f3daccf05d0da58783
+TRACKING_SECRET=91298cf19c3c28253f308160279ff0f58b39c048de833b8392caffef2104714f
+MTA_ENCRYPTION_KEY=a74b46157bedb0090edd5390fd655af746bf88948786d6664bec69166ba9d712
+root@vmi3267117:~# cd /home/ubuntu/critsend
+pm2 kill
+Command 'pm2' not found, did you mean:
+  command 'pm' from deb powerman (2.3.5-1build2)
+  command 'pmg' from deb python3-pymatgen (2022.0.17+dfsg1-1build1)
+  command 'gm2' from deb gm2 (4:11.2.0-1ubuntu1)
+  command 'pom2' from deb libpod-pom-perl (2.01-3)
+  command 'wm2' from deb wm2 (4+svn20090216-4build1)
+  command 'pmw' from deb pmw (1:4.50-1)
+  command 'pms' from deb pms (0.42-1build4)
+  command 'tpm2' from deb tpm2-tools (5.2-1build1)
+  command 'pmc' from deb linuxptp (3.1.1-3)
+  command 'pmi' from deb powermanagement-interface (0.3.21)
+Try: apt install <deb name>
+root@vmi3267117:/home/ubuntu/critsend# su - ubuntu
+ubuntu@vmi3267117:~$ cd /home/ubuntu/critsend
+pm2 kill
+npm install -g dotenv-cli
+dotenv -- pm2 start deploy/ecosystem.config.cjs --env production
+pm2 save
+pm2 logs --lines 20
+[PM2] Applying action deleteProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [all](0) ✓
+[PM2] [critsend-worker](1) ✓
+[PM2] [v] All Applications Stopped
+[PM2] [v] PM2 Daemon Stopped
+
+added 11 packages in 1s
+
+4 packages are looking for funding
+  run `npm fund` for details
+[PM2] Spawning PM2 daemon with pm2_home=/home/ubuntu/.pm2
+[PM2] PM2 Successfully daemonized
+[PM2][WARN] Applications critsend-web, critsend-worker not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 36.5mb   │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 30.5mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[TAILING] Tailing last 20 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 20 lines:
+PM2        | 2026-04-29T09:08:34: PM2 log: --- New PM2 Daemon started ----------------------------------------------------
+PM2        | 2026-04-29T09:08:34: PM2 log: Time                 : Wed Apr 29 2026 09:08:34 GMT+0200 (Central European Summer Time)
+PM2        | 2026-04-29T09:08:34: PM2 log: PM2 version          : 6.0.14
+PM2        | 2026-04-29T09:08:34: PM2 log: Node.js version      : 20.20.2
+PM2        | 2026-04-29T09:08:34: PM2 log: Current arch         : x64
+PM2        | 2026-04-29T09:08:34: PM2 log: PM2 home             : /home/ubuntu/.pm2
+PM2        | 2026-04-29T09:08:34: PM2 log: PM2 PID file         : /home/ubuntu/.pm2/pm2.pid
+PM2        | 2026-04-29T09:08:34: PM2 log: RPC socket file      : /home/ubuntu/.pm2/rpc.sock
+PM2        | 2026-04-29T09:08:34: PM2 log: BUS socket file      : /home/ubuntu/.pm2/pub.sock
+PM2        | 2026-04-29T09:08:34: PM2 log: Application log path : /home/ubuntu/.pm2/logs
+PM2        | 2026-04-29T09:08:34: PM2 log: Worker Interval      : 30000
+PM2        | 2026-04-29T09:08:34: PM2 log: Process dump file    : /home/ubuntu/.pm2/dump.pm2
+PM2        | 2026-04-29T09:08:34: PM2 log: Concurrent actions   : 2
+PM2        | 2026-04-29T09:08:34: PM2 log: SIGTERM timeout      : 1600
+PM2        | 2026-04-29T09:08:34: PM2 log: Runtime Binary       : /home/ubuntu/.nvm/versions/node/v20.20.2/bin/node
+PM2        | 2026-04-29T09:08:34: PM2 log: ===============================================================================
+PM2        | 2026-04-29T09:08:34: PM2 log: App [critsend-web:0] starting in -fork mode-
+PM2        | 2026-04-29T09:08:34: PM2 log: App [critsend-worker:1] starting in -fork mode-
+PM2        | 2026-04-29T09:08:34: PM2 log: App [critsend-web:0] online
+PM2        | 2026-04-29T09:08:34: PM2 log: App [critsend-worker:1] online
+
+/var/log/critsend/web-out.log last 20 lines:
+/var/log/critsend/worker-err.log last 20 lines:
+1|critsend | 2026-04-29 09:05:24 +02:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+1|critsend | 2026-04-29 09:05:24 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:8:138034
+1|critsend | 2026-04-29 09:05:24 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:1:225
+1|critsend | 2026-04-29 09:05:24 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:8:139271
+1|critsend | 2026-04-29 09:05:24 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:1:225
+1|critsend | 2026-04-29 09:05:24 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:963:240)
+1|critsend | 2026-04-29 09:05:24 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+1|critsend | 2026-04-29 09:05:24 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+1|critsend | 2026-04-29 09:05:24 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+1|critsend | 2026-04-29 09:05:24 +02:00:     at Module._load (node:internal/modules/cjs/loader:1091:12)
+1|critsend | 2026-04-29 09:05:24 +02:00:     at cjsLoader (node:internal/modules/esm/translators:298:15)
+
+/var/log/critsend/web-err.log last 20 lines:
+0|critsend | 2026-04-29 09:06:30 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-04-29 09:06:30 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:137:210
+0|critsend | 2026-04-29 09:06:30 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-04-29 09:06:30 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:623:556
+0|critsend | 2026-04-29 09:06:30 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-04-29 09:06:30 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend | 2026-04-29 09:06:30 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-04-29 09:06:30 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-04-29 09:06:30 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+0|critsend | 2026-04-29 09:06:38 +02:00: Error: NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?
+0|critsend | 2026-04-29 09:06:38 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:76:142167
+0|critsend | 2026-04-29 09:06:38 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-04-29 09:06:38 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:137:210
+0|critsend | 2026-04-29 09:06:38 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-04-29 09:06:38 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:623:556
+0|critsend | 2026-04-29 09:06:38 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+0|critsend | 2026-04-29 09:06:38 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1173:14709)
+0|critsend | 2026-04-29 09:06:38 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+0|critsend | 2026-04-29 09:06:38 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+0|critsend | 2026-04-29 09:06:38 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+
+/var/log/critsend/worker-out.log last 20 lines:
+1|critsend | 2026-04-29 09:08:35 +02:00: 2026-04-29T07:08:35.363Z [INFO] Database SSL enabled for external connection (Neon)
+1|critsend | 2026-04-29 09:08:35 +02:00: 2026-04-29T07:08:35.370Z [INFO] PG pool configured: max=18, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+
+0|critsend-web  | 2026-04-29 09:08:35 +02:00: 2026-04-29T07:08:35.486Z [INFO] Database SSL enabled for external connection (Neon)
+0|critsend-web  | 2026-04-29 09:08:35 +02:00: 2026-04-29T07:08:35.489Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+1|critsend-worker  | 2026-04-29 09:08:35 +02:00: 2026-04-29T07:08:35.840Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend-web     | 2026-04-29 09:08:35 +02:00: 2026-04-29T07:08:35.910Z [INFO] [TRACKING POOL] configured: max=20, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend-web     | 2026-04-29 09:08:35 +02:00: 2026-04-29T07:08:35.960Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend-worker  | 2026-04-29 09:08:36 +02:00: 2026-04-29T07:08:36.009Z [INFO] [WORKER] Worker process starting...
+1|critsend-worker  | 2026-04-29 09:08:36 +02:00: 2026-04-29T07:08:36.010Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+1|critsend-worker  | 2026-04-29 09:08:36 +02:00: 2026-04-29T07:08:36.010Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+1|critsend-worker  | 2026-04-29 09:08:36 +02:00: 2026-04-29T07:08:36.091Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":18996,"nodeVersion":"v20.20.2","processType":"worker"}
+0|critsend-web     | 2026-04-29 09:08:36 +02:00: 2026-04-29T07:08:36.328Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend-web     | 2026-04-29 09:08:36 +02:00: 2026-04-29T07:08:36.336Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":18994,"nodeVersion":"v20.20.2","gcExposed":true}
+1|critsend-worker  | 2026-04-29 09:08:37 +02:00: 2026-04-29T07:08:37.481Z [WARN] [tracking_tokens] Bootstrap lock error: Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:08:37 +02:00: 2026-04-29T07:08:37.566Z [WARN] [tracking_tokens] Bootstrap lock error: Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:08:37 +02:00: 2026-04-29T07:08:37.954Z [WARN] [TRACKING] Bootstrap lock error: Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00: 2026-04-29T07:08:38.093Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00: Error: Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:     at async yB (/home/ubuntu/critsend/dist/worker-main.cjs:914:78)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:     at async /home/ubuntu/critsend/dist/worker-main.cjs:963:3610 {
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:   [cause]: Error: Connection terminated unexpectedly
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:       at Yu.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:2:4601)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:       at Object.onceWrapper (node:events:638:28)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:       at Yu.emit (node:events:524:28)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/worker-main.cjs:1:53037)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:       at Socket.emit (node:events:524:28)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00:       at TCP.<anonymous> (node:net:343:12)
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00: }
+1|critsend-worker  | 2026-04-29 09:08:38 +02:00: 2026-04-29T07:08:38.107Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+0|critsend-web     | 2026-04-29 09:08:38 +02:00: 2026-04-29T07:08:38.335Z [WARN] [SESSION] CREATE TABLE failed (likely already exists): Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:08:38 +02:00: 2026-04-29T07:08:38.337Z [ERROR] [CAMPAIGNS] Bootstrap migration FAILED: Connection terminated due to connection timeout
+1|critsend-worker  | 2026-04-29 09:08:40 +02:00: 2026-04-29T07:08:40.673Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00: 2026-04-29T07:08:42.338Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:08:42 +02:00: Error: Connection terminated due to connection timeout
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13352
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:     at async Dme (/home/ubuntu/critsend/dist/index.cjs:1057:79)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:     at async /home/ubuntu/critsend/dist/index.cjs:1453:284 {
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:   [cause]: Error: Connection terminated unexpectedly
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:       at Zv.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:70:4623)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:       at Object.onceWrapper (node:events:638:28)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:       at Zv.emit (node:events:524:28)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:       at Socket.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:69:53624)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:       at Socket.emit (node:events:524:28)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00:       at TCP.<anonymous> (node:net:343:12)
+0|critsend-web     | 2026-04-29 09:08:42 +02:00: }
+0|critsend-web     | 2026-04-29 09:08:42 +02:00: 2026-04-29T07:08:42.352Z [ERROR] Unhandled Promise Rejection {"reason":"Connection terminated due to connection timeout"}
+1|critsend-worker  | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.147Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+1|critsend-worker  | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.148Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+1|critsend-worker  | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.154Z [WARN] [Redis/bullmq] Reconnecting...
+1|critsend-worker  | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.154Z [WARN] [Redis/main] Reconnecting...
+0|critsend-web     | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.383Z [WARN] [Redis/main] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.383Z [WARN] [Redis/bullmq] Connection error: connect ETIMEDOUT
+0|critsend-web     | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.384Z [WARN] [Redis/bullmq] Reconnecting...
+0|critsend-web     | 2026-04-29 09:08:46 +02:00: 2026-04-29T07:08:46.387Z [WARN] [Redis/main] Reconnecting...

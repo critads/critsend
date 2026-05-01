@@ -1,0 +1,28 @@
+ubuntu@vmi3267117:~/critsend$ cd /home/ubuntu/critsend
+pm2 kill
+dotenv -- pm2 start deploy/ecosystem.config.cjs --env production
+pm2 save
+sleep 15 && curl localhost:5000/api/health
+[PM2] Applying action deleteProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-worker](1) ✓
+[PM2] [critsend-web](0) ✓
+[PM2] [v] All Applications Stopped
+[PM2] [v] PM2 Daemon Stopped
+[PM2] Spawning PM2 daemon with pm2_home=/home/ubuntu/.pm2
+[PM2] PM2 Successfully daemonized
+[PM2][WARN] Applications critsend-web, critsend-worker not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 36.0mb   │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 36.5mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+{"error":"Request timed out"}ubuntu@vmi3267117:~/critsend$ cd /home/ubuntu/critsend && dotenv -- node -e "const {Pool} = require('pg'); const p = new Pool({connectionString: process.env.DATABASE_URL, ssl: {rejectUnauthorized: false}, connectionTimeoutMillis: 15000}); p.query('SELECT 1 as ok').then(r => {console.log('DB OK:', r.rows); p.end()}).catch(e => {console.error('DB FAIL:', e.message); p.end()})"
+DB OK: [ { ok: 1 } ]
+ubuntu@vmi3267117:~/critsend$ nc -zv -w 10 ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech 5432
+nc: connect to ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech (63.178.215.242) port 5432 (tcp) timed out: Operation now in progress
+Connection to ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech (3.69.34.233) 5432 port [tcp/postgresql] succeeded!

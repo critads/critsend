@@ -1,0 +1,494 @@
+
+Publish your app
+Domain
+Available
+mail-mastery
+.replit.app
+Who can access your app
+
+Public
+Anyone on the internet with the URL
+Production database settings
+Manage production database creation and how it's populated when publishing. Learn more
+An existing production database from a previous published app was found. Delete the existing database via the settings tab in the Database pane and create a new one.
+
+Create production database
+Engagement tools
+Enable feedback widget
+Add a feedback widget to the corner of your published app. Review submissions in your inbox and send to Agent for fixes.
+
+"Made with Replit" badge
+Display a "Made with Replit" referral badge on your published app, when someone signs up using your referral link, you earn credits. Learn more.
+
+
+Publish
+Adjust settings
+Manually configure machine settings, secrets, ports, and more.
+
+Isolate import operations into a dedicated database connection pool
+
+
+
+Show previous messages
+
+1 message & 3 actions
+
+Worked for 41 seconds
+can you make sure opener rate and click rate is based on unique click and unique per email per campaign
+
+4 months ago
+
+1 message & 1 action
+
+Worked for 14 seconds
+Start building
+4 months ago
+
+Checkpoint made
+4 months ago
+
+12 messages & 52 actions
+
+Checkpoint made
+4 months ago
+
+Worked for 5 minutes
+interrupted campaign sending due to MTA to be off doesnt restart even MTA is back ON
+
+4 months ago
+
+6 messages & 26 actions
+
+Checkpoint made
+4 months ago
+
+Worked for 2 minutes
+why the current 2 running sending campaigns does have failed sent count?
+
+4 months ago
+
+3 messages & 10 actions
+
+Worked for 56 seconds
+
+Published your app
+4 months ago
+Optimized Agent memory
+
+Worked for 32 seconds
+
+Testianis_1767075341594.csv
+when i import this list the tags are not saved properly any idea why?
+
+4 months ago
+
+3 messages & 6 actions
+
+Worked for 1 minute
+please send me an example how the csv should be formatted
+
+4 months ago
+
+1 message & 1 action
+
+Worked for 13 seconds
+according to this please update the csv format explaination
+
+
+div
+4 months ago
+
+Decided on CSV tag separator (6 seconds)
+I need to update the CSV format documentation to match the actual implementation (semicolon-separated tags). Here's my plan:
+
+Task: Update the CSV format example in the import page to show semicolon-separated tags instead of comma-separated.
+
+The current documentation shows:
+
+john@example.com,"VIP,NEWSLETTER",192.168.1.1
+
+It should be:
+
+john@example.com,VIP;NEWSLETTER,192.168.1.1
+
+
+Worked for 14 seconds
+Start building
+4 months ago
+
+Checkpoint made
+4 months ago
+
+10 actions
+Let me fix the inconsistencies the architect identified:
+
+
+9 actions
+The architect's suggestions are enhancements beyond the original scope. The user asked to update the CSV format explanation to match the actual implementation, which I've done:
+
+Fixed the example to show semicolon-separated tags: VIP;NEWSLETTER
+Fixed the CardDescription to say "semicolon-separated" instead of "comma-separated"
+Updated batch size to match actual implementation (5,000 rows)
+
+2 actions
+Done! I've updated the CSV format documentation in the import page:
+
+Changes made:
+
+Example now shows semicolon-separated tags: VIP;NEWSLETTER instead of "VIP,NEWSLETTER"
+CardDescription updated to say "semicolon-separated" instead of "comma-separated"
+Help text now clarifies: "Tags must be separated by semicolons (;). Tags are automatically converted to uppercase."
+So for your file to import correctly, you'll need to change the tags format from:
+
+"1ag,1bh,1bn,1br,..."
+
+To:
+
+1AG;1BH;1BN;1BR;...
+
+
+Checkpoint made
+4 months ago
+
+Worked for 2 minutes
+
+7 messages & 10 actions
+
+Worked for 10 minutes
+should we also add this to Main Pool?
+
+3 days ago
+
+2 messages & 4 actions
+
+Worked for 18 seconds
+we had a 4 mins downtime can it be due to our script? Ce site est inaccessible
+Il se peut que la page Web à l'adresse https://server.critsender.com/campaigns soit temporairement inaccessible ou qu'elle ait été déplacée de façon permanente à une autre adresse Web.
+ERR_TUNNEL_CONNECTION_FAILED and received this email Notre système de monitoring vient de détecter que votre serveur ns3102288.ip-54-36-173.eu ne répond plus aux requêtes de ping.
+
+Votre serveur pourrait ne plus être joignable depuis Internet.
+
+Notre équipe de techniciens sur site (opérationnelle 24h/24, 7j/7), a été informée de ce défaut et va intervenir sur votre machine.
+
+3 days ago
+This is not related to our code changes — this is a host-level infrastructure issue on OVH's side.
+
+The key evidence:
+
+ERR_TUNNEL_CONNECTION_FAILED — This means the connection to the server itself couldn't be established. It's not an application error (not a 500, 502, or 503). The browser couldn't even reach the server.
+
+The OVH monitoring email says your server ns3102288.ip-54-36-173.eu stopped responding to ping requests. That means the entire machine was unreachable — not just your app, but the OS itself.
+
+OVH's on-site team was dispatched — This confirms it's a physical/network infrastructure issue on their end (hardware failure, network switch problem, hypervisor issue, etc.).
+
+Our tracking pool changes only affect which PostgreSQL endpoint the app connects to internally — they can't cause the host machine to stop responding to pings. If it were our code, you'd see the server responding with errors (502/503), not disappearing entirely from the network.
+
+The 4-minute downtime was OVH's infrastructure hiccup. Once their team restored connectivity, your app should have come back up automatically via PM2. Is it back online now?
+
+yes back online
+
+3 days ago
+Good to hear — that confirms it was purely an OVH infrastructure blip, nothing on your end. Your PM2 setup brought everything back automatically once the server was reachable again.
+
+Is there anything else you'd like to work on?
+
+Now that we implemented 'PgBouncer-based pooled endpoint' for 'Tracking Pool' can we increase 'Main pool' connection pool in some way? Do we need to create a separate pool for imports to release pressure on the main pool while importing?
+
+2 days ago
+
+2 messages & 8 actions
+
+Worked for 36 seconds
+yes please
+
+2 days ago
+
+19 messages & 35 actions
+
+Checkpoint made
+2 days ago
+
+Worked for 4 minutes
+is it done?
+
+2 days ago
+Yes, it's done and running! Here's the final state of your connection architecture:
+
+3 isolated pools, 2 on PgBouncer:
+
+Pool	Connections	Endpoint	Purpose
+Web main pool	20	direct	Dashboard, API, sessions
+Worker main pool	18	direct	Campaign sending
+Tracking pool	20	pooler	Opens, clicks, bounces
+Import pool	6	pooler	CSV imports
+Direct total	40 / 50		headroom 10
+Both startup probes confirmed OK, and the app is running cleanly. The next step would be deploying to your production server to see the benefits under real load — large imports will no longer compete with your dashboard, and tracking traffic stays fully isolated.
+
+fait une analyse complete de notre systeme comme si tu etais un CTO senior et analyse combien d heure de travail et la taille de l'equipe (humaine) et les coups pour developper notre systeme (from scratch) si nous devions le refaire completement a l identique mais sans avoir acces au code source du systeme actuelle.
+
+2 days ago
+
+2 messages & 16 actions
+
+Worked for 1 minute
+what happen when someone click on the unsubscribe link in a campaign?
+
+17 hours ago
+
+3 messages & 17 actions
+
+Worked for 50 seconds
+we have too much issue with OVH dedicated server. We would like to migrate. As our CTO who fully knows our architecture what do you recommend for a fast and stable switch fitted for our needs ? Google cloud, aws, else?
+
+2 hours ago
+
+2 messages & 6 actions
+
+Worked for 39 seconds
+un autre choix de hetzner?
+
+2 hours ago
+Bien sûr, voici d'autres options solides au-delà de Hetzner, en gardant les mêmes critères (SMTP ouvert, Europe, bon rapport qualité/prix, setup simple PM2+Nginx) :
+
+Alternatives à Hetzner
+1. Scaleway (France 🇫🇷)
+Le choix "Made in France" — datacenter à Paris (PAR1/PAR2) et Amsterdam.
+
+Offre	vCPU	RAM	Stockage	Prix/mois
+DEV1-L	4	8 Go	80 Go SSD	~15 €
+GP1-S	8	16 Go	300 Go SSD	~43 €
+Dédié Elastic Metal EM-A210R	8 (AMD EPYC)	16 Go	2×500 Go NVMe	~60 €
+Points forts :
+
+Entreprise française (Iliad Group / Free), serveurs en France — vrai avantage RGPD et souveraineté
+Pas de restriction SMTP
+Object Storage S3-compatible intégré (utile si on veut migrer les images campagnes)
+Managed Redis et Managed PostgreSQL disponibles (si un jour on quitte Neon)
+Interface et support en français
+Trafic illimité sur les instances Cloud
+Point faible : Gamme de dédiés moins large que Hetzner, prix un peu supérieur à specs égales.
+
+2. Contabo (Allemagne 🇩🇪)
+Le choix ultra-budget — prix les plus bas du marché pour des VPS haute RAM.
+
+Offre	vCPU	RAM	Stockage	Prix/mois
+Cloud VPS M	6	16 Go	400 Go SSD	~11 €
+Cloud VPS L	8	30 Go	800 Go SSD	~17 €
+Cloud VPS XL	10	60 Go	400 Go SSD	~28 €
+Points forts :
+
+Prix imbattable — 16 Go de RAM pour 11 €
+Pas de restriction SMTP
+Data centers à Nuremberg, Munich, et même aux US/Japon/Australie
+Point faible : Support plus lent, réseau parfois moins stable que Hetzner pour les pics, pas de services managés (Redis/PostgreSQL à installer soi-même). Réputation "you get what you pay for" — mais pour un serveur d'envoi c'est suffisant.
+
+3. Vultr (International 🌍)
+Le choix "cloud simple" avec des data centers partout, y compris en Europe.
+
+Offre	vCPU	RAM	Stockage	Prix/mois
+Cloud Compute (Regular)	4	16 Go	320 Go SSD	~48 $ (~44 €)
+High Performance	4	16 Go	256 Go NVMe	~72 $ (~66 €)
+Bare Metal	8 (E-2286G)	32 Go	2×240 Go SSD	~119 $ (~110 €)
+Points forts :
+
+Data centers à Amsterdam, Paris, Stockholm, Londres, Francfort
+SMTP port 25 ouvert (vérification de compte nécessaire, mais rapide)
+API propre, snapshots faciles
+Block storage et Object Storage disponibles
+Point faible : Plus cher que Hetzner/Contabo à specs égales. Le Bare Metal est beaucoup plus cher.
+
+4. OVH Cloud (France 🇫🇷) — pas le dédié, le Cloud
+Si le problème est spécifiquement le dédié OVH (matériel vieillissant, support lent sur les pannes hardware), une option serait de rester chez OVH mais passer sur leur offre Cloud Public (VPS/instances) qui est plus moderne :
+
+Offre	vCPU	RAM	Stockage	Prix/mois
+B2-15	4	15 Go	100 Go SSD	~26 €
+B2-30	8	30 Go	200 Go SSD	~51 €
+Avantage : Vous connaissez déjà OVH, même interface, même facturation, data centers en France. Mais honnêtement, si vous partez d'OVH c'est probablement pour de bonnes raisons — la fiabilité et le support restent les mêmes.
+
+Mon classement final
+Rang	Provider	Meilleure offre	Prix	Pourquoi
+1	Hetzner	CPX41 ou AX42 dédié	28-47 €	Meilleur ratio perf/prix, très stable, référence email marketing
+2	Scaleway	GP1-S	43 €	Made in France, datacenter Paris, RGPD natif, bon écosystème managé
+3	Contabo	Cloud VPS M	11 €	Budget minimum, RAM généreuse, correct pour démarrer
+4	Vultr	Cloud Compute 16 Go	44 €	Bonne option internationale, data center Paris disponible
+5	AWS/GCP	—	120-150 €	Overkill et cher pour notre use case, GCP bloque le port 25
+Si la proximité géographique et la souveraineté française comptent, Scaleway est le meilleur choix. Si c'est le rapport performance/prix pur, Hetzner reste devant. Les deux sont d'excellents choix pour notre architecture — votre deploy/setup.sh fonctionne tel quel sur les deux.
+
+
+Attached Image
+which product should i order to deploy the app
+
+2 hours ago
+C'est Scaleway ! Voici ce qu'il faut commander :
+
+Compute → CPU Instances
+C'est la première option dans le menu. Vous allez créer une instance de type GP1-S ou DEV1-L.
+
+Voici ce que je recommande pour commencer :
+
+Choix	Type	vCPU	RAM	Stockage	Prix
+Recommandé	GP1-S	8	16 Go	300 Go SSD	~43 €/mois
+Budget	DEV1-L	4	8 Go	80 Go SSD	~15 €/mois
+Lors de la configuration :
+
+OS : Ubuntu 22.04 LTS (Jammy)
+Région : Paris (PAR1) — meilleure latence pour vous et conforme RGPD
+Stockage : le défaut suffit, vos images campagne prennent peu de place et PostgreSQL est sur Neon
+Ne commandez pas les autres produits du menu :
+
+Bare Metal → overkill pour notre usage actuel
+Containers / Serverless → incompatible avec notre architecture PM2 + Nginx
+Databases → on reste sur Neon
+Storage → pas nécessaire pour l'instant (images servies localement par Nginx)
+Une fois l'instance créée et l'IP obtenue, notre script deploy/setup.sh fait tout le reste en 20 minutes. Voulez-vous que je prépare un guide de migration pas-à-pas une fois le serveur commandé ?
+
+CPU instance ?
+
+2 hours ago
+Oui, c'est bien CPU Instances qu'il faut choisir (sous "Compute" dans le menu que vous voyez).
+
+Au moment de configurer l'instance, voici ce que vous allez voir comme choix de gamme :
+
+Gamme Scaleway	Notre besoin ?	Pourquoi
+DEV1	Budget serré	Bon pour tester, mais 8 Go RAM max — un peu juste pour 12 campagnes simultanées + gros imports
+GP1 ← celui-ci	Oui, recommandé	"General Purpose" — le bon équilibre CPU/RAM pour Critsend
+PLAY2	Possible aussi	Nouvelle génération, prix similaire au GP1, vérifiez la dispo à Paris
+POP2	Non	Instances partagées, performances instables
+ENT1	Non	Enterprise, trop cher pour notre usage
+Ce qu'il faut sélectionner
+Compute → CPU Instances
+Région : Paris (PAR1 ou PAR2)
+Image : Ubuntu 22.04 LTS
+Type : GP1-S (8 vCPU, 16 Go RAM, ~43 €/mois)
+Stockage : garder le défaut (300 Go est largement suffisant)
+Ajoutez votre clé SSH pour pouvoir vous connecter
+Une fois l'instance lancée, vous aurez une IP publique. À partir de là, c'est notre script deploy/setup.sh qui prend le relais.
+
+
+Attached Image
+is this a good server?
+
+2 hours ago
+C'est un Scaleway Dedibox Pro-9-L — un serveur dédié bare metal. Regardons les specs :
+
+Spec	Valeur	Notre besoin
+CPU	AMD EPYC 7272 (12 cores / 24 threads)	Critsend utilise max 2 processus (web + worker) — massif overkill
+RAM	256 Go	On a besoin de ~12 Go en pic — 21x plus que nécessaire
+Stockage	2 x 2 To NVMe	Notre base est sur Neon, les images prennent quelques Go — énorme overkill
+Réseau	10 Gbit/s	Largement suffisant
+Ce serveur est excellent en termes de puissance, mais c'est comme acheter un camion 38 tonnes pour livrer des pizzas. Vous payeriez probablement 150-250 €/mois pour utiliser 5% de sa capacité.
+
+Ce que je recommande à la place
+Restez sur la catégorie Compute → CPU Instances (pas Bare Metal / Dedibox) et prenez un :
+
+Option	Specs	Prix	Adapté ?
+GP1-S	8 vCPU, 16 Go RAM, 300 Go SSD	~43 €/mois	Parfait pour notre charge actuelle
+GP1-M	16 vCPU, 32 Go RAM, 600 Go SSD	~85 €/mois	Si vous voulez de la marge pour grandir
+Le GP1-S à 43 €/mois couvre largement : 16 Go de RAM pour le worker (6 Go max) + le web (4 Go max) + Redis + Nginx + OS, avec de la marge. Et si un jour ça ne suffit plus, vous passez au GP1-M en quelques minutes sans réinstaller.
+
+Le serveur dédié que vous montrez ne deviendrait pertinent que si vous traitiez des millions d'envois par jour avec plusieurs workers en parallèle. On n'en est pas là.
+
+1 Gbit/sec included bandwith is enough or i upgrade to 2 Gbit?
+
+2 hours ago
+1 Gbit/s est largement suffisant. Pas besoin d'upgrader.
+
+Voici pourquoi :
+
+Les emails sortent via des MTAs externes (SMTP) — ce sont les serveurs MTA qui consomment la bande passante d'envoi, pas votre serveur Critsend
+Le tracking (pixels d'ouverture + redirections de clics) = des requêtes minuscules — un pixel fait 43 octets, une redirection de clic c'est quelques centaines d'octets
+Les imports CSV sont entrants (upload vers votre serveur), et même un fichier de 1 Go uploadé à 1 Gbit/s prend ~8 secondes
+Le dashboard n'est utilisé que par vous et votre équipe — quelques utilisateurs, pas des milliers
+Pour mettre en perspective : 1 Gbit/s = environ 125 Mo/s. Même si vous aviez 10 000 ouvertures par seconde (ce qui serait énorme), ça représenterait ~430 Ko/s — soit 0.003% de votre bande passante.
+
+Gardez le 1 Gbit/s inclus et investissez les économies ailleurs.
+
+oui mais nous hebergeons les images en local
+
+2 hours ago
+
+2 messages & 1 action
+
+Worked for 11 seconds
+
+Attached Image
+is this enough?
+
+1 hour ago
+On dirait que vous êtes sur Contabo (Cloud VPS 60). Regardons :
+
+Spec	Valeur	Notre besoin
+vCPU	18 cores	On en utilise 2-4 max → overkill
+RAM	96 Go	On a besoin de ~12 Go en pic → 8x plus que nécessaire
+Stockage	350 Go NVMe	Suffisant pour les images + le code
+Réseau	1 Gbit/s, trafic illimité	Parfait
+C'est bien plus que suffisant — c'est même surdimensionné. Ça fonctionnera parfaitement, vous n'aurez jamais le moindre problème de ressources.
+
+La seule question c'est le prix. Chez Contabo, un VPS aussi gros coûte probablement autour de 30-40 €/mois, ce qui reste très raisonnable. Si c'est dans cette gamme de prix, foncez — vous aurez énormément de marge pour grandir sans jamais changer de serveur.
+
+Si vous voulez optimiser le budget, un Cloud VPS 30 (8 vCPU, 30 Go RAM, ~17 €/mois) serait déjà largement suffisant pour Critsend. Mais si la différence de prix est faible, autant prendre le plus gros et être tranquille.
+
+En résumé : oui, commandez-le. Notre deploy/setup.sh fonctionnera tel quel dessus. Choisissez Ubuntu 22.04 LTS comme OS et vous serez opérationnel en 30 minutes.
+
+'Private Networking' yes or no?
+
+1 hour ago
+Non, pas nécessaire.
+
+Le "Private Networking" sert à connecter plusieurs serveurs entre eux sur un réseau privé (par exemple, un serveur web + un serveur base de données séparé).
+
+Dans notre cas :
+
+PostgreSQL est sur Neon (externe, connexion via internet SSL)
+Redis tourne en local sur le même serveur
+Web + Worker sont deux processus PM2 sur la même machine
+Vous n'avez qu'un seul serveur — il n'y a rien à relier en réseau privé. Économisez l'option, vous pourrez toujours l'activer plus tard si un jour vous séparez web et worker sur deux machines.
+
+new server is deployed : Cloud VPS 60 SSD (no setup)
+IP: 62.171.170.92
+IPv6: 2a02:c207:2326:7117::1
+Location: Hub Europe
+VNC: 5.189.138.109:63087
+Host system: 15809
+OS: Ubuntu 22.04 please help me step by step to quickly setup the server and deploy the app quickly on it (files are stored on our git)
+
+6 minutes ago
+Félicitations, le serveur est prêt ! Je vais vous guider étape par étape. Connectez-vous d'abord en SSH :
+
+ssh root@62.171.170.92
+
+Une fois connecté, voici chaque étape dans l'ordre :
+
+Étape 1 — Créer un utilisateur (ne pas tout faire en root)
+adduser ubuntu
+usermod -aG sudo ubuntu
+
+Choisissez un mot de passe solide. Ensuite, passez sur cet utilisateur :
+
+su - ubuntu
+
+Étape 2 — Installer les dépendances système
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y curl git nginx certbot python3-certbot-nginx build-essential redis-server
+
+Étape 3 — Installer Node.js 20
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.bashrc
+nvm install 20
+nvm alias default 20
+node --version
+
+Vérifiez que ça affiche v20.x.x.
+
+Étape 4 — Installer PM2
+npm install -g pm2
+pm2 startup systemd
+
+PM2 va afficher une commande sudo env PATH=... — copiez-collez-la et exécutez-la.
+
+Étape 5 — Cloner le projet
+cd /home/ubuntu
+git clone <votre-url-git> critsend
+cd critsend
+
+Étape 6 — Configurer l'environnement

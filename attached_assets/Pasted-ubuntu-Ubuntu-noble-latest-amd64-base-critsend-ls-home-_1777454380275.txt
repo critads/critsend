@@ -1,0 +1,115 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ ls /home/ubuntu/critsend/images/ | wc -l
+3
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 241.4mb  │
+│ 1  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 91.7mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cat /etc/nginx/sites-available/critsend
+server {
+    server_name critsender.critads.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com critsender.rndaserver.com critsender.kammaspeed.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        client_max_body_size 50M;
+    }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/critsender.critads.com/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/critsender.critads.com/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+
+
+
+
+
+
+
+}
+server {
+    if ($host = critsender.critads.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.kammaspeed.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.rndaserver.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.verysent.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.rndamailing.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.mayesale.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.mayasoldes.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = critsender.mahlesoldes.com) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80;
+    server_name critsender.critads.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com critsender.rndaserver.com critsender.kammaspeed.com;
+    return 404; # managed by Certbot
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ grep -c "=" /home/ubuntu/critsend/.envv
+11
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cat /home/ubuntu/critsend/.env
+NEON_DATABASE_URL="postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+REDIS_URL="rediss://default:gQAAAAAAAapUAAIgcDFlYTQ1YmIwN2EyNzk0YzJjODViYTQ5OTc2MzMxM2IzYg@pleasant-bonefish-109140.upstash.io:6379"
+SESSION_SECRET=ae9807a0a3fcbb8c7b3c23fd40455b42d6c75e9e1a3688f3daccf05d0da58783
+TRACKING_SECRET=91298cf19c3c28253f308160279ff0f58b39c048de833b8392caffef2104714f
+MTA_ENCRYPTION_KEY=a74b46157bedb0090edd5390fd655af746bf88948786d6664bec69166ba9d712
+NODE_ENV=production
+PORT=5000
+STORAGE_BACKEND=local
+PUBLIC_URL=https://critsender.critads.com
+DATABASE_URL="postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require"
+PG_CONNECTION_TIMEOUT_MS=10000
