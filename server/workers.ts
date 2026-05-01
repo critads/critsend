@@ -1160,6 +1160,9 @@ async function pollForImportJobs() {
           if (jobAfterError?.status === "cancelled") {
             logger.info(`[IMPORT] Job ${importJobId} was cancelled, marking queue item failed`);
             await storage.completeImportQueueJob(queueId, "failed", "Job cancelled").catch(() => {});
+          } else if (jobAfterError?.status === "completed") {
+            logger.info(`[IMPORT] Job ${importJobId} already completed — not overwriting to failed (queue re-process after file cleanup). Error was: ${err.message}`);
+            await storage.completeImportQueueJob(queueId, "completed").catch(() => {});
           } else {
             await storage.completeImportQueueJob(queueId, "failed", err.message || "Unknown error").catch(() => {});
             await storage.updateImportJob(importJobId, {

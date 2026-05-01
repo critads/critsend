@@ -575,6 +575,11 @@ async function processImport(
   if (isObjectStorage) {
     const exists = await objectStorageService.objectExists(csvFilePath);
     if (!exists) {
+      const existingJob = await storage.getImportJob(importJobId);
+      if (existingJob?.status === "completed") {
+        logger.info(`[IMPORT] ${importJobId}: CSV file already cleaned up from previous successful run — skipping re-processing`);
+        return;
+      }
       throw new Error(
         `CSV file not found in object storage: ${csvFilePath}. This can happen if the file was deleted or never uploaded. Please re-upload the file.`
       );
@@ -585,6 +590,11 @@ async function processImport(
     logger.info(`[IMPORT] ${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
   } else {
     if (!fs.existsSync(csvFilePath)) {
+      const existingJob = await storage.getImportJob(importJobId);
+      if (existingJob?.status === "completed") {
+        logger.info(`[IMPORT] ${importJobId}: CSV file already cleaned up from previous successful run — skipping re-processing`);
+        return;
+      }
       throw new Error(
         `CSV file not found: ${csvFilePath}. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.`
       );
