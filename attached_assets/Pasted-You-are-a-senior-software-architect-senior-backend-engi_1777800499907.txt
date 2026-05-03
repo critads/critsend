@@ -1,0 +1,155 @@
+You are a senior software architect, senior backend engineer, database performance expert, security auditor, and DevOps/SRE specialist.
+Your mission:
+Perform a full production-grade audit of the entire codebase, database usage, backend architecture, frontend architecture, API design, background jobs, authentication, security, logging, error handling, scalability, and deployment configuration.
+
+VERY IMPORTANT RULES:
+- Do NOT rewrite the application.
+- Do NOT make risky changes.
+- Do NOT delete or modify production data.
+- Do NOT change database schema without explicit approval.
+- Do NOT introduce breaking changes.
+- First analyze and report.
+- If you find issues, classify them clearly before proposing fixes.
+- For every recommendation, explain the risk, the impact, and the exact file/location concerned.
+- Focus on real production risks, not cosmetic improvements.
+
+Audit objectives:
+
+1. Codebase architecture audit
+- Review the global folder structure.
+- Identify duplicated logic, overly large files, circular dependencies, fragile patterns, dead code, and technical debt.
+- Detect places where the app may become hard to maintain as the product grows.
+- Check whether the separation between frontend, backend, services, database access, API routes, workers, and shared utilities is clean.
+
+2. Backend/API audit
+- Review all API routes/endpoints.
+- Identify slow, unsafe, unpaginated, or memory-heavy endpoints.
+- Detect endpoints that return too much data.
+- Check missing validation, missing authorization, weak error handling, and inconsistent response formats.
+- Check whether endpoints are safe for concurrent users.
+- Identify N+1 query risks and inefficient loops over large datasets.
+- Check rate-limiting needs for sensitive endpoints.
+
+3. Database scalability audit
+- Inspect all database models, schema, migrations, query patterns, ORM usage, raw SQL usage, and indexes.
+- Identify missing indexes on frequently filtered, joined, sorted, or searched columns.
+- Detect queries that may become slow with millions of records.
+- Check pagination strategy and cursor-based pagination where needed.
+- Identify full table scans, heavy joins, unnecessary SELECT *, large OFFSET pagination, and repeated queries inside loops.
+- Check transaction usage, connection pooling, locking risks, and concurrency issues.
+- Review bulk imports, deduplication, validation jobs, search/filter logic, and reporting/statistics queries.
+- Produce a list of recommended indexes, but do NOT apply them yet.
+
+4. Performance and bottleneck audit
+- Identify CPU-heavy, memory-heavy, or synchronous operations that should move to background jobs.
+- Check file uploads, imports, exports, CSV processing, email sending, webhooks, cron jobs, queues, and long-running operations.
+- Detect places where the app may timeout under high load.
+- Check caching opportunities.
+- Review frontend bundle size and unnecessary API calls.
+- Identify expensive computations repeated too often.
+
+5. Security audit
+- Review authentication and session handling.
+- Check authorization on every protected route.
+- Identify IDOR risks, tenant isolation issues, privilege escalation risks, exposed secrets, unsafe environment variables, insecure CORS, CSRF/XSS/SQL injection risks, unsafe file uploads, and weak password/session policies.
+- Check whether users can access data belonging to another account/workspace.
+- Verify that all sensitive actions require proper permissions.
+
+6. Multi-tenant SaaS audit
+- Check if every database query is correctly scoped by user_id, workspace_id, organization_id, or tenant_id.
+- Identify any endpoint, service, or job where data could leak between tenants.
+- Check admin features and role-based access control.
+- Review billing/subscription gating if present.
+
+7. Reliability and observability audit
+- Review logging, error tracking, structured logs, audit logs, and monitoring readiness.
+- Check whether critical failures are visible.
+- Identify missing alerts.
+- Check retry logic, idempotency, webhook handling, background job recovery, and failed job handling.
+- Review how the app behaves if the database, API provider, or external service is slow or temporarily down.
+
+8. Deployment and environment audit
+- Review Replit deployment configuration.
+- Check environment variables, secrets management, build scripts, start scripts, health checks, and production/development separation.
+- Identify risks linked to hosting, database connection limits, autoscaling, cold starts, memory limits, and long-running processes.
+- Check whether the app can safely be moved later to a more robust infrastructure if needed.
+
+9. Data integrity audit
+- Check validation rules.
+- Identify risks of duplicate data, orphan records, inconsistent states, partial imports, failed transactions, and missing constraints.
+- Review delete behavior, cascade rules, soft delete logic, and backup/restore readiness.
+
+10. Testing audit
+- Review existing tests.
+- Identify missing tests for critical business logic, API routes, permissions, imports, large datasets, and edge cases.
+- Propose a practical test plan to prevent regressions.
+
+Deliverable required:
+Create a detailed audit report in Markdown named:
+
+AUDIT_PRODUCTION_SCALABILITY_REPORT.md
+
+The report must include:
+
+A. Executive summary
+- Overall health score from 1 to 10.
+- Main strengths of the current codebase.
+- Top 10 risks that could block scaling.
+
+B. Critical issues
+For each issue:
+- Severity: Critical / High / Medium / Low
+- Category
+- File(s) concerned
+- Exact code or pattern detected
+- Why it is risky
+- Expected impact at scale
+- Recommended fix
+- Estimated complexity
+- Whether it is safe to fix immediately or needs manual review
+
+C. Database performance section
+- Current schema observations
+- Missing indexes
+- Heavy queries
+- Pagination issues
+- Connection pooling risks
+- Transaction risks
+- Suggested indexes and query optimizations
+
+D. Security section
+- Authentication risks
+- Authorization risks
+- Tenant isolation risks
+- Secret exposure risks
+- API abuse risks
+- Immediate security priorities
+
+E. Performance bottleneck section
+- Slow endpoints
+- Expensive jobs
+- Memory risks
+- Frontend performance risks
+- Recommended caching or queue strategy
+
+F. Reliability section
+- Logging gaps
+- Error handling gaps
+- Retry/idempotency issues
+- Monitoring recommendations
+
+G. Refactoring roadmap
+Create a practical roadmap in 3 phases:
+- Phase 1: urgent fixes before more traffic
+- Phase 2: scaling improvements
+- Phase 3: long-term architecture improvements
+
+H. Safe implementation prompts
+At the end of the report, write a list of small, safe, sequential prompts that I can run later in Replit to fix the issues one by one.
+Each prompt must be isolated, low-risk, and must ask for tests before applying changes.
+
+Important:
+Do not modify code yet.
+Do not apply fixes yet.
+Do not run destructive commands.
+Analyze first and generate the report only.
