@@ -1594,3 +1594,71 @@ export function stopAllBackgroundWorkers() {
   closeNullsinkTransporter();
   logger.info("[SHUTDOWN] All background workers stopped");
 }
+
+/**
+ * Snapshot of in-flight background work that holds a DB pool connection.
+ * Used by the worker shutdown sequence to decide whether it's safe to
+ * close the pool yet.
+ */
+export function getActiveJobCount(): { campaigns: number; importJob: boolean; flushJob: boolean; total: number } {
+  return {
+    campaigns: activeCampaigns.size,
+    importJob: isActiveImportJob,
+    flushJob: activeFlushJob,
+    total: activeCampaigns.size + (isActiveImportJob ? 1 : 0) + (activeFlushJob ? 1 : 0),
+  };
+}
+
+/**
+ * Returns the IDs of campaigns currently being processed in this worker.
+ * Used by the shutdown sequence to log which campaigns are still in flight
+ * if the drain timeout expires.
+ */
+export function getActiveCampaignIds(): string[] {
+  return Array.from(activeCampaigns);
+}
+
+/**
+ * Waits for all in-flight jobs (campaigns + import + flush) to finish, or
+ * until `timeoutMs` elapses. Returns true if everything drained cleanly,
+ * false if the timeout fired with work still in flight.
+ *
+ * Callers MUST call `stopAllBackgroundWorkers()` (or otherwise stop the
+ * pollers) BEFORE invoking this — otherwise new jobs can keep arriving and
+ * the count may never reach zero. This function only waits; it does not
+ * stop new work from being claimed.
+ */
+export async function waitForActiveJobsToDrain(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  const initial = getActiveJobCount();
+  if (initial.total === 0) return true;
+
+  logger.info(
+    `[SHUTDOWN] Waiting for ${initial.campaigns} active campaign job(s)` +
+    `${initial.importJob ? ' + 1 import job' : ''}` +
+    `${initial.flushJob ? ' + 1 flush job' : ''}` +
+    ` to finish (max ${Math.round(timeoutMs / 1000)}s)…`
+  );
+
+  let lastLogged = 0;
+  while (Date.now() < deadline) {
+    const snapshot = getActiveJobCount();
+    if (snapshot.total === 0) {
+      logger.info(`[SHUTDOWN] All active jobs drained`);
+      return true;
+    }
+    // Periodic progress log every ~3s so ops can see what we're waiting on.
+    if (Date.now() - lastLogged > 3000) {
+      logger.info(
+        `[SHUTDOWN] Still waiting: campaigns=${snapshot.campaigns}` +
+        `${snapshot.importJob ? ' import=1' : ''}` +
+        `${snapshot.flushJob ? ' flush=1' : ''}`
+      );
+      lastLogged = Date.now();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  // Timed out — caller is expected to log the campaign IDs and proceed.
+  return false;
+}

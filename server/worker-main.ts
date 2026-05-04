@@ -12,7 +12,13 @@
 import { logger } from "./logger";
 import { validateConnectionBudget } from "./connection-budget";
 import { messageQueue } from "./message-queue";
-import { startAllWorkers, stopAllBackgroundWorkers } from "./workers";
+import {
+  startAllWorkers,
+  stopAllBackgroundWorkers,
+  waitForActiveJobsToDrain,
+  getActiveCampaignIds,
+  getActiveJobCount,
+} from "./workers";
 import { startBullMQWorkers, closeBullMQWorkers } from "./queue-workers";
 import { initQueues, closeQueues } from "./queues";
 import { closeRedisConnections } from "./redis";
@@ -57,6 +63,15 @@ import("v8").then((v8) => {
 
 let isShuttingDown = false;
 
+// Drain budget for in-flight campaign / import / flush jobs before we close
+// the DB pool. Defaults to 25 s, leaving a 5 s margin under PM2's
+// kill_timeout: 30000 (deploy/ecosystem.config.cjs) so we always exit cleanly
+// before PM2 escalates to SIGKILL.
+const DRAIN_TIMEOUT_MS = Number(process.env.WORKER_SHUTDOWN_DRAIN_MS || 25_000);
+// Hard upper bound on the entire shutdown sequence. Must be > drain timeout
+// + a small allowance for pool teardown.
+const FORCE_EXIT_MS = Math.max(DRAIN_TIMEOUT_MS + 5_000, 30_000);
+
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -66,13 +81,35 @@ async function gracefulShutdown(signal: string) {
   const forceExitTimer = setTimeout(() => {
     logger.error("[WORKER] Graceful shutdown timed out, forcing exit");
     process.exit(1);
-  }, 20000);
+  }, FORCE_EXIT_MS);
   forceExitTimer.unref();
 
   try {
+    // 1. Stop accepting new work. This clears all polling intervals so
+    //    no new campaign / import / flush jobs are claimed after this point.
     stopAllBackgroundWorkers();
     logger.info("[WORKER] Background workers stopped");
 
+    // 2. Wait for in-flight batch loops to finish their current iteration
+    //    so they release their pool connections cleanly. Without this, the
+    //    pool.end() below kills active queries and produces "Cannot use a
+    //    pool after calling end on the pool" errors that get attributed as
+    //    real send failures (~100-200 sends per reload).
+    const drained = await waitForActiveJobsToDrain(DRAIN_TIMEOUT_MS);
+    if (!drained) {
+      const stuck = getActiveCampaignIds();
+      const snapshot = getActiveJobCount();
+      logger.warn(
+        `[WORKER] Drain timed out after ${Math.round(DRAIN_TIMEOUT_MS / 1000)}s — proceeding with shutdown`,
+        {
+          stillActiveCampaigns: stuck,
+          importJobActive: snapshot.importJob,
+          flushJobActive: snapshot.flushJob,
+        }
+      );
+    }
+
+    // 3. Now close everything — the in-flight queries are done.
     await Promise.allSettled([
       messageQueue.shutdown(),
       closeBullMQWorkers(),
@@ -85,8 +122,6 @@ async function gracefulShutdown(signal: string) {
       const { closeImportPool } = await import("./import-pool");
       await closeImportPool();
     } catch {}
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     await pool.end();
     logger.info("[WORKER] Database pool closed");
