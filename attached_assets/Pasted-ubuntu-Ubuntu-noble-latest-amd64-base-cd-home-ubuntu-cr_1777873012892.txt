@@ -1,0 +1,70 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+remote: Enumerating objects: 23, done.
+remote: Counting objects: 100% (23/23), done.
+remote: Compressing objects: 100% (10/10), done.
+remote: Total 18 (delta 8), reused 18 (delta 8), pack-reused 0 (from 0)
+Unpacking objects: 100% (18/18), 1.21 MiB | 6.28 MiB/s, done.
+From https://github.com/critads/critsend
+   0c4a6f2..26d1dc5  main       -> origin/main
+Updating 0c4a6f2..26d1dc5
+Fast-forward
+ AUDIT_PRODUCTION_SCALABILITY_REPORT.md                                                    | 599 ++++++++++++++++++++++++++++++++++++++++++++
+ .../Pasted-You-are-a-senior-software-architect-senior-backend-engi_1777800476265.txt      | 159 ++++++++++++
+ .../Pasted-You-are-a-senior-software-architect-senior-backend-engi_1777800499907.txt      | 155 ++++++++++++
+ .../Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-cd-home-_1777620689306.txt      | 143 +++++++++++
+ .../Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-stat_1777620723601.txt      |  41 +++
+ attached_assets/Screenshot_2026-05-01_at_11.33.17_AM_1777620799171.png                    | Bin 0 -> 299723 bytes
+ attached_assets/Screenshot_2026-05-01_at_11.37.59_AM_1777621089570.png                    | Bin 0 -> 266518 bytes
+ attached_assets/Screenshot_2026-05-01_at_11.39.47_AM_1777621191041.png                    | Bin 0 -> 252688 bytes
+ attached_assets/Screenshot_2026-05-01_at_11.42.37_AM_1777621367590.png                    | Bin 0 -> 612826 bytes
+ server/repositories/campaign-repository.ts                                                |   4 +-
+ 10 files changed, 1099 insertions(+), 2 deletions(-)
+ create mode 100644 AUDIT_PRODUCTION_SCALABILITY_REPORT.md
+ create mode 100644 attached_assets/Pasted-You-are-a-senior-software-architect-senior-backend-engi_1777800476265.txt
+ create mode 100644 attached_assets/Pasted-You-are-a-senior-software-architect-senior-backend-engi_1777800499907.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-cd-home-_1777620689306.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-stat_1777620723601.txt
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_11.33.17_AM_1777620799171.png
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_11.37.59_AM_1777621089570.png
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_11.39.47_AM_1777621191041.png
+ create mode 100644 attached_assets/Screenshot_2026-05-01_at_11.42.37_AM_1777621367590.png
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/@tanstack/react-query/build/modern/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2497 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-D1DPO-E_.css     88.36 kB │ gzip:  14.32 kB
+../dist/public/assets/index-B17Uuli2.js   1,283.03 kB │ gzip: 339.99 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.96s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 101ms
+building import worker...
+
+  dist/import-worker.cjs  196.1kb
+
+⚡ Done in 38ms
+building background worker...
+
+  dist/worker-main.cjs  927.6kb
+
+⚡ Done in 75ms
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓

@@ -1,0 +1,13 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 list
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ default     │ 1.0.0   │ fork    │ 107887   │ 2m     │ 2    │ online    │ 0%       │ 272.3mb  │ ubuntu   │ disabled │
+│ 1  │ critsend-worker    │ default     │ 1.0.0   │ fork    │ 107898   │ 2m     │ 2    │ online    │ 0%       │ 91.4mb   │ ubuntu   │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-worker --lines 200 --nostream | grep -i "ON CONFLICT" | tail -5
+1|critsend | 2026-05-04 07:00:38 +02:00: 2026-05-04T05:00:38.285Z [WARN] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:8e706a77] Batch 1: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-04 07:09:03 +02:00: 2026-05-04T05:09:03.593Z [WARN] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Batch 8: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-04 07:27:21 +02:00: 2026-05-04T05:27:21.978Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Batch 4: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-04 07:29:44 +02:00: 2026-05-04T05:29:44.639Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] Batch 6: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-04 07:29:56 +02:00: 2026-05-04T05:29:56.780Z [WARN] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:8e706a77] Batch 2: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification

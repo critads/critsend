@@ -1,0 +1,59 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ date && echo "---" && pm2 describe critsend-worker | grep -i "uptime\|restart time" && echo "---" && pm2 logs critsend-worker --lines 50 --nostream --raw | grep "ON CONFLICT" | tail -3
+Mon May  4 07:40:29 CEST 2026
+---
+│ uptime            │ 3m                                                │
+---
+iled for 480718ee-2bc0-4ab2-a065-9c7b99533cb3: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.099Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 48076fd7-534b-4ed9-8ed9-b39c57fe7e94: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480786a3-6793-446b-9758-a3ecac11d0b7: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 4807b2a5-ed59-428b-9b8e-8169c6d3233c: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480858c1-3d8a-45dd-96a4-ebf89135b2da: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 4808bbdc-57e9-493f-a690-b99c844723c2: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480a3c44-cf9a-4eae-a2f5-97ce80dd04d4: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480a4add-1377-406c-b110-5c5842444a75: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480b9622-6175-4ff3-836d-17e7d45c37c8: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.101Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] Failed to pause campaign on DB error: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.101Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] logError DB write failed: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.101Z [ERROR] [JOB_POLL] Error processing job 57642ff2-757e-4501-b735-d3dfee55d7f2 for campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca:
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.102Z [ERROR] [JOB_POLL] Failed to mark job 57642ff2-757e-4501-b735-d3dfee55d7f2 as failed:
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.102Z [ERROR] [JOB_POLL] Failed to mark campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca as failed (attempt 1):
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.521Z [ERROR] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Bulk reserve failed, falling back: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.522Z [ERROR] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Fatal error in send loop: Cannot use a pool after calling end on the pool {"stack":"Error: Cannot use a pool after calling end on the pool\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)"}
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.522Z [WARN] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Failed to pause campaign on DB error: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.523Z [WARN] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] logError DB write failed: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.523Z [ERROR] [JOB_POLL] Error processing job 564fc762-e157-4ac3-9962-6aa0cadd89e7 for campaign 9371b026-0d02-408e-87f7-5862be83bcba:
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.524Z [ERROR] [JOB_POLL] Failed to mark job 564fc762-e157-4ac3-9962-6aa0cadd89e7 as failed:
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.524Z [ERROR] [JOB_POLL] Failed to mark campaign 9371b026-0d02-408e-87f7-5862be83bcba as failed (attempt 1):
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.637Z [ERROR] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Fatal error in send loop: Cannot use a pool after calling end on the pool {"stack":"Error: Cannot use a pool after calling end on the pool\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326"}
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.637Z [ERROR] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Bulk finalize failed, falling back: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26160ee9-dbd6-46c9-aa1b-aae48aa74f30: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26163980-98ab-4039-b9aa-1d2283d159d3: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26169d5f-d487-4e7c-b402-ba26e9ff848c: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2616a534-544d-4f1b-9369-12cc5405b909: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2616d085-7f1e-45a6-81cb-fb956689513c: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2616d9e4-352f-4467-a646-58ace11d9132: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26172625-333f-4245-b638-46c0b8344043: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2617d475-9bb2-4484-8566-ad38c041dd8f: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2618037b-012f-4925-aa0e-4ed3ddbcf7cd: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.639Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2618222b-c12a-44ed-86bd-33f6dcaa9cee: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.639Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Failed to pause campaign on DB error: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.639Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] logError DB write failed: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.640Z [ERROR] [JOB_POLL] Error processing job 76d74d35-61cd-4190-9c12-4c810ed777cb for campaign 3c278160-be19-4c71-bfdb-03c6b1c50525:
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.640Z [ERROR] [JOB_POLL] Failed to mark job 76d74d35-61cd-4190-9c12-4c810ed777cb as failed:
+2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.640Z [ERROR] [JOB_POLL] Failed to mark campaign 3c278160-be19-4c71-bfdb-03c6b1c50525 as failed (attempt 1):
+2026-05-04 07:36:16 +02:00: 2026-05-04T05:36:16.051Z [ERROR] [JOB_POLL] Failed to mark campaign 16d871ea-6ec4-468f-a916-f853e0e68204 as failed (attempt 2):
+2026-05-04 07:36:16 +02:00: 2026-05-04T05:36:16.102Z [ERROR] [JOB_POLL] Failed to mark campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca as failed (attempt 2):
+2026-05-04 07:36:16 +02:00: 2026-05-04T05:36:16.524Z [ERROR] [JOB_POLL] Failed to mark campaign 9371b026-0d02-408e-87f7-5862be83bcba as failed (attempt 2):
+2026-05-04 07:36:16 +02:00: 2026-05-04T05:36:16.640Z [ERROR] [JOB_POLL] Failed to mark campaign 3c278160-be19-4c71-bfdb-03c6b1c50525 as failed (attempt 2):
+2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.052Z [ERROR] [JOB_POLL] Failed to mark campaign 16d871ea-6ec4-468f-a916-f853e0e68204 as failed (attempt 3):
+2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.103Z [ERROR] [JOB_POLL] Failed to mark campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca as failed (attempt 3):
+2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.524Z [ERROR] [JOB_POLL] Failed to mark campaign 9371b026-0d02-408e-87f7-5862be83bcba as failed (attempt 3):
+2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.640Z [ERROR] [JOB_POLL] Failed to mark campaign 3c278160-be19-4c71-bfdb-03c6b1c50525 as failed (attempt 3):
+2026-05-04 07:36:23 +02:00: 2026-05-04T05:36:23.996Z [WARN] [IMPORT] 256d6cc7-14ba-4685-b7b7-3b6b5cd1468a: Finalization heartbeat DB update failed: Cannot use a pool after calling end on the pool
+2026-05-04 07:36:24 +02:00: 2026-05-04T05:36:24.477Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+2026-05-04 07:36:33 +02:00: 2026-05-04T05:36:33.937Z [ERROR] [WORKER] Graceful shutdown timed out, forcing exit
+2026-05-04 07:38:37 +02:00: 2026-05-04T05:38:37.722Z [WARN] [JOB_POLL] Startup: marked 143 stale 'attempting' campaign_sends as 'failed' (process crash during send)
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-worker --lines 100 --nostream | grep "ON CONFLICT" | tail -3
+1|critsend | 2026-05-04 07:27:21 +02:00: 2026-05-04T05:27:21.978Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Batch 4: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-04 07:29:44 +02:00: 2026-05-04T05:29:44.639Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] Batch 6: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification
+1|critsend | 2026-05-04 07:29:56 +02:00: 2026-05-04T05:29:56.780Z [WARN] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:8e706a77] Batch 2: token generation failed, falling back to HMAC links: there is no unique or exclusion constraint matching the ON CONFLICT specification

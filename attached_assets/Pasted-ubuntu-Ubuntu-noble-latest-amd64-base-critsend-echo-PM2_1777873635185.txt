@@ -1,0 +1,104 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ echo "=== PM2 daemon log (le + utile) ===" && tail -100 ~/.pm2/pm2.log && echo && echo "=== PM2 logrotate config ===" && pm2 conf 2>/dev/null | grep -iE "rotate|interval|size" && echo && echo "=== Disque ===" && df -h / && echo && echo "=== Inodes ===" && df -i / && echo && echo "=== Systemd timers actifs ===" && systemctl list-timers --no-pager 2>/dev/null | head -20 && echo && echo "=== Fichier ecosystem - extrait restart policy ===" && grep -E "kill_timeout|listen_timeout|wait_ready|autorestart|min_uptime" deploy/ecosystem.config.cjs
+=== PM2 daemon log (le + utile) ===
+2026-05-04T07:36:26: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:26: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:26: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:27: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44792 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:28: PM2 log: App [critsend-web:0] exited with code [1] via signal [SIGINT]
+2026-05-04T07:36:29: PM2 log: pid=44792 msg=process killed
+2026-05-04T07:36:29: PM2 log: App [critsend-web:0] starting in -fork mode-
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: App [critsend-web:0] online
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:29: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:30: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:31: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:32: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=failed to kill - retrying in 100ms
+2026-05-04T07:36:33: PM2 log: App [critsend-worker:1] exited with code [1] via signal [SIGINT]
+2026-05-04T07:36:33: PM2 log: pid=44798 msg=process killed
+2026-05-04T07:36:33: PM2 log: App [critsend-worker:1] starting in -fork mode-
+2026-05-04T07:36:34: PM2 log: App [critsend-worker:1] online
+
+=== PM2 logrotate config ===

@@ -1,0 +1,351 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-worker --lines 500 --nostream | awk '/2026-05-04 07:35/,/2026-05-04 07:36:30/'
+1|critsend | 2026-05-04 07:35:02 +02:00: 2026-05-04T05:35:02.477Z [INFO] Processed 26 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:35:03 +02:00: 2026-05-04T05:35:03.898Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:35:05 +02:00: 2026-05-04T05:35:05.714Z [INFO] Processed 11 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:35:08 +02:00: 2026-05-04T05:35:08.657Z [INFO] Processed 27 tag operations in 15 bulk groups
+1|critsend | 2026-05-04 07:35:10 +02:00: 2026-05-04T05:35:10.161Z [INFO] Processed 17 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:35:11 +02:00: 2026-05-04T05:35:11.927Z [INFO] Processed 15 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:35:14 +02:00: 2026-05-04T05:35:14.307Z [INFO] Processed 21 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:35:15 +02:00: 2026-05-04T05:35:15.855Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:35:17 +02:00: 2026-05-04T05:35:17.776Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:35:20 +02:00: 2026-05-04T05:35:20.376Z [INFO] Processed 19 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:35:22 +02:00: 2026-05-04T05:35:22.191Z [INFO] Processed 17 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:35:23 +02:00: 2026-05-04T05:35:23.694Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:35:26 +02:00: 2026-05-04T05:35:26.699Z [INFO] Processed 27 tag operations in 16 bulk groups
+1|critsend | 2026-05-04 07:35:27 +02:00: 2026-05-04T05:35:27.799Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:35:29 +02:00: 2026-05-04T05:35:29.815Z [INFO] Processed 12 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:35:32 +02:00: 2026-05-04T05:35:32.015Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:35:33 +02:00: 2026-05-04T05:35:33.729Z [INFO] Processed 10 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:35:35 +02:00: 2026-05-04T05:35:35.917Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:35:38 +02:00: 2026-05-04T05:35:38.528Z [INFO] Processed 24 tag operations in 15 bulk groups
+1|critsend | 2026-05-04 07:35:40 +02:00: 2026-05-04T05:35:40.185Z [INFO] Processed 16 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:35:42 +02:00: 2026-05-04T05:35:42.034Z [INFO] Processed 14 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:35:43 +02:00: 2026-05-04T05:35:43.638Z [INFO] Processed 7 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:35:45 +02:00: 2026-05-04T05:35:45.622Z [INFO] Processed 5 tag operations in 5 bulk groups
+1|critsend | 2026-05-04 07:35:47 +02:00: 2026-05-04T05:35:47.926Z [INFO] Processed 12 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:35:50 +02:00: 2026-05-04T05:35:50.654Z [INFO] Processed 26 tag operations in 15 bulk groups
+1|critsend | 2026-05-04 07:35:51 +02:00: 2026-05-04T05:35:51.930Z [INFO] Processed 11 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:35:54 +02:00: 2026-05-04T05:35:54.310Z [INFO] Processed 19 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:35:55 +02:00: 2026-05-04T05:35:55.692Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:35:57 +02:00: 2026-05-04T05:35:57.878Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:36:00 +02:00: 2026-05-04T05:36:00.129Z [INFO] Processed 14 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:36:02 +02:00: 2026-05-04T05:36:02.322Z [INFO] Processed 21 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:36:03 +02:00: 2026-05-04T05:36:03.883Z [INFO] Processed 14 tag operations in 5 bulk groups
+1|critsend | 2026-05-04 07:36:05 +02:00: 2026-05-04T05:36:05.955Z [INFO] Processed 10 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:36:08 +02:00: 2026-05-04T05:36:08.656Z [INFO] Processed 28 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:36:09 +02:00: 2026-05-04T05:36:09.564Z [INFO] Processed 4 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:36:10 +02:00: 2026-05-04T05:36:10.064Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Progress 80000/144934 (370/min) - Sent: 80000, Failed: 0
+1|critsend | 2026-05-04 07:36:11 +02:00: 2026-05-04T05:36:11.889Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [WORKER] Received SIGINT, starting graceful shutdown...
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [SHUTDOWN] Stopping all background workers...
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] Job processor stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] MTA recovery checker stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] Import job processor stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [IMPORT] Active in-process import job will complete naturally during shutdown
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] Flush job processor stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] Tag queue worker stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [MAINTENANCE] Maintenance worker stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [SCHEDULE_POLL] Scheduled campaign poller stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [FOLLOWUP_POLL] Follow-up spawner stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [SHUTDOWN] All background workers stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.937Z [INFO] [WORKER] Background workers stopped
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.938Z [INFO] [BullMQ] Queues closed
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.965Z [INFO] [BullMQ] Workers closed
+1|critsend | 2026-05-04 07:36:13 +02:00: 2026-05-04T05:36:13.992Z [INFO] NotifyQueue shut down
+1|critsend | 2026-05-04 07:36:14 +02:00: 2026-05-04T05:36:14.019Z [INFO] [Redis] Connections closed
+1|critsend | 2026-05-04 07:36:14 +02:00: 2026-05-04T05:36:14.020Z [INFO] [IMPORT POOL] closed
+1|critsend | 2026-05-04 07:36:14 +02:00: 2026-05-04T05:36:14.434Z [INFO] Processed 22 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.052Z [INFO] [JOB_POLL] Campaign 16d871ea-6ec4-468f-a916-f853e0e68204 finished (3/12 active)
+1|critsend | 2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.103Z [INFO] [JOB_POLL] Campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca finished (2/12 active)
+1|critsend | 2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.524Z [INFO] [JOB_POLL] Campaign 9371b026-0d02-408e-87f7-5862be83bcba finished (1/12 active)
+1|critsend | 2026-05-04 07:36:18 +02:00: 2026-05-04T05:36:18.640Z [INFO] [JOB_POLL] Campaign 3c278160-be19-4c71-bfdb-03c6b1c50525 finished (0/12 active)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.206Z [INFO] Database SSL enabled for external connection (Neon)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.208Z [INFO] PG pool configured: max=18, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.351Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.414Z [INFO] [WORKER] Worker process starting...
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.414Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.414Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=20, import=6 via pooler, excluded]
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.448Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":107898,"nodeVersion":"v20.20.2","processType":"worker"}
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.527Z [INFO] [Redis/bullmq] Connected
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.530Z [INFO] [Redis/main] Connected
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.730Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.733Z [INFO] [tracking_tokens] Another process is running bootstrap — skipping
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.784Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.787Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.787Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.788Z [INFO] [JOB_POLL] Starting job processor with worker ID: worker-107898-1777872994414, max concurrent campaigns: 12
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.875Z [INFO] [JOB_POLL] Startup: cleaned up 4 orphaned processing jobs
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.876Z [INFO] Starting import job processor with worker ID: worker-107898-1777872994414
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.877Z [INFO] Starting flush job processor with worker ID: worker-107898-1777872994414
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.877Z [INFO] MTA recovery checker started (30s interval)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.877Z [INFO] Stuck campaign recovery checker started (60s interval)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.878Z [INFO] Starting tag queue worker...
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.878Z [INFO] [MAINTENANCE] Starting maintenance worker (6h interval)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.878Z [INFO] [SCHEDULE_POLL] Starting scheduled campaign poller (30s interval)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.878Z [INFO] [FOLLOWUP_POLL] Starting follow-up spawner (60000ms interval)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.879Z [INFO] [WORKER_HEARTBEAT] Started (every 10s, TTL 30s)
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.885Z [INFO] [BullMQ] Workers started: campaigns, imports, flushes
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.885Z [INFO] [WORKER] Deferring analytics rollup/backfill by 30000ms to avoid startup storm
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.885Z [INFO] [WORKER] All workers running
+1|critsend | 2026-05-04 07:36:34 +02:00: 2026-05-04T05:36:34.941Z [INFO] [IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)
+1|critsend | 2026-05-04 07:36:35 +02:00: 2026-05-04T05:36:35.137Z [INFO] [TRIGRAM] email_trgm_idx already exists — skipping
+1|critsend | 2026-05-04 07:36:35 +02:00: 2026-05-04T05:36:35.137Z [INFO] [IMPORT] Email trigram index verified
+1|critsend | 2026-05-04 07:36:35 +02:00: 2026-05-04T05:36:35.153Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+1|critsend | 2026-05-04 07:36:35 +02:00: 2026-05-04T05:36:35.155Z [INFO] [IMPORT] GIN indexes integrity check passed
+1|critsend | 2026-05-04 07:36:35 +02:00: 2026-05-04T05:36:35.596Z [INFO] [MAINTENANCE] Default maintenance rules seeded
+1|critsend | 2026-05-04 07:37:05 +02:00: 2026-05-04T05:37:05.271Z [INFO] [ANALYTICS_ROLLUP] Last rollup date: 2026-05-03 — gap-filling 2 days
+1|critsend | 2026-05-04 07:37:24 +02:00: 2026-05-04T05:37:24.646Z [INFO] Processed 10 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:37:30 +02:00: 2026-05-04T05:37:30.518Z [INFO] Processed 32 tag operations in 17 bulk groups
+1|critsend | 2026-05-04 07:37:32 +02:00: 2026-05-04T05:37:32.372Z [INFO] Processed 26 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:37:34 +02:00: 2026-05-04T05:37:34.444Z [INFO] Processed 34 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:37:35 +02:00: 2026-05-04T05:37:35.798Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:37:37 +02:00: 2026-05-04T05:37:37.833Z [INFO] Processed 17 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:37:39 +02:00: 2026-05-04T05:37:39.290Z [INFO] Processed 6 tag operations in 5 bulk groups
+1|critsend | 2026-05-04 07:37:41 +02:00: 2026-05-04T05:37:41.313Z [INFO] Processed 7 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:37:44 +02:00: 2026-05-04T05:37:44.374Z [INFO] Processed 31 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:37:45 +02:00: 2026-05-04T05:37:45.408Z [INFO] Processed 10 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:37:47 +02:00: 2026-05-04T05:37:47.473Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:37:49 +02:00: 2026-05-04T05:37:49.891Z [INFO] Processed 17 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:37:51 +02:00: 2026-05-04T05:37:51.430Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:37:54 +02:00: 2026-05-04T05:37:54.021Z [INFO] Processed 19 tag operations in 15 bulk groups
+1|critsend | 2026-05-04 07:37:56 +02:00: 2026-05-04T05:37:56.183Z [INFO] Processed 24 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:37:57 +02:00: 2026-05-04T05:37:57.585Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:37:59 +02:00: 2026-05-04T05:37:59.480Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:38:01 +02:00: 2026-05-04T05:38:01.754Z [INFO] Processed 14 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:38:03 +02:00: 2026-05-04T05:38:03.460Z [INFO] Processed 9 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:38:05 +02:00: 2026-05-04T05:38:05.682Z [INFO] Processed 9 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:38:07 +02:00: 2026-05-04T05:38:07.702Z [INFO] Processed 13 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:38:09 +02:00: 2026-05-04T05:38:09.250Z [INFO] Processed 6 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:38:11 +02:00: 2026-05-04T05:38:11.399Z [INFO] Processed 8 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:38:13 +02:00: 2026-05-04T05:38:13.918Z [INFO] Processed 21 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:38:15 +02:00: 2026-05-04T05:38:15.500Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:38:17 +02:00: 2026-05-04T05:38:17.454Z [INFO] Processed 8 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:38:20 +02:00: 2026-05-04T05:38:20.327Z [INFO] Processed 28 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:38:21 +02:00: 2026-05-04T05:38:21.704Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:38:23 +02:00: 2026-05-04T05:38:23.779Z [INFO] Processed 16 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:38:26 +02:00: 2026-05-04T05:38:26.091Z [INFO] Processed 21 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:38:27 +02:00: 2026-05-04T05:38:27.824Z [INFO] Processed 16 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:38:29 +02:00: 2026-05-04T05:38:29.729Z [INFO] Processed 15 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:38:32 +02:00: 2026-05-04T05:38:32.357Z [INFO] Processed 28 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:38:33 +02:00: 2026-05-04T05:38:33.462Z [INFO] Processed 9 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:38:34 +02:00: 2026-05-04T05:38:34.937Z [INFO] [RECOVERY] Found 4 interrupted campaign(s) to resume
+1|critsend | 2026-05-04 07:38:34 +02:00: 2026-05-04T05:38:34.937Z [INFO] [RECOVERY] Re-enqueuing campaign 9371b026-0d02-408e-87f7-5862be83bcba (#2885 marc orian - 6dhUGF - Kamma)
+1|critsend | 2026-05-04 07:38:35 +02:00: 2026-05-04T05:38:35.011Z [INFO] [RECOVERY] Re-enqueuing campaign 16d871ea-6ec4-468f-a916-f853e0e68204 (#2922 Francoise Saget - 2agOFU - Mahlesoldes)
+1|critsend | 2026-05-04 07:38:35 +02:00: 2026-05-04T05:38:35.072Z [INFO] [RECOVERY] Re-enqueuing campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca (#2883 Scanditour - LIST TRAVEL - Server2)
+1|critsend | 2026-05-04 07:38:35 +02:00: 2026-05-04T05:38:35.147Z [INFO] [RECOVERY] Re-enqueuing campaign 3c278160-be19-4c71-bfdb-03c6b1c50525 (#2916 Epeda - LIST DECO - Verysent)
+1|critsend | 2026-05-04 07:38:36 +02:00: 2026-05-04T05:38:36.018Z [INFO] Processed 17 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:38:37 +02:00: 2026-05-04T05:38:37.964Z [INFO] Processed 20 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:38:39 +02:00: 2026-05-04T05:38:39.467Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:38:41 +02:00: 2026-05-04T05:38:41.500Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.207Z [INFO] Processed 27 tag operations in 15 bulk groups
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.847Z [INFO] [JOB_POLL] Worker worker-107898-1777872994414 started job 3355d3a0-bfca-4487-870c-55f6f8cdb2aa for campaign 9371b026-0d02-408e-87f7-5862be83bcba (1/12 active)
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.849Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] processCampaignInternal started
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.883Z [INFO] [JOB_POLL] Worker worker-107898-1777872994414 started job f47b3e33-d336-41c2-9350-8e060918c982 for campaign 16d871ea-6ec4-468f-a916-f853e0e68204 (2/12 active)
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.883Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] processCampaignInternal started
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.913Z [INFO] [JOB_POLL] Worker worker-107898-1777872994414 started job 8a6563d4-85ea-4c62-b793-a541672c400f for campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca (3/12 active)
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.914Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] processCampaignInternal started
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.944Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Verifying SMTP connection to MTA 'Kammaspeed.com'...
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.948Z [INFO] [JOB_POLL] Worker worker-107898-1777872994414 started job db17ca98-545e-4674-86d9-41074420278c for campaign 3c278160-be19-4c71-bfdb-03c6b1c50525 (4/12 active)
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.948Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] processCampaignInternal started
+1|critsend | 2026-05-04 07:38:44 +02:00: 2026-05-04T05:38:44.996Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Verifying SMTP connection to MTA 'Mahlesoldes.com'...
+1|critsend | 2026-05-04 07:38:45 +02:00: 2026-05-04T05:38:45.032Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Verifying SMTP connection to MTA 'Server2.mayasoldes.com'...
+1|critsend | 2026-05-04 07:38:45 +02:00: 2026-05-04T05:38:45.058Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Verifying SMTP connection to MTA 'Verysent'...
+1|critsend | 2026-05-04 07:38:45 +02:00: 2026-05-04T05:38:45.075Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] SMTP verification OK
+1|critsend | 2026-05-04 07:38:45 +02:00: 2026-05-04T05:38:45.108Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] SMTP verification OK
+1|critsend | 2026-05-04 07:38:45 +02:00: 2026-05-04T05:38:45.118Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] SMTP verification OK
+1|critsend | 2026-05-04 07:38:45 +02:00: 2026-05-04T05:38:45.135Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] SMTP verification OK
+1|critsend | 2026-05-04 07:38:45 +02:00: 2026-05-04T05:38:45.580Z [INFO] Processed 12 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:38:47 +02:00: 2026-05-04T05:38:47.927Z [INFO] Processed 16 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:38:50 +02:00: 2026-05-04T05:38:50.082Z [INFO] Processed 20 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:38:51 +02:00: 2026-05-04T05:38:51.370Z [INFO] Processed 7 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:38:53 +02:00: 2026-05-04T05:38:53.654Z [INFO] Processed 13 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:38:53 +02:00: 2026-05-04T05:38:53.696Z [INFO] Recovered orphaned pending sends {"recoveredCount":3000,"campaignId":"9371b026-0d02-408e-87f7-5862be83bcba"}
+1|critsend | 2026-05-04 07:38:53 +02:00: 2026-05-04T05:38:53.696Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Recovered 3000 orphaned pending sends
+1|critsend | 2026-05-04 07:38:56 +02:00: 2026-05-04T05:38:56.053Z [INFO] Processed 20 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:38:56 +02:00: 2026-05-04T05:38:56.989Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Segment '385b3e15-ce2a-4c6d-ac2e-33f306986328' has 144844 subscribers
+1|critsend | 2026-05-04 07:38:57 +02:00: 2026-05-04T05:38:57.047Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-04 07:38:57 +02:00: 2026-05-04T05:38:57.149Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Pre-registered 13 click tracking link(s)
+1|critsend | 2026-05-04 07:38:57 +02:00: 2026-05-04T05:38:57.468Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:38:58 +02:00: 2026-05-04T05:38:58.290Z [INFO] Recovered orphaned pending sends {"recoveredCount":6945,"campaignId":"3c278160-be19-4c71-bfdb-03c6b1c50525"}
+1|critsend | 2026-05-04 07:38:58 +02:00: 2026-05-04T05:38:58.290Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Recovered 6945 orphaned pending sends
+1|critsend | 2026-05-04 07:38:59 +02:00: 2026-05-04T05:38:59.083Z [INFO] Recovered orphaned pending sends {"recoveredCount":7835,"campaignId":"16d871ea-6ec4-468f-a916-f853e0e68204"}
+1|critsend | 2026-05-04 07:38:59 +02:00: 2026-05-04T05:38:59.083Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Recovered 7835 orphaned pending sends
+1|critsend | 2026-05-04 07:38:59 +02:00: 2026-05-04T05:38:59.626Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Segment '25961d7b-8248-4ffa-8a86-4e5bcdd7268c' has 222346 subscribers
+1|critsend | 2026-05-04 07:38:59 +02:00: 2026-05-04T05:38:59.711Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-04 07:38:59 +02:00: 2026-05-04T05:38:59.712Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:38:59 +02:00: 2026-05-04T05:38:59.814Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Pre-registered 10 click tracking link(s)
+1|critsend | 2026-05-04 07:39:00 +02:00: 2026-05-04T05:39:00.574Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Segment '0d1b8153-e0aa-4ac9-a365-6de6ab5e2cbf' has 241778 subscribers
+1|critsend | 2026-05-04 07:39:00 +02:00: 2026-05-04T05:39:00.657Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-04 07:39:00 +02:00: 2026-05-04T05:39:00.746Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Pre-registered 37 click tracking link(s)
+1|critsend | 2026-05-04 07:39:00 +02:00: 2026-05-04T05:39:00.763Z [INFO] Recovered orphaned pending sends {"recoveredCount":7765,"campaignId":"5f44b29e-f663-451d-bf68-43ae5d8083ca"}
+1|critsend | 2026-05-04 07:39:00 +02:00: 2026-05-04T05:39:00.763Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Recovered 7765 orphaned pending sends
+1|critsend | 2026-05-04 07:39:01 +02:00: 2026-05-04T05:39:01.811Z [INFO] Processed 15 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:39:02 +02:00: 2026-05-04T05:39:02.332Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Segment '0d4b771a-ff36-448f-b7bc-c75e1c1e1d35' has 187329 subscribers
+1|critsend | 2026-05-04 07:39:02 +02:00: 2026-05-04T05:39:02.477Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-04 07:39:02 +02:00: 2026-05-04T05:39:02.579Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Pre-registered 43 click tracking link(s)
+1|critsend | 2026-05-04 07:39:03 +02:00: 2026-05-04T05:39:03.973Z [INFO] Processed 15 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:39:05 +02:00: 2026-05-04T05:39:05.804Z [INFO] Processed 9 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:39:05 +02:00: 2026-05-04T05:39:05.977Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:06 +02:00: 2026-05-04T05:39:06.525Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:08 +02:00: 2026-05-04T05:39:08.181Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:08 +02:00: 2026-05-04T05:39:08.328Z [INFO] Processed 22 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:39:08 +02:00: 2026-05-04T05:39:08.717Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:09 +02:00: 2026-05-04T05:39:09.636Z [INFO] Processed 12 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:39:09 +02:00: 2026-05-04T05:39:09.884Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Batch 2: 5 to send (9995 skipped)
+1|critsend | 2026-05-04 07:39:10 +02:00: 2026-05-04T05:39:10.459Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Batch 2: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:10 +02:00: 2026-05-04T05:39:10.510Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 2: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:11 +02:00: 2026-05-04T05:39:11.066Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Progress 20000/241778 (115285/min) - Sent: 5, Failed: 0
+1|critsend | 2026-05-04 07:39:11 +02:00: 2026-05-04T05:39:11.510Z [INFO] Processed 9 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:39:12 +02:00: 2026-05-04T05:39:12.014Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Batch 2: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:13 +02:00: 2026-05-04T05:39:13.177Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Batch 3: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:13 +02:00: 2026-05-04T05:39:13.604Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Batch 3: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:13 +02:00: 2026-05-04T05:39:13.943Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 3: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:13 +02:00: 2026-05-04T05:39:13.988Z [INFO] Processed 19 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:39:14 +02:00: 2026-05-04T05:39:14.656Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Batch 4: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:15 +02:00: 2026-05-04T05:39:15.332Z [INFO] Processed 6 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:39:15 +02:00: 2026-05-04T05:39:15.901Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Batch 4: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:18 +02:00: 2026-05-04T05:39:18.051Z [INFO] Processed 17 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:39:18 +02:00: 2026-05-04T05:39:18.733Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Batch 5: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:18 +02:00: 2026-05-04T05:39:18.904Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 4: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:20 +02:00: 2026-05-04T05:39:20.225Z [INFO] Processed 23 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:39:21 +02:00: 2026-05-04T05:39:21.635Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:39:21 +02:00: 2026-05-04T05:39:21.695Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Batch 6: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:23 +02:00: 2026-05-04T05:39:23.800Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 5: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:23 +02:00: 2026-05-04T05:39:23.837Z [INFO] Processed 15 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:39:26 +02:00: 2026-05-04T05:39:26.361Z [INFO] Processed 23 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:39:26 +02:00: 2026-05-04T05:39:26.750Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 6: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:27 +02:00: 2026-05-04T05:39:27.726Z [INFO] Processed 12 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:39:29 +02:00: 2026-05-04T05:39:29.537Z [INFO] Processed 8 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:39:30 +02:00: 2026-05-04T05:39:30.081Z [INFO] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:f47b3e33] Batch 3: 10000 to send (0 skipped)
+1|critsend | 2026-05-04 07:39:32 +02:00: 2026-05-04T05:39:32.618Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 7: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:33 +02:00: 2026-05-04T05:39:33.304Z [INFO] Processed 28 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:39:34 +02:00: 2026-05-04T05:39:34.456Z [INFO] Processed 8 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:39:35 +02:00: 2026-05-04T05:39:35.464Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 8: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-04 07:39:35 +02:00: 2026-05-04T05:39:35.778Z [INFO] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:db17ca98] Batch 5: 10000 to send (0 skipped)
+1|critsend | 2026-05-04 07:39:37 +02:00: 2026-05-04T05:39:37.657Z [INFO] Processed 22 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:39:38 +02:00: 2026-05-04T05:39:38.175Z [INFO] Processed 6 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:39:40 +02:00: 2026-05-04T05:39:40.685Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:39:42 +02:00: 2026-05-04T05:39:42.246Z [INFO] Processed 7 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:39:42 +02:00: 2026-05-04T05:39:42.647Z [INFO] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:8a6563d4] Batch 7: 10000 to send (0 skipped)
+1|critsend | 2026-05-04 07:39:45 +02:00: 2026-05-04T05:39:45.842Z [INFO] Processed 22 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:39:47 +02:00: 2026-05-04T05:39:47.634Z [INFO] Processed 17 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:39:49 +02:00: 2026-05-04T05:39:49.538Z [INFO] Processed 14 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:39:51 +02:00: 2026-05-04T05:39:51.422Z [INFO] Processed 13 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:39:54 +02:00: 2026-05-04T05:39:54.269Z [INFO] Processed 30 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:39:55 +02:00: 2026-05-04T05:39:55.325Z [INFO] Processed 11 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:39:55 +02:00: 2026-05-04T05:39:55.704Z [INFO] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:3355d3a0] Batch 9: 7083 to send (2917 skipped)
+1|critsend | 2026-05-04 07:39:58 +02:00: 2026-05-04T05:39:58.053Z [INFO] Processed 26 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:39:59 +02:00: 2026-05-04T05:39:59.799Z [INFO] Processed 15 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:40:01 +02:00: 2026-05-04T05:40:01.043Z [INFO] Processed 7 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:40:03 +02:00: 2026-05-04T05:40:03.826Z [INFO] Processed 19 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:05 +02:00: 2026-05-04T05:40:05.552Z [INFO] Processed 16 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:07 +02:00: 2026-05-04T05:40:07.201Z [INFO] Processed 10 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:40:08 +02:00: 2026-05-04T05:40:08.945Z [INFO] Processed 5 tag operations in 5 bulk groups
+1|critsend | 2026-05-04 07:40:11 +02:00: 2026-05-04T05:40:11.909Z [INFO] Processed 21 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:40:13 +02:00: 2026-05-04T05:40:13.622Z [INFO] Processed 16 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:40:15 +02:00: 2026-05-04T05:40:15.769Z [INFO] Processed 19 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:40:17 +02:00: 2026-05-04T05:40:17.244Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:40:19 +02:00: 2026-05-04T05:40:19.673Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:22 +02:00: 2026-05-04T05:40:22.403Z [INFO] Processed 29 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:40:23 +02:00: 2026-05-04T05:40:23.325Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:40:24 +02:00: 2026-05-04T05:40:24.877Z [INFO] Processed 5 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:40:27 +02:00: 2026-05-04T05:40:27.564Z [INFO] Processed 17 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:29 +02:00: 2026-05-04T05:40:29.286Z [INFO] Processed 11 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:31 +02:00: 2026-05-04T05:40:31.156Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:40:33 +02:00: 2026-05-04T05:40:33.282Z [INFO] Processed 12 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:36 +02:00: 2026-05-04T05:40:36.717Z [INFO] Processed 27 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:40:37 +02:00: 2026-05-04T05:40:37.202Z [INFO] Processed 9 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:39 +02:00: 2026-05-04T05:40:39.474Z [INFO] Processed 14 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:40:42 +02:00: 2026-05-04T05:40:42.641Z [INFO] Processed 45 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:40:43 +02:00: 2026-05-04T05:40:43.126Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:40:45 +02:00: 2026-05-04T05:40:45.668Z [INFO] Processed 19 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:40:47 +02:00: 2026-05-04T05:40:47.155Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:40:49 +02:00: 2026-05-04T05:40:49.676Z [INFO] Processed 18 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:40:51 +02:00: 2026-05-04T05:40:51.594Z [INFO] Processed 17 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:40:53 +02:00: 2026-05-04T05:40:53.595Z [INFO] Processed 17 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:40:55 +02:00: 2026-05-04T05:40:55.356Z [INFO] Processed 14 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:40:57 +02:00: 2026-05-04T05:40:57.648Z [INFO] Processed 20 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:40:58 +02:00: 2026-05-04T05:40:58.847Z [INFO] Processed 4 tag operations in 4 bulk groups
+1|critsend | 2026-05-04 07:41:01 +02:00: 2026-05-04T05:41:01.483Z [INFO] Processed 14 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:41:03 +02:00: 2026-05-04T05:41:03.824Z [INFO] Processed 21 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:41:05 +02:00: 2026-05-04T05:41:05.808Z [INFO] Processed 19 tag operations in 14 bulk groups
+1|critsend | 2026-05-04 07:41:06 +02:00: 2026-05-04T05:41:06.977Z [INFO] Processed 7 tag operations in 6 bulk groups
+1|critsend | 2026-05-04 07:41:09 +02:00: 2026-05-04T05:41:09.765Z [INFO] Processed 24 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:41:10 +02:00: 2026-05-04T05:41:10.626Z [INFO] Processed 1 tag operations in 1 bulk groups
+1|critsend | 2026-05-04 07:41:13 +02:00: 2026-05-04T05:41:13.167Z [INFO] Processed 9 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:41:15 +02:00: 2026-05-04T05:41:15.574Z [INFO] Processed 18 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:41:17 +02:00: 2026-05-04T05:41:17.229Z [INFO] Processed 10 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:41:19 +02:00: 2026-05-04T05:41:19.188Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:41:21 +02:00: 2026-05-04T05:41:21.549Z [INFO] Processed 16 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:41:23 +02:00: 2026-05-04T05:41:23.195Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:41:25 +02:00: 2026-05-04T05:41:25.416Z [INFO] Processed 14 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:41:27 +02:00: 2026-05-04T05:41:27.783Z [INFO] Processed 24 tag operations in 12 bulk groups
+1|critsend | 2026-05-04 07:41:29 +02:00: 2026-05-04T05:41:29.256Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:41:31 +02:00: 2026-05-04T05:41:31.304Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:41:34 +02:00: 2026-05-04T05:41:34.428Z [INFO] Processed 33 tag operations in 15 bulk groups
+1|critsend | 2026-05-04 07:41:35 +02:00: 2026-05-04T05:41:35.560Z [INFO] Processed 12 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:41:37 +02:00: 2026-05-04T05:41:37.192Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:41:39 +02:00: 2026-05-04T05:41:39.444Z [INFO] Processed 15 tag operations in 11 bulk groups
+1|critsend | 2026-05-04 07:41:41 +02:00: 2026-05-04T05:41:41.290Z [INFO] Processed 14 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:41:43 +02:00: 2026-05-04T05:41:43.369Z [INFO] Processed 14 tag operations in 9 bulk groups
+1|critsend | 2026-05-04 07:41:45 +02:00: 2026-05-04T05:41:45.657Z [INFO] Processed 19 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:41:47 +02:00: 2026-05-04T05:41:47.157Z [INFO] Processed 8 tag operations in 7 bulk groups
+1|critsend | 2026-05-04 07:41:49 +02:00: 2026-05-04T05:41:49.242Z [INFO] Processed 11 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:41:51 +02:00: 2026-05-04T05:41:51.413Z [INFO] Processed 13 tag operations in 8 bulk groups
+1|critsend | 2026-05-04 07:41:53 +02:00: 2026-05-04T05:41:53.646Z [INFO] Processed 19 tag operations in 10 bulk groups
+1|critsend | 2026-05-04 07:41:55 +02:00: 2026-05-04T05:41:55.715Z [INFO] Processed 18 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:41:57 +02:00: 2026-05-04T05:41:57.737Z [INFO] Processed 22 tag operations in 13 bulk groups
+1|critsend | 2026-05-04 07:41:59 +02:00: 2026-05-04T05:41:58.999Z [INFO] Processed 7 tag operations in 6 bulk groups
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-worker --lines 500 --nostream --err | awk '/2026-05-04 07:3[5-6]/' | head -50
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.046Z [ERROR] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:8e706a77] Fatal error in send loop: Cannot use a pool after calling end on the pool {"stack":"Error: Cannot use a pool after calling end on the pool\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326"}
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.048Z [WARN] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:8e706a77] Failed to pause campaign on DB error: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.049Z [WARN] [CAMPAIGN 16d871ea-6ec4-468f-a916-f853e0e68204 job:8e706a77] logError DB write failed: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.049Z [ERROR] [JOB_POLL] Error processing job 8e706a77-49b0-41d1-965c-72b651e4981f for campaign 16d871ea-6ec4-468f-a916-f853e0e68204:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.050Z [ERROR] [JOB_POLL] Failed to mark job 8e706a77-49b0-41d1-965c-72b651e4981f as failed:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.051Z [ERROR] [JOB_POLL] Failed to mark campaign 16d871ea-6ec4-468f-a916-f853e0e68204 as failed (attempt 1):
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.098Z [ERROR] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] Fatal error in send loop: Cannot use a pool after calling end on the pool {"stack":"Error: Cannot use a pool after calling end on the pool\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326"}
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.099Z [ERROR] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] Bulk finalize failed, falling back: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.099Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 4807035e-de3f-4310-8cbf-a22ae159b7a5: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.099Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480718ee-2bc0-4ab2-a065-9c7b99533cb3: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.099Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 48076fd7-534b-4ed9-8ed9-b39c57fe7e94: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480786a3-6793-446b-9758-a3ecac11d0b7: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 4807b2a5-ed59-428b-9b8e-8169c6d3233c: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480858c1-3d8a-45dd-96a4-ebf89135b2da: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 4808bbdc-57e9-493f-a690-b99c844723c2: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480a3c44-cf9a-4eae-a2f5-97ce80dd04d4: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480a4add-1377-406c-b110-5c5842444a75: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.100Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] forceFailPendingSend failed for 480b9622-6175-4ff3-836d-17e7d45c37c8: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.101Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] Failed to pause campaign on DB error: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.101Z [WARN] [CAMPAIGN 5f44b29e-f663-451d-bf68-43ae5d8083ca job:57642ff2] logError DB write failed: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.101Z [ERROR] [JOB_POLL] Error processing job 57642ff2-757e-4501-b735-d3dfee55d7f2 for campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.102Z [ERROR] [JOB_POLL] Failed to mark job 57642ff2-757e-4501-b735-d3dfee55d7f2 as failed:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.102Z [ERROR] [JOB_POLL] Failed to mark campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca as failed (attempt 1):
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.521Z [ERROR] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Bulk reserve failed, falling back: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.522Z [ERROR] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Fatal error in send loop: Cannot use a pool after calling end on the pool {"stack":"Error: Cannot use a pool after calling end on the pool\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)"}
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.522Z [WARN] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] Failed to pause campaign on DB error: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.523Z [WARN] [CAMPAIGN 9371b026-0d02-408e-87f7-5862be83bcba job:564fc762] logError DB write failed: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.523Z [ERROR] [JOB_POLL] Error processing job 564fc762-e157-4ac3-9962-6aa0cadd89e7 for campaign 9371b026-0d02-408e-87f7-5862be83bcba:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.524Z [ERROR] [JOB_POLL] Failed to mark job 564fc762-e157-4ac3-9962-6aa0cadd89e7 as failed:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.524Z [ERROR] [JOB_POLL] Failed to mark campaign 9371b026-0d02-408e-87f7-5862be83bcba as failed (attempt 1):
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.637Z [ERROR] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Fatal error in send loop: Cannot use a pool after calling end on the pool {"stack":"Error: Cannot use a pool after calling end on the pool\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326"}
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.637Z [ERROR] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Bulk finalize failed, falling back: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26160ee9-dbd6-46c9-aa1b-aae48aa74f30: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26163980-98ab-4039-b9aa-1d2283d159d3: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26169d5f-d487-4e7c-b402-ba26e9ff848c: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2616a534-544d-4f1b-9369-12cc5405b909: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2616d085-7f1e-45a6-81cb-fb956689513c: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2616d9e4-352f-4467-a646-58ace11d9132: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 26172625-333f-4245-b638-46c0b8344043: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2617d475-9bb2-4484-8566-ad38c041dd8f: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.638Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2618037b-012f-4925-aa0e-4ed3ddbcf7cd: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.639Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] forceFailPendingSend failed for 2618222b-c12a-44ed-86bd-33f6dcaa9cee: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.639Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] Failed to pause campaign on DB error: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.639Z [WARN] [CAMPAIGN 3c278160-be19-4c71-bfdb-03c6b1c50525 job:76d74d35] logError DB write failed: Cannot use a pool after calling end on the pool
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.640Z [ERROR] [JOB_POLL] Error processing job 76d74d35-61cd-4190-9c12-4c810ed777cb for campaign 3c278160-be19-4c71-bfdb-03c6b1c50525:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.640Z [ERROR] [JOB_POLL] Failed to mark job 76d74d35-61cd-4190-9c12-4c810ed777cb as failed:
+1|critsend | 2026-05-04 07:36:15 +02:00: 2026-05-04T05:36:15.640Z [ERROR] [JOB_POLL] Failed to mark campaign 3c278160-be19-4c71-bfdb-03c6b1c50525 as failed (attempt 1):
+1|critsend | 2026-05-04 07:36:16 +02:00: 2026-05-04T05:36:16.051Z [ERROR] [JOB_POLL] Failed to mark campaign 16d871ea-6ec4-468f-a916-f853e0e68204 as failed (attempt 2):
+1|critsend | 2026-05-04 07:36:16 +02:00: 2026-05-04T05:36:16.102Z [ERROR] [JOB_POLL] Failed to mark campaign 5f44b29e-f663-451d-bf68-43ae5d8083ca as failed (attempt 2):
+1|critsend | 2026-05-04 07:36:16 +02:00: 2026-05-04T05:36:16.524Z [ERROR] [JOB_POLL] Failed to mark campaign 9371b026-0d02-408e-87f7-5862be83bcba as failed (attempt 2):
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
