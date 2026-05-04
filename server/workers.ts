@@ -731,13 +731,27 @@ async function resumeInterruptedCampaigns() {
         AND NOT EXISTS (
           SELECT 1 FROM import_jobs j
           WHERE j.id = q.import_job_id
-          AND j.status = 'cancelled'
+          AND j.status IN ('cancelled', 'completed')
         )
       RETURNING q.import_job_id
     `);
 
     if (stuckImportQueue.rows.length > 0) {
       logger.info(`[RECOVERY] Reset ${stuckImportQueue.rows.length} stuck import queue item(s)`);
+    }
+
+    const completedImports = await db.execute(sql`
+      UPDATE import_jobs SET status = 'completed',
+        error_message = NULL,
+        completed_at = COALESCE(completed_at, NOW())
+      WHERE status = 'processing'
+        AND COALESCE(total_rows, 0) > 0
+        AND COALESCE(processed_rows, 0) >= COALESCE(total_rows, 0)
+      RETURNING id, filename
+    `);
+
+    if (completedImports.rows.length > 0) {
+      logger.info(`[RECOVERY] Marked ${completedImports.rows.length} interrupted import(s) as completed (all rows processed)`);
     }
 
     const stuckImports = await db.execute(sql`
@@ -1001,6 +1015,23 @@ function startImportJobProcessor() {
       if (staleCount > 0) {
         logger.info(`[IMPORT] Startup recovery: cleaned up ${staleCount} stale import jobs`);
       }
+      const orphanCompletedResult = await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'completed',
+            error_message = NULL,
+            completed_at = COALESCE(completed_at, NOW())
+        WHERE status = 'processing'
+          AND COALESCE(total_rows, 0) > 0
+          AND COALESCE(processed_rows, 0) >= COALESCE(total_rows, 0)
+          AND id NOT IN (
+            SELECT import_job_id FROM import_job_queue
+            WHERE status = 'processing'
+          )
+        RETURNING id
+      `);
+      if (orphanCompletedResult.rows.length > 0) {
+        logger.info(`[IMPORT] Startup recovery: completed ${orphanCompletedResult.rows.length} orphaned import_jobs (all rows were processed)`);
+      }
       const orphanResult = await db.execute(sql`
         UPDATE import_jobs
         SET status = 'failed',
@@ -1015,6 +1046,21 @@ function startImportJobProcessor() {
       `);
       if (orphanResult.rows.length > 0) {
         logger.info(`[IMPORT] Startup recovery: failed ${orphanResult.rows.length} orphaned import_jobs with no active queue item`);
+      }
+
+      const csvMissingFixResult = await db.execute(sql`
+        UPDATE import_jobs
+        SET status = 'completed',
+            error_message = NULL,
+            completed_at = COALESCE(completed_at, NOW())
+        WHERE status = 'failed'
+          AND error_message LIKE '%CSV file not found%'
+          AND COALESCE(total_rows, 0) > 0
+          AND COALESCE(processed_rows, 0) >= COALESCE(total_rows, 0)
+        RETURNING id
+      `);
+      if (csvMissingFixResult.rows.length > 0) {
+        logger.info(`[IMPORT] Startup recovery: fixed ${csvMissingFixResult.rows.length} import(s) wrongly marked failed (all rows were actually imported)`);
       }
 
       // Close queue items whose import_job is already 'completed' — these were orphaned

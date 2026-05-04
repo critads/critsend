@@ -983,6 +983,16 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
   if (isObjectStorage) {
     const exists = await objectStorageService.objectExists(csvFilePath);
     if (!exists) {
+      const existingJob = await getImportJob(importJobId);
+      if (existingJob?.status === "completed") {
+        log("info", `${importJobId}: CSV file already cleaned up from previous successful run — skipping re-processing`);
+        return;
+      }
+      if (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0)) {
+        log("warn", `${importJobId}: CSV file missing but all ${existingJob.processedRows} rows were imported — marking completed`);
+        await updateImportJob(importJobId, { status: "completed", completedAt: new Date(), errorMessage: null });
+        return;
+      }
       throw new Error(
         `CSV file not found in object storage: ${csvFilePath}. This can happen if the file was deleted or never uploaded. Please re-upload the file.`
       );
@@ -993,6 +1003,16 @@ async function processImport(queueId: string, importJobId: string, csvFilePath: 
     log("info", `${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
   } else {
     if (!fs.existsSync(csvFilePath)) {
+      const existingJob = await getImportJob(importJobId);
+      if (existingJob?.status === "completed") {
+        log("info", `${importJobId}: CSV file already cleaned up from previous successful run — skipping re-processing`);
+        return;
+      }
+      if (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0)) {
+        log("warn", `${importJobId}: CSV file missing but all ${existingJob.processedRows} rows were imported — marking completed`);
+        await updateImportJob(importJobId, { status: "completed", completedAt: new Date(), errorMessage: null });
+        return;
+      }
       throw new Error(
         `CSV file not found: ${csvFilePath}. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.`
       );
@@ -1741,11 +1761,27 @@ async function processRefsImportPhase1(queueId: string, importJobId: string, csv
   if (isObjectStorage) {
     const exists = await objectStorageService.objectExists(csvFilePath);
     if (!exists) {
+      const existingJob = await getImportJob(importJobId);
+      if (existingJob?.status === "completed" || (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0))) {
+        log("warn", `${importJobId}: [REFS PHASE 1] CSV missing but all rows already imported — skipping`);
+        if (existingJob.status !== "completed") {
+          await updateImportJob(importJobId, { status: "completed", completedAt: new Date(), errorMessage: null });
+        }
+        return;
+      }
       throw new Error(`CSV file not found in object storage: ${csvFilePath}`);
     }
     fileStream = await objectStorageService.getObjectStream(csvFilePath);
   } else {
     if (!fs.existsSync(csvFilePath)) {
+      const existingJob = await getImportJob(importJobId);
+      if (existingJob?.status === "completed" || (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0))) {
+        log("warn", `${importJobId}: [REFS PHASE 1] CSV missing but all rows already imported — skipping`);
+        if (existingJob.status !== "completed") {
+          await updateImportJob(importJobId, { status: "completed", completedAt: new Date(), errorMessage: null });
+        }
+        return;
+      }
       throw new Error(`CSV file not found: ${csvFilePath}`);
     }
     fileStream = fs.createReadStream(csvFilePath, { encoding: "utf-8", highWaterMark: 256 * 1024 });
@@ -1965,10 +2001,30 @@ async function processRefsImportPhase2(queueId: string, importJobId: string, csv
 
   if (isObjectStorage) {
     const exists = await objectStorageService.objectExists(resolvedCsvPath);
-    if (!exists) throw new Error(`CSV file not found in object storage: ${resolvedCsvPath}`);
+    if (!exists) {
+      const existingJob = await getImportJob(importJobId);
+      if (existingJob?.status === "completed" || (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0))) {
+        log("warn", `${importJobId}: [REFS PHASE 2] CSV missing but all rows already imported — skipping`);
+        if (existingJob.status !== "completed") {
+          await updateImportJob(importJobId, { status: "completed", completedAt: new Date(), errorMessage: null });
+        }
+        return;
+      }
+      throw new Error(`CSV file not found in object storage: ${resolvedCsvPath}`);
+    }
     fileStream = await objectStorageService.getObjectStream(resolvedCsvPath);
   } else {
-    if (!fs.existsSync(resolvedCsvPath)) throw new Error(`CSV file not found: ${resolvedCsvPath}`);
+    if (!fs.existsSync(resolvedCsvPath)) {
+      const existingJob = await getImportJob(importJobId);
+      if (existingJob?.status === "completed" || (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0))) {
+        log("warn", `${importJobId}: [REFS PHASE 2] CSV missing but all rows already imported — skipping`);
+        if (existingJob.status !== "completed") {
+          await updateImportJob(importJobId, { status: "completed", completedAt: new Date(), errorMessage: null });
+        }
+        return;
+      }
+      throw new Error(`CSV file not found: ${resolvedCsvPath}`);
+    }
     fileStream = fs.createReadStream(resolvedCsvPath, { encoding: "utf-8", highWaterMark: 256 * 1024 });
   }
 
