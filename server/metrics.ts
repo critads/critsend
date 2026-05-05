@@ -278,6 +278,13 @@ export const trackingLinkCacheHits = new client.Counter({
   registers: [register],
 });
 
+export const trackingTokenCacheTotal = new client.Counter({
+  name: 'critsend_tracking_token_cache_total',
+  help: 'resolveTrackingToken LRU cache outcomes',
+  labelNames: ['result'] as const,
+  registers: [register],
+});
+
 // ─── Bounce-webhook buffer (mirror of tracking buffer) ─────────────────────
 export const bounceBufferEnqueued = new client.Counter({
   name: 'critsend_bounce_buffer_enqueued_total',
