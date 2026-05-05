@@ -813,36 +813,90 @@ export async function getCampaignLinkDestination(linkId: string): Promise<string
 // DASHBOARD & ANALYTICS (campaign-scoped, no subscriber-repo dep)
 // ═══════════════════════════════════════════════════════════════
 
+let dashboardCache: { data: any; expiresAt: number } | null = null;
+const DASHBOARD_CACHE_TTL_MS = 30_000;
+
 export async function getDashboardStats() {
-  // Single combined query against campaign_stats with FILTER aggregates —
-  // halves the work compared with two separate full-table COUNT scans.
+  if (dashboardCache && Date.now() < dashboardCache.expiresAt) {
+    return dashboardCache.data;
+  }
+
   const [
-    subCountResult,
-    [{ campaignCount }],
-    statsResult,
-    recentCampaigns,
-    recentImports,
+    subEstimateResult,
+    aggregateResult,
+    recentCampaignsResult,
+    recentImportsResult,
   ] = await Promise.all([
-    db.execute(sql`SELECT COUNT(*) as count FROM subscribers`),
-    db.select({ campaignCount: sql<number>`count(*)` }).from(campaigns),
+    db.execute(sql`
+      SELECT reltuples::bigint AS count
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relname = 'subscribers' AND n.nspname = 'public'
+    `),
     db.execute(sql`
       SELECT
-        COUNT(*) FILTER (WHERE type = 'open')::int  AS open_count,
-        COUNT(*) FILTER (WHERE type = 'click')::int AS click_count
-      FROM campaign_stats
+        COUNT(*)::int AS campaign_count,
+        COALESCE(SUM(total_opens_count), 0)::int AS total_opens,
+        COALESCE(SUM(total_clicks_count), 0)::int AS total_clicks,
+        COALESCE(SUM(unsubscribes_count), 0)::int AS total_unsubs
+      FROM campaigns
     `),
-    db.select().from(campaigns).orderBy(desc(campaigns.createdAt)).limit(5),
+    db.execute(sql`
+      SELECT id, name, status, sent_count, scheduled_at, segment_id, created_at
+      FROM campaigns
+      ORDER BY created_at DESC
+      LIMIT 5
+    `),
     db.select().from(importJobs).orderBy(desc(importJobs.createdAt)).limit(5),
   ]);
-  const statsRow = statsResult.rows[0] as any;
-  return {
-    totalSubscribers: Number((subCountResult.rows[0] as any)?.count || 0),
-    totalCampaigns: Number(campaignCount),
-    totalOpens: Number(statsRow?.open_count || 0),
-    totalClicks: Number(statsRow?.click_count || 0),
-    recentCampaigns,
-    recentImports,
+
+  const aggRow = aggregateResult.rows[0] as any;
+  let subscriberCount = Number((subEstimateResult.rows[0] as any)?.count ?? -1);
+
+  if (subscriberCount < 0) {
+    const exact = await db.execute(sql`SELECT COUNT(*) AS count FROM subscribers`);
+    subscriberCount = Number((exact.rows[0] as any)?.count || 0);
+  }
+
+  const data = {
+    totalSubscribers: subscriberCount,
+    totalCampaigns: Number(aggRow?.campaign_count || 0),
+    totalOpens: Number(aggRow?.total_opens || 0),
+    totalClicks: Number(aggRow?.total_clicks || 0),
+    totalUnsubscribes: Number(aggRow?.total_unsubs || 0),
+    recentCampaigns: (recentCampaignsResult.rows as any[]).map((r) => ({
+      id: r.id,
+      name: r.name,
+      status: r.status,
+      sentCount: r.sent_count ?? 0,
+      scheduledAt: r.scheduled_at,
+      segmentId: r.segment_id,
+    })),
+    recentImports: recentImportsResult,
   };
+
+  dashboardCache = { data, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS };
+  return data;
+}
+
+export async function getDashboardChartData() {
+  const result = await db.execute(sql`
+    SELECT
+      to_char(date_trunc('month', date), 'Mon YY') AS label,
+      SUM(total_opens)::int  AS opens,
+      SUM(total_clicks)::int AS clicks
+    FROM analytics_daily
+    WHERE date >= date_trunc('month', NOW()) - INTERVAL '11 months'
+      AND date < date_trunc('month', NOW()) + INTERVAL '1 month'
+    GROUP BY date_trunc('month', date), to_char(date_trunc('month', date), 'Mon YY')
+    ORDER BY date_trunc('month', date) ASC
+  `);
+
+  return (result.rows as any[]).map((row) => ({
+    name: String(row.label),
+    opens: Number(row.opens || 0),
+    clicks: Number(row.clicks || 0),
+  }));
 }
 
 // ═══════════════════════════════════════════════════════════════

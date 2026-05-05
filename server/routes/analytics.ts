@@ -19,6 +19,16 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
     }
   });
 
+  app.get("/api/dashboard/chart", async (req: Request, res: Response) => {
+    try {
+      const data = await storage.getDashboardChartData();
+      res.json(data);
+    } catch (error) {
+      logger.error("Error fetching dashboard chart data:", error);
+      res.status(500).json({ error: "Failed to fetch chart data" });
+    }
+  });
+
   app.get("/api/analytics/overall", async (req: Request, res: Response) => {
     try {
       const analytics = await storage.getOverallAnalytics();

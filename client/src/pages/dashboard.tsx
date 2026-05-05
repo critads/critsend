@@ -36,6 +36,7 @@ interface DashboardStats {
   totalCampaigns: number;
   totalOpens: number;
   totalClicks: number;
+  totalUnsubscribes: number;
   recentCampaigns: Array<{
     id: string;
     name: string;
@@ -53,15 +54,11 @@ interface DashboardStats {
   }>;
 }
 
-const mockChartData = [
-  { name: "Jan", opens: 400, clicks: 240 },
-  { name: "Feb", opens: 300, clicks: 139 },
-  { name: "Mar", opens: 520, clicks: 280 },
-  { name: "Apr", opens: 470, clicks: 308 },
-  { name: "May", opens: 540, clicks: 280 },
-  { name: "Jun", opens: 680, clicks: 420 },
-  { name: "Jul", opens: 720, clicks: 380 },
-];
+interface ChartPoint {
+  name: string;
+  opens: number;
+  clicks: number;
+}
 
 function StatCard({
   title,
@@ -144,6 +141,12 @@ function CampaignStatusBadge({ status }: { status: string }) {
 export default function Dashboard() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
+    staleTime: 15_000,
+  });
+
+  const { data: chartData } = useQuery<ChartPoint[]>({
+    queryKey: ["/api/dashboard/chart"],
+    staleTime: 60_000,
   });
 
   const { data: segments } = useQuery<Segment[]>({
@@ -232,7 +235,7 @@ export default function Dashboard() {
           <CardContent className="pt-4">
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={mockChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={chartData ?? []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorOpens" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
@@ -324,7 +327,7 @@ export default function Dashboard() {
               </div>
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm text-muted-foreground">Unsubscribed</span>
-                <span className="font-semibold text-muted-foreground">0</span>
+                <span className="font-semibold">{(stats?.totalUnsubscribes ?? 0).toLocaleString()}</span>
               </div>
             </div>
           </CardContent>

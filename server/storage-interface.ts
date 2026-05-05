@@ -281,8 +281,11 @@ export interface IStorage {
   healthCheck(): Promise<boolean>;
   getDashboardStats(): Promise<{
     totalSubscribers: number; totalCampaigns: number; totalOpens: number; totalClicks: number;
-    recentCampaigns: Campaign[]; recentImports: ImportJob[];
+    totalUnsubscribes: number;
+    recentCampaigns: Array<{ id: string; name: string; status: string; sentCount: number; scheduledAt: any; segmentId: string | null }>;
+    recentImports: ImportJob[];
   }>;
+  getDashboardChartData(): Promise<Array<{ name: string; opens: number; clicks: number }>>;
   getOverallAnalytics(): Promise<{
     totalOpens: number; totalClicks: number; totalCampaigns: number;
     avgOpenRate: number; avgClickRate: number;
