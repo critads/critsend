@@ -679,6 +679,25 @@ async function checkMtaRecovery() {
   } catch (error) {
     logger.error("Error checking MTA recovery:", error);
   }
+
+  try {
+    const dbPausedCampaigns = await storage.getCampaignsByPauseReason("db_connection_error");
+
+    for (const campaign of dbPausedCampaigns) {
+      try {
+        await db.execute(sql`SELECT 1`);
+        logger.info(`[DB_RECOVERY] DB connection healthy — auto-resuming campaign ${campaign.id} (${campaign.name})`);
+        await storage.clearStuckJobsForCampaign(campaign.id);
+        await storage.updateCampaign(campaign.id, { status: "sending", pauseReason: null });
+        await storage.enqueueCampaignJob(campaign.id);
+      } catch (pingErr) {
+        logger.warn(`[DB_RECOVERY] DB still unhealthy for campaign ${campaign.id}: ${(pingErr as Error).message}`);
+        break;
+      }
+    }
+  } catch (error) {
+    logger.error("[DB_RECOVERY] Error checking DB connection recovery:", error);
+  }
 }
 
 async function resumeInterruptedCampaigns() {

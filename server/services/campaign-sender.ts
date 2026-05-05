@@ -569,18 +569,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     const fatalMsg = error.message || '';
     const isTransientDb = /connection timeout|timeout exceeded when trying to connect|timeout exceeded|Connection terminated|connection refused|ECONNRESET|ETIMEDOUT|EPIPE|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer|Cannot use a pool after calling end|read ECONNRESET|getaddrinfo ENOTFOUND/i.test(fatalMsg);
     if (isTransientDb) {
-      await storage.updateCampaign(campaignId, { status: "paused", pauseReason: "db_connection_error" }).catch((err: any) => {
-        logger.warn(`${logPrefix} Failed to pause campaign on DB error: ${err.message}`);
-      });
-      await storage.logError({
-        type: "campaign_paused",
-        severity: "warning",
-        message: `Campaign paused due to transient DB error: ${error.message}`,
-        campaignId,
-        details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
-      }).catch((err: any) => {
-        logger.warn(`${logPrefix} logError DB write failed: ${err.message}`);
-      });
+      logger.warn(`${logPrefix} Transient DB error — re-throwing for job-level requeue (sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total})`);
     } else {
       await storage.updateCampaignStatusAtomic(campaignId, "failed", "sending").catch((err: any) => {
         logger.warn(`${logPrefix} Failed to mark campaign as failed: ${err.message}`);
