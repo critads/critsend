@@ -1,0 +1,89 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ # 1. Recover the two failed campaigns
+psql "$DATABASE_URL" -c "
+  UPDATE campaigns SET status = 'sending', pause_reason = NULL,
+    retry_until = NOW() + INTERVAL '12 hours'
+  WHERE id IN ('fdfa9d72-b20b-496b-b7ac-b229c2136769', '751554e9-30c2-4af8-b4b5-fa50ccefda79')
+    AND status = 'failed';
+"
+
+# 2. Check what errors were logged for these campaigns
+psql "$DATABASE_URL" -c "
+  SELECT type, severity, message, details, timestamp
+  FROM error_logs
+  WHERE campaign_id IN ('fdfa9d72-b20b-496b-b7ac-b229c2136769', '751554e9-30c2-4af8-b4b5-fa50ccefda79')
+  ORDER BY timestamp DESC LIMIT 10;
+"
+
+# 3. Deploy the fix
+cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+
+# 4. Re-enqueue the recovered campaigns (after deploy)
+";  (gen_random_uuid(), '751554e9-30c2-4af8-b4b5-fa50ccefda79', 'pending', NOW()
+Command 'psql' not found, but can be installed with:
+sudo apt install postgresql-client-common
+Command 'psql' not found, but can be installed with:
+sudo apt install postgresql-client-common
+remote: Enumerating objects: 43, done.
+remote: Counting objects: 100% (43/43), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 28 (delta 25), reused 28 (delta 25), pack-reused 0 (from 0)
+Unpacking objects: 100% (28/28), 1.64 MiB | 8.41 MiB/s, done.
+From https://github.com/critads/critsend
+   408461c..902d6da  main       -> origin/main
+Updating 408461c..902d6da
+Fast-forward
+ ...shot_2026-05-05_at_2.36.07_PM_1777977454101.png | Bin 0 -> 1562800 bytes
+ ...shot_2026-05-05_at_3.03.20_PM_1777979003129.png | Bin 0 -> 298577 bytes
+ client/src/pages/dashboard.tsx                     |  25 +++---
+ server/index.ts                                    |   5 +-
+ server/repositories/campaign-repository.ts         |  96 ++++++++++++++++-----
+ server/routes/analytics.ts                         |  10 +++
+ server/storage-interface.ts                        |   5 +-
+ server/tracking-queries.ts                         |  63 ++++++++++++++
+ server/workers.ts                                  |  95 ++++++++++++++++----
+ 9 files changed, 246 insertions(+), 53 deletions(-)
+ create mode 100644 attached_assets/Screenshot_2026-05-05_at_2.36.07_PM_1777977454101.png
+ create mode 100644 attached_assets/Screenshot_2026-05-05_at_3.03.20_PM_1777979003129.png
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (15) src/pages/mta-edit.tsx
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2497 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-D1DPO-E_.css     88.36 kB │ gzip:  14.32 kB
+../dist/public/assets/index-BE8DShLI.js   1,283.59 kB │ gzip: 340.17 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.96s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 103ms
+building import worker...
+
+  dist/import-worker.cjs  198.1kb
+
+⚡ Done in 35ms
+building background worker...
+
+  dist/worker-main.cjs  937.1kb
+
+⚡ Done in 72ms
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+Command 'psql' not found, but can be installed with:
+sudo apt install postgresql-client-common
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
