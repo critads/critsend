@@ -23,22 +23,44 @@ type ResolvedToken = {
   linkId: string | null;
 };
 
+const MISS_SENTINEL: unique symbol = Symbol("MISS");
+type CacheEntry = ResolvedToken | typeof MISS_SENTINEL;
+
 const TOKEN_CACHE_MAX = Number(process.env.TRACKING_TOKEN_CACHE_MAX || 50_000);
-const tokenCache = new Map<string, ResolvedToken>();
+const NEGATIVE_TTL_MS = 30_000;
+
+const tokenCache = new Map<string, CacheEntry>();
+const negativeTTL = new Map<string, number>();
 
 function tokenCacheEvict(): void {
   if (tokenCache.size <= TOKEN_CACHE_MAX) return;
   const oldest = tokenCache.keys().next().value;
-  if (oldest !== undefined) tokenCache.delete(oldest);
+  if (oldest !== undefined) {
+    tokenCache.delete(oldest);
+    negativeTTL.delete(oldest);
+  }
 }
 
 export async function resolveTrackingTokenViaTrackingPool(token: string): Promise<ResolvedToken | null> {
-  if (tokenCache.has(token)) {
-    const cached = tokenCache.get(token)!;
-    tokenCache.delete(token);
-    tokenCache.set(token, cached);
-    trackingTokenCacheTotal.inc({ result: "hit" });
-    return cached;
+  const cached = tokenCache.get(token);
+  if (cached !== undefined) {
+    if (cached === MISS_SENTINEL) {
+      const expiresAt = negativeTTL.get(token);
+      if (expiresAt !== undefined && Date.now() > expiresAt) {
+        tokenCache.delete(token);
+        negativeTTL.delete(token);
+      } else {
+        tokenCache.delete(token);
+        tokenCache.set(token, cached);
+        trackingTokenCacheTotal.inc({ result: "hit" });
+        return null;
+      }
+    } else {
+      tokenCache.delete(token);
+      tokenCache.set(token, cached);
+      trackingTokenCacheTotal.inc({ result: "hit" });
+      return cached;
+    }
   }
   trackingTokenCacheTotal.inc({ result: "miss" });
 
@@ -48,7 +70,12 @@ export async function resolveTrackingTokenViaTrackingPool(token: string): Promis
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const result = await trackingPool.query(sql, [token]);
-      if (result.rows.length === 0) return null;
+      if (result.rows.length === 0) {
+        tokenCache.set(token, MISS_SENTINEL);
+        negativeTTL.set(token, Date.now() + NEGATIVE_TTL_MS);
+        tokenCacheEvict();
+        return null;
+      }
       const resolved: ResolvedToken = {
         type: result.rows[0].type,
         campaignId: result.rows[0].campaign_id,
@@ -56,6 +83,7 @@ export async function resolveTrackingTokenViaTrackingPool(token: string): Promis
         linkId: result.rows[0].link_id ?? null,
       };
       tokenCache.set(token, resolved);
+      negativeTTL.delete(token);
       tokenCacheEvict();
       return resolved;
     } catch (err) {
