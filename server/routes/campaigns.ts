@@ -237,8 +237,18 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
   app.get("/api/campaigns", async (req: Request, res: Response) => {
     try {
-      const campaignsList = await storage.getCampaigns();
-      res.json(campaignsList);
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const search = (req.query.search as string)?.trim() || undefined;
+      const originalsOnly = req.query.originalsOnly === "true";
+
+      const result = await storage.getCampaignsPaginated({ page, limit, search, originalsOnly });
+      res.json({
+        campaigns: result.campaigns,
+        total: result.total,
+        page,
+        totalPages: Math.ceil(result.total / limit),
+      });
     } catch (error) {
       const classified = classifyDbError(error);
       if (classified.transient) {
@@ -255,9 +265,6 @@ export function registerCampaignRoutes(app: Express, helpers: {
         } else {
           suppressedCampaignsListErrors++;
         }
-        // Stable JSON shape — never leak raw Postgres text like
-        // "Disk quota exceeded" or file paths to the browser. The campaigns
-        // page renders this as the existing "Failed to load campaigns" state.
         res.status(503).json({
           error: "service_unavailable",
           kind: classified.kind,

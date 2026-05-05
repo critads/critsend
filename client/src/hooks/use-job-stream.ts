@@ -243,13 +243,24 @@ function handleCampaignEvent(event: JobProgressEvent) {
     };
   };
 
-  queryClient.setQueryData<any[]>(["/api/campaigns"], (old) => {
-    if (!old) return old;
-    return old.map((c) => {
-      if (c.id !== event.campaignId) return c;
-      return applyCampaignUpdate(c);
-    });
-  });
+  queryClient.setQueriesData<any>(
+    {
+      predicate: (query) => {
+        const key = query.queryKey;
+        return key[0] === "/api/campaigns" && typeof key[1] === "object" && key[1] !== null;
+      },
+    },
+    (old: any) => {
+      if (!old?.campaigns) return old;
+      return {
+        ...old,
+        campaigns: old.campaigns.map((c: any) => {
+          if (c.id !== event.campaignId) return c;
+          return applyCampaignUpdate(c);
+        }),
+      };
+    },
+  );
 
   if (event.campaignId) {
     queryClient.setQueryData(["/api/campaigns", event.campaignId], (old: any) => {

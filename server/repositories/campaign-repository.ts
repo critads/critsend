@@ -14,7 +14,7 @@ import {
   type InsertNullsinkCapture,
 } from "@shared/schema";
 import { db, pool } from "../db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, or, sql, ilike, isNull } from "drizzle-orm";
 import crypto from "crypto";
 import { logger } from "../logger";
 import { campaignQueue } from "../queues";
@@ -30,6 +30,82 @@ const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
 export async function getCampaigns(): Promise<Campaign[]> {
   return db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
+}
+
+export async function getCampaignsPaginated(opts: {
+  page: number;
+  limit: number;
+  search?: string;
+  originalsOnly?: boolean;
+}): Promise<{ campaigns: Campaign[]; total: number }> {
+  const { page, limit, search, originalsOnly } = opts;
+  const offset = (page - 1) * limit;
+
+  const conditions = [];
+  if (search) {
+    const pattern = `%${search}%`;
+    conditions.push(or(ilike(campaigns.name, pattern), ilike(campaigns.subject, pattern)));
+  }
+  if (originalsOnly) {
+    conditions.push(isNull(campaigns.parentCampaignId));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [countResult] = await db.select({ count: sql<number>`count(*)::int` })
+    .from(campaigns)
+    .where(whereClause);
+  const total = countResult?.count ?? 0;
+
+  const rows = await db.select({
+      id: campaigns.id,
+      name: campaigns.name,
+      mtaId: campaigns.mtaId,
+      segmentId: campaigns.segmentId,
+      fromName: campaigns.fromName,
+      fromEmail: campaigns.fromEmail,
+      replyEmail: campaigns.replyEmail,
+      subject: campaigns.subject,
+      preheader: campaigns.preheader,
+      trackClicks: campaigns.trackClicks,
+      trackOpens: campaigns.trackOpens,
+      unsubscribeText: campaigns.unsubscribeText,
+      companyAddress: campaigns.companyAddress,
+      sendingSpeed: campaigns.sendingSpeed,
+      scheduledAt: campaigns.scheduledAt,
+      status: campaigns.status,
+      pauseReason: campaigns.pauseReason,
+      retryUntil: campaigns.retryUntil,
+      openTag: campaigns.openTag,
+      clickTag: campaigns.clickTag,
+      unsubscribeTag: campaigns.unsubscribeTag,
+      sentCount: campaigns.sentCount,
+      pendingCount: campaigns.pendingCount,
+      failedCount: campaigns.failedCount,
+      autoRetryCount: campaigns.autoRetryCount,
+      uniqueOpensCount: campaigns.uniqueOpensCount,
+      totalOpensCount: campaigns.totalOpensCount,
+      uniqueClicksCount: campaigns.uniqueClicksCount,
+      totalClicksCount: campaigns.totalClicksCount,
+      unsubscribesCount: campaigns.unsubscribesCount,
+      complaintsCount: campaigns.complaintsCount,
+      parentCampaignId: campaigns.parentCampaignId,
+      followUpEnabled: campaigns.followUpEnabled,
+      followUpDelayHours: campaigns.followUpDelayHours,
+      followUpSubject: campaigns.followUpSubject,
+      followUpScheduledAt: campaigns.followUpScheduledAt,
+      followUpCampaignId: campaigns.followUpCampaignId,
+      createdAt: campaigns.createdAt,
+      startedAt: campaigns.startedAt,
+      completedAt: campaigns.completedAt,
+    })
+    .from(campaigns)
+    .where(whereClause)
+    .orderBy(desc(campaigns.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  return { campaigns: rows, total };
 }
 
 export async function getCampaign(id: string): Promise<Campaign | undefined> {

@@ -88,6 +88,12 @@ export interface IStorage {
   // CAMPAIGN MANAGEMENT
   // ═══════════════════════════════════════════════════════════════
   getCampaigns(): Promise<Campaign[]>;
+  getCampaignsPaginated(opts: {
+    page: number;
+    limit: number;
+    search?: string;
+    originalsOnly?: boolean;
+  }): Promise<{ campaigns: Campaign[]; total: number }>;
   getCampaign(id: string): Promise<Campaign | undefined>;
   getCampaignStatus(id: string): Promise<string | null>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;

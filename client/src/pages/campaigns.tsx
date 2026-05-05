@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link, useLocation } from "wouter";
@@ -101,51 +101,88 @@ function parseFollowUpPendingError(err: Error): string | null {
   return null;
 }
 
+interface PaginatedCampaigns {
+  campaigns: Campaign[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 export default function Campaigns() {
   useJobStream();
   const [, navigate] = useLocation();
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  // Auto-resend (Task #56): hide follow-up children from the list to keep the
-  // headline view focused on the originals the user actually configured.
   const [originalsOnly, setOriginalsOnly] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
   const { toast } = useToast();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const { data: campaigns, isLoading, isError, error } = useQuery<Campaign[]>({
-    queryKey: ["/api/campaigns"],
+  const PAGE_SIZE = 20;
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(value);
+      setCurrentPage(1);
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
+
+  const queryParams = new URLSearchParams();
+  queryParams.set("page", String(currentPage));
+  queryParams.set("limit", String(PAGE_SIZE));
+  if (debouncedSearch) queryParams.set("search", debouncedSearch);
+  if (originalsOnly) queryParams.set("originalsOnly", "true");
+  const queryString = queryParams.toString();
+
+  const { data: campaignsData, isLoading, isError, error } = useQuery<PaginatedCampaigns>({
+    queryKey: ["/api/campaigns", { page: currentPage, search: debouncedSearch, originalsOnly }],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns?${queryString}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       if (isSSEConnected()) return false;
-      const data = query.state.data as Campaign[] | undefined;
-      const hasSending = data?.some((c) => c.status === "sending");
+      const data = query.state.data as PaginatedCampaigns | undefined;
+      const hasSending = data?.campaigns?.some((c) => c.status === "sending");
       return hasSending ? 10000 : false;
     },
     structuralSharing: (oldData: any, newData: any) => {
-      if (!oldData || !newData || !Array.isArray(oldData) || !Array.isArray(newData)) return newData;
-      return newData.map((newCampaign: any) => {
-        const oldCampaign = oldData.find((c: any) => c.id === newCampaign.id);
-        if (!oldCampaign || newCampaign.status === "completed" || newCampaign.status === "failed" || newCampaign.status === "cancelled") {
+      if (!oldData || !newData || !oldData.campaigns || !newData.campaigns) return newData;
+      return {
+        ...newData,
+        campaigns: newData.campaigns.map((newCampaign: any) => {
+          const oldCampaign = oldData.campaigns.find((c: any) => c.id === newCampaign.id);
+          if (!oldCampaign || newCampaign.status === "completed" || newCampaign.status === "failed" || newCampaign.status === "cancelled") {
+            return newCampaign;
+          }
+          if (oldCampaign.status === "sending" && newCampaign.status === "sending") {
+            return {
+              ...newCampaign,
+              sentCount: Math.max(newCampaign.sentCount || 0, oldCampaign.sentCount || 0),
+              failedCount: Math.max(newCampaign.failedCount || 0, oldCampaign.failedCount || 0),
+            };
+          }
           return newCampaign;
-        }
-        if (oldCampaign.status === "sending" && newCampaign.status === "sending") {
-          return {
-            ...newCampaign,
-            sentCount: Math.max(newCampaign.sentCount || 0, oldCampaign.sentCount || 0),
-            failedCount: Math.max(newCampaign.failedCount || 0, oldCampaign.failedCount || 0),
-          };
-        }
-        return newCampaign;
-      });
+        }),
+      };
     },
   });
 
-  const { data: campaignStats } = useQuery<Record<string, { opens: number; clicks: number; unsubscribes: number; complaints: number }>>({
-    queryKey: ["/api/campaigns/stats"],
-    refetchInterval: 60000,
-  });
+  const campaigns = campaignsData?.campaigns;
+  const totalPages = campaignsData?.totalPages ?? 1;
+  const totalCampaigns = campaignsData?.total ?? 0;
 
   const { data: segments } = useQuery<Segment[]>({
     queryKey: ["/api/segments"],
@@ -209,11 +246,11 @@ export default function Campaigns() {
   };
 
   const toggleSelectAll = () => {
-    if (!filteredCampaigns) return;
-    if (selectedIds.size === filteredCampaigns.length) {
+    if (!campaigns) return;
+    if (selectedIds.size === campaigns.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredCampaigns.map((c) => c.id)));
+      setSelectedIds(new Set(campaigns.map((c) => c.id)));
     }
   };
 
@@ -282,21 +319,6 @@ export default function Campaigns() {
     },
   });
 
-  const PAGE_SIZE = 20;
-
-  const filteredCampaigns = campaigns?.filter((c) => {
-    if (originalsOnly && c.parentCampaignId) return false;
-    return (
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.subject.toLowerCase().includes(search.toLowerCase())
-    );
-  });
-
-  const totalPages = Math.ceil((filteredCampaigns?.length ?? 0) / PAGE_SIZE);
-  const paginatedCampaigns = filteredCampaigns?.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -345,8 +367,8 @@ export default function Campaigns() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search campaigns..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                value={searchInput}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="pl-9"
                 data-testid="input-search-campaigns"
               />
@@ -381,7 +403,7 @@ export default function Campaigns() {
                 Retry
               </Button>
             </div>
-          ) : filteredCampaigns && filteredCampaigns.length > 0 ? (
+          ) : campaigns && campaigns.length > 0 ? (
             <div className="space-y-4">
             <div className="rounded-md border overflow-x-auto">
               <Table>
@@ -389,7 +411,7 @@ export default function Campaigns() {
                   <TableRow>
                     <TableHead className="w-[40px]">
                       <Checkbox
-                        checked={filteredCampaigns.length > 0 && selectedIds.size === filteredCampaigns.length}
+                        checked={campaigns.length > 0 && selectedIds.size === campaigns.length}
                         onCheckedChange={toggleSelectAll}
                         data-testid="checkbox-select-all"
                         aria-label="Select all campaigns"
@@ -408,7 +430,7 @@ export default function Campaigns() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedCampaigns?.map((campaign) => (
+                  {campaigns?.map((campaign) => (
                     <TableRow
                       key={campaign.id}
                       data-testid={`campaign-row-${campaign.id}`}
@@ -486,11 +508,11 @@ export default function Campaigns() {
                       <TableCell data-testid={`text-opens-${campaign.id}`}>
                         <div className="flex flex-col gap-0.5">
                           <span className="font-medium tabular-nums">
-                            {(campaignStats?.[campaign.id]?.opens ?? 0).toLocaleString()}
+                            {(campaign.uniqueOpensCount ?? 0).toLocaleString()}
                           </span>
-                          {campaign.sentCount > 0 && (campaignStats?.[campaign.id]?.opens ?? 0) > 0 && (
+                          {campaign.sentCount > 0 && (campaign.uniqueOpensCount ?? 0) > 0 && (
                             <span className="text-xs text-muted-foreground tabular-nums">
-                              {((campaignStats![campaign.id].opens / campaign.sentCount) * 100).toFixed(1)}%
+                              {(((campaign.uniqueOpensCount ?? 0) / campaign.sentCount) * 100).toFixed(1)}%
                             </span>
                           )}
                         </div>
@@ -498,23 +520,23 @@ export default function Campaigns() {
                       <TableCell data-testid={`text-clicks-${campaign.id}`}>
                         <div className="flex flex-col gap-0.5">
                           <span className="font-medium tabular-nums">
-                            {(campaignStats?.[campaign.id]?.clicks ?? 0).toLocaleString()}
+                            {(campaign.uniqueClicksCount ?? 0).toLocaleString()}
                           </span>
-                          {campaign.sentCount > 0 && (campaignStats?.[campaign.id]?.clicks ?? 0) > 0 && (
+                          {campaign.sentCount > 0 && (campaign.uniqueClicksCount ?? 0) > 0 && (
                             <span className="text-xs text-muted-foreground tabular-nums">
-                              {((campaignStats![campaign.id].clicks / campaign.sentCount) * 100).toFixed(1)}%
+                              {(((campaign.uniqueClicksCount ?? 0) / campaign.sentCount) * 100).toFixed(1)}%
                             </span>
                           )}
                         </div>
                       </TableCell>
                       <TableCell data-testid={`text-unsubs-${campaign.id}`}>
-                        <span className={`font-medium tabular-nums ${(campaignStats?.[campaign.id]?.unsubscribes ?? 0) > 0 ? "text-destructive" : ""}`}>
-                          {(campaignStats?.[campaign.id]?.unsubscribes ?? 0).toLocaleString()}
+                        <span className={`font-medium tabular-nums ${(campaign.unsubscribesCount ?? 0) > 0 ? "text-destructive" : ""}`}>
+                          {(campaign.unsubscribesCount ?? 0).toLocaleString()}
                         </span>
                       </TableCell>
                       <TableCell data-testid={`text-complaints-${campaign.id}`}>
-                        <span className={`font-medium tabular-nums ${(campaignStats?.[campaign.id]?.complaints ?? 0) > 0 ? "text-orange-600" : ""}`}>
-                          {(campaignStats?.[campaign.id]?.complaints ?? 0).toLocaleString()}
+                        <span className={`font-medium tabular-nums ${(campaign.complaintsCount ?? 0) > 0 ? "text-orange-600" : ""}`}>
+                          {(campaign.complaintsCount ?? 0).toLocaleString()}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -634,7 +656,7 @@ export default function Campaigns() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between" data-testid="campaigns-pagination">
                 <p className="text-sm text-muted-foreground">
-                  Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, filteredCampaigns.length)} of {filteredCampaigns.length} campaigns
+                  Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, totalCampaigns)} of {totalCampaigns} campaigns
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -669,11 +691,11 @@ export default function Campaigns() {
               <Mail className="h-16 w-16 text-muted-foreground/50 mb-4" />
               <h3 className="text-lg font-semibold mb-2">No campaigns found</h3>
               <p className="text-muted-foreground max-w-md mb-4">
-                {search
+                {debouncedSearch
                   ? "No campaigns match your search. Try a different query."
                   : "Create your first campaign to start sending emails to your subscribers."}
               </p>
-              {!search && (
+              {!debouncedSearch && (
                 <Link href="/campaigns/new">
                   <Button>
                     <Plus className="h-4 w-4 mr-2" />
