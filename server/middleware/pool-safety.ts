@@ -62,9 +62,7 @@ function isCritical(path: string): boolean {
 
 function isSpaPageRequest(req: Request): boolean {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
-  if (req.path.startsWith("/api/") || req.path.startsWith("/metrics")) return false;
-  const accept = req.headers.accept || "";
-  return accept.includes("text/html");
+  return !req.path.startsWith("/api/") && !req.path.startsWith("/metrics");
 }
 
 // `routeBucket` lives in its own module so this file and `request-lease.ts`
