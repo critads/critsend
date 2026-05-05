@@ -60,6 +60,13 @@ function isCritical(path: string): boolean {
   return false;
 }
 
+function isSpaPageRequest(req: Request): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (req.path.startsWith("/api/") || req.path.startsWith("/metrics")) return false;
+  const accept = req.headers.accept || "";
+  return accept.includes("text/html");
+}
+
 // `routeBucket` lives in its own module so this file and `request-lease.ts`
 // can both import it without forming a circular dependency.
 
@@ -168,7 +175,7 @@ const SHED_LOG_INTERVAL_MS = 5_000;
  * we know will fail.
  */
 export function loadShedMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (isCritical(req.path)) return next();
+  if (isCritical(req.path) || isSpaPageRequest(req)) return next();
   const waiting = pool.waitingCount;
   const saturation = getPoolSaturation();
   const now = Date.now();
