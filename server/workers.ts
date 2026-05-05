@@ -739,6 +739,49 @@ async function resumeInterruptedCampaigns() {
       }
     }
 
+    const crashedResult = await db.execute(sql`
+      SELECT c.id, c.name, c.retry_until FROM campaigns c
+      WHERE c.status = 'failed'
+        AND EXISTS (
+          SELECT 1 FROM campaign_sends cs
+          WHERE cs.campaign_id = c.id
+            AND cs.status IN ('pending', 'attempting')
+        )
+        AND EXISTS (
+          SELECT 1 FROM campaign_jobs cj
+          WHERE cj.campaign_id = c.id
+            AND cj.status = 'failed'
+            AND cj.error_message LIKE '%abandoned by dead worker%'
+            AND cj.completed_at > NOW() - INTERVAL '30 minutes'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM campaign_jobs cj
+          WHERE cj.campaign_id = c.id
+            AND cj.status IN ('pending', 'processing')
+        )
+    `);
+
+    const crashedCampaigns = crashedResult.rows as Array<{ id: string; name: string; retry_until: Date | null }>;
+
+    if (crashedCampaigns.length > 0) {
+      logger.info(`[RECOVERY] Found ${crashedCampaigns.length} crash-failed campaign(s) with unsent subscribers — resuming`);
+      for (const campaign of crashedCampaigns) {
+        const nowMs = Date.now();
+        const existingDeadline = campaign.retry_until;
+        const retryDeadline = (existingDeadline && existingDeadline.getTime() > nowMs)
+          ? existingDeadline
+          : new Date(nowMs + 12 * 60 * 60 * 1000);
+        await storage.clearStuckJobsForCampaign(campaign.id);
+        await storage.updateCampaign(campaign.id, {
+          status: "sending",
+          pauseReason: null,
+          retryUntil: retryDeadline,
+        });
+        await storage.enqueueCampaignJob(campaign.id);
+        logger.info(`[RECOVERY] Resumed crash-failed campaign ${campaign.id} (${campaign.name}) — retry deadline: ${retryDeadline.toISOString()}`);
+      }
+    }
+
     const stuckImportQueue = await db.execute(sql`
       UPDATE import_job_queue q
       SET status = 'pending',
