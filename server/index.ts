@@ -600,8 +600,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   const { probeTrackingPool } = await import("./tracking-pool");
   const { probeImportPool } = await import("./import-pool");
-  probeTrackingPool();
+  await probeTrackingPool();
   probeImportPool();
+
+  const { warmTokenCache, warmLinkCache } = await import("./tracking-queries");
+  await Promise.all([warmTokenCache(), warmLinkCache()]);
 
   const { startTrackingBufferFlusher } = await import("./tracking-buffer");
   startTrackingBufferFlusher();

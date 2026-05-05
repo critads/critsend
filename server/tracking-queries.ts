@@ -108,6 +108,69 @@ export function getTokenCacheStats(): { size: number; max: number } {
   return { size: tokenCache.size, max: TOKEN_CACHE_MAX };
 }
 
+export async function warmTokenCache(): Promise<number> {
+  try {
+    const result = await trackingPool.query(
+      `SELECT t.token, t.type, t.campaign_id, t.subscriber_id, t.link_id
+       FROM tracking_tokens t
+       INNER JOIN campaigns c ON c.id = t.campaign_id
+       WHERE c.status IN ('sending', 'paused', 'completed')
+         AND c.created_at > NOW() - INTERVAL '7 days'
+       ORDER BY c.status = 'sending' DESC, c.status = 'paused' DESC, t.campaign_id
+       LIMIT $1`,
+      [TOKEN_CACHE_MAX],
+    );
+
+    let loaded = 0;
+    for (const row of result.rows) {
+      if (tokenCache.size >= TOKEN_CACHE_MAX) break;
+      const resolved: ResolvedToken = {
+        type: row.type,
+        campaignId: row.campaign_id,
+        subscriberId: row.subscriber_id,
+        linkId: row.link_id ?? null,
+      };
+      tokenCache.set(row.token, resolved);
+      loaded++;
+    }
+
+    logger.info(`[TRACKING QUERIES] Token cache warmed: ${loaded} tokens loaded for active campaigns`);
+    return loaded;
+  } catch (err: any) {
+    logger.warn(`[TRACKING QUERIES] Token cache warming failed (non-fatal): ${err?.message || err}`);
+    return 0;
+  }
+}
+
+export async function warmLinkCache(): Promise<number> {
+  try {
+    const { primeLinkCache } = await import("./tracking-buffer");
+    const LINK_CACHE_MAX = Number(process.env.TRACKING_LINK_CACHE_MAX || 5_000);
+
+    const result = await trackingPool.query(
+      `SELECT cl.id, cl.destination_url
+       FROM campaign_links cl
+       INNER JOIN campaigns c ON c.id = cl.campaign_id
+       WHERE c.status IN ('sending', 'paused', 'completed')
+         AND c.created_at > NOW() - INTERVAL '7 days'
+       ORDER BY c.status = 'sending' DESC, c.status = 'paused' DESC, cl.campaign_id
+       LIMIT $1`,
+      [LINK_CACHE_MAX],
+    );
+
+    const entries: Array<[string, string]> = result.rows.map(
+      (row: any) => [row.id, row.destination_url] as [string, string],
+    );
+    primeLinkCache(entries);
+
+    logger.info(`[TRACKING QUERIES] Link cache warmed: ${entries.length} destinations loaded for active campaigns`);
+    return entries.length;
+  } catch (err: any) {
+    logger.warn(`[TRACKING QUERIES] Link cache warming failed (non-fatal): ${err?.message || err}`);
+    return 0;
+  }
+}
+
 export async function getCampaignTagsViaTrackingPool(campaignId: string): Promise<{
   openTag: string | null;
   clickTag: string | null;
