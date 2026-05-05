@@ -507,9 +507,36 @@ async function handleJobCompletion(job: CampaignJob) {
 }
 
 async function handleJobError(job: CampaignJob, error: any) {
-  const campaignData = await storage.getCampaign(job.campaignId).catch(() => null);
-  const campaignStatus = campaignData?.status;
   const jobRetryCount = (job as any).retryCount || 0;
+  const errMsg = (error?.message || String(error || '')).toString();
+  const isTransientDb = /connection timeout|timeout exceeded when trying to connect|timeout exceeded|Connection terminated|connection refused|ECONNRESET|ETIMEDOUT|EPIPE|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer|Cannot use a pool after calling end|read ECONNRESET|getaddrinfo ENOTFOUND/i.test(errMsg);
+
+  let campaignData: Awaited<ReturnType<typeof storage.getCampaign>> | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      campaignData = await storage.getCampaign(job.campaignId) ?? null;
+      break;
+    } catch (fetchErr) {
+      logger.warn(`[JOB_POLL] getCampaign(${job.campaignId}) failed (attempt ${attempt + 1}/3): ${(fetchErr as Error).message}`);
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+    }
+  }
+
+  if (!campaignData) {
+    const backoffSeconds = Math.min(60 * Math.pow(2, jobRetryCount), 15 * 60);
+    logger.warn(`[JOB_POLL] Cannot fetch campaign ${job.campaignId} — DB likely down. Requeuing job in ${backoffSeconds}s (retry #${jobRetryCount + 1}). Original error: ${errMsg}`);
+    try {
+      await storage.completeJob(job.id, "failed", `DB unreachable during error handling — safe requeue (retry #${jobRetryCount + 1})`);
+    } catch { /* best-effort */ }
+    try {
+      await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
+    } catch (requeueErr) {
+      logger.error(`[JOB_POLL] Failed to requeue campaign ${job.campaignId} after DB outage — resumeInterruptedCampaigns will recover it: ${(requeueErr as Error).message}`);
+    }
+    return;
+  }
+
+  const campaignStatus = campaignData.status;
 
   if (campaignStatus === "paused") {
     try {
@@ -519,29 +546,17 @@ async function handleJobError(job: CampaignJob, error: any) {
       logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
     }
   } else {
-    const errMsg = (error?.message || String(error || '')).toString();
-    const isTransientDb = /connection timeout|timeout exceeded when trying to connect|timeout exceeded|Connection terminated|connection refused|ECONNRESET|ETIMEDOUT|EPIPE|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer|Cannot use a pool after calling end|read ECONNRESET|getaddrinfo ENOTFOUND/i.test(errMsg);
+    let retryDeadline = campaignData.retryUntil;
 
-    let retryDeadline = campaignData?.retryUntil;
-
-    // If retryUntil is missing OR already in the past, set/refresh it.
-    // A stale (past) retryUntil from a prior run must NOT prevent recovery
-    // of an in-flight send (e.g. the campaign that left 4,283 pending).
     const nowMsErr = Date.now();
     const needsFreshDeadline = !retryDeadline || retryDeadline.getTime() <= nowMsErr;
-    if (needsFreshDeadline && campaignData) {
+    if (needsFreshDeadline) {
       retryDeadline = new Date(nowMsErr + 12 * 60 * 60 * 1000);
       await storage.updateCampaign(job.campaignId, { retryUntil: retryDeadline }).catch(() => {});
-      if (retryDeadline) {
-        logger.info(`[JOB_POLL] Refreshed retry deadline for campaign ${job.campaignId} to ${retryDeadline.toISOString()}`);
-      }
+      logger.info(`[JOB_POLL] Refreshed retry deadline for campaign ${job.campaignId} to ${retryDeadline.toISOString()}`);
     }
 
-    // Transient DB errors (e.g. Neon connect timeout) are infrastructure issues,
-    // not real send failures. Pause the campaign with a recoverable reason
-    // and requeue the job with backoff regardless of retry-count budget,
-    // so the campaign auto-resume / guardian can take over.
-    if (isTransientDb && campaignData) {
+    if (isTransientDb) {
       const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
       try {
         await storage.completeJob(job.id, "failed", `Transient DB error: ${errMsg} - requeuing in ${backoffSeconds}s`);
@@ -551,7 +566,6 @@ async function handleJobError(job: CampaignJob, error: any) {
         return;
       } catch (transientRetryErr) {
         logger.error(`[JOB_POLL] Failed to requeue after transient DB error for ${job.campaignId}:`, transientRetryErr);
-        // Fall through to the normal retry path below.
       }
     }
 
