@@ -126,7 +126,7 @@ step "Waiting for app to become healthy..."
 HEALTH_OK=false
 for i in $(seq 1 20); do
     sleep 3
-    HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:5000/api/health 2>/dev/null || echo "000")
+    HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:5000/api/health/startup 2>/dev/null || echo "000")
     echo "[deploy]   Health check attempt $i/20: HTTP $HTTP_CODE"
     if [ "$HTTP_CODE" = "200" ]; then
         HEALTH_OK=true

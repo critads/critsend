@@ -91,9 +91,9 @@ export const MAIN_POOL_MAX = (() => {
   if (processType === 'web') {
     const allPooler = TRACKING_POOL_USE_POOLER && IMPORT_POOL_USE_POOLER;
     if (allPooler) {
-      return parseInt(process.env.WEB_PG_POOL_MAX || '20', 10);
+      return parseInt(process.env.WEB_PG_POOL_MAX || '30', 10);
     }
-    const webBudget = parseInt(process.env.WEB_PG_POOL_MAX || '24', 10);
+    const webBudget = parseInt(process.env.WEB_PG_POOL_MAX || '34', 10);
     return Math.max(2, webBudget - trackingDirect - importDirect);
   }
 
@@ -146,8 +146,8 @@ export function validateConnectionBudget(): void {
 
 function computeHintWebMain(): number {
   const allPooler = TRACKING_POOL_USE_POOLER_HINT() && IMPORT_POOL_USE_POOLER_HINT();
-  if (allPooler) return parseInt(process.env.WEB_PG_POOL_MAX || '20', 10);
-  const webBudget = parseInt(process.env.WEB_PG_POOL_MAX || '24', 10);
+  if (allPooler) return parseInt(process.env.WEB_PG_POOL_MAX || '30', 10);
+  const webBudget = parseInt(process.env.WEB_PG_POOL_MAX || '34', 10);
   const td = TRACKING_POOL_USE_POOLER_HINT() ? 0 : TRACKING_POOL_MAX_HINT();
   const id = IMPORT_POOL_USE_POOLER_HINT() ? 0 : IMPORT_POOL_MAX_HINT();
   return Math.max(2, webBudget - td - id);

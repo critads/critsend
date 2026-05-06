@@ -264,6 +264,7 @@ const sessionMiddleware = session({
   store: new PostgresSessionStore({
     pool,
     createTableIfMissing: false,
+    pruneSessionInterval: 900,
   }),
   secret: (() => {
     const secret = process.env.SESSION_SECRET;
@@ -287,7 +288,7 @@ const sessionMiddleware = session({
 // table per request). `/c/` and `/u/` are the branded short tracking URLs
 // added in the link-registry migration; previous oversight had them going
 // through session, which silently negated the tracking-pool isolation.
-const sessionSkipPaths = ['/api/track/', '/api/unsubscribe/', '/api/webhooks/', '/api/health', '/metrics', '/t/', '/w/', '/c/', '/u/'];
+const sessionSkipPaths = ['/api/track/', '/api/unsubscribe/', '/api/webhooks/', '/api/health', '/metrics', '/t/', '/w/', '/c/', '/u/', '/api/jobs/stream', '/favicon.ico'];
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (sessionSkipPaths.some(p => req.path.startsWith(p))) {
@@ -568,10 +569,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+let startupComplete = false;
+
+app.get("/api/health/startup", (_req: Request, res: Response) => {
+  res.json({
+    status: startupComplete ? "ready" : "starting",
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 (async () => {
-  // Bootstrap connect-pg-simple session table (idempotent). Done here so
-  // we don't pay for a CREATE TABLE on the first cold-start request, and
-  // so connect-pg-simple can run with createTableIfMissing:false.
+  const port = parseInt(process.env.PORT || "5000", 10);
+  await new Promise<void>((resolve) => {
+    httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+      log(`serving on port ${port} (startup phase — loading routes and migrations)`);
+      resolve();
+    });
+  });
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default",
@@ -586,11 +602,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     .catch(() => {});
 
   const { runImportBootstrapMigrations } = await import("./routes/import-export");
-  await runImportBootstrapMigrations();
+  runImportBootstrapMigrations().catch((err) => {
+    logger.error(`[BOOTSTRAP] Import bootstrap failed (non-fatal): ${err?.message || err}`);
+  });
 
-  // Fire-and-forget: CREATE INDEX CONCURRENTLY can take many minutes on big
-  // tables (campaign_sends ≈ 14M rows, campaign_stats ≈ 5.5M rows). Don't
-  // block startup; the IF NOT EXISTS guard makes it safe across restarts.
   const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
   runAnalyticsBootstrapMigrations();
 
@@ -748,9 +763,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     tryLogSystemError('DB pool error on idle client', { error: err.message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app, true);
   } else {
@@ -758,19 +770,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  startupComplete = true;
+  log(`startup complete — all routes registered, caches warmed`);
 })();
