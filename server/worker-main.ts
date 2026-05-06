@@ -177,7 +177,7 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
   // this delay, every PM2 restart would fire heavy aggregation queries that
   // saturate Neon's compute budget and trigger service_busy on the web process.
   const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 300_000);
-  logger.info(`[WORKER] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
+  logger.info(`[WORKER] Deferring analytics + counter reconciler by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
   setTimeout(async () => {
     try {
       const { runEngagementBackfillOnce, runAnalyticsRollupSmart, runAnalyticsRollup } = await import("./repositories/analytics-ops");
@@ -189,6 +189,10 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
       await runAnalyticsRollupSmart().catch((err) =>
         logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
       );
+
+      const { startCounterReconciler } = await import("./workers/counter-reconciler");
+      startCounterReconciler();
+      logger.info("[WORKER] Counter reconciler started after analytics rollup completed");
 
       setInterval(() => {
         runAnalyticsRollup(7).catch((err) =>

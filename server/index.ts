@@ -671,8 +671,8 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   const { startBounceBufferFlusher } = await import("./bounce-buffer");
   startBounceBufferFlusher();
 
-  const { startCounterReconciler } = await import("./workers/counter-reconciler");
-  startCounterReconciler();
+  // Counter reconciler is started AFTER analytics rollup completes (see below)
+  // to avoid concurrent heavy queries on the main pool during cold start.
 
   initQueues();
 
@@ -702,7 +702,7 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     startBullMQWorkers();
 
     const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 300_000);
-    logger.info(`[MONOLITH] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
+    logger.info(`[MONOLITH] Deferring analytics + counter reconciler by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
     setTimeout(async () => {
       try {
         const { runEngagementBackfillOnce, runAnalyticsRollupSmart, runAnalyticsRollup } = await import("./repositories/analytics-ops");
@@ -715,6 +715,10 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
           logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
         );
 
+        const { startCounterReconciler } = await import("./workers/counter-reconciler");
+        startCounterReconciler();
+        logger.info("[MONOLITH] Counter reconciler started after analytics rollup completed");
+
         setInterval(() => {
           runAnalyticsRollup(7).catch((err) =>
             logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
@@ -726,6 +730,12 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     }, STARTUP_DELAY_MS);
   } else if (process.env.DISABLE_WORKERS === 'true') {
     logger.info("[MONOLITH] DISABLE_WORKERS=true — background workers disabled on this instance");
+    const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 300_000);
+    setTimeout(async () => {
+      const { startCounterReconciler } = await import("./workers/counter-reconciler");
+      startCounterReconciler();
+      logger.info("[WEB] Counter reconciler started (deferred, no analytics rollup in web-only mode)");
+    }, STARTUP_DELAY_MS);
   }
 
   if (process.env.PROCESS_TYPE === 'web' || process.env.DISABLE_WORKERS === 'true') {
