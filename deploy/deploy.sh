@@ -121,6 +121,34 @@ else
     ok "PM2 processes started and saved"
 fi
 
+# ─── Step 8: Health check ────────────────────────────────────────────────────
+step "Waiting for app to become healthy..."
+HEALTH_OK=false
+for i in $(seq 1 15); do
+    sleep 2
+    HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/api/health 2>/dev/null || echo "000")
+    echo "[deploy]   Health check attempt $i/15: HTTP $HTTP_CODE"
+    if [ "$HTTP_CODE" = "200" ]; then
+        HEALTH_OK=true
+        break
+    fi
+done
+
+if [ "$HEALTH_OK" = "true" ]; then
+    ok "App is healthy"
+else
+    echo "[deploy] ✗ App did not become healthy after 30s"
+    echo "[deploy]   Last 50 lines of web error log:"
+    tail -50 /var/log/critsend/web-err.log 2>/dev/null || echo "(no error log found)"
+    echo ""
+    echo "[deploy]   Last 30 lines of web out log:"
+    tail -30 /var/log/critsend/web-out.log 2>/dev/null || echo "(no out log found)"
+    echo ""
+    echo "[deploy]   PM2 status:"
+    pm2 list
+    fail "Health check failed — app may not be running. Check logs above."
+fi
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "[deploy] ✓ Deploy complete!"
