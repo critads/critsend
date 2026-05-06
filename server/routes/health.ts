@@ -4,7 +4,7 @@ import { db, pool, isPoolHealthy } from "../db";
 import { sql } from "drizzle-orm";
 import { getWorkerHealth, WORKER_HEARTBEAT_KEY } from "../workers";
 import { redisConnection, isRedisConfigured } from "../redis";
-import { trackingPool, isTrackingPoolHealthy } from "../tracking-pool";
+import { trackingPool, flushPool, isTrackingPoolHealthy, getFlushPoolStats } from "../tracking-pool";
 import { MAIN_POOL_MAX, TRACKING_POOL_MAX } from "../connection-budget";
 import { register } from "../metrics";
 import { logger } from "../logger";
@@ -113,6 +113,12 @@ export function registerHealthRoutes(app: Express) {
         idle: trackingPool.idleCount,
         waiting: trackingPool.waitingCount,
         max: TRACKING_POOL_MAX,
+      },
+      flush: {
+        inUse: Math.max(0, flushPool.totalCount - flushPool.idleCount),
+        idle: flushPool.idleCount,
+        waiting: flushPool.waitingCount,
+        max: getFlushPoolStats().max,
       },
     };
 
@@ -346,6 +352,12 @@ export function registerHealthRoutes(app: Express) {
             total: trackingPool.totalCount,
             idle: trackingPool.idleCount,
             waiting: trackingPool.waitingCount,
+          },
+          flush: {
+            total: flushPool.totalCount,
+            idle: flushPool.idleCount,
+            waiting: flushPool.waitingCount,
+            max: getFlushPoolStats().max,
           },
         },
 

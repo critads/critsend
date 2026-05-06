@@ -20,7 +20,7 @@
  *     entirely off the database.
  */
 import type { TrackingContext } from "./repositories/campaign-repository";
-import { trackingPool, getTrackingPoolStats } from "./tracking-pool";
+import { trackingPool, flushPool, getTrackingPoolStats, getFlushPoolStats } from "./tracking-pool";
 import { isPoolCheckoutError } from "./db";
 import { logger } from "./logger";
 import {
@@ -273,9 +273,9 @@ async function flush(): Promise<void> {
     return;
   }
 
-  const poolStats = getTrackingPoolStats();
-  const poolUtilization = poolStats.max > 0 ? (poolStats.total - poolStats.idle) / poolStats.max : 0;
-  if (poolUtilization > POOL_PRESSURE_THRESHOLD && poolStats.waiting > 10) {
+  const flushStats = getFlushPoolStats();
+  const poolUtilization = flushStats.max > 0 ? (flushStats.total - flushStats.idle) / flushStats.max : 0;
+  if (poolUtilization > POOL_PRESSURE_THRESHOLD && flushStats.waiting > 2) {
     adjustFlushInterval(true);
     return;
   }
@@ -314,7 +314,7 @@ async function flush(): Promise<void> {
     logger.error(`[TRACKING BUFFER] flush failed: ${err?.message || err}`);
   } finally {
     flushing = false;
-    trackingPoolInUse.set(getTrackingPoolStats().total - getTrackingPoolStats().idle);
+    trackingPoolInUse.set(getTrackingPoolStats().total - getTrackingPoolStats().idle + flushPool.totalCount - flushPool.idleCount);
     adjustFlushInterval(hadFailure);
   }
 }
@@ -467,7 +467,7 @@ async function insertBatchAndMarkFirsts(
   events: BaseEvent[],
 ): Promise<Set<string>> {
   if (events.length === 0) return new Set();
-  const client = await trackingPool.connect();
+  const client = await flushPool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '0'");
@@ -517,7 +517,7 @@ async function insertBatchAndBumpCounters(
   events: BaseEvent[],
 ): Promise<void> {
   if (events.length === 0) return;
-  const client = await trackingPool.connect();
+  const client = await flushPool.connect();
   let newPairsByCampaign = new Map<string, number>();
   try {
     await client.query("BEGIN");
@@ -765,7 +765,7 @@ function buildInsertBatchSql(
 async function insertBatch(type: TrackingEventType, events: BaseEvent[]): Promise<void> {
   if (events.length === 0) return;
   const { sql, values } = buildInsertBatchSql(type, events);
-  await trackingPool.query(sql, values);
+  await flushPool.query(sql, values);
 }
 
 /** Same as insertBatch but bound to a specific client (for transactions). */
@@ -839,7 +839,7 @@ async function processSideEffects(
     const subscriberIds = [...new Set(events.map((e) => e.subscriberId))];
     if (subscriberIds.length > 0) {
       try {
-        await trackingPool.query(
+        await flushPool.query(
           `UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '30 days'
            WHERE id = ANY($1::varchar[])
              AND (suppressed_until IS NULL OR suppressed_until < NOW() + INTERVAL '30 days')`,
@@ -1012,7 +1012,7 @@ async function flushCoalescedCounters(): Promise<void> {
      WHERE c.id = v.campaign_id
   `;
   try {
-    await trackingPool.query(sql, values);
+    await flushPool.query(sql, values);
   } catch (err: any) {
     logger.warn(
       `[TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): ${err?.message || err}`,
@@ -1040,7 +1040,8 @@ export function startTrackingBufferFlusher(): void {
   poolSampleTimer = setInterval(() => {
     try {
       const stats = getTrackingPoolStats();
-      trackingPoolInUse.set(Math.max(0, stats.total - stats.idle));
+      const fStats = getFlushPoolStats();
+      trackingPoolInUse.set(Math.max(0, (stats.total - stats.idle) + (fStats.total - fStats.idle)));
     } catch {}
   }, 250);
   poolSampleTimer.unref();

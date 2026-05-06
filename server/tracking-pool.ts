@@ -99,13 +99,44 @@ trackingPool.on("connect", (client) => {
   client.query("SET lock_timeout = '0'").catch(() => {});
 });
 
+const FLUSH_POOL_MAX = Number(process.env.PG_FLUSH_POOL_MAX || 3);
+
+const flushPoolConfig: pg.PoolConfig = {
+  connectionString,
+  max: FLUSH_POOL_MAX,
+  min: 1,
+  idleTimeoutMillis: isExternalDb ? 20000 : 30000,
+  connectionTimeoutMillis: 10000,
+  statement_timeout: 60000,
+  allowExitOnIdle: false,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+};
+
+if (isExternalDb) {
+  flushPoolConfig.ssl = { rejectUnauthorized: false };
+}
+
+export const flushPool = new Pool(flushPoolConfig);
+
+flushPool.on("error", (err) => {
+  logger.error("Unexpected flush pool error on idle client", { error: err.message });
+});
+
+flushPool.on("connect", (client) => {
+  if (isExternalDb) {
+    client.query("SET search_path TO public").catch(() => {});
+  }
+  client.query("SET lock_timeout = '0'").catch(() => {});
+});
+
 const modeLabel = resolved.mode === "explicit-override"
   ? `explicit override (NEON_TRACKING_DATABASE_URL, ${TRACKING_POOL_USE_POOLER ? "pooler" : "direct"})`
   : resolved.mode === "auto-pooler"
   ? "auto-derived pooler"
   : "direct";
 logger.info(
-  `[TRACKING POOL] configured: max=${TRACKING_POOL_MAX}, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}, mode=${modeLabel}, pooler=${TRACKING_POOL_USE_POOLER}`,
+  `[TRACKING POOL] read pool: max=${TRACKING_POOL_MAX}, flush pool: max=${FLUSH_POOL_MAX}, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}, mode=${modeLabel}, pooler=${TRACKING_POOL_USE_POOLER}`,
 );
 
 export async function probeTrackingPool(): Promise<void> {
@@ -133,6 +164,15 @@ export function getTrackingPoolStats() {
   };
 }
 
+export function getFlushPoolStats() {
+  return {
+    total: flushPool.totalCount,
+    idle: flushPool.idleCount,
+    waiting: flushPool.waitingCount,
+    max: FLUSH_POOL_MAX,
+  };
+}
+
 export function isTrackingPoolHealthy(): boolean {
   if (TRACKING_POOL_MAX <= 0) return true;
   if (trackingPool.waitingCount > 0) return false;
@@ -142,8 +182,11 @@ export function isTrackingPoolHealthy(): boolean {
 
 export async function closeTrackingPool(): Promise<void> {
   try {
-    await trackingPool.end();
-    logger.info("[TRACKING POOL] closed");
+    await Promise.all([
+      trackingPool.end(),
+      flushPool.end(),
+    ]);
+    logger.info("[TRACKING POOL] read + flush pools closed");
   } catch (err: any) {
     logger.error(`[TRACKING POOL] error closing: ${err?.message || err}`);
   }
