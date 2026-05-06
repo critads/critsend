@@ -10,7 +10,7 @@
  * These helpers mirror the small subset of `storage.*` calls the tracking
  * routes need, but issue queries against `trackingPool`.
  */
-import { trackingPool } from "./tracking-pool";
+import { safeTrackingQuery } from "./tracking-pool";
 import { pool as mainPool, isPoolCheckoutError } from "./db";
 import { TrackingPoolUnavailableError } from "./tracking-buffer";
 import { trackingTokenCacheTotal } from "./metrics";
@@ -79,7 +79,7 @@ async function _resolveTokenFromDB(token: string): Promise<ResolvedToken | null>
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const result = await trackingPool.query(sql, [token]);
+      const result = await safeTrackingQuery(sql, [token]);
       if (result.rows.length === 0) {
         tokenCache.set(token, MISS_SENTINEL);
         negativeTTL.set(token, Date.now() + NEGATIVE_TTL_MS);
@@ -206,7 +206,7 @@ async function _fetchCampaignTagsFromDB(campaignId: string): Promise<CampaignTag
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const result = await trackingPool.query(
+      const result = await safeTrackingQuery(
         `SELECT open_tag, click_tag, unsubscribe_tag
          FROM campaigns WHERE id = $1`,
         [campaignId],

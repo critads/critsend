@@ -20,7 +20,7 @@
  *     entirely off the database.
  */
 import type { TrackingContext } from "./repositories/campaign-repository";
-import { trackingPool, flushPool, getTrackingPoolStats, getFlushPoolStats } from "./tracking-pool";
+import { trackingPool, flushPool, getTrackingPoolStats, getFlushPoolStats, safeTrackingQuery } from "./tracking-pool";
 import { isPoolCheckoutError } from "./db";
 import { logger } from "./logger";
 import {
@@ -205,7 +205,7 @@ async function _fetchLinkFromDB(linkId: string): Promise<string | null> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const result = await trackingPool.query(sql, [linkId]);
+      const result = await safeTrackingQuery(sql, [linkId]);
       if (result.rows.length === 0) return null;
       const url = result.rows[0].destination_url as string;
       linkCache.set(linkId, url);

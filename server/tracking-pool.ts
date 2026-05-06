@@ -21,12 +21,23 @@
  * 10,000 concurrent connections — its connections do NOT count against the
  * direct-connection limit (default 50). This effectively removes tracking
  * traffic from the connection budget entirely.
+ *
+ * CRITICAL: PgBouncer in transaction mode strips `statement_timeout` from
+ * startup parameters, so the pool config value is silently ignored. We enforce
+ * timeouts via explicit SET on connect AND a JS-level safety net in
+ * safeTrackingQuery(). Without this, hung queries leak connections permanently
+ * until the pool is 100% saturated and the entire server hangs.
  */
 import pg from "pg";
 import { logger } from "./logger";
 import { isExternalDb, TRACKING_POOL_MAX, TRACKING_POOL_USE_POOLER, derivePooledUrl, isPoolerUrl } from "./connection-budget";
 
 const { Pool } = pg;
+
+const TRACKING_STATEMENT_TIMEOUT_MS = Number(process.env.TRACKING_STATEMENT_TIMEOUT_MS || 10_000);
+const TRACKING_QUERY_TIMEOUT_MS = Number(process.env.TRACKING_QUERY_TIMEOUT_MS || 12_000);
+const FLUSH_STATEMENT_TIMEOUT_MS = Number(process.env.FLUSH_STATEMENT_TIMEOUT_MS || 60_000);
+const FLUSH_QUERY_TIMEOUT_MS = Number(process.env.FLUSH_QUERY_TIMEOUT_MS || 65_000);
 
 function resolveTrackingConnectionString(): { url: string; mode: "explicit-override" | "auto-pooler" | "direct" } {
   const baseUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || "";
@@ -76,7 +87,7 @@ const poolConfig: pg.PoolConfig = {
   min: TRACKING_POOL_MAX > 0 ? 1 : 0,
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
   connectionTimeoutMillis: 2000,
-  statement_timeout: 10000,
+  statement_timeout: TRACKING_STATEMENT_TIMEOUT_MS,
   allowExitOnIdle: false,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
@@ -97,6 +108,7 @@ trackingPool.on("connect", (client) => {
     client.query("SET search_path TO public").catch(() => {});
   }
   client.query("SET lock_timeout = '0'").catch(() => {});
+  client.query(`SET statement_timeout = '${TRACKING_STATEMENT_TIMEOUT_MS}'`).catch(() => {});
 });
 
 const FLUSH_POOL_MAX = Number(process.env.PG_FLUSH_POOL_MAX || 8);
@@ -107,7 +119,7 @@ const flushPoolConfig: pg.PoolConfig = {
   min: 1,
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
   connectionTimeoutMillis: 10000,
-  statement_timeout: 60000,
+  statement_timeout: FLUSH_STATEMENT_TIMEOUT_MS,
   allowExitOnIdle: false,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
@@ -128,6 +140,7 @@ flushPool.on("connect", (client) => {
     client.query("SET search_path TO public").catch(() => {});
   }
   client.query("SET lock_timeout = '0'").catch(() => {});
+  client.query(`SET statement_timeout = '${FLUSH_STATEMENT_TIMEOUT_MS}'`).catch(() => {});
 });
 
 const modeLabel = resolved.mode === "explicit-override"
@@ -136,13 +149,102 @@ const modeLabel = resolved.mode === "explicit-override"
   ? "auto-derived pooler"
   : "direct";
 logger.info(
-  `[TRACKING POOL] read pool: max=${TRACKING_POOL_MAX}, flush pool: max=${FLUSH_POOL_MAX}, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}, mode=${modeLabel}, pooler=${TRACKING_POOL_USE_POOLER}`,
+  `[TRACKING POOL] read pool: max=${TRACKING_POOL_MAX}, flush pool: max=${FLUSH_POOL_MAX}, connTimeout=${poolConfig.connectionTimeoutMillis}ms, stmtTimeout=${TRACKING_STATEMENT_TIMEOUT_MS}ms, jsTimeout=${TRACKING_QUERY_TIMEOUT_MS}ms, external=${isExternalDb}, mode=${modeLabel}, pooler=${TRACKING_POOL_USE_POOLER}`,
 );
+
+/**
+ * Execute a query on the tracking pool with a JS-level timeout safety net.
+ *
+ * PgBouncer in transaction mode strips `statement_timeout` from startup
+ * parameters, so the pool config value may be silently ignored. Even if the
+ * SET in the connect handler works, Neon cold starts or network partitions
+ * can hang a connection at the TCP level where statement_timeout doesn't
+ * help (it's a server-side timer, not a client-side one).
+ *
+ * This wrapper ensures that a hung query DESTROYS the connection (release
+ * with `true`) instead of returning it to the pool in a broken state. The
+ * pool then creates a fresh connection for the next request.
+ */
+export async function safeTrackingQuery<T extends pg.QueryResultRow = any>(
+  sql: string,
+  params?: any[],
+  timeoutMs: number = TRACKING_QUERY_TIMEOUT_MS,
+): Promise<pg.QueryResult<T>> {
+  const client = await trackingPool.connect();
+  let released = false;
+  let timer: NodeJS.Timeout | null = null;
+
+  const cleanup = (destroy: boolean) => {
+    if (released) return;
+    released = true;
+    if (timer) clearTimeout(timer);
+    try { client.release(destroy); } catch {}
+  };
+
+  return new Promise<pg.QueryResult<T>>((resolve, reject) => {
+    timer = setTimeout(() => {
+      cleanup(true);
+      logger.error(`[TRACKING POOL] JS-level query timeout after ${timeoutMs}ms — connection destroyed. SQL: ${sql.slice(0, 80)}`);
+      reject(new Error(`Tracking query timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    client.query<T>(sql, params)
+      .then((result) => {
+        cleanup(false);
+        resolve(result);
+      })
+      .catch((err) => {
+        const isTimeout = err?.message?.includes('timeout') || err?.code === '57014';
+        cleanup(isTimeout);
+        reject(err);
+      });
+  });
+}
+
+/**
+ * Execute a query on the flush pool with a JS-level timeout safety net.
+ * Same rationale as safeTrackingQuery but with longer timeouts for write operations.
+ */
+export async function safeFlushQuery<T extends pg.QueryResultRow = any>(
+  sql: string,
+  params?: any[],
+  timeoutMs: number = FLUSH_QUERY_TIMEOUT_MS,
+): Promise<pg.QueryResult<T>> {
+  const client = await flushPool.connect();
+  let released = false;
+  let timer: NodeJS.Timeout | null = null;
+
+  const cleanup = (destroy: boolean) => {
+    if (released) return;
+    released = true;
+    if (timer) clearTimeout(timer);
+    try { client.release(destroy); } catch {}
+  };
+
+  return new Promise<pg.QueryResult<T>>((resolve, reject) => {
+    timer = setTimeout(() => {
+      cleanup(true);
+      logger.error(`[FLUSH POOL] JS-level query timeout after ${timeoutMs}ms — connection destroyed. SQL: ${sql.slice(0, 80)}`);
+      reject(new Error(`Flush query timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    client.query<T>(sql, params)
+      .then((result) => {
+        cleanup(false);
+        resolve(result);
+      })
+      .catch((err) => {
+        const isTimeout = err?.message?.includes('timeout') || err?.code === '57014';
+        cleanup(isTimeout);
+        reject(err);
+      });
+  });
+}
 
 export async function probeTrackingPool(): Promise<void> {
   if (TRACKING_POOL_MAX <= 0) return;
   try {
-    const result = await trackingPool.query("SELECT 1 AS ok");
+    const result = await safeTrackingQuery("SELECT 1 AS ok");
     if (result.rows[0]?.ok === 1) {
       logger.info(`[TRACKING POOL] startup probe OK (mode=${modeLabel})`);
     }
