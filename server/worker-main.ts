@@ -176,17 +176,20 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
   // the web process has time to become healthy and serve requests. Without
   // this delay, every PM2 restart would fire heavy aggregation queries that
   // saturate Neon's compute budget and trigger service_busy on the web process.
-  const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 30_000);
+  const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 300_000);
   logger.info(`[WORKER] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
   setTimeout(async () => {
     try {
-      const { runAnalyticsRollupSmart, runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
-      runEngagementBackfillOnce().catch((err) =>
+      const { runEngagementBackfillOnce, runAnalyticsRollupSmart, runAnalyticsRollup } = await import("./repositories/analytics-ops");
+
+      await runEngagementBackfillOnce().catch((err) =>
         logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
       );
-      runAnalyticsRollupSmart().catch((err) =>
+
+      await runAnalyticsRollupSmart().catch((err) =>
         logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
       );
+
       setInterval(() => {
         runAnalyticsRollup(7).catch((err) =>
           logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })

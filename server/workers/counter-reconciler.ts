@@ -30,7 +30,7 @@
  * recovery script.
  */
 
-import { pool as mainPool } from "../db";
+import { pool as mainPool, isInStartupGrace } from "../db";
 import { logger } from "../logger";
 import {
   counterDriftFixedTotal,
@@ -191,22 +191,29 @@ export async function reconcileCounters(
 
 let timer: NodeJS.Timeout | null = null;
 
+const RECONCILER_INITIAL_DELAY_MS = Number(process.env.COUNTER_RECONCILE_INITIAL_DELAY_MS || 5 * 60 * 1000);
+
 export function startCounterReconciler(): void {
   if (timer) return;
-  // Stagger first run slightly to avoid colliding with startup spike.
+  logger.info(`[COUNTER RECONCILER] started: initial delay=${RECONCILER_INITIAL_DELAY_MS}ms, interval=${RECONCILE_INTERVAL_MS}ms, window=${RECONCILE_WINDOW_HOURS}h`);
+
   setTimeout(() => {
+    if (isInStartupGrace()) {
+      logger.info("[COUNTER RECONCILER] Still in startup grace — deferring initial run");
+      return;
+    }
     reconcileCounters().catch((err) =>
       logger.error(`[COUNTER RECONCILER] initial run failed: ${err instanceof Error ? err.message : String(err)}`),
     );
-  }, 60_000);
+  }, RECONCILER_INITIAL_DELAY_MS);
 
   timer = setInterval(() => {
+    if (isInStartupGrace()) return;
     reconcileCounters().catch((err) =>
       logger.error(`[COUNTER RECONCILER] tick failed: ${err instanceof Error ? err.message : String(err)}`),
     );
   }, RECONCILE_INTERVAL_MS);
   timer.unref();
-  logger.info(`[COUNTER RECONCILER] started: interval=${RECONCILE_INTERVAL_MS}ms, window=${RECONCILE_WINDOW_HOURS}h`);
 }
 
 export function stopCounterReconciler(): void {

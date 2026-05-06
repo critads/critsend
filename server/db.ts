@@ -53,6 +53,29 @@ export const pool = new Pool(poolConfig);
 
 logger.info(`PG pool configured: max=${MAIN_POOL_MAX}, min=${poolConfig.min}, idleTimeout=${poolConfig.idleTimeoutMillis}ms, connTimeout=${poolConfig.connectionTimeoutMillis}ms, external=${isExternalDb}`);
 
+const STARTUP_GRACE_MS = Number(process.env.STARTUP_GRACE_MS || 180_000);
+const startupTimestamp = Date.now();
+
+export function isInStartupGrace(): boolean {
+  return Date.now() - startupTimestamp < STARTUP_GRACE_MS;
+}
+
+const BG_POOL_SATURATION_THRESHOLD = 0.6;
+
+export async function backgroundQuery<T = any>(
+  queryText: string,
+  values?: any[],
+  label = "background",
+): Promise<pg.QueryResult<T> | null> {
+  const active = pool.totalCount - pool.idleCount;
+  const saturation = MAIN_POOL_MAX > 0 ? active / MAIN_POOL_MAX : 0;
+  if (saturation >= BG_POOL_SATURATION_THRESHOLD || pool.waitingCount > 0) {
+    logger.warn(`[BG_QUERY] Skipped ${label}: pool saturation ${(saturation * 100).toFixed(0)}% (active=${active}/${MAIN_POOL_MAX}, waiting=${pool.waitingCount})`);
+    return null;
+  }
+  return pool.query<T>(queryText, values);
+}
+
 pool.on('error', (err) => {
   logger.error('Unexpected DB pool error on idle client', { error: err.message });
 });

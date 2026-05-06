@@ -375,6 +375,8 @@ function normalizeRoute(path: string): string {
 
 let metricsCollectorInterval: NodeJS.Timeout | null = null;
 
+let metricsStartupTimeout: NodeJS.Timeout | null = null;
+
 export function startMetricsCollector(): void {
   async function collect() {
     try {
@@ -443,11 +445,20 @@ export function startMetricsCollector(): void {
     }
   }
   
-  collect();
-  metricsCollectorInterval = setInterval(collect, 15000);
+  const METRICS_INITIAL_DELAY_MS = Number(process.env.METRICS_INITIAL_DELAY_MS || 90_000);
+  logger.info(`[METRICS] Collector starting: first collection in ${METRICS_INITIAL_DELAY_MS}ms, then every 15s`);
+  metricsStartupTimeout = setTimeout(() => {
+    metricsStartupTimeout = null;
+    collect();
+    metricsCollectorInterval = setInterval(collect, 15000);
+  }, METRICS_INITIAL_DELAY_MS);
 }
 
 export function stopMetricsCollector(): void {
+  if (metricsStartupTimeout) {
+    clearTimeout(metricsStartupTimeout);
+    metricsStartupTimeout = null;
+  }
   if (metricsCollectorInterval) {
     clearInterval(metricsCollectorInterval);
     metricsCollectorInterval = null;

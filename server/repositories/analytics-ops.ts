@@ -12,7 +12,7 @@
  *      cache mirroring the segment-count pattern, used by all heavy analytics
  *      routes. `?refresh=true` callers invalidate and re-read.
  */
-import { pool } from "../db";
+import { pool, backgroundQuery, isInStartupGrace } from "../db";
 import { logger } from "../logger";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS } from "../bootstrap-lock";
 
@@ -289,18 +289,51 @@ export async function runAnalyticsRollup(days: number): Promise<void> {
  * /api/analytics/overview endpoint then becomes a 1-row PK lookup.
  */
 export async function runAnalyticsTotalsRefresh(): Promise<void> {
+  if (isInStartupGrace()) {
+    logger.info("[ANALYTICS_TOTALS] Skipped — still in startup grace period");
+    return;
+  }
+
   const t0 = Date.now();
-  const [subs, camps, sends, stats] = await Promise.all([
-    pool.query(`SELECT COUNT(*)::int AS n FROM subscribers`),
-    pool.query(`SELECT COUNT(*)::int AS n FROM campaigns`),
-    pool.query(`SELECT COUNT(*)::int AS total_sent,
-                       COUNT(*) FILTER (WHERE status = 'bounced')::int AS total_bounces
-                FROM campaign_sends`),
-    pool.query(`SELECT COUNT(*) FILTER (WHERE type = 'open')::int AS total_opens,
-                       COUNT(*) FILTER (WHERE type = 'click')::int AS total_clicks,
-                       COUNT(*) FILTER (WHERE type = 'unsubscribe')::int AS total_unsubscribes
-                FROM campaign_stats`),
-  ]);
+
+  const subsResult = await backgroundQuery(
+    `SELECT reltuples::bigint AS n FROM pg_class WHERE relname = 'subscribers'`,
+    undefined,
+    "analytics_totals/subscribers",
+  );
+  if (!subsResult) return;
+
+  const campsResult = await backgroundQuery(
+    `SELECT reltuples::bigint AS n FROM pg_class WHERE relname = 'campaigns'`,
+    undefined,
+    "analytics_totals/campaigns",
+  );
+  if (!campsResult) return;
+
+  const sendsResult = await backgroundQuery(
+    `SELECT reltuples::bigint AS n FROM pg_class WHERE relname = 'campaign_sends'`,
+    undefined,
+    "analytics_totals/sends",
+  );
+  if (!sendsResult) return;
+
+  const bouncesResult = await backgroundQuery(
+    `SELECT COUNT(*)::int AS total_bounces FROM campaign_sends WHERE status = 'bounced'`,
+    undefined,
+    "analytics_totals/bounces",
+  );
+  if (!bouncesResult) return;
+
+  const engagementResult = await backgroundQuery(
+    `SELECT
+       COALESCE(SUM(total_opens_count), 0)::bigint AS total_opens,
+       COALESCE(SUM(total_clicks_count), 0)::bigint AS total_clicks,
+       COALESCE(SUM(unsubscribes_count), 0)::bigint AS total_unsubscribes
+     FROM campaigns`,
+    undefined,
+    "analytics_totals/engagement",
+  );
+  if (!engagementResult) return;
 
   await pool.query(
     `INSERT INTO analytics_totals (id, total_subscribers, total_campaigns,
@@ -316,13 +349,13 @@ export async function runAnalyticsTotalsRefresh(): Promise<void> {
        total_unsubscribes = EXCLUDED.total_unsubscribes,
        updated_at = NOW()`,
     [
-      subs.rows[0]?.n ?? 0,
-      camps.rows[0]?.n ?? 0,
-      sends.rows[0]?.total_sent ?? 0,
-      sends.rows[0]?.total_bounces ?? 0,
-      stats.rows[0]?.total_opens ?? 0,
-      stats.rows[0]?.total_clicks ?? 0,
-      stats.rows[0]?.total_unsubscribes ?? 0,
+      Number(subsResult.rows[0]?.n ?? 0),
+      Number(campsResult.rows[0]?.n ?? 0),
+      Number(sendsResult.rows[0]?.n ?? 0),
+      bouncesResult.rows[0]?.total_bounces ?? 0,
+      engagementResult.rows[0]?.total_opens ?? 0,
+      engagementResult.rows[0]?.total_clicks ?? 0,
+      engagementResult.rows[0]?.total_unsubscribes ?? 0,
     ]
   );
   logger.info(`[ANALYTICS_TOTALS] Refreshed in ${Date.now() - t0}ms`);

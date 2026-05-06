@@ -701,17 +701,20 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     await startAllWorkers();
     startBullMQWorkers();
 
-    const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 30_000);
+    const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 300_000);
     logger.info(`[MONOLITH] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
     setTimeout(async () => {
       try {
-        const { runAnalyticsRollupSmart, runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
-        runEngagementBackfillOnce().catch((err) =>
+        const { runEngagementBackfillOnce, runAnalyticsRollupSmart, runAnalyticsRollup } = await import("./repositories/analytics-ops");
+
+        await runEngagementBackfillOnce().catch((err) =>
           logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
         );
-        runAnalyticsRollupSmart().catch((err) =>
+
+        await runAnalyticsRollupSmart().catch((err) =>
           logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
         );
+
         setInterval(() => {
           runAnalyticsRollup(7).catch((err) =>
             logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
