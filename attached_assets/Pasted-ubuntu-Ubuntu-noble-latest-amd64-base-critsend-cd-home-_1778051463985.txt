@@ -1,0 +1,217 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && git pull && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+remote: Enumerating objects: 22, done.
+remote: Counting objects: 100% (22/22), done.
+remote: Compressing objects: 100% (10/10), done.
+remote: Total 16 (delta 9), reused 13 (delta 6), pack-reused 0 (from 0)
+Unpacking objects: 100% (16/16), 113.41 KiB | 1.49 MiB/s, done.
+From https://github.com/critads/critsend
+   75cc45f..8ff06c5  main       -> origin/main
+Updating 75cc45f..8ff06c5
+Fast-forward
+ ...-amd64-base-critsend-curl-v-h_1778050885213.txt |  31 ++++++++++
+ ...-amd64-base-critsend-pm2-logs_1778049684450.txt |  65 +++++++++++++++++++++
+ ...-amd64-base-critsend-pm2-logs_1778050363061.txt |  60 +++++++++++++++++++
+ ...-amd64-base-critsend-pm2-logs_1778050570057.txt |  27 +++++++++
+ ...hot_2026-05-06_at_10.35.40_AM_1778049342670.png | Bin 0 -> 28574 bytes
+ ...hot_2026-05-06_at_10.56.56_AM_1778050618607.png | Bin 0 -> 76901 bytes
+ deploy/deploy.sh                                   |  28 +++++++++
+ server/tracking-buffer.ts                          |  17 ++----
+ 8 files changed, 216 insertions(+), 12 deletions(-)
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-curl-v-h_1778050885213.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1778049684450.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1778050363061.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1778050570057.txt
+ create mode 100644 attached_assets/Screenshot_2026-05-06_at_10.35.40_AM_1778049342670.png
+ create mode 100644 attached_assets/Screenshot_2026-05-06_at_10.56.56_AM_1778050618607.png
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: 8ff06c5 Adjust transaction timeouts to prevent data loss and improve system stability
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 835 packages, and audited 836 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+47 vulnerabilities (7 low, 9 moderate, 30 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2497 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-DhspueYc.css     88.69 kB │ gzip:  14.38 kB
+../dist/public/assets/index-D1Mck98J.js   1,288.12 kB │ gzip: 341.44 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.73s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 114ms
+building import worker...
+
+  dist/import-worker.cjs  198.1kb
+
+⚡ Done in 40ms
+building background worker...
+
+  dist/worker-main.cjs  937.2kb
+
+⚡ Done in 77ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images, uploads/imports)
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Waiting for app to become healthy...
+[deploy]   Health check attempt 1/15: HTTP 000000
+[deploy]   Health check attempt 2/15: HTTP 000000
+[deploy]   Health check attempt 3/15: HTTP 000000
+[deploy]   Health check attempt 4/15: HTTP 000000
+[deploy]   Health check attempt 5/15: HTTP 000000
+[deploy]   Health check attempt 6/15: HTTP 000000
+[deploy]   Health check attempt 7/15: HTTP 000000
+[deploy]   Health check attempt 8/15: HTTP 000000
+[deploy]   Health check attempt 9/15: HTTP 000000
+[deploy]   Health check attempt 10/15: HTTP 000000
+[deploy]   Health check attempt 11/15: HTTP 000000
+[deploy]   Health check attempt 12/15: HTTP 000000
+[deploy]   Health check attempt 13/15: HTTP 000000
+[deploy]   Health check attempt 14/15: HTTP 000000
+[deploy]   Health check attempt 15/15: HTTP 000000
+[deploy] ✗ App did not become healthy after 30s
+[deploy]   Last 50 lines of web error log:
+2026-05-06 09:03:07 +02:00: 2026-05-06T07:03:07.108Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:09 +02:00: 2026-05-06T07:03:09.251Z [WARN] [TRACKING BUFFER] click batch (2 rows) failed, requeued 2 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:09 +02:00: 2026-05-06T07:03:09.251Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:11 +02:00: 2026-05-06T07:03:11.407Z [WARN] [TRACKING BUFFER] unsubscribe batch (1 rows) failed, requeued 1 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:11 +02:00: 2026-05-06T07:03:11.407Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:13 +02:00: 2026-05-06T07:03:13.571Z [WARN] [TRACKING BUFFER] complaint batch (1 rows) failed, requeued 1 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:13 +02:00: 2026-05-06T07:03:13.571Z [ERROR] [TRACKING BUFFER] flushType(complaint) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:13 +02:00: 2026-05-06T07:03:13.571Z [WARN] [TRACKING BUFFER] flush backoff: interval=3375ms (2 consecutive failures)
+2026-05-06 09:03:22 +02:00: 2026-05-06T07:03:22.049Z [WARN] [TRACKING BUFFER] open batch (269 rows) failed, requeued 227 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:22 +02:00: 2026-05-06T07:03:22.049Z [ERROR] [TRACKING BUFFER] open batch: 42 events permanently dropped after 3 retries
+2026-05-06 09:03:22 +02:00: 2026-05-06T07:03:22.050Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:24 +02:00: 2026-05-06T07:03:24.297Z [WARN] [TRACKING BUFFER] click batch (9 rows) failed, requeued 8 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:24 +02:00: 2026-05-06T07:03:24.297Z [ERROR] [TRACKING BUFFER] click batch: 1 events permanently dropped after 3 retries
+2026-05-06 09:03:24 +02:00: 2026-05-06T07:03:24.297Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:26 +02:00: 2026-05-06T07:03:26.512Z [WARN] [TRACKING BUFFER] unsubscribe batch (5 rows) failed, requeued 5 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:26 +02:00: 2026-05-06T07:03:26.512Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:28 +02:00: 2026-05-06T07:03:28.679Z [WARN] [TRACKING BUFFER] complaint batch (2 rows) failed, requeued 2 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:28 +02:00: 2026-05-06T07:03:28.679Z [ERROR] [TRACKING BUFFER] flushType(complaint) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:28 +02:00: 2026-05-06T07:03:28.679Z [WARN] [TRACKING BUFFER] flush backoff: interval=5063ms (3 consecutive failures)
+2026-05-06 09:03:37 +02:00: 2026-05-06T07:03:37.923Z [WARN] [TRACKING BUFFER] open batch (453 rows) failed, requeued 383 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:37 +02:00: 2026-05-06T07:03:37.923Z [ERROR] [TRACKING BUFFER] open batch: 70 events permanently dropped after 3 retries
+2026-05-06 09:03:37 +02:00: 2026-05-06T07:03:37.923Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:40 +02:00: 2026-05-06T07:03:40.136Z [WARN] [TRACKING BUFFER] click batch (35 rows) failed, requeued 34 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:40 +02:00: 2026-05-06T07:03:40.136Z [ERROR] [TRACKING BUFFER] click batch: 1 events permanently dropped after 3 retries
+2026-05-06 09:03:40 +02:00: 2026-05-06T07:03:40.136Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:42 +02:00: 2026-05-06T07:03:42.327Z [WARN] [TRACKING BUFFER] unsubscribe batch (8 rows) failed, requeued 7 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:42 +02:00: 2026-05-06T07:03:42.327Z [ERROR] [TRACKING BUFFER] unsubscribe batch: 1 events permanently dropped after 3 retries
+2026-05-06 09:03:42 +02:00: 2026-05-06T07:03:42.327Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:44 +02:00: 2026-05-06T07:03:44.485Z [WARN] [TRACKING BUFFER] complaint batch (2 rows) failed, requeued 1 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:44 +02:00: 2026-05-06T07:03:44.485Z [ERROR] [TRACKING BUFFER] complaint batch: 1 events permanently dropped after 3 retries
+2026-05-06 09:03:44 +02:00: 2026-05-06T07:03:44.485Z [ERROR] [TRACKING BUFFER] flushType(complaint) outer error: canceling statement due to lock timeout
+2026-05-06 09:03:44 +02:00: 2026-05-06T07:03:44.485Z [WARN] [TRACKING BUFFER] flush backoff: interval=7594ms (4 consecutive failures)
+2026-05-06 09:03:58 +02:00: 2026-05-06T07:03:58.778Z [WARN] [TRACKING BUFFER] open batch (665 rows) failed, requeued 508 for retry: canceling statement due to lock timeout
+2026-05-06 09:03:58 +02:00: 2026-05-06T07:03:58.778Z [ERROR] [TRACKING BUFFER] open batch: 157 events permanently dropped after 3 retries
+2026-05-06 09:03:58 +02:00: 2026-05-06T07:03:58.778Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+2026-05-06 09:04:00 +02:00: 2026-05-06T07:04:00.028Z [WARN] [POOL SAFETY] Load-shedding GET /api/jobs/stream: pool active=20/20, waiting=18 (for 0ms), saturation=1.00 (reason=saturation)
+2026-05-06 09:04:00 +02:00: 2026-05-06T07:04:00.863Z [WARN] [TRACKING BUFFER] flush backoff: interval=10000ms (5 consecutive failures)
+2026-05-06 09:05:06 +02:00: 2026-05-06T07:05:06.609Z [WARN] [POOL SAFETY] Load-shedding GET /api/campaigns: pool active=20/20, waiting=3 (for 0ms), saturation=1.00 (reason=saturation)
+2026-05-06 09:06:38 +02:00: 2026-05-06T07:06:38.044Z [WARN] Short unsubscribe token not found or invalid: kOQujwID,
+2026-05-06 09:06:42 +02:00: 2026-05-06T07:06:42.774Z [WARN] Invalid tracking signature for unsubscribe: campaign=84470d87-463f-4b23-ad00-e0fb9129d147, subscriber=8a45bf77-09a9-4e94-aff8-135ccddebd1e, sig=4cffe2f7...
+2026-05-06 09:06:43 +02:00: 2026-05-06T07:06:43.761Z [WARN] Short unsubscribe token not found or invalid: 8n1pGTBE,
+2026-05-06 09:06:49 +02:00: 2026-05-06T07:06:49.299Z [WARN] Short unsubscribe token not found or invalid: ll9egEd1,
+2026-05-06 09:06:53 +02:00: 2026-05-06T07:06:53.417Z [WARN] Short unsubscribe token not found or invalid: SFahZaBP,
+2026-05-06 09:06:57 +02:00: 2026-05-06T07:06:57.357Z [WARN] Short unsubscribe token not found or invalid: 3cGhC8fM,
+2026-05-06 09:07:02 +02:00: 2026-05-06T07:07:02.209Z [WARN] Short unsubscribe token not found or invalid: zpHE6M34,
+2026-05-06 09:07:02 +02:00: 2026-05-06T07:07:02.240Z [WARN] Short unsubscribe token not found or invalid: RLNnQgwv,
+2026-05-06 09:07:04 +02:00: 2026-05-06T07:07:04.203Z [WARN] Invalid tracking signature for click (lid): campaign=82445428-29cd-4d93-9a82-40356428dfb7, subscriber=cea818a0-efe7-4b24-a0e4-e5fba61d2263
+2026-05-06 09:08:58 +02:00: 2026-05-06T07:08:58.850Z [WARN] Short unsubscribe token not found or invalid: kCu5sOC7,
+2026-05-06 09:09:04 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+2026-05-06 09:09:09 +02:00: 2026-05-06T07:09:09.085Z [WARN] BullMQ metrics collection error {"error":"Error: Connection is closed."}
+
+[deploy]   Last 30 lines of web out log:
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.424Z [INFO] Tag queue worker stopped
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.424Z [INFO] [SHUTDOWN] All background workers stopped
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.424Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian stopped
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.424Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian stopped
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.424Z [INFO] Background workers stopped
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.425Z [INFO] HTTP server closed - no new connections
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.425Z [INFO] [BullMQ] Workers closed
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.425Z [INFO] [BullMQ] Queues closed
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.486Z [INFO] NotifyQueue shut down
+2026-05-06 09:09:08 +02:00: 2026-05-06T07:09:08.515Z [INFO] [Redis] Connections closed
+2026-05-06 09:09:10 +02:00: 2026-05-06T07:09:10.576Z [INFO] [TRACKING POOL] closed
+2026-05-06 09:09:10 +02:00: 2026-05-06T07:09:10.576Z [INFO] [IMPORT POOL] closed
+2026-05-06 09:09:10 +02:00: 2026-05-06T07:09:10.577Z [INFO] Database pool closed
+2026-05-06 09:09:10 +02:00: 2026-05-06T07:09:10.577Z [INFO] Graceful shutdown complete
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.022Z [INFO] Database SSL enabled for external connection (Neon)
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.023Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.230Z [INFO] [TRACKING POOL] configured: max=50, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.250Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.386Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.389Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":143141,"nodeVersion":"v20.20.2","gcExposed":true}
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.527Z [INFO] [Redis/main] Connected
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.533Z [INFO] [Redis/bullmq] Connected
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.687Z [INFO] [TRACKING] Another process is running bootstrap — skipping
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.688Z [INFO] [tracking_tokens] Another process is running bootstrap — skipping
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.837Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.852Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 20 | Tracking pool: 50 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.853Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=50, import=6 via pooler, excluded]
+2026-05-06 09:09:11 +02:00: 2026-05-06T07:09:11.884Z [INFO] [ANALYTICS_BOOTSTRAP] Another process is running bootstrap — skipping
+2026-05-06 09:09:12 +02:00: 2026-05-06T07:09:12.101Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+2026-05-06 09:09:12 +02:00: 2026-05-06T07:09:12.360Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+
+[deploy]   PM2 status:
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 15   │ online    │ 0%       │ 233.7mb  │
+│ 1  │ critsend-worker    │ fork     │ 15   │ online    │ 0%       │ 83.0mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[deploy] ✗ Health check failed — app may not be running. Check logs above

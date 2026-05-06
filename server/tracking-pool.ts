@@ -96,6 +96,7 @@ trackingPool.on("connect", (client) => {
   if (isExternalDb) {
     client.query("SET search_path TO public").catch(() => {});
   }
+  client.query("SET lock_timeout = '0'").catch(() => {});
 });
 
 const modeLabel = resolved.mode === "explicit-override"

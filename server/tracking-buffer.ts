@@ -450,7 +450,7 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
  * cascaded into tracking-pool exhaustion (max=6 → 500 "Tracking error" on
  * /api/track/click) and main-pool starvation (load-shed → 503
  * "service_busy" on /campaigns). The bump now runs as a SHORT post-commit
- * UPDATE in its own tiny transaction with `lock_timeout = 15s` (see
+ * UPDATE in its own tiny transaction with `lock_timeout = 0` (disabled; see
  * bumpCampaignCountersPostCommit). Drift between live and source-of-truth
  * is still self-healed by the 15-min counter-drift reconciler (fill-only
  * via GREATEST), so the worst-case observable effect is a brief stale read
@@ -470,6 +470,7 @@ async function insertBatchAndMarkFirsts(
   const client = await trackingPool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '0'");
     await insertBatchOnClient(client, type, events);
     await client.query("COMMIT");
   } catch (err) {
@@ -480,7 +481,7 @@ async function insertBatchAndMarkFirsts(
   let firsts = new Set<string>();
   try {
     await client.query("BEGIN");
-    await client.query("SET LOCAL lock_timeout = '15s'");
+    await client.query("SET LOCAL lock_timeout = '0'");
     firsts = await markFirstsOnClient(client, type, events);
     await client.query("COMMIT");
   } catch (err: any) {
@@ -520,6 +521,7 @@ async function insertBatchAndBumpCounters(
   let newPairsByCampaign = new Map<string, number>();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '0'");
 
     // Collapse to distinct (campaign,subscriber) pairs in this batch.
     const batchPairs: Array<{ cid: string; sid: string; key: string }> = [];
@@ -608,7 +610,7 @@ async function bumpUnsubComplaintCountersPostCommit(
   if (placeholders.length === 0) return;
   await client.query("BEGIN");
   try {
-    await client.query("SET LOCAL lock_timeout = '15s'");
+    await client.query("SET LOCAL lock_timeout = '0'");
     await client.query(
       `UPDATE campaigns c
           SET ${col} = c.${col} + v.delta
@@ -629,10 +631,9 @@ async function bumpUnsubComplaintCountersPostCommit(
  * a SHORT post-commit UPDATE on the supplied client. Caller is responsible
  * for releasing the client.
  *
- * Runs in its own tiny transaction with `lock_timeout = 15s`, so the
+ * Runs in its own tiny transaction with `lock_timeout = 0` (disabled), so the
  * campaigns row lock is only held for the duration of one UPDATE statement
- * (~milliseconds) and we can never starve the tracking pool waiting on a
- * row lock held by the campaign-sender. See the long comment on
+ * (~milliseconds). The pool's statement_timeout (30s) is the safety net. See the long comment on
  * insertBatchAndMarkFirsts for the full Task #57 root-cause story.
  *
  * For open/click: total_*_count += events grouped by campaign;
@@ -708,7 +709,7 @@ async function bumpCampaignCountersPostCommit(
   `;
   await client.query("BEGIN");
   try {
-    await client.query("SET LOCAL lock_timeout = '15s'");
+    await client.query("SET LOCAL lock_timeout = '0'");
     await client.query(sql, values);
     await client.query("COMMIT");
   } catch (err) {
