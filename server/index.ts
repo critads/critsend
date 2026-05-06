@@ -288,7 +288,7 @@ const sessionMiddleware = session({
 // table per request). `/c/` and `/u/` are the branded short tracking URLs
 // added in the link-registry migration; previous oversight had them going
 // through session, which silently negated the tracking-pool isolation.
-const sessionSkipPaths = ['/api/track/', '/api/unsubscribe/', '/api/webhooks/', '/api/health', '/metrics', '/t/', '/w/', '/c/', '/u/', '/api/jobs/stream', '/api/export', '/favicon.ico'];
+const sessionSkipPaths = ['/api/track/', '/api/unsubscribe/', '/api/webhooks/', '/api/health', '/metrics', '/t/', '/w/', '/c/', '/u/', '/api/jobs/stream', '/favicon.ico'];
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (sessionSkipPaths.some(p => req.path.startsWith(p))) {
