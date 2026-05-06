@@ -468,6 +468,35 @@ export function registerHealthRoutes(app: Express) {
     res.json({ message: "Deploy started", startedAt });
   });
 
+  app.post("/api/admin/deploy/cancel", async (req: Request, res: Response) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const current = readDeployStatus();
+    if (current.status !== "running") {
+      return res.status(409).json({ error: "No deploy is currently running" });
+    }
+
+    logger.warn("[DEPLOY] Deploy cancelled via admin UI", { userId: req.session.userId });
+
+    try {
+      spawn("bash", ["-c", "pkill -f 'deploy.sh' 2>/dev/null; pkill -f 'drizzle-kit' 2>/dev/null; pkill -f 'npm run build' 2>/dev/null"], {
+        stdio: "ignore",
+      });
+    } catch {}
+
+    const finishedAt = new Date().toISOString();
+    const statusObj = { status: "cancelled", startedAt: current.startedAt, finishedAt, exitCode: 130 };
+    fs.writeFileSync(DEPLOY_STATUS, JSON.stringify(statusObj));
+
+    try {
+      fs.appendFileSync(DEPLOY_LOG, `\n[deploy] ✗ Deploy cancelled by user at ${finishedAt}\n`);
+    } catch {}
+
+    res.json({ message: "Deploy cancelled" });
+  });
+
   app.get("/api/admin/deploy/status", async (req: Request, res: Response) => {
     if (!req.session.userId) {
       return res.status(401).json({ error: "Not authenticated" });

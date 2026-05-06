@@ -243,6 +243,17 @@ function DeployCard() {
     }
   };
 
+  const handleCancel = async () => {
+    try {
+      await apiRequest("POST", "/api/admin/deploy/cancel");
+      refetchStatus();
+      toast({ title: "Deploy cancelled", description: "The running deploy has been stopped." });
+    } catch (err: any) {
+      const msg = err?.message || "Failed to cancel deploy";
+      toast({ title: "Cancel error", description: msg, variant: "destructive" });
+    }
+  };
+
   const isRunning = deployStatus?.status === "running";
   const lastStatus = deployStatus?.status || "idle";
   const lastMode = deployStatus?.mode;
@@ -258,11 +269,12 @@ function DeployCard() {
           <Badge variant={
             lastStatus === "running" ? "default" :
             lastStatus === "success" ? "secondary" :
-            lastStatus === "failed" ? "destructive" : "outline"
+            lastStatus === "failed" || lastStatus === "cancelled" ? "destructive" : "outline"
           } data-testid="badge-deploy-status">
             {lastStatus === "idle" ? "No deploys yet" :
              lastStatus === "running" ? "Deploying..." :
              lastStatus === "success" ? `Last deploy succeeded${lastMode ? ` (${lastMode})` : ""}` :
+             lastStatus === "cancelled" ? "Last deploy cancelled" :
              "Last deploy failed"}
           </Badge>
         </div>
@@ -270,33 +282,39 @@ function DeployCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         {!confirming ? (
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setConfirming("full")}
-              disabled={isRunning}
-              className="flex-1"
-              data-testid="button-deploy-full"
-            >
-              {isRunning ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deploying...</>
-              ) : (
-                <><Rocket className="h-4 w-4 mr-2" /> Deploy + Schema</>
-              )}
-            </Button>
-            <Button
-              onClick={() => setConfirming("code-only")}
-              disabled={isRunning}
-              variant="secondary"
-              className="flex-1"
-              data-testid="button-deploy-code-only"
-            >
-              {isRunning ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deploying...</>
-              ) : (
-                <><Rocket className="h-4 w-4 mr-2" /> Deploy (code only)</>
-              )}
-            </Button>
-          </div>
+          isRunning ? (
+            <div className="flex gap-2">
+              <Button disabled className="flex-1" data-testid="button-deploy-running">
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deploying...
+              </Button>
+              <Button
+                onClick={handleCancel}
+                variant="destructive"
+                className="flex-none"
+                data-testid="button-deploy-cancel-running"
+              >
+                <XCircle className="h-4 w-4 mr-2" /> Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                onClick={() => setConfirming("full")}
+                className="flex-1"
+                data-testid="button-deploy-full"
+              >
+                <Rocket className="h-4 w-4 mr-2" /> Deploy + Schema
+              </Button>
+              <Button
+                onClick={() => setConfirming("code-only")}
+                variant="secondary"
+                className="flex-1"
+                data-testid="button-deploy-code-only"
+              >
+                <Rocket className="h-4 w-4 mr-2" /> Deploy (code only)
+              </Button>
+            </div>
+          )
         ) : (
           <div className="flex flex-col gap-2 p-3 border rounded-lg bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
