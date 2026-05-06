@@ -171,11 +171,21 @@ export async function warmLinkCache(): Promise<number> {
   }
 }
 
+const CAMPAIGN_TAGS_CACHE_MAX = 5_000;
+const campaignTagsCache = new Map<string, { openTag: string | null; clickTag: string | null; unsubscribeTag: string | null }>();
+
 export async function getCampaignTagsViaTrackingPool(campaignId: string): Promise<{
   openTag: string | null;
   clickTag: string | null;
   unsubscribeTag: string | null;
 } | null> {
+  const cached = campaignTagsCache.get(campaignId);
+  if (cached) {
+    campaignTagsCache.delete(campaignId);
+    campaignTagsCache.set(campaignId, cached);
+    return cached;
+  }
+
   const result = await trackingPool.query(
     `SELECT open_tag, click_tag, unsubscribe_tag
      FROM campaigns WHERE id = $1`,
@@ -183,9 +193,15 @@ export async function getCampaignTagsViaTrackingPool(campaignId: string): Promis
   );
   if (result.rows.length === 0) return null;
   const row = result.rows[0];
-  return {
+  const tags = {
     openTag: row.open_tag || null,
     clickTag: row.click_tag || null,
     unsubscribeTag: row.unsubscribe_tag || null,
   };
+  campaignTagsCache.set(campaignId, tags);
+  if (campaignTagsCache.size > CAMPAIGN_TAGS_CACHE_MAX) {
+    const oldest = campaignTagsCache.keys().next().value;
+    if (oldest !== undefined) campaignTagsCache.delete(oldest);
+  }
+  return tags;
 }

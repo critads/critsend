@@ -42,23 +42,21 @@ interface BaseEvent {
   link?: string;
   ctx?: TrackingContext;
   enqueuedAt: number;
-  // Side-effect hints used by the flusher
   openTag?: string | null;
   clickTag?: string | null;
   unsubscribeTag?: string | null;
+  _retryCount?: number;
 }
 
 const FLUSH_INTERVAL_MS = Number(process.env.TRACKING_FLUSH_INTERVAL_MS || 1500);
 const MAX_QUEUE = Number(process.env.TRACKING_BUFFER_MAX || 50_000);
 const MAX_BATCH_PER_TYPE = Number(process.env.TRACKING_FLUSH_BATCH_MAX || 5_000);
-// (campaignId, subscriberId, type) dedupe window. Gmail/iCloud fetch the same
-// open pixel 2-4 times within seconds; collapse those into one DB row.
 const DEDUPE_WINDOW_MS = Number(process.env.TRACKING_DEDUPE_WINDOW_MS || 60_000);
-// Throttle dropped-event warnings so an overloaded buffer doesn't itself
-// flood the log.
 const DROP_WARN_INTERVAL_MS = 10_000;
-// LRU cache for link destinations (immutable after preregisterCampaignLinks)
 const LINK_CACHE_MAX = Number(process.env.TRACKING_LINK_CACHE_MAX || 5_000);
+const MAX_FLUSH_RETRIES = Number(process.env.TRACKING_MAX_FLUSH_RETRIES || 3);
+const BACKOFF_MAX_INTERVAL_MS = Number(process.env.TRACKING_BACKOFF_MAX_MS || 10_000);
+const POOL_PRESSURE_THRESHOLD = 0.85;
 
 // ── Queue ────────────────────────────────────────────────────────────────
 let queue: BaseEvent[] = [];
@@ -240,6 +238,8 @@ export function primeLinkCache(entries: Iterable<[string, string]>): void {
 let flushTimer: NodeJS.Timeout | null = null;
 let poolSampleTimer: NodeJS.Timeout | null = null;
 let flushing = false;
+let consecutiveFlushFailures = 0;
+let currentFlushInterval = FLUSH_INTERVAL_MS;
 // Side-effect promises (recordFirstOpen tag enqueues, suppression UPDATEs)
 // fired by the current flusher cycle. Tracked so graceful shutdown can
 // await them before closing the tracking pool — otherwise the pool can
@@ -263,20 +263,22 @@ async function flush(): Promise<void> {
     trackingBufferQueueDepth.set(0);
     return;
   }
+
+  const poolStats = getTrackingPoolStats();
+  const poolUtilization = poolStats.max > 0 ? (poolStats.total - poolStats.idle) / poolStats.max : 0;
+  if (poolUtilization > POOL_PRESSURE_THRESHOLD && poolStats.waiting > 10) {
+    adjustFlushInterval(true);
+    return;
+  }
+
   flushing = true;
-  // Snapshot up to MAX_BATCH_PER_TYPE * 4 events; whatever is left will be
-  // picked up on the next tick. Snapshot then rebuild to avoid mutation
-  // during async work.
   const batch = queue.length > MAX_BATCH_PER_TYPE * 4
     ? queue.splice(0, MAX_BATCH_PER_TYPE * 4)
     : (() => { const b = queue; queue = []; return b; })();
   trackingBufferQueueDepth.set(queue.length);
 
+  let hadFailure = false;
   try {
-    // Group by type; collapse intra-batch duplicates by (campaign,subscriber)
-    // (the dedupe window already filtered cross-batch duplicates inside the
-    // window — this guards against the case where the window expired but
-    // multiple events landed in the same batch).
     const buckets: Record<TrackingEventType, Map<string, BaseEvent>> = {
       open: new Map(),
       click: new Map(),
@@ -285,22 +287,58 @@ async function flush(): Promise<void> {
     };
     for (const ev of batch) {
       const k = `${ev.campaignId}|${ev.subscriberId}|${ev.link ?? ""}`;
-      // First write wins (preserves the original open/click context)
       if (!buckets[ev.type].has(k)) buckets[ev.type].set(k, ev);
     }
 
-    await Promise.allSettled([
-      flushType("open", [...buckets.open.values()]),
-      flushType("click", [...buckets.click.values()]),
-      flushType("unsubscribe", [...buckets.unsubscribe.values()]),
-      flushType("complaint", [...buckets.complaint.values()]),
-    ]);
+    for (const type of ["open", "click", "unsubscribe", "complaint"] as TrackingEventType[]) {
+      const events = [...buckets[type].values()];
+      if (events.length === 0) continue;
+      try {
+        await flushType(type, events);
+      } catch (err: any) {
+        hadFailure = true;
+        logger.error(`[TRACKING BUFFER] flushType(${type}) outer error: ${err?.message || err}`);
+      }
+    }
   } catch (err: any) {
+    hadFailure = true;
     logger.error(`[TRACKING BUFFER] flush failed: ${err?.message || err}`);
   } finally {
     flushing = false;
     trackingPoolInUse.set(getTrackingPoolStats().total - getTrackingPoolStats().idle);
+    adjustFlushInterval(hadFailure);
   }
+}
+
+function adjustFlushInterval(hadFailure: boolean): void {
+  if (hadFailure) {
+    consecutiveFlushFailures++;
+    const newInterval = Math.min(
+      FLUSH_INTERVAL_MS * Math.pow(1.5, consecutiveFlushFailures),
+      BACKOFF_MAX_INTERVAL_MS,
+    );
+    if (newInterval !== currentFlushInterval) {
+      currentFlushInterval = newInterval;
+      rescheduleFlushTimer();
+      logger.warn(`[TRACKING BUFFER] flush backoff: interval=${Math.round(currentFlushInterval)}ms (${consecutiveFlushFailures} consecutive failures)`);
+    }
+  } else if (consecutiveFlushFailures > 0) {
+    consecutiveFlushFailures = 0;
+    if (currentFlushInterval !== FLUSH_INTERVAL_MS) {
+      currentFlushInterval = FLUSH_INTERVAL_MS;
+      rescheduleFlushTimer();
+      logger.info(`[TRACKING BUFFER] flush interval restored to ${FLUSH_INTERVAL_MS}ms`);
+    }
+  }
+}
+
+function rescheduleFlushTimer(): void {
+  if (!flushTimer) return;
+  clearInterval(flushTimer);
+  flushTimer = setInterval(() => {
+    flush().catch((err) => logger.error(`[TRACKING BUFFER] tick failed: ${err?.message || err}`));
+  }, currentFlushInterval);
+  flushTimer.unref();
 }
 
 async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<void> {
@@ -357,12 +395,30 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
       });
     pendingSideEffects.add(sideEffectPromise);
   } catch (err: any) {
-    trackingBufferDropped.inc({ reason: "flush_error" }, toWrite.length);
-    // Clear dedupe entries for the failed batch so legitimate retries from
-    // the email client are not silently suppressed for the rest of the
-    // dedupe window.
     for (const ev of toWrite) dedupe.delete(dedupeKey(ev));
-    logger.error(`[TRACKING BUFFER] insert ${type} batch (${toWrite.length} rows) failed: ${err?.message || err}`);
+
+    const retryable: BaseEvent[] = [];
+    let permanentlyDropped = 0;
+    for (const ev of toWrite) {
+      const retries = (ev._retryCount ?? 0) + 1;
+      if (retries >= MAX_FLUSH_RETRIES) {
+        permanentlyDropped++;
+      } else {
+        retryable.push({ ...ev, _retryCount: retries });
+      }
+    }
+
+    if (retryable.length > 0) {
+      queue.push(...retryable);
+      trackingBufferQueueDepth.set(queue.length);
+      logger.warn(`[TRACKING BUFFER] ${type} batch (${toWrite.length} rows) failed, requeued ${retryable.length} for retry: ${err?.message || err}`);
+    }
+    if (permanentlyDropped > 0) {
+      trackingBufferDropped.inc({ reason: "flush_error" }, permanentlyDropped);
+      logger.error(`[TRACKING BUFFER] ${type} batch: ${permanentlyDropped} events permanently dropped after ${MAX_FLUSH_RETRIES} retries`);
+    }
+
+    throw err;
   }
 }
 
@@ -986,7 +1042,7 @@ export function startTrackingBufferFlusher(): void {
   }, 250);
   poolSampleTimer.unref();
   logger.info(
-    `[TRACKING BUFFER] flusher started: interval=${FLUSH_INTERVAL_MS}ms, counterCoalesce=${COUNTER_COALESCE_MS}ms, maxQueue=${MAX_QUEUE}, maxBatchPerType=${MAX_BATCH_PER_TYPE}, dedupeWindow=${DEDUPE_WINDOW_MS}ms`,
+    `[TRACKING BUFFER] flusher started: interval=${FLUSH_INTERVAL_MS}ms, counterCoalesce=${COUNTER_COALESCE_MS}ms, maxQueue=${MAX_QUEUE}, maxBatchPerType=${MAX_BATCH_PER_TYPE}, dedupeWindow=${DEDUPE_WINDOW_MS}ms, maxRetries=${MAX_FLUSH_RETRIES}, backoffMax=${BACKOFF_MAX_INTERVAL_MS}ms, sequential=true`,
   );
 }
 
