@@ -11,7 +11,7 @@
  * routes need, but issue queries against `trackingPool`.
  */
 import { trackingPool } from "./tracking-pool";
-import { isPoolCheckoutError } from "./db";
+import { pool as mainPool, isPoolCheckoutError } from "./db";
 import { TrackingPoolUnavailableError } from "./tracking-buffer";
 import { trackingTokenCacheTotal } from "./metrics";
 import { logger } from "./logger";
@@ -120,7 +120,7 @@ export function getTokenCacheStats(): { size: number; max: number } {
 
 export async function warmTokenCache(): Promise<number> {
   try {
-    const result = await trackingPool.query(
+    const result = await mainPool.query(
       `SELECT t.token, t.type, t.campaign_id, t.subscriber_id, t.link_id
        FROM tracking_tokens t
        INNER JOIN campaigns c ON c.id = t.campaign_id
@@ -157,7 +157,7 @@ export async function warmLinkCache(): Promise<number> {
     const { primeLinkCache } = await import("./tracking-buffer");
     const LINK_CACHE_MAX = Number(process.env.TRACKING_LINK_CACHE_MAX || 5_000);
 
-    const result = await trackingPool.query(
+    const result = await mainPool.query(
       `SELECT cl.id, cl.destination_url
        FROM campaign_links cl
        INNER JOIN campaigns c ON c.id = cl.campaign_id
