@@ -428,6 +428,7 @@ export function registerHealthRoutes(app: Express) {
       logger.warn("[DEPLOY] Stale deploy detected, allowing new deploy");
     }
 
+    const skipSchema = req.body?.skipSchema === true;
     const repoRoot = process.env.CRITSEND_REPO_ROOT || "/home/ubuntu/critsend";
     const deployScript = path.join(repoRoot, "deploy", "deploy.sh");
 
@@ -436,20 +437,22 @@ export function registerHealthRoutes(app: Express) {
     }
 
     const startedAt = new Date().toISOString();
-    fs.writeFileSync(DEPLOY_STATUS, JSON.stringify({ status: "running", startedAt }));
+    const mode = skipSchema ? "code-only" : "full";
+    fs.writeFileSync(DEPLOY_STATUS, JSON.stringify({ status: "running", startedAt, mode }));
     fs.writeFileSync(DEPLOY_LOG, "");
 
-    logger.info("[DEPLOY] Deploy triggered via admin UI", { userId: req.session.userId });
+    logger.info("[DEPLOY] Deploy triggered via admin UI", { userId: req.session.userId, mode });
 
     const wrapperScript = `
       exec > "${DEPLOY_LOG}" 2>&1
+      ${skipSchema ? 'export SKIP_SCHEMA_PUSH=1' : ''}
       bash "${deployScript}"
       EXIT_CODE=$?
       FINISHED=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
       if [ $EXIT_CODE -eq 0 ]; then
-        echo '{"status":"success","startedAt":"${startedAt}","finishedAt":"'$FINISHED'","exitCode":0}' > "${DEPLOY_STATUS}"
+        echo '{"status":"success","startedAt":"${startedAt}","finishedAt":"'$FINISHED'","exitCode":0,"mode":"${mode}"}' > "${DEPLOY_STATUS}"
       else
-        echo '{"status":"failed","startedAt":"${startedAt}","finishedAt":"'$FINISHED'","exitCode":'$EXIT_CODE'}' > "${DEPLOY_STATUS}"
+        echo '{"status":"failed","startedAt":"${startedAt}","finishedAt":"'$FINISHED'","exitCode":'$EXIT_CODE',"mode":"${mode}"}' > "${DEPLOY_STATUS}"
       fi
     `;
 

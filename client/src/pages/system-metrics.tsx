@@ -190,7 +190,7 @@ function MetricCard({ title, value, subtitle, icon: Icon, status }: {
 
 function DeployCard() {
   const { toast } = useToast();
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<"full" | "code-only" | null>(null);
   const [polling, setPolling] = useState(false);
   const logEndRef = useRef<HTMLPreElement>(null);
 
@@ -200,6 +200,7 @@ function DeployCard() {
     finishedAt?: string;
     log?: string;
     exitCode?: number;
+    mode?: string;
   }>({
     queryKey: ["/api/admin/deploy/status"],
     refetchInterval: polling ? 2000 : false,
@@ -224,13 +225,18 @@ function DeployCard() {
     }
   }, [deployStatus?.log]);
 
-  const handleDeploy = async () => {
-    setConfirming(false);
+  const handleDeploy = async (mode: "full" | "code-only") => {
+    setConfirming(null);
     try {
-      await apiRequest("POST", "/api/admin/deploy");
+      await apiRequest("POST", "/api/admin/deploy", { skipSchema: mode === "code-only" });
       setPolling(true);
       refetchStatus();
-      toast({ title: "Deploy started", description: "Pulling latest code and rebuilding..." });
+      toast({
+        title: "Deploy started",
+        description: mode === "full"
+          ? "Pulling code, rebuilding, and pushing schema..."
+          : "Pulling code and rebuilding (no schema push)...",
+      });
     } catch (err: any) {
       const msg = err?.message || "Failed to start deploy";
       toast({ title: "Deploy error", description: msg, variant: "destructive" });
@@ -239,6 +245,7 @@ function DeployCard() {
 
   const isRunning = deployStatus?.status === "running";
   const lastStatus = deployStatus?.status || "idle";
+  const lastMode = deployStatus?.mode;
 
   return (
     <Card data-testid="card-deploy">
@@ -255,7 +262,7 @@ function DeployCard() {
           } data-testid="badge-deploy-status">
             {lastStatus === "idle" ? "No deploys yet" :
              lastStatus === "running" ? "Deploying..." :
-             lastStatus === "success" ? "Last deploy succeeded" :
+             lastStatus === "success" ? `Last deploy succeeded${lastMode ? ` (${lastMode})` : ""}` :
              "Last deploy failed"}
           </Badge>
         </div>
@@ -263,28 +270,45 @@ function DeployCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         {!confirming ? (
-          <Button
-            onClick={() => setConfirming(true)}
-            disabled={isRunning}
-            className="w-full"
-            data-testid="button-deploy"
-          >
-            {isRunning ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deploying...</>
-            ) : (
-              <><Rocket className="h-4 w-4 mr-2" /> Deploy Latest Version</>
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setConfirming("full")}
+              disabled={isRunning}
+              className="flex-1"
+              data-testid="button-deploy-full"
+            >
+              {isRunning ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deploying...</>
+              ) : (
+                <><Rocket className="h-4 w-4 mr-2" /> Deploy + Schema</>
+              )}
+            </Button>
+            <Button
+              onClick={() => setConfirming("code-only")}
+              disabled={isRunning}
+              variant="secondary"
+              className="flex-1"
+              data-testid="button-deploy-code-only"
+            >
+              {isRunning ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deploying...</>
+              ) : (
+                <><Rocket className="h-4 w-4 mr-2" /> Deploy (code only)</>
+              )}
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col gap-2 p-3 border rounded-lg bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-              This will pull the latest code, rebuild, and restart the app. The site may be briefly unavailable (~15s).
+              {confirming === "full"
+                ? "This will pull latest code, rebuild, push schema changes to the database, and restart. The site may be briefly unavailable (~15s)."
+                : "This will pull latest code, rebuild, and restart WITHOUT touching the database schema. Use this for code-only changes."}
             </p>
             <div className="flex gap-2">
-              <Button size="sm" variant="destructive" onClick={handleDeploy} data-testid="button-deploy-confirm">
-                Yes, deploy now
+              <Button size="sm" variant="destructive" onClick={() => handleDeploy(confirming)} data-testid="button-deploy-confirm">
+                Yes, deploy{confirming === "full" ? " + schema" : " (code only)"}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setConfirming(false)} data-testid="button-deploy-cancel">
+              <Button size="sm" variant="outline" onClick={() => setConfirming(null)} data-testid="button-deploy-cancel">
                 Cancel
               </Button>
             </div>

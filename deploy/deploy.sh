@@ -61,19 +61,20 @@ step "Building frontend and server bundles (npm run build)..."
 npm run build
 ok "Build complete"
 
-# ─── Step 4: Database schema push ─────────────────────────────────────────────
-step "Pushing database schema changes (drizzle-kit push)..."
-# drizzle.config.ts uses NEON_DATABASE_URL || DATABASE_URL.
-# We extract the value directly rather than sourcing .env, because shell's
-# `source` misinterprets `&` in URL query strings as a background-job operator.
-if [[ -f ".env" ]]; then
-    _db_url=$(grep -E "^NEON_DATABASE_URL=" .env | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-    if [[ -n "$_db_url" ]]; then
-        export NEON_DATABASE_URL="$_db_url"
+if [[ "${SKIP_SCHEMA_PUSH:-0}" == "1" ]]; then
+    step "Skipping database schema push (SKIP_SCHEMA_PUSH=1)"
+    ok "Schema push skipped"
+else
+    step "Pushing database schema changes (drizzle-kit push)..."
+    if [[ -f ".env" ]]; then
+        _db_url=$(grep -E "^NEON_DATABASE_URL=" .env | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+        if [[ -n "$_db_url" ]]; then
+            export NEON_DATABASE_URL="$_db_url"
+        fi
     fi
+    npx drizzle-kit push --force
+    ok "Database schema up to date"
 fi
-npx drizzle-kit push --force
-ok "Database schema up to date"
 
 # ─── Step 5: Ensure directories exist with correct permissions ───────────────
 step "Ensuring required directories exist..."
