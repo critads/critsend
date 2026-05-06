@@ -393,7 +393,7 @@ export function startMetricsCollector(): void {
           (SELECT COUNT(*) FROM campaign_jobs WHERE status IN ('pending', 'processing')) as campaign_queue,
           (SELECT COUNT(*) FROM import_job_queue WHERE status IN ('pending', 'processing')) as import_queue,
           (SELECT COUNT(*) FROM pending_tag_operations WHERE status = 'pending') as tag_queue,
-          (SELECT COUNT(*) FROM subscribers) as total_subscribers,
+          (SELECT reltuples::bigint FROM pg_class WHERE relname = 'subscribers') as total_subscribers,
           (SELECT COUNT(*) FROM campaigns WHERE status = 'sending') as sending_campaigns,
           (SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) FROM campaign_jobs WHERE status IN ('pending', 'processing')) as campaign_oldest_age,
           (SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) FROM import_job_queue WHERE status IN ('pending', 'processing')) as import_oldest_age

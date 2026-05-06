@@ -97,7 +97,6 @@ function normalizeRules(rules: any): SegmentRulesV2 | null {
 export async function getSubscribers(page: number, limit: number, search?: string): Promise<{ subscribers: Subscriber[]; total: number }> {
   const offset = (page - 1) * limit;
   let query = db.select().from(subscribers);
-  let countQuery = db.select({ count: sql<number>`count(*)` }).from(subscribers);
 
   if (search) {
     const searchUpper = search.toUpperCase();
@@ -107,15 +106,22 @@ export async function getSubscribers(page: number, limit: number, search?: strin
       sql`${searchUpper} = ANY(${subscribers.refs})`
     );
     query = query.where(searchCondition) as typeof query;
-    countQuery = countQuery.where(searchCondition) as typeof countQuery;
+
+    const countQuery = db.select({ count: sql<number>`count(*)` }).from(subscribers).where(searchCondition);
+    const [subs, [{ count }]] = await Promise.all([
+      query.orderBy(desc(subscribers.importDate)).limit(limit).offset(offset),
+      countQuery,
+    ]);
+    return { subscribers: subs, total: Number(count) };
   }
 
-  const [subs, [{ count }]] = await Promise.all([
+  const [subs, countResult] = await Promise.all([
     query.orderBy(desc(subscribers.importDate)).limit(limit).offset(offset),
-    countQuery,
+    pool.query(`SELECT reltuples::bigint AS count FROM pg_class WHERE relname = 'subscribers'`),
   ]);
 
-  return { subscribers: subs, total: Number(count) };
+  const total = Number(countResult.rows[0]?.count ?? 0);
+  return { subscribers: subs, total: Math.max(total, 0) };
 }
 
 export async function getSubscriber(id: string): Promise<Subscriber | undefined> {

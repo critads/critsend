@@ -117,6 +117,8 @@ pool.on('connect', (client) => {
   if (isExternalDb) {
     client.query("SET search_path TO public").catch(() => {});
   }
+  client.query(`SET statement_timeout = '${poolConfig.statement_timeout}'`).catch(() => {});
+  client.query(`SET lock_timeout = '${poolConfig.lock_timeout}'`).catch(() => {});
 });
 
 export const db = drizzle(pool, { schema });
