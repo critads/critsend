@@ -441,7 +441,7 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
   return processedRows;
 }
 
-const MAX_CONCURRENT_CAMPAIGNS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CAMPAIGNS || '3', 10) || 3);
+const MAX_CONCURRENT_CAMPAIGNS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CAMPAIGNS || '8', 10) || 8);
 const activeCampaigns = new Set<string>();
 let isPolling = false;
 let campaignJobWakeup: (() => void) | null = null;
