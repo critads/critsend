@@ -1,0 +1,65 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 30 --nostream
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-05-06 08:40:18 +02:00: 2026-05-06T06:40:18.939Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:21 +02:00: 2026-05-06T06:40:21.104Z [WARN] [TRACKING BUFFER] click batch (10 rows) failed, requeued 10 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:21 +02:00: 2026-05-06T06:40:21.104Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:23 +02:00: 2026-05-06T06:40:23.134Z [WARN] [TRACKING BUFFER] flush backoff: interval=7594ms (4 consecutive failures)
+0|critsend | 2026-05-06 08:40:28 +02:00: 2026-05-06T06:40:28.035Z [WARN] Short unsubscribe token not found or invalid: G1pzOIxC,
+0|critsend | 2026-05-06 08:40:35 +02:00: 2026-05-06T06:40:35.194Z [WARN] [TRACKING BUFFER] open batch (524 rows) failed, requeued 392 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:35 +02:00: 2026-05-06T06:40:35.194Z [ERROR] [TRACKING BUFFER] open batch: 132 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:40:35 +02:00: 2026-05-06T06:40:35.195Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:37 +02:00: 2026-05-06T06:40:37.349Z [WARN] [TRACKING BUFFER] click batch (17 rows) failed, requeued 14 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:37 +02:00: 2026-05-06T06:40:37.349Z [ERROR] [TRACKING BUFFER] click batch: 3 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:40:37 +02:00: 2026-05-06T06:40:37.349Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:39 +02:00: 2026-05-06T06:40:39.516Z [WARN] [TRACKING BUFFER] unsubscribe batch (3 rows) failed, requeued 3 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:39 +02:00: 2026-05-06T06:40:39.516Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:39 +02:00: 2026-05-06T06:40:39.516Z [WARN] [TRACKING BUFFER] flush backoff: interval=10000ms (5 consecutive failures)
+0|critsend | 2026-05-06 08:40:43 +02:00: 2026-05-06T06:40:43.297Z [WARN] Short unsubscribe token not found or invalid: MsRHcdQA,
+0|critsend | 2026-05-06 08:40:43 +02:00: 2026-05-06T06:40:43.539Z [WARN] Short unsubscribe token not found or invalid: OHM4YqS8,
+0|critsend | 2026-05-06 08:40:49 +02:00: 2026-05-06T06:40:49.566Z [WARN] Invalid tracking signature for unsubscribe: campaign=e0602f0e-3403-461e-8638-1fc08934b46c, subscriber=b4a19578-2a1f-42f0-92a6-da166b1f8fe9, sig=b14f7c61...
+0|critsend | 2026-05-06 08:40:54 +02:00: 2026-05-06T06:40:54.519Z [WARN] Invalid tracking signature for unsubscribe: campaign=751554e9-30c2-4af8-b4b5-fa50ccefda79, subscriber=favicon.ico, sig=undefined...
+0|critsend | 2026-05-06 08:40:55 +02:00: 2026-05-06T06:40:55.319Z [WARN] [TRACKING BUFFER] open batch (694 rows) failed, requeued 501 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:55 +02:00: 2026-05-06T06:40:55.319Z [ERROR] [TRACKING BUFFER] open batch: 193 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:40:55 +02:00: 2026-05-06T06:40:55.319Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:56 +02:00: 2026-05-06T06:40:56.996Z [WARN] Short unsubscribe token not found or invalid: 1fUX7FQv,
+0|critsend | 2026-05-06 08:40:57 +02:00: 2026-05-06T06:40:57.537Z [WARN] [TRACKING BUFFER] click batch (22 rows) failed, requeued 15 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:57 +02:00: 2026-05-06T06:40:57.537Z [ERROR] [TRACKING BUFFER] click batch: 7 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:40:57 +02:00: 2026-05-06T06:40:57.537Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:59 +02:00: 2026-05-06T06:40:59.734Z [WARN] [TRACKING BUFFER] unsubscribe batch (11 rows) failed, requeued 11 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:40:59 +02:00: 2026-05-06T06:40:59.734Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:41:01 +02:00: 2026-05-06T06:41:01.888Z [WARN] [TRACKING BUFFER] complaint batch (1 rows) failed, requeued 1 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:41:01 +02:00: 2026-05-06T06:41:01.888Z [ERROR] [TRACKING BUFFER] flushType(complaint) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:41:03 +02:00: 2026-05-06T06:41:03.803Z [WARN] Invalid tracking signature for unsubscribe: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=b4a19578-2a1f-42f0-92a6-da166b1f8fe9, sig=97539ab9...
+
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-05-06 08:39:48 +02:00: 2026-05-06T06:39:48.018Z [INFO] Short unsubscribe: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=fa130ec6-af63-472e-8725-bb1e130eea37
+0|critsend | 2026-05-06 08:39:52 +02:00: 2026-05-06T06:39:52.442Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=e7c8d916-022f-4e0f-860a-d977422d3ef5
+0|critsend | 2026-05-06 08:39:53 +02:00: 2026-05-06T06:39:53.775Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=b2d0a837-f355-4429-be42-5a4c2ce6ab62
+0|critsend | 2026-05-06 08:40:13 +02:00: 2026-05-06T06:40:13.878Z [INFO] Short unsubscribe: campaign=450b72d9-7800-49b7-b3b0-025f8e828c86, subscriber=b4f02be4-b6bd-4b8e-a3df-0d8f748c3f23
+0|critsend | 2026-05-06 08:40:13 +02:00: 2026-05-06T06:40:13.918Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=ebfed014-8dec-4e60-8139-70c9e94e3e1b
+0|critsend | 2026-05-06 08:40:14 +02:00: 2026-05-06T06:40:14.037Z [INFO] Unsubscribe request: campaign=450b72d9-7800-49b7-b3b0-025f8e828c86, subscriber=8a003255-f03d-4043-8214-9f496fad64d0
+0|critsend | 2026-05-06 08:40:15 +02:00: 2026-05-06T06:40:15.131Z [INFO] Unsubscribe request: campaign=d2370890-0adb-4ea6-ab64-d53fdb9b02ed, subscriber=38331e00-7bfc-4df2-afe4-48515537b6df
+0|critsend | 2026-05-06 08:40:15 +02:00: 2026-05-06T06:40:15.225Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=b2d0a837-f355-4429-be42-5a4c2ce6ab62
+0|critsend | 2026-05-06 08:40:16 +02:00: 2026-05-06T06:40:16.786Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=ebfed014-8dec-4e60-8139-70c9e94e3e1b
+0|critsend | 2026-05-06 08:40:17 +02:00: 2026-05-06T06:40:17.370Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=ebfed014-8dec-4e60-8139-70c9e94e3e1b
+0|critsend | 2026-05-06 08:40:17 +02:00: 2026-05-06T06:40:17.371Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=ebfed014-8dec-4e60-8139-70c9e94e3e1b
+0|critsend | 2026-05-06 08:40:24 +02:00: 2026-05-06T06:40:24.776Z [INFO] Unsubscribe request: campaign=d2370890-0adb-4ea6-ab64-d53fdb9b02ed, subscriber=3b35ded2-24ca-4460-9c9e-5d7c173a54d8
+0|critsend | 2026-05-06 08:40:25 +02:00: 2026-05-06T06:40:25.187Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=daef71e6-2f1a-46d6-9540-39694dae6b6c
+0|critsend | 2026-05-06 08:40:25 +02:00: 2026-05-06T06:40:25.329Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=daef71e6-2f1a-46d6-9540-39694dae6b6c
+0|critsend | 2026-05-06 08:40:29 +02:00: 2026-05-06T06:40:29.138Z [INFO] Short unsubscribe: campaign=751554e9-30c2-4af8-b4b5-fa50ccefda79, subscriber=cda1ab4c-c641-4cfa-86b5-b8f0dce5436e
+0|critsend | 2026-05-06 08:40:32 +02:00: 2026-05-06T06:40:32.235Z [INFO] Unsubscribe request: campaign=d8cf5190-0b86-4c3d-8b29-92057eccce31, subscriber=b4f02be4-b6bd-4b8e-a3df-0d8f748c3f23
+0|critsend | 2026-05-06 08:40:33 +02:00: 2026-05-06T06:40:33.076Z [INFO] Short unsubscribe: campaign=d8cf5190-0b86-4c3d-8b29-92057eccce31, subscriber=e4fd11f6-d35b-429e-9803-9416a6063ae5
+0|critsend | 2026-05-06 08:40:33 +02:00: 2026-05-06T06:40:33.627Z [INFO] Short unsubscribe: campaign=fdfa9d72-b20b-496b-b7ac-b229c2136769, subscriber=f6def4b9-b092-4aaa-bf5f-d531a9962a62
+0|critsend | 2026-05-06 08:40:34 +02:00: 2026-05-06T06:40:34.372Z [INFO] Unsubscribe request: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=b2d0a837-f355-4429-be42-5a4c2ce6ab62
+0|critsend | 2026-05-06 08:40:36 +02:00: 2026-05-06T06:40:36.439Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=eb6dc29f-ebfe-45f1-8c51-0a13c0bd51c7
+0|critsend | 2026-05-06 08:40:36 +02:00: 2026-05-06T06:40:36.821Z [INFO] Short unsubscribe: campaign=450b72d9-7800-49b7-b3b0-025f8e828c86, subscriber=c83f16bc-9946-4970-8e8f-cce68ee1c26c
+0|critsend | 2026-05-06 08:40:40 +02:00: 2026-05-06T06:40:40.223Z [INFO] Unsubscribe request: campaign=486388ed-d011-49ee-a1fa-0ecb49a1592d, subscriber=bdaa1a9f-07b4-43f1-a48d-ab91b8f0e7b0
+0|critsend | 2026-05-06 08:40:42 +02:00: 2026-05-06T06:40:42.005Z [INFO] Unsubscribe request: campaign=16d871ea-6ec4-468f-a916-f853e0e68204, subscriber=cdf75a6f-b45f-41e6-8e55-87d4ebdad442
+0|critsend | 2026-05-06 08:40:46 +02:00: 2026-05-06T06:40:46.608Z [INFO] Unsubscribe request: campaign=751554e9-30c2-4af8-b4b5-fa50ccefda79, subscriber=855fcd84-746a-4293-8119-a7b6ef14cef9
+0|critsend | 2026-05-06 08:40:50 +02:00: 2026-05-06T06:40:50.403Z [INFO] Unsubscribe request: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=b254a7fd-d45e-4761-b3b4-a17b78bb6c23
+0|critsend | 2026-05-06 08:40:50 +02:00: 2026-05-06T06:40:50.806Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=486388ed-d011-49ee-a1fa-0ecb49a1592d, subscriber=aa1a09bc-2376-427c-a508-34a197d38086
+0|critsend | 2026-05-06 08:40:55 +02:00: 2026-05-06T06:40:55.908Z [INFO] Unsubscribe request: campaign=b0985ca4-a73d-4993-bc06-7d8be51e10fc, subscriber=9f3ea30e-3ff1-43a2-994d-6ccebfb2d858
+0|critsend | 2026-05-06 08:40:57 +02:00: 2026-05-06T06:40:57.266Z [INFO] Short unsubscribe: campaign=6c51213c-f8a1-4f51-8eb1-c6cc7c183f42, subscriber=aae9d5a2-30a3-4370-ae17-92783602b662
+0|critsend | 2026-05-06 08:41:00 +02:00: 2026-05-06T06:41:00.577Z [INFO] Unsubscribe request: campaign=fdfa9d72-b20b-496b-b7ac-b229c2136769, subscriber=136bd85f-2c37-4491-9193-bf931ac7df2a
+0|critsend | 2026-05-06 08:41:05 +02:00: 2026-05-06T06:41:05.409Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=cc2d1b50-a4cd-4b3f-ae8e-5006641609d1

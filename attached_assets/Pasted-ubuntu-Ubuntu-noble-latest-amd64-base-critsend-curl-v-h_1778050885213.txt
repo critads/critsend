@@ -1,0 +1,31 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ curl -v http://localhost:5000/api/health 2>&1 | head -20
+* Host localhost:5000 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying [::1]:5000...
+* connect to ::1 port 5000 from ::1 port 42420 failed: Connection refused
+*   Trying 127.0.0.1:5000...
+* Connected to localhost (127.0.0.1) port 5000
+> GET /api/health HTTP/1.1
+> Host: localhost:5000
+> User-Agent: curl/8.5.0
+> Accept: */*
+> 
+  0     0    0     0    0     0      0      0 --:--:--  0:00:29 --:--:--     0< HTTP/1.1 408 Request Timeout
+< Content-Security-Policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+< Cross-Origin-Opener-Policy: same-origin
+< Cross-Origin-Resource-Policy: same-origin
+< Origin-Agent-Cluster: ?1
+< Referrer-Policy: no-referrer
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ ps aux | grep -E "drizzle|node" | grep -v grep
+ubuntu    142510  5.5  0.2 12023428 324112 ?     Ssl  08:50   0:35 node /home/ubuntu/critsend/dist/index.cjs
+ubuntu    142522  8.8  0.6 12603564 904352 ?     Ssl  08:50   0:54 node /home/ubuntu/critsend/dist/worker-main.cjs
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 describe critsend-web | grep -E "uptime|restart|status|pid"
+│ status            │ online                                            │
+│ restarts          │ 14                                                │
+│ uptime            │ 10m                                               │
+│ pid path          │ /home/ubuntu/.pm2/pids/critsend-web-0.pid         │
+│ unstable restarts │ 0                                                 │
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

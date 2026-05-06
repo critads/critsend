@@ -450,7 +450,7 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
  * cascaded into tracking-pool exhaustion (max=6 → 500 "Tracking error" on
  * /api/track/click) and main-pool starvation (load-shed → 503
  * "service_busy" on /campaigns). The bump now runs as a SHORT post-commit
- * UPDATE in its own tiny transaction with `lock_timeout = 2s` (see
+ * UPDATE in its own tiny transaction with `lock_timeout = 15s` (see
  * bumpCampaignCountersPostCommit). Drift between live and source-of-truth
  * is still self-healed by the 15-min counter-drift reconciler (fill-only
  * via GREATEST), so the worst-case observable effect is a brief stale read
@@ -470,7 +470,6 @@ async function insertBatchAndMarkFirsts(
   const client = await trackingPool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("SET LOCAL lock_timeout = '2s'");
     await insertBatchOnClient(client, type, events);
     await client.query("COMMIT");
   } catch (err) {
@@ -481,7 +480,7 @@ async function insertBatchAndMarkFirsts(
   let firsts = new Set<string>();
   try {
     await client.query("BEGIN");
-    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query("SET LOCAL lock_timeout = '15s'");
     firsts = await markFirstsOnClient(client, type, events);
     await client.query("COMMIT");
   } catch (err: any) {
@@ -521,7 +520,6 @@ async function insertBatchAndBumpCounters(
   let newPairsByCampaign = new Map<string, number>();
   try {
     await client.query("BEGIN");
-    await client.query("SET LOCAL lock_timeout = '2s'");
 
     // Collapse to distinct (campaign,subscriber) pairs in this batch.
     const batchPairs: Array<{ cid: string; sid: string; key: string }> = [];
@@ -608,12 +606,9 @@ async function bumpUnsubComplaintCountersPostCommit(
     values.push(cid, delta);
   }
   if (placeholders.length === 0) return;
-  // Tiny tx so SET LOCAL lock_timeout takes effect. If a sender batch is
-  // currently holding the campaigns row lock we'd rather fail fast (and
-  // let the 15-min reconciler fill the gap) than starve the tracking pool.
   await client.query("BEGIN");
   try {
-    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query("SET LOCAL lock_timeout = '15s'");
     await client.query(
       `UPDATE campaigns c
           SET ${col} = c.${col} + v.delta
@@ -634,7 +629,7 @@ async function bumpUnsubComplaintCountersPostCommit(
  * a SHORT post-commit UPDATE on the supplied client. Caller is responsible
  * for releasing the client.
  *
- * Runs in its own tiny transaction with `lock_timeout = 2s`, so the
+ * Runs in its own tiny transaction with `lock_timeout = 15s`, so the
  * campaigns row lock is only held for the duration of one UPDATE statement
  * (~milliseconds) and we can never starve the tracking pool waiting on a
  * row lock held by the campaign-sender. See the long comment on
@@ -711,11 +706,9 @@ async function bumpCampaignCountersPostCommit(
         AS v(campaign_id, total_delta, unique_delta)
      WHERE c.id = v.campaign_id
   `;
-  // Tiny tx so SET LOCAL lock_timeout takes effect. Caps blocking on a
-  // sender-held campaigns row lock at 2s — never the full statement_timeout.
   await client.query("BEGIN");
   try {
-    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query("SET LOCAL lock_timeout = '15s'");
     await client.query(sql, values);
     await client.query("COMMIT");
   } catch (err) {

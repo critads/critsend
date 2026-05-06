@@ -1,0 +1,60 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 50 --nostream --err
+[TAILING] Tailing last 50 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 50 lines:
+0|critsend | 2026-05-06 08:49:34 +02:00: 2026-05-06T06:49:34.276Z [WARN] Invalid tracking signature for unsubscribe: campaign=751554e9-30c2-4af8-b4b5-fa50ccefda79, subscriber=8f4d1195-96fa-4459-ac64-3b72afa8b2c7, sig=ec03fd14...
+0|critsend | 2026-05-06 08:49:34 +02:00: 2026-05-06T06:49:34.694Z [WARN] [TRACKING BUFFER] click batch (11 rows) failed, requeued 6 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:34 +02:00: 2026-05-06T06:49:34.694Z [ERROR] [TRACKING BUFFER] click batch: 5 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:34 +02:00: 2026-05-06T06:49:34.694Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:36 +02:00: 2026-05-06T06:49:36.879Z [WARN] Short unsubscribe token not found or invalid: RDiHcpqI,
+0|critsend | 2026-05-06 08:49:36 +02:00: 2026-05-06T06:49:36.888Z [WARN] [TRACKING BUFFER] unsubscribe batch (11 rows) failed, requeued 8 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:36 +02:00: 2026-05-06T06:49:36.888Z [ERROR] [TRACKING BUFFER] unsubscribe batch: 3 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:36 +02:00: 2026-05-06T06:49:36.888Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:39 +02:00: 2026-05-06T06:49:39.160Z [WARN] [TRACKING BUFFER] complaint batch (1 rows) failed, requeued 1 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:39 +02:00: 2026-05-06T06:49:39.160Z [ERROR] [TRACKING BUFFER] flushType(complaint) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:42 +02:00: 2026-05-06T06:49:42.534Z [WARN] [TRACKING BUFFER] open batch (406 rows) failed, requeued 257 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:42 +02:00: 2026-05-06T06:49:42.534Z [ERROR] [TRACKING BUFFER] open batch: 149 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:42 +02:00: 2026-05-06T06:49:42.534Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:44 +02:00: 2026-05-06T06:49:44.686Z [WARN] [TRACKING BUFFER] click batch (15 rows) failed, requeued 11 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:44 +02:00: 2026-05-06T06:49:44.687Z [ERROR] [TRACKING BUFFER] click batch: 4 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:44 +02:00: 2026-05-06T06:49:44.687Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:46 +02:00: 2026-05-06T06:49:46.855Z [WARN] [TRACKING BUFFER] unsubscribe batch (12 rows) failed, requeued 6 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:46 +02:00: 2026-05-06T06:49:46.855Z [ERROR] [TRACKING BUFFER] unsubscribe batch: 6 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:46 +02:00: 2026-05-06T06:49:46.855Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:48 +02:00: 2026-05-06T06:49:48.157Z [WARN] Short unsubscribe token not found or invalid: 5BgHsK6h,
+0|critsend | 2026-05-06 08:49:49 +02:00: 2026-05-06T06:49:49.009Z [ERROR] [TRACKING BUFFER] complaint batch: 1 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:49 +02:00: 2026-05-06T06:49:49.009Z [ERROR] [TRACKING BUFFER] flushType(complaint) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:52 +02:00: 2026-05-06T06:49:52.433Z [WARN] [TRACKING BUFFER] open batch (384 rows) failed, requeued 259 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:52 +02:00: 2026-05-06T06:49:52.433Z [ERROR] [TRACKING BUFFER] open batch: 125 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:52 +02:00: 2026-05-06T06:49:52.433Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:54 +02:00: 2026-05-06T06:49:54.671Z [WARN] [TRACKING BUFFER] click batch (56 rows) failed, requeued 54 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:54 +02:00: 2026-05-06T06:49:54.672Z [ERROR] [TRACKING BUFFER] click batch: 2 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:54 +02:00: 2026-05-06T06:49:54.672Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:56 +02:00: 2026-05-06T06:49:56.848Z [WARN] [TRACKING BUFFER] unsubscribe batch (7 rows) failed, requeued 6 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:49:56 +02:00: 2026-05-06T06:49:56.848Z [ERROR] [TRACKING BUFFER] unsubscribe batch: 1 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:49:56 +02:00: 2026-05-06T06:49:56.848Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:02 +02:00: 2026-05-06T06:50:02.328Z [WARN] [TRACKING BUFFER] open batch (375 rows) failed, requeued 244 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:02 +02:00: 2026-05-06T06:50:02.328Z [ERROR] [TRACKING BUFFER] open batch: 131 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:50:02 +02:00: 2026-05-06T06:50:02.328Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:04 +02:00: 2026-05-06T06:50:04.561Z [WARN] [TRACKING BUFFER] click batch (58 rows) failed, requeued 49 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:04 +02:00: 2026-05-06T06:50:04.562Z [ERROR] [TRACKING BUFFER] click batch: 9 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:50:04 +02:00: 2026-05-06T06:50:04.562Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:06 +02:00: 2026-05-06T06:50:06.735Z [WARN] [TRACKING BUFFER] unsubscribe batch (9 rows) failed, requeued 5 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:06 +02:00: 2026-05-06T06:50:06.735Z [ERROR] [TRACKING BUFFER] unsubscribe batch: 4 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:50:06 +02:00: 2026-05-06T06:50:06.735Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:12 +02:00: 2026-05-06T06:50:12.477Z [WARN] [TRACKING BUFFER] open batch (416 rows) failed, requeued 290 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:12 +02:00: 2026-05-06T06:50:12.477Z [ERROR] [TRACKING BUFFER] open batch: 126 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:50:12 +02:00: 2026-05-06T06:50:12.477Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:14 +02:00: 2026-05-06T06:50:14.703Z [WARN] [TRACKING BUFFER] click batch (78 rows) failed, requeued 33 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:14 +02:00: 2026-05-06T06:50:14.704Z [ERROR] [TRACKING BUFFER] click batch: 45 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:50:14 +02:00: 2026-05-06T06:50:14.704Z [ERROR] [TRACKING BUFFER] flushType(click) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:16 +02:00: 2026-05-06T06:50:16.868Z [WARN] [TRACKING BUFFER] unsubscribe batch (7 rows) failed, requeued 6 for retry: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:16 +02:00: 2026-05-06T06:50:16.869Z [ERROR] [TRACKING BUFFER] unsubscribe batch: 1 events permanently dropped after 3 retries
+0|critsend | 2026-05-06 08:50:16 +02:00: 2026-05-06T06:50:16.869Z [ERROR] [TRACKING BUFFER] flushType(unsubscribe) outer error: canceling statement due to lock timeout
+0|critsend | 2026-05-06 08:50:28 +02:00: 2026-05-06T06:50:28.495Z [ERROR] Graceful shutdown timed out, forcing exit
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 list
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 14   │ online    │ 0%       │ 231.7mb  │
+│ 1  │ critsend-worker    │ fork     │ 14   │ online    │ 0%       │ 87.3mb   │
