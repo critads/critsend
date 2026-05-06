@@ -8,6 +8,9 @@ import { trackingPool, isTrackingPoolHealthy } from "../tracking-pool";
 import { MAIN_POOL_MAX, TRACKING_POOL_MAX } from "../connection-budget";
 import { register } from "../metrics";
 import { logger } from "../logger";
+import { spawn } from "child_process";
+import fs from "fs";
+import path from "path";
 
 type WorkerHealthFlags = ReturnType<typeof getWorkerHealth>;
 type WorkerHealthReport = WorkerHealthFlags & {
@@ -391,5 +394,87 @@ export function registerHealthRoutes(app: Express) {
       logger.error("[SYSTEM_METRICS] Failed to serialize metrics", { error: String(error) });
       res.status(500).json({ error: "Failed to fetch system metrics" });
     }
+  });
+
+  const DEPLOY_LOG = "/tmp/critsend-deploy.log";
+  const DEPLOY_STATUS = "/tmp/critsend-deploy-status.json";
+
+  function readDeployStatus(): { status: string; startedAt?: string; finishedAt?: string; log?: string } {
+    try {
+      const raw = fs.readFileSync(DEPLOY_STATUS, "utf8");
+      const status = JSON.parse(raw);
+      try {
+        status.log = fs.readFileSync(DEPLOY_LOG, "utf8");
+      } catch { status.log = ""; }
+      return status;
+    } catch {
+      return { status: "idle", log: "" };
+    }
+  }
+
+  const DEPLOY_STALE_MS = 10 * 60 * 1000;
+
+  app.post("/api/admin/deploy", async (req: Request, res: Response) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const current = readDeployStatus();
+    if (current.status === "running") {
+      const elapsed = current.startedAt ? Date.now() - new Date(current.startedAt).getTime() : 0;
+      if (elapsed < DEPLOY_STALE_MS) {
+        return res.status(409).json({ error: "A deploy is already in progress" });
+      }
+      logger.warn("[DEPLOY] Stale deploy detected, allowing new deploy");
+    }
+
+    const repoRoot = process.env.CRITSEND_REPO_ROOT || "/home/ubuntu/critsend";
+    const deployScript = path.join(repoRoot, "deploy", "deploy.sh");
+
+    if (!fs.existsSync(deployScript)) {
+      return res.status(404).json({ error: "Deploy script not found at " + deployScript });
+    }
+
+    const startedAt = new Date().toISOString();
+    fs.writeFileSync(DEPLOY_STATUS, JSON.stringify({ status: "running", startedAt }));
+    fs.writeFileSync(DEPLOY_LOG, "");
+
+    logger.info("[DEPLOY] Deploy triggered via admin UI", { userId: req.session.userId });
+
+    const wrapperScript = `
+      exec > "${DEPLOY_LOG}" 2>&1
+      bash "${deployScript}"
+      EXIT_CODE=$?
+      FINISHED=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+      if [ $EXIT_CODE -eq 0 ]; then
+        echo '{"status":"success","startedAt":"${startedAt}","finishedAt":"'$FINISHED'","exitCode":0}' > "${DEPLOY_STATUS}"
+      else
+        echo '{"status":"failed","startedAt":"${startedAt}","finishedAt":"'$FINISHED'","exitCode":'$EXIT_CODE'}' > "${DEPLOY_STATUS}"
+      fi
+    `;
+
+    const child = spawn("bash", ["-c", wrapperScript], {
+      cwd: repoRoot,
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, HOME: process.env.HOME || "/home/ubuntu" },
+    });
+
+    child.unref();
+
+    res.json({ message: "Deploy started", startedAt });
+  });
+
+  app.get("/api/admin/deploy/status", async (req: Request, res: Response) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const result = readDeployStatus();
+    const offset = parseInt(req.query.logOffset as string) || 0;
+    if (result.log && offset > 0) {
+      result.log = result.log.substring(offset);
+    }
+    (result as any).logLength = offset + (result.log?.length || 0);
+    res.json(result);
   });
 }

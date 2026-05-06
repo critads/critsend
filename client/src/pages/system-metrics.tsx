@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,11 @@ import {
   Clock,
   XCircle,
   TrendingUp,
+  Rocket,
+  Loader2,
 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface LabeledValue {
   labels: Record<string, string>;
@@ -184,6 +188,130 @@ function MetricCard({ title, value, subtitle, icon: Icon, status }: {
   );
 }
 
+function DeployCard() {
+  const { toast } = useToast();
+  const [confirming, setConfirming] = useState(false);
+  const [polling, setPolling] = useState(false);
+  const logEndRef = useRef<HTMLPreElement>(null);
+
+  const { data: deployStatus, refetch: refetchStatus } = useQuery<{
+    status: string;
+    startedAt?: string;
+    finishedAt?: string;
+    log?: string;
+    exitCode?: number;
+  }>({
+    queryKey: ["/api/admin/deploy/status"],
+    refetchInterval: polling ? 2000 : false,
+  });
+
+  useEffect(() => {
+    if (deployStatus?.status === "running") {
+      setPolling(true);
+    } else if (polling && deployStatus?.status && deployStatus.status !== "running") {
+      setPolling(false);
+      if (deployStatus.status === "success") {
+        toast({ title: "Deploy complete", description: "The application has been redeployed successfully." });
+      } else if (deployStatus.status === "failed") {
+        toast({ title: "Deploy failed", description: `Exit code: ${deployStatus.exitCode ?? "unknown"}`, variant: "destructive" });
+      }
+    }
+  }, [deployStatus?.status]);
+
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
+    }
+  }, [deployStatus?.log]);
+
+  const handleDeploy = async () => {
+    setConfirming(false);
+    try {
+      await apiRequest("POST", "/api/admin/deploy");
+      setPolling(true);
+      refetchStatus();
+      toast({ title: "Deploy started", description: "Pulling latest code and rebuilding..." });
+    } catch (err: any) {
+      const msg = err?.message || "Failed to start deploy";
+      toast({ title: "Deploy error", description: msg, variant: "destructive" });
+    }
+  };
+
+  const isRunning = deployStatus?.status === "running";
+  const lastStatus = deployStatus?.status || "idle";
+
+  return (
+    <Card data-testid="card-deploy">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Rocket className="h-5 w-5 text-blue-500" />
+            <CardTitle className="text-lg">Deploy</CardTitle>
+          </div>
+          <Badge variant={
+            lastStatus === "running" ? "default" :
+            lastStatus === "success" ? "secondary" :
+            lastStatus === "failed" ? "destructive" : "outline"
+          } data-testid="badge-deploy-status">
+            {lastStatus === "idle" ? "No deploys yet" :
+             lastStatus === "running" ? "Deploying..." :
+             lastStatus === "success" ? "Last deploy succeeded" :
+             "Last deploy failed"}
+          </Badge>
+        </div>
+        <CardDescription>Pull latest code, rebuild, and reload the application</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!confirming ? (
+          <Button
+            onClick={() => setConfirming(true)}
+            disabled={isRunning}
+            className="w-full"
+            data-testid="button-deploy"
+          >
+            {isRunning ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deploying...</>
+            ) : (
+              <><Rocket className="h-4 w-4 mr-2" /> Deploy Latest Version</>
+            )}
+          </Button>
+        ) : (
+          <div className="flex flex-col gap-2 p-3 border rounded-lg bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+              This will pull the latest code, rebuild, and restart the app. The site may be briefly unavailable (~15s).
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="destructive" onClick={handleDeploy} data-testid="button-deploy-confirm">
+                Yes, deploy now
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirming(false)} data-testid="button-deploy-cancel">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {deployStatus?.log && deployStatus.log.length > 0 && (
+          <pre
+            ref={logEndRef}
+            className="mt-2 p-3 rounded-lg bg-zinc-950 text-zinc-200 text-xs font-mono max-h-64 overflow-y-auto whitespace-pre-wrap"
+            data-testid="pre-deploy-log"
+          >
+            {deployStatus.log}
+          </pre>
+        )}
+
+        {deployStatus?.startedAt && (
+          <p className="text-xs text-muted-foreground">
+            Started: {new Date(deployStatus.startedAt).toLocaleString()}
+            {deployStatus.finishedAt && ` — Finished: ${new Date(deployStatus.finishedAt).toLocaleString()}`}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SystemMetricsPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
 
@@ -290,6 +418,8 @@ export default function SystemMetricsPage() {
           </Button>
         </div>
       </div>
+
+      <DeployCard />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard

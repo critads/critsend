@@ -1,0 +1,67 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 30
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-05-06 04:56:13 +02:00: 2026-05-06T02:56:13.897Z [ERROR] [TRACKING BUFFER] insert click batch (1 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:56:16 +02:00: 2026-05-06T02:56:16.678Z [ERROR] [TRACKING BUFFER] insert click batch (1 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:56:16 +02:00: 2026-05-06T02:56:16.777Z [ERROR] [TRACKING BUFFER] insert open batch (14 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:56:19 +02:00: 2026-05-06T02:56:19.856Z [ERROR] [TRACKING BUFFER] insert open batch (18 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:56:24 +02:00: 2026-05-06T02:56:24.390Z [ERROR] [TRACKING BUFFER] insert open batch (1 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:56:33 +02:00: 2026-05-06T02:56:33.046Z [ERROR] [TRACKING BUFFER] insert open batch (4 rows) failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 04:56:36 +02:00: 2026-05-06T02:56:36.730Z [WARN] [TRACKING QUERIES] resolveTrackingToken(8yVtqEyT) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 04:56:36 +02:00: 2026-05-06T02:56:36.942Z [WARN] [TRACKING QUERIES] resolveTrackingToken(GhFFCsFR) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 04:56:39 +02:00: 2026-05-06T02:56:39.045Z [ERROR] [TRACKING BUFFER] insert open batch (17 rows) failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 04:56:41 +02:00: 2026-05-06T02:56:41.730Z [WARN] Short click /c/8yVtqEyT: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 04:56:41 +02:00: 2026-05-06T02:56:41.942Z [WARN] Short click /c/GhFFCsFR: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 04:56:45 +02:00: 2026-05-06T02:56:45.045Z [ERROR] [TRACKING BUFFER] insert open batch (12 rows) failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 04:56:48 +02:00: 2026-05-06T02:56:48.301Z [WARN] [TRACKING QUERIES] resolveTrackingToken(8yVtqEyT) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 04:56:51 +02:00: 2026-05-06T02:56:51.046Z [ERROR] [TRACKING BUFFER] insert open batch (8 rows) failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 04:56:53 +02:00: 2026-05-06T02:56:53.303Z [WARN] Short click /c/8yVtqEyT: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 04:56:57 +02:00: 2026-05-06T02:56:57.046Z [ERROR] [TRACKING BUFFER] insert open batch (9 rows) failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 04:56:57 +02:00: 2026-05-06T02:56:57.808Z [WARN] [TRACKING QUERIES] resolveTrackingToken(SfJWFgxX) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 04:56:58 +02:00: 2026-05-06T02:56:58.621Z [WARN] [TRACKING QUERIES] resolveTrackingToken(8yVtqEyT) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 04:56:58 +02:00: 2026-05-06T02:56:58.684Z [WARN] [TRACKING QUERIES] resolveTrackingToken(8yVtqEyT) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 04:57:03 +02:00: 2026-05-06T02:57:03.129Z [ERROR] [TRACKING BUFFER] insert complaint batch (1 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:03 +02:00: 2026-05-06T02:57:03.669Z [ERROR] [TRACKING BUFFER] insert open batch (26 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:06 +02:00: 2026-05-06T02:57:06.202Z [ERROR] [TRACKING BUFFER] insert click batch (2 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:06 +02:00: 2026-05-06T02:57:06.573Z [ERROR] [TRACKING BUFFER] insert open batch (44 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:09 +02:00: 2026-05-06T02:57:09.200Z [ERROR] [TRACKING BUFFER] insert open batch (2 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:25 +02:00: 2026-05-06T02:57:25.698Z [ERROR] [TRACKING BUFFER] insert open batch (4 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:28 +02:00: 2026-05-06T02:57:28.698Z [ERROR] [TRACKING BUFFER] insert open batch (6 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:34 +02:00: 2026-05-06T02:57:34.900Z [ERROR] [TRACKING BUFFER] insert open batch (1 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:37 +02:00: 2026-05-06T02:57:37.725Z [ERROR] [TRACKING BUFFER] insert open batch (11 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:58:47 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+0|critsend | 2026-05-06 04:59:04 +02:00: 2026-05-06T02:59:04.560Z [ERROR] Graceful shutdown timed out, forcing exit
+
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-05-06 04:58:48 +02:00: 2026-05-06T02:58:48.944Z [INFO] Unsubscribe request: campaign=d2370890-0adb-4ea6-ab64-d53fdb9b02ed, subscriber=fa4ab1cd-62a2-4ac0-8d1a-71b9cdd18522
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.559Z [INFO] Received SIGINT, starting graceful shutdown... {"signal":"SIGINT"}
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.560Z [INFO] [SHUTDOWN] Stopping all background workers...
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.560Z [INFO] Tag queue worker stopped
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.560Z [INFO] [SHUTDOWN] All background workers stopped
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.560Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian stopped
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.560Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian stopped
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.560Z [INFO] Background workers stopped
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.561Z [INFO] HTTP server closed - no new connections
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.561Z [INFO] [BullMQ] Workers closed
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.562Z [INFO] [BullMQ] Queues closed
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.622Z [INFO] NotifyQueue shut down
+0|critsend | 2026-05-06 04:58:49 +02:00: 2026-05-06T02:58:49.651Z [INFO] [Redis] Connections closed
+0|critsend | 2026-05-06 04:58:54 +02:00: 2026-05-06T02:58:54.559Z [INFO] Destroying remaining keep-alive connections
+0|critsend | 2026-05-06 04:59:04 +02:00: 2026-05-06T02:59:04.910Z [INFO] Database SSL enabled for external connection (Neon)
+0|critsend | 2026-05-06 04:59:04 +02:00: 2026-05-06T02:59:04.911Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.107Z [INFO] [TRACKING POOL] configured: max=30, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.127Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.261Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.264Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":130071,"nodeVersion":"v20.20.2","gcExposed":true}
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.376Z [INFO] [Redis/bullmq] Connected
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.380Z [INFO] [Redis/main] Connected
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.564Z [INFO] [TRACKING] Another process is running bootstrap — skipping
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.564Z [INFO] [tracking_tokens] Another process is running bootstrap — skipping
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.700Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.715Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 20 | Tracking pool: 30 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.715Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=30, import=6 via pooler, excluded]
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.746Z [INFO] [ANALYTICS_BOOTSTRAP] Another process is running bootstrap — skipping
+0|critsend | 2026-05-06 04:59:05 +02:00: 2026-05-06T02:59:05.974Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-06 04:59:06 +02:00: 2026-05-06T02:59:06.222Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+
+

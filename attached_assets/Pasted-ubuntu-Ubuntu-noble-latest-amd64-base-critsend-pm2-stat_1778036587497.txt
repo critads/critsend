@@ -1,0 +1,36 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status
+pm2 logs critsend-web --lines 10
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 8    │ online    │ 0%       │ 282.5mb  │
+│ 1  │ critsend-worker    │ fork     │ 8    │ online    │ 0%       │ 86.0mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 10 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 10 lines:
+0|critsend | 2026-05-06 04:57:03 +02:00: 2026-05-06T02:57:03.669Z [ERROR] [TRACKING BUFFER] insert open batch (26 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:06 +02:00: 2026-05-06T02:57:06.202Z [ERROR] [TRACKING BUFFER] insert click batch (2 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:06 +02:00: 2026-05-06T02:57:06.573Z [ERROR] [TRACKING BUFFER] insert open batch (44 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:09 +02:00: 2026-05-06T02:57:09.200Z [ERROR] [TRACKING BUFFER] insert open batch (2 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:25 +02:00: 2026-05-06T02:57:25.698Z [ERROR] [TRACKING BUFFER] insert open batch (4 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:28 +02:00: 2026-05-06T02:57:28.698Z [ERROR] [TRACKING BUFFER] insert open batch (6 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:34 +02:00: 2026-05-06T02:57:34.900Z [ERROR] [TRACKING BUFFER] insert open batch (1 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:57:37 +02:00: 2026-05-06T02:57:37.725Z [ERROR] [TRACKING BUFFER] insert open batch (11 rows) failed: canceling statement due to lock timeout
+0|critsend | 2026-05-06 04:58:47 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+0|critsend | 2026-05-06 04:59:04 +02:00: 2026-05-06T02:59:04.560Z [ERROR] Graceful shutdown timed out, forcing exit
+
+/var/log/critsend/web-out.log last 10 lines:
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.808Z [INFO] [BOUNCE BUFFER] flusher started: interval=1500ms, maxQueue=25000, maxBatch=2000, dedupeWindow=60000ms
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.808Z [INFO] [COUNTER RECONCILER] started: interval=900000ms, window=24h
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.810Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.811Z [INFO] [SSE] Redis progress bridge started
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.813Z [INFO] [ANALYTICS] Cache invalidation subscriber started
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.814Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.814Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian started (polls every 30 s for stale pending jobs)
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.814Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian started (polls every 60 s for stuck campaigns)
+0|critsend | 2026-05-06 05:02:49 +02:00: 2026-05-06T03:02:49.933Z [INFO] [Redis/sse-subscriber] Connected
+0|critsend | 2026-05-06 05:02:50 +02:00: 2026-05-06T03:02:50.184Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+
+0|critsend-web  | 2026-05-06 05:02:57 +02:00: 2026-05-06T03:02:57.083Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+0|critsend-web  | 2026-05-06 05:02:57 +02:00: 2026-05-06T03:02:57.302Z [INFO] Short unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=b1ee9afe-f50e-4a30-8c00-35427c64aa5b
+

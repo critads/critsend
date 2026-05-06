@@ -1,0 +1,57 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload deploy/ecosystem.config.cjs --env production
+remote: Enumerating objects: 18, done.
+remote: Counting objects: 100% (18/18), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 12 (delta 9), reused 12 (delta 9), pack-reused 0 (from 0)
+Unpacking objects: 100% (12/12), 314.59 KiB | 2.56 MiB/s, done.
+From https://github.com/critads/critsend
+   902d6da..8d97c19  main       -> origin/main
+Updating 902d6da..8d97c19
+Fast-forward
+ .replit                                            |   2 +-
+ ...-amd64-base-critsend-1-Recove_1777984349934.txt |  89 +++++++++++++++++++++
+ ...shot_2026-05-06_at_6.49.04_AM_1778035747477.png | Bin 0 -> 357953 bytes
+ server/repositories/campaign-repository.ts         |   7 ++
+ 4 files changed, 97 insertions(+), 1 deletion(-)
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-1-Recove_1777984349934.txt
+ create mode 100644 attached_assets/Screenshot_2026-05-06_at_6.49.04_AM_1778035747477.png
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2497 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-D1DPO-E_.css     88.36 kB │ gzip:  14.32 kB
+../dist/public/assets/index-BE8DShLI.js   1,283.59 kB │ gzip: 340.17 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.74s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 109ms
+building import worker...
+
+  dist/import-worker.cjs  198.1kb
+
+⚡ Done in 40ms
+building background worker...
+
+  dist/worker-main.cjs  937.2kb
+
+⚡ Done in 65ms
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
