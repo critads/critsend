@@ -16,7 +16,7 @@
  * check then handles cross-batch idempotency just like the synchronous
  * path used to.
  */
-import { trackingPool } from "./tracking-pool";
+import { flushPool } from "./tracking-pool";
 import { logger } from "./logger";
 import {
   bounceBufferEnqueued,
@@ -150,7 +150,7 @@ async function flush(): Promise<void> {
 
     // Resolve subscribers in one query
     const emails = [...new Set(events.map((e) => e.email))];
-    const subscribers = await trackingPool.query(
+    const subscribers = await flushPool.query(
       `SELECT id, email, tags FROM subscribers WHERE email = ANY($1::text[])`,
       [emails],
     );
@@ -225,7 +225,7 @@ async function flush(): Promise<void> {
  */
 async function bulkAddTagsViaTrackingPool(subscriberIds: string[], tags: string[]): Promise<void> {
   if (subscriberIds.length === 0 || tags.length === 0) return;
-  await trackingPool.query(
+  await flushPool.query(
     `UPDATE subscribers
         SET tags = (
           SELECT ARRAY(SELECT DISTINCT unnest(COALESCE(tags, '{}'::text[]) || $2::text[]))
@@ -252,7 +252,7 @@ async function bulkInsertErrorLogs(rows: Array<{ email: string; subscriberId: st
       r.details,
     );
   }
-  await trackingPool.query(
+  await flushPool.query(
     `INSERT INTO error_logs (type, severity, message, email, subscriber_id, campaign_id, details, "timestamp")
      VALUES ${placeholders.join(", ")}`,
     values,

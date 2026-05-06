@@ -588,7 +588,7 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     });
   });
 
-  await pool.query(`
+  pool.query(`
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default",
       "sess" json NOT NULL,
@@ -598,141 +598,11 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   `).catch((err) => {
     logger.warn(`[SESSION] CREATE TABLE failed (likely already exists): ${err?.message || err}`);
   });
-  await pool.query(`CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");`)
+  pool.query(`CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");`)
     .catch(() => {});
-
-  const { runImportBootstrapMigrations } = await import("./routes/import-export");
-  runImportBootstrapMigrations().catch((err) => {
-    logger.error(`[BOOTSTRAP] Import bootstrap failed (non-fatal): ${err?.message || err}`);
-  });
-
-  const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
-  runAnalyticsBootstrapMigrations();
 
   await registerRoutes(httpServer, app);
 
-  validateConnectionBudget();
-
-  const { probeTrackingPool } = await import("./tracking-pool");
-  const { probeImportPool } = await import("./import-pool");
-  await probeTrackingPool();
-  probeImportPool();
-
-  const { warmTokenCache, warmLinkCache } = await import("./tracking-queries");
-  await Promise.all([warmTokenCache(), warmLinkCache()]);
-
-  const { startTrackingBufferFlusher } = await import("./tracking-buffer");
-  startTrackingBufferFlusher();
-
-  // In-memory bounce buffer + batched flusher. Bounce webhooks (Mailgun/SES
-  // retries) can spike to hundreds/sec; the buffer keeps that traffic off
-  // the main pool by sharing the dedicated tracking pool.
-  const { startBounceBufferFlusher } = await import("./bounce-buffer");
-  startBounceBufferFlusher();
-
-  // Periodic counter-drift reconciler. Source-of-truth tables are
-  // campaign_sends + campaign_stats; derived counter columns are kept in
-  // sync incrementally by the live send/track paths. If a write is ever
-  // dropped (process restart, pool error), this worker fills the gap and
-  // surfaces the rate of drift via a Prometheus metric.
-  const { startCounterReconciler } = await import("./workers/counter-reconciler");
-  startCounterReconciler();
-
-  initQueues();
-
-  // Subscribe to worker-process progress events and forward them to SSE clients.
-  // A dedicated subscriber connection is required because Redis subscriptions block
-  // the connection for all other commands.
-  if (isRedisConfigured) {
-    redisSubscriber = createRedisConnection("sse-subscriber");
-    if (redisSubscriber) {
-      startRedisProgressBridge(redisSubscriber);
-      logger.info("[SSE] Redis progress bridge started");
-      // Cross-process analytics cache invalidation. The worker process
-      // publishes when a campaign job finishes / rollup completes; this
-      // subscription drops the cached values in the web process so the
-      // next analytics read recomputes from the database. Re-uses the
-      // SSE subscriber connection (subscriptions multiplex on one socket).
-      try {
-        const { startAnalyticsInvalidationSubscriber } = await import("./repositories/analytics-ops");
-        startAnalyticsInvalidationSubscriber(redisSubscriber);
-        logger.info("[ANALYTICS] Cache invalidation subscriber started");
-      } catch (err) {
-        logger.warn(`[ANALYTICS] Failed to start invalidation subscriber: ${(err as Error).message}`);
-      }
-    }
-  } else {
-    logger.info("[SSE] Redis not configured — progress events via in-process EventEmitter (monolith mode)");
-  }
-
-  startMetricsCollector();
-  messageQueue.initialize().catch(err => logger.error('Message queue init failed', { error: String(err) }));
-
-  // Monolith mode: when PROCESS_TYPE is not explicitly 'web' (i.e. the deployed
-  // production environment running a single process), start all background workers
-  // here so that campaign sends, imports, flushes, and tag operations continue to work.
-  // In split-process mode (dev-launcher), PROCESS_TYPE=web and the dedicated
-  // worker process (worker-main.ts) handles all of this instead.
-  // DISABLE_WORKERS=true can be set to prevent this instance from running workers
-  // (e.g. a Replit-published app sharing a DB with a self-hosted PM2 deployment,
-  // where uploaded files only exist on the PM2 server's filesystem).
-  if (process.env.PROCESS_TYPE !== 'web' && process.env.DISABLE_WORKERS !== 'true') {
-    logger.info("[MONOLITH] PROCESS_TYPE is not 'web' — starting background workers in-process");
-    await startAllWorkers();
-    startBullMQWorkers();
-
-    // In split-process production this scheduler lives in worker-main.ts; in
-    // monolith mode the web process IS the worker, so schedule it here too
-    // (gated by the same DISABLE_WORKERS check) — otherwise the rollup never
-    // refreshes and analytics queries that depend on analytics_daily would
-    // gradually go stale.
-    const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 30_000);
-    logger.info(`[MONOLITH] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
-    setTimeout(async () => {
-      try {
-        const { runAnalyticsRollupSmart, runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
-        runEngagementBackfillOnce().catch((err) =>
-          logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
-        );
-        runAnalyticsRollupSmart().catch((err) =>
-          logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
-        );
-        setInterval(() => {
-          runAnalyticsRollup(7).catch((err) =>
-            logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
-          );
-        }, 15 * 60 * 1000).unref();
-      } catch (err) {
-        logger.error("[MONOLITH] Deferred analytics startup failed", { error: String(err) });
-      }
-    }, STARTUP_DELAY_MS);
-  } else if (process.env.DISABLE_WORKERS === 'true') {
-    logger.info("[MONOLITH] DISABLE_WORKERS=true — background workers disabled on this instance");
-  }
-
-  // Always start the import guardian in the web process (PROCESS_TYPE=web or DISABLE_WORKERS=true).
-  // It polls every 30 s for pending import jobs that have been waiting > 60 s without a worker
-  // claiming them. SKIP LOCKED makes it safe even when the dedicated worker IS alive.
-  if (process.env.PROCESS_TYPE === 'web' || process.env.DISABLE_WORKERS === 'true') {
-    startImportGuardian();
-    startCampaignGuardian();
-
-    // When a Requeue NOTIFY arrives, run a guardian poll after 10 s.
-    // This allows the real worker a short window to claim first; if it doesn't,
-    // the guardian takes over — so requeue always triggers processing within ~10 s.
-    messageQueue.onMessage('import_jobs', () => {
-      logger.info('[IMPORT_GUARDIAN] import_jobs NOTIFY received — scheduling fallback poll in 10 s');
-      setTimeout(() => {
-        triggerGuardianPoll().catch((err: any) =>
-          logger.error('[IMPORT_GUARDIAN] Fallback poll error:', err?.message)
-        );
-      }, 10000);
-    });
-  }
-
-  // Translate `pg` pool checkout timeouts into 503 + Retry-After:1 instead
-  // of letting them bubble into the generic 500 handler. Must run before
-  // the generic handler below.
   app.use(poolErrorHandler);
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
@@ -758,7 +628,6 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     }
   });
 
-  // Second pool error listener — db.ts has the first (logger only); this one persists to DB.
   pool.on('error', (err: Error) => {
     tryLogSystemError('DB pool error on idle client', { error: err.message });
   });
@@ -771,5 +640,102 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   }
 
   startupComplete = true;
-  log(`startup complete — all routes registered, caches warmed`);
+  log(`serving on port ${port} — routes and static files ready`);
+
+  // ── Background initialization (non-blocking) ─────────────────────────
+  // Everything below runs AFTER the server is fully serving requests.
+
+  validateConnectionBudget();
+
+  const { probeTrackingPool } = await import("./tracking-pool");
+  const { probeImportPool } = await import("./import-pool");
+  probeTrackingPool().catch(() => {});
+  probeImportPool();
+
+  const { warmTokenCache, warmLinkCache } = await import("./tracking-queries");
+  Promise.all([warmTokenCache(), warmLinkCache()]).catch((err) => {
+    logger.warn(`[CACHE WARM] Failed (non-fatal): ${err?.message || err}`);
+  });
+
+  const { runImportBootstrapMigrations } = await import("./routes/import-export");
+  runImportBootstrapMigrations().catch((err) => {
+    logger.error(`[BOOTSTRAP] Import bootstrap failed (non-fatal): ${err?.message || err}`);
+  });
+
+  const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
+  runAnalyticsBootstrapMigrations();
+
+  const { startTrackingBufferFlusher } = await import("./tracking-buffer");
+  startTrackingBufferFlusher();
+
+  const { startBounceBufferFlusher } = await import("./bounce-buffer");
+  startBounceBufferFlusher();
+
+  const { startCounterReconciler } = await import("./workers/counter-reconciler");
+  startCounterReconciler();
+
+  initQueues();
+
+  if (isRedisConfigured) {
+    redisSubscriber = createRedisConnection("sse-subscriber");
+    if (redisSubscriber) {
+      startRedisProgressBridge(redisSubscriber);
+      logger.info("[SSE] Redis progress bridge started");
+      try {
+        const { startAnalyticsInvalidationSubscriber } = await import("./repositories/analytics-ops");
+        startAnalyticsInvalidationSubscriber(redisSubscriber);
+        logger.info("[ANALYTICS] Cache invalidation subscriber started");
+      } catch (err) {
+        logger.warn(`[ANALYTICS] Failed to start invalidation subscriber: ${(err as Error).message}`);
+      }
+    }
+  } else {
+    logger.info("[SSE] Redis not configured — progress events via in-process EventEmitter (monolith mode)");
+  }
+
+  startMetricsCollector();
+  messageQueue.initialize().catch(err => logger.error('Message queue init failed', { error: String(err) }));
+
+  if (process.env.PROCESS_TYPE !== 'web' && process.env.DISABLE_WORKERS !== 'true') {
+    logger.info("[MONOLITH] PROCESS_TYPE is not 'web' — starting background workers in-process");
+    await startAllWorkers();
+    startBullMQWorkers();
+
+    const STARTUP_DELAY_MS = Number(process.env.WORKER_STARTUP_DELAY_MS || 30_000);
+    logger.info(`[MONOLITH] Deferring analytics rollup/backfill by ${STARTUP_DELAY_MS}ms to avoid startup storm`);
+    setTimeout(async () => {
+      try {
+        const { runAnalyticsRollupSmart, runAnalyticsRollup, runEngagementBackfillOnce } = await import("./repositories/analytics-ops");
+        runEngagementBackfillOnce().catch((err) =>
+          logger.error("[ANALYTICS_BACKFILL] Engagement backfill failed", { error: String(err) })
+        );
+        runAnalyticsRollupSmart().catch((err) =>
+          logger.error("[ANALYTICS_ROLLUP] Initial smart rollup failed", { error: String(err) })
+        );
+        setInterval(() => {
+          runAnalyticsRollup(7).catch((err) =>
+            logger.error("[ANALYTICS_ROLLUP] Scheduled run failed", { error: String(err) })
+          );
+        }, 15 * 60 * 1000).unref();
+      } catch (err) {
+        logger.error("[MONOLITH] Deferred analytics startup failed", { error: String(err) });
+      }
+    }, STARTUP_DELAY_MS);
+  } else if (process.env.DISABLE_WORKERS === 'true') {
+    logger.info("[MONOLITH] DISABLE_WORKERS=true — background workers disabled on this instance");
+  }
+
+  if (process.env.PROCESS_TYPE === 'web' || process.env.DISABLE_WORKERS === 'true') {
+    startImportGuardian();
+    startCampaignGuardian();
+
+    messageQueue.onMessage('import_jobs', () => {
+      logger.info('[IMPORT_GUARDIAN] import_jobs NOTIFY received — scheduling fallback poll in 10 s');
+      setTimeout(() => {
+        triggerGuardianPoll().catch((err: any) =>
+          logger.error('[IMPORT_GUARDIAN] Fallback poll error:', err?.message)
+        );
+      }, 10000);
+    });
+  }
 })();

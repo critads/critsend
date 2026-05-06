@@ -203,22 +203,38 @@ export async function getCampaignTagsViaTrackingPool(campaignId: string): Promis
 }
 
 async function _fetchCampaignTagsFromDB(campaignId: string): Promise<CampaignTags | null> {
-  const result = await trackingPool.query(
-    `SELECT open_tag, click_tag, unsubscribe_tag
-     FROM campaigns WHERE id = $1`,
-    [campaignId],
-  );
-  if (result.rows.length === 0) return null;
-  const row = result.rows[0];
-  const tags: CampaignTags = {
-    openTag: row.open_tag || null,
-    clickTag: row.click_tag || null,
-    unsubscribeTag: row.unsubscribe_tag || null,
-  };
-  campaignTagsCache.set(campaignId, tags);
-  if (campaignTagsCache.size > CAMPAIGN_TAGS_CACHE_MAX) {
-    const oldest = campaignTagsCache.keys().next().value;
-    if (oldest !== undefined) campaignTagsCache.delete(oldest);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await trackingPool.query(
+        `SELECT open_tag, click_tag, unsubscribe_tag
+         FROM campaigns WHERE id = $1`,
+        [campaignId],
+      );
+      if (result.rows.length === 0) return null;
+      const row = result.rows[0];
+      const tags: CampaignTags = {
+        openTag: row.open_tag || null,
+        clickTag: row.click_tag || null,
+        unsubscribeTag: row.unsubscribe_tag || null,
+      };
+      campaignTagsCache.set(campaignId, tags);
+      if (campaignTagsCache.size > CAMPAIGN_TAGS_CACHE_MAX) {
+        const oldest = campaignTagsCache.keys().next().value;
+        if (oldest !== undefined) campaignTagsCache.delete(oldest);
+      }
+      return tags;
+    } catch (err) {
+      lastErr = err;
+      if (!isPoolCheckoutError(err)) throw err;
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 100));
+        continue;
+      }
+    }
   }
-  return tags;
+  throw new TrackingPoolUnavailableError(
+    `Tracking pool unavailable fetching campaign tags for ${campaignId}`,
+    lastErr,
+  );
 }

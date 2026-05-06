@@ -30,9 +30,7 @@
  * recovery script.
  */
 
-import { trackingPool } from "../tracking-pool";
 import { pool as mainPool } from "../db";
-import { TRACKING_POOL_MAX } from "../connection-budget";
 import { logger } from "../logger";
 import {
   counterDriftFixedTotal,
@@ -40,7 +38,7 @@ import {
   counterDriftLastRunAt,
 } from "../metrics";
 
-const effectivePool = TRACKING_POOL_MAX > 0 ? trackingPool : mainPool;
+const effectivePool = mainPool;
 
 const RECONCILE_INTERVAL_MS = Number(process.env.COUNTER_RECONCILE_INTERVAL_MS || 15 * 60 * 1000);
 const RECONCILE_WINDOW_HOURS = Number(process.env.COUNTER_RECONCILE_WINDOW_HOURS || 24);
