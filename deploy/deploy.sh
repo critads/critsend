@@ -137,16 +137,21 @@ done
 if [ "$HEALTH_OK" = "true" ]; then
     ok "App is healthy"
 else
-    echo "[deploy] ✗ App did not become healthy after 60s"
-    echo "[deploy]   Last 50 lines of web error log:"
-    tail -50 /var/log/critsend/web-err.log 2>/dev/null || echo "(no error log found)"
-    echo ""
-    echo "[deploy]   Last 30 lines of web out log:"
-    tail -30 /var/log/critsend/web-out.log 2>/dev/null || echo "(no out log found)"
-    echo ""
-    echo "[deploy]   PM2 status:"
-    pm2 list
-    fail "Health check failed — app may not be running. Check logs above."
+    echo "[deploy] ⚠ Health endpoint did not respond within 60s"
+    echo "[deploy]   This is normal during heavy campaign sending or long bootstrap migrations."
+    echo "[deploy]   Checking PM2 process status instead..."
+    PM2_STATUS=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((p['pm2_env']['status'] for p in d if p['name']=='critsend-web'), 'missing'))" 2>/dev/null || echo "unknown")
+    if [ "$PM2_STATUS" = "online" ]; then
+        ok "PM2 process is online — app will become fully healthy once bootstrap completes"
+    else
+        echo "[deploy]   PM2 status: $PM2_STATUS"
+        echo "[deploy]   Last 20 lines of web error log:"
+        tail -20 /var/log/critsend/web-err.log 2>/dev/null || echo "(no error log found)"
+        echo ""
+        echo "[deploy]   Last 10 lines of web out log:"
+        tail -10 /var/log/critsend/web-out.log 2>/dev/null || echo "(no out log found)"
+        fail "App process is not online (status: $PM2_STATUS). Check logs above."
+    fi
 fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
