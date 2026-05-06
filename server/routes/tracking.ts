@@ -105,6 +105,7 @@ function extractTrackingContext(req: Request): TrackingContext {
 
 type CachedTags = { openTag: string | null; clickTag: string | null; unsubscribeTag: string | null };
 const campaignTagCache = new Map<string, CachedTags & { fetchedAt: number }>();
+const campaignTagInflight = new Map<string, Promise<CachedTags | null>>();
 const CAMPAIGN_CACHE_TTL = 60000;
 
 async function getCampaignTagsCached(campaignId: string): Promise<CachedTags | null> {
@@ -112,9 +113,16 @@ async function getCampaignTagsCached(campaignId: string): Promise<CachedTags | n
   if (cached && Date.now() - cached.fetchedAt < CAMPAIGN_CACHE_TTL) {
     return { openTag: cached.openTag, clickTag: cached.clickTag, unsubscribeTag: cached.unsubscribeTag };
   }
-  // IMPORTANT: cache miss must go through trackingPool, NOT the main pool —
-  // the whole point of the dedicated tracking pool is that pixel-fueled
-  // bursts cannot drain the main pool and starve user-facing requests.
+
+  const existing = campaignTagInflight.get(campaignId);
+  if (existing) return existing;
+
+  const promise = _fetchTagsCached(campaignId).finally(() => campaignTagInflight.delete(campaignId));
+  campaignTagInflight.set(campaignId, promise);
+  return promise;
+}
+
+async function _fetchTagsCached(campaignId: string): Promise<CachedTags | null> {
   const tags = await getCampaignTagsViaTrackingPool(campaignId);
   if (!tags) return null;
   const entry: CachedTags & { fetchedAt: number } = {

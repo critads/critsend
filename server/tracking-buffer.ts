@@ -180,9 +180,10 @@ export function isTrackingPoolUnavailable(err: unknown): err is TrackingPoolUnav
  * succeeds without the recipient ever noticing. When BOTH attempts fail,
  * the route returns 503 + Retry-After:1 instead of a generic 500.
  */
+const linkInflight = new Map<string, Promise<string | null>>();
+
 export async function getLinkDestinationCached(linkId: string): Promise<string | null> {
   if (linkCache.has(linkId)) {
-    // touch for LRU
     const url = linkCache.get(linkId)!;
     linkCache.delete(linkId);
     linkCache.set(linkId, url);
@@ -191,6 +192,15 @@ export async function getLinkDestinationCached(linkId: string): Promise<string |
   }
   trackingLinkCacheHits.inc({ result: "miss" });
 
+  const existing = linkInflight.get(linkId);
+  if (existing) return existing;
+
+  const promise = _fetchLinkFromDB(linkId).finally(() => linkInflight.delete(linkId));
+  linkInflight.set(linkId, promise);
+  return promise;
+}
+
+async function _fetchLinkFromDB(linkId: string): Promise<string | null> {
   const sql = `SELECT destination_url FROM campaign_links WHERE id = $1`;
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -208,7 +218,6 @@ export async function getLinkDestinationCached(linkId: string): Promise<string |
       lastErr = err;
       if (!isPoolCheckoutError(err)) throw err;
       if (attempt === 0) {
-        // Brief backoff so the in-flight flush has a chance to release a slot.
         await new Promise((r) => setTimeout(r, 100));
         logger.warn(
           `[TRACKING BUFFER] getLinkDestinationCached(${linkId}) tracking-pool checkout timeout — retrying once`,

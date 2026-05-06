@@ -31,6 +31,7 @@ const NEGATIVE_TTL_MS = 30_000;
 
 const tokenCache = new Map<string, CacheEntry>();
 const negativeTTL = new Map<string, number>();
+const tokenInflight = new Map<string, Promise<ResolvedToken | null>>();
 
 function tokenCacheEvict(): void {
   if (tokenCache.size <= TOKEN_CACHE_MAX) return;
@@ -64,6 +65,15 @@ export async function resolveTrackingTokenViaTrackingPool(token: string): Promis
   }
   trackingTokenCacheTotal.inc({ result: "miss" });
 
+  const existing = tokenInflight.get(token);
+  if (existing) return existing;
+
+  const promise = _resolveTokenFromDB(token).finally(() => tokenInflight.delete(token));
+  tokenInflight.set(token, promise);
+  return promise;
+}
+
+async function _resolveTokenFromDB(token: string): Promise<ResolvedToken | null> {
   const sql = `SELECT type, campaign_id, subscriber_id, link_id
      FROM tracking_tokens WHERE token = $1`;
   let lastErr: unknown;
@@ -172,13 +182,11 @@ export async function warmLinkCache(): Promise<number> {
 }
 
 const CAMPAIGN_TAGS_CACHE_MAX = 5_000;
-const campaignTagsCache = new Map<string, { openTag: string | null; clickTag: string | null; unsubscribeTag: string | null }>();
+type CampaignTags = { openTag: string | null; clickTag: string | null; unsubscribeTag: string | null };
+const campaignTagsCache = new Map<string, CampaignTags>();
+const campaignTagsInflight = new Map<string, Promise<CampaignTags | null>>();
 
-export async function getCampaignTagsViaTrackingPool(campaignId: string): Promise<{
-  openTag: string | null;
-  clickTag: string | null;
-  unsubscribeTag: string | null;
-} | null> {
+export async function getCampaignTagsViaTrackingPool(campaignId: string): Promise<CampaignTags | null> {
   const cached = campaignTagsCache.get(campaignId);
   if (cached) {
     campaignTagsCache.delete(campaignId);
@@ -186,6 +194,15 @@ export async function getCampaignTagsViaTrackingPool(campaignId: string): Promis
     return cached;
   }
 
+  const existing = campaignTagsInflight.get(campaignId);
+  if (existing) return existing;
+
+  const promise = _fetchCampaignTagsFromDB(campaignId).finally(() => campaignTagsInflight.delete(campaignId));
+  campaignTagsInflight.set(campaignId, promise);
+  return promise;
+}
+
+async function _fetchCampaignTagsFromDB(campaignId: string): Promise<CampaignTags | null> {
   const result = await trackingPool.query(
     `SELECT open_tag, click_tag, unsubscribe_tag
      FROM campaigns WHERE id = $1`,
@@ -193,7 +210,7 @@ export async function getCampaignTagsViaTrackingPool(campaignId: string): Promis
   );
   if (result.rows.length === 0) return null;
   const row = result.rows[0];
-  const tags = {
+  const tags: CampaignTags = {
     openTag: row.open_tag || null,
     clickTag: row.click_tag || null,
     unsubscribeTag: row.unsubscribe_tag || null,

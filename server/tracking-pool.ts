@@ -8,7 +8,9 @@
  *
  * This pool is only created in the web process. The flusher in tracking-buffer.ts
  * uses it for batched INSERTs; the click route uses it for cache-miss link
- * lookups. Sized via PG_TRACKING_POOL_MAX (default 200 with pooler, 10 direct).
+ * lookups. Sized via PG_TRACKING_POOL_MAX (default 50 with pooler, 10 direct).
+ * Singleflight coalescing in tracking-queries.ts and tracking-buffer.ts
+ * ensures concurrent cache misses for the same key share one DB query.
  *
  * Connection strategy:
  *   1. NEON_TRACKING_DATABASE_URL env var (explicit override)
