@@ -1,0 +1,87 @@
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222 "export NVM_DIR=/home/ubuntu/.nvm && source \$NVM_DIR/nvm.sh && pm2 logs critsend-worker --lines 80 --nostream --err"
+ubuntu@37.27.117.222's password: 
+manpath: can't set the locale; make sure $LC_* and $LANG are correct
+[TAILING] Tailing last 80 lines for [critsend-worker] process (change the value with --lines option)
+/var/log/critsend/worker-err.log last 80 lines:
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.800Z [WARN] [JOB_POLL] Skipped duplicate job 12b3f6e3-1012-4bd5-b368-18817a24dfe6 - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.867Z [WARN] [JOB_POLL] Skipped duplicate job 047153b0-6f9f-4c71-ac89-e5f7869404e5 - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.931Z [WARN] [JOB_POLL] Skipped duplicate job d19ddda4-c87f-4e54-a01d-d22bef62d8ff - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.004Z [WARN] [JOB_POLL] Skipped duplicate job 18443990-15a5-4d29-8e01-8dc93bedd98d - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.110Z [WARN] [JOB_POLL] Skipped duplicate job 27803ad4-db7f-4f9a-a852-2e7c2477e2a2 - campaign 3f46d3c0-8c83-4bdb-b734-4e60cb6758ce already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.179Z [WARN] [JOB_POLL] Skipped duplicate job d4ab9996-5f69-4afb-aaab-10ca68da1e12 - campaign 3f46d3c0-8c83-4bdb-b734-4e60cb6758ce already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.243Z [WARN] [JOB_POLL] Skipped duplicate job 372b8f36-0c04-4916-b487-2f35c0fec524 - campaign 3f46d3c0-8c83-4bdb-b734-4e60cb6758ce already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.342Z [WARN] [JOB_POLL] Skipped duplicate job 5bab77e1-ab8f-4968-8f7d-7e3b0f37e975 - campaign 3196334d-9c1c-4592-8acd-61878e1bb033 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.448Z [WARN] [JOB_POLL] Skipped duplicate job 5cee2d1b-7b5a-4fc4-b05e-f92784664c9a - campaign 4a006693-3d0a-429d-88a0-fd4fe1227f0b already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.553Z [WARN] [JOB_POLL] Skipped duplicate job c1cd551e-7a69-435f-9386-83c95968d786 - campaign a888d9ae-fd24-49e5-94a7-f6788cec8463 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.660Z [WARN] [JOB_POLL] Skipped duplicate job 51deb2f3-d909-4697-8394-6eb946edbdd5 - campaign 486388ed-d011-49ee-a1fa-0ecb49a1592d already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.767Z [WARN] [JOB_POLL] Skipped duplicate job 158a668e-1aed-47f9-8209-bdcb42ffb377 - campaign 9bf11962-24bc-4a2a-b851-0a515466e1e4 already active
+1|critsend | 2026-05-06 10:09:01 +02:00: 2026-05-06T08:09:01.591Z [ERROR] [JOB_POLL] Error processing job e55e2a61-5d70-431c-a3e6-8c7dea59bcdc for campaign 486388ed-d011-49ee-a1fa-0ecb49a1592d:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.316Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.317Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.383Z [ERROR] [JOB_POLL] Failed to requeue after transient DB error for 486388ed-d011-49ee-a1fa-0ecb49a1592d:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.391Z [WARN] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:70a6e329] Batch 7: token generation failed, falling back to HMAC links: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.317Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.384Z [ERROR] [JOB_POLL] Failed to schedule retry for campaign 486388ed-d011-49ee-a1fa-0ecb49a1592d:
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.391Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:70a6e329] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.bP [as bulkInsertCampaignSendAttempts] (/home/ubuntu/critsend/dist/worker-main.cjs:189:201)\n    at async Ii (/home/ubuntu/critsend/dist/worker-main.cjs:630:14632)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:22415)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.392Z [WARN] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:70a6e329] Transient DB error — re-throwing for job-level requeue (sent: 2, failed: 0, processed: 60000/144009)
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.392Z [ERROR] [JOB_POLL] Error processing job 70a6e329-9263-4810-bc4c-56b05fba6754 for campaign 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:09:09 +02:00: 2026-05-06T08:09:09.385Z [ERROR] [JOB_POLL] Failed to mark job e55e2a61-5d70-431c-a3e6-8c7dea59bcdc as failed:
+1|critsend | 2026-05-06 10:09:09 +02:00: 2026-05-06T08:09:09.394Z [WARN] [JOB_POLL] getCampaign(9bc81864-4711-4d1e-84e4-ac505522b330) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:09:12 +02:00: 2026-05-06T08:09:12.717Z [ERROR] [JOB_POLL] Failed to requeue after transient DB error for 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:09:14 +02:00: 2026-05-06T08:09:14.718Z [ERROR] [JOB_POLL] Failed to schedule retry for campaign 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:09:35 +02:00: 2026-05-06T08:09:35.316Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:09:37 +02:00: 2026-05-06T08:09:37.317Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:10:05 +02:00: 2026-05-06T08:10:05.924Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:10:06 +02:00: 2026-05-06T08:10:06.168Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:11:06 +02:00: 2026-05-06T08:11:06.959Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:11:07 +02:00: 2026-05-06T08:11:07.103Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:11:35 +02:00: 2026-05-06T08:11:35.316Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:12:05 +02:00: 2026-05-06T08:12:05.316Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:12:05 +02:00: 2026-05-06T08:12:05.318Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:12:07 +02:00: 2026-05-06T08:12:07.318Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:12:49 +02:00: 2026-05-06T08:12:49.810Z [ERROR] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:ec3584a4] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.bP [as bulkInsertCampaignSendAttempts] (/home/ubuntu/critsend/dist/worker-main.cjs:189:201)\n    at async Ii (/home/ubuntu/critsend/dist/worker-main.cjs:630:14632)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:22415)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:12:49 +02:00: 2026-05-06T08:12:49.811Z [WARN] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:ec3584a4] Transient DB error — re-throwing for job-level requeue (sent: 25, failed: 0, processed: 100025/222346)
+1|critsend | 2026-05-06 10:12:49 +02:00: 2026-05-06T08:12:49.811Z [ERROR] [JOB_POLL] Error processing job ec3584a4-0891-4586-9168-a2ee71f8e4e6 for campaign a888d9ae-fd24-49e5-94a7-f6788cec8463:
+1|critsend | 2026-05-06 10:12:51 +02:00: 2026-05-06T08:12:51.812Z [WARN] [JOB_POLL] getCampaign(a888d9ae-fd24-49e5-94a7-f6788cec8463) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:12:54 +02:00: 2026-05-06T08:12:54.706Z [WARN] [JOB_POLL] Campaign a888d9ae-fd24-49e5-94a7-f6788cec8463 hit transient DB error - requeued in 30s (retry #1): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:03 +02:00: 2026-05-06T08:13:03.990Z [WARN] Pool keepalive query failed {"error":"timeout exceeded when trying to connect"}
+1|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.784Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:a14afc43] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:19 +02:00: 2026-05-06T08:13:19.785Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:a14afc43] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.B_ [as reserveSendSlot] (/home/ubuntu/critsend/dist/worker-main.cjs:90:54)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:21281)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:13:19 +02:00: 2026-05-06T08:13:19.785Z [WARN] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:a14afc43] Transient DB error — re-throwing for job-level requeue (sent: 0, failed: 0, processed: 0/144008)
+1|critsend | 2026-05-06 10:13:19 +02:00: 2026-05-06T08:13:19.785Z [ERROR] [JOB_POLL] Error processing job a14afc43-31b5-457a-a31c-3ba1ca6f420d for campaign 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:13:21 +02:00: 2026-05-06T08:13:21.786Z [WARN] [JOB_POLL] getCampaign(9bc81864-4711-4d1e-84e4-ac505522b330) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:24 +02:00: 2026-05-06T08:13:24.535Z [WARN] [JOB_POLL] Campaign 9bc81864-4711-4d1e-84e4-ac505522b330 hit transient DB error - requeued in 30s (retry #1): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:44 +02:00: 2026-05-06T08:13:44.185Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"error: deadlock detected"}
+1|critsend | 2026-05-06 10:14:05 +02:00: 2026-05-06T08:14:05.317Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:14:05 +02:00: 2026-05-06T08:14:05.318Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:14:07 +02:00: 2026-05-06T08:14:07.318Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:14:27 +02:00: 2026-05-06T08:14:27.759Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:81e36708] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:14:27 +02:00: 2026-05-06T08:14:27.879Z [ERROR] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:575fb9b1] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:26 +02:00: 2026-05-06T08:20:26.042Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:81e36708] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:26 +02:00: 2026-05-06T08:20:26.140Z [ERROR] [CAMPAIGN 9bf11962-24bc-4a2a-b851-0a515466e1e4 job:198580ad] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.bP [as bulkInsertCampaignSendAttempts] (/home/ubuntu/critsend/dist/worker-main.cjs:189:201)\n    at async Ii (/home/ubuntu/critsend/dist/worker-main.cjs:630:14632)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:22415)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:20:26 +02:00: 2026-05-06T08:20:26.141Z [WARN] [CAMPAIGN 9bf11962-24bc-4a2a-b851-0a515466e1e4 job:198580ad] Transient DB error — re-throwing for job-level requeue (sent: 1525, failed: 0, processed: 21525/187886)
+1|critsend | 2026-05-06 10:20:26 +02:00: 2026-05-06T08:20:26.141Z [ERROR] [JOB_POLL] Error processing job 198580ad-5f85-40ec-b00c-82d4eaf6da03 for campaign 9bf11962-24bc-4a2a-b851-0a515466e1e4:
+1|critsend | 2026-05-06 10:20:26 +02:00: 2026-05-06T08:20:26.209Z [ERROR] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:575fb9b1] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:28 +02:00: 2026-05-06T08:20:28.043Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:81e36708] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.B_ [as reserveSendSlot] (/home/ubuntu/critsend/dist/worker-main.cjs:90:54)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:21281)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:20:28 +02:00: 2026-05-06T08:20:28.043Z [WARN] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:81e36708] Transient DB error — re-throwing for job-level requeue (sent: 0, failed: 0, processed: 10000/144006)
+1|critsend | 2026-05-06 10:20:28 +02:00: 2026-05-06T08:20:28.043Z [ERROR] [JOB_POLL] Error processing job 81e36708-ee4a-4ccb-84e0-d168a0e0b0a8 for campaign 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:20:28 +02:00: 2026-05-06T08:20:28.143Z [WARN] [JOB_POLL] getCampaign(9bf11962-24bc-4a2a-b851-0a515466e1e4) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:28 +02:00: 2026-05-06T08:20:28.209Z [ERROR] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:575fb9b1] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.B_ [as reserveSendSlot] (/home/ubuntu/critsend/dist/worker-main.cjs:90:54)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:21281)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:20:28 +02:00: 2026-05-06T08:20:28.210Z [WARN] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:575fb9b1] Transient DB error — re-throwing for job-level requeue (sent: 0, failed: 0, processed: 10000/222346)
+1|critsend | 2026-05-06 10:20:28 +02:00: 2026-05-06T08:20:28.210Z [ERROR] [JOB_POLL] Error processing job 575fb9b1-167d-47c7-a30e-75eb2244e35c for campaign a888d9ae-fd24-49e5-94a7-f6788cec8463:
+1|critsend | 2026-05-06 10:20:30 +02:00: 2026-05-06T08:20:30.044Z [WARN] [JOB_POLL] getCampaign(9bc81864-4711-4d1e-84e4-ac505522b330) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:30 +02:00: 2026-05-06T08:20:30.210Z [WARN] [JOB_POLL] getCampaign(a888d9ae-fd24-49e5-94a7-f6788cec8463) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:31 +02:00: 2026-05-06T08:20:31.145Z [WARN] [JOB_POLL] getCampaign(9bf11962-24bc-4a2a-b851-0a515466e1e4) failed (attempt 2/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:33 +02:00: 2026-05-06T08:20:33.044Z [WARN] [JOB_POLL] getCampaign(9bc81864-4711-4d1e-84e4-ac505522b330) failed (attempt 2/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:33 +02:00: 2026-05-06T08:20:33.212Z [WARN] [JOB_POLL] getCampaign(a888d9ae-fd24-49e5-94a7-f6788cec8463) failed (attempt 2/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:35 +02:00: 2026-05-06T08:20:35.146Z [WARN] [JOB_POLL] getCampaign(9bf11962-24bc-4a2a-b851-0a515466e1e4) failed (attempt 3/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:35 +02:00: 2026-05-06T08:20:35.146Z [WARN] [JOB_POLL] Cannot fetch campaign 9bf11962-24bc-4a2a-b851-0a515466e1e4 — DB likely down. Requeuing job in 60s (retry #1). Original error: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:35 +02:00: 2026-05-06T08:20:35.324Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:20:37 +02:00: 2026-05-06T08:20:37.702Z [WARN] [JOB_POLL] Campaign 9bc81864-4711-4d1e-84e4-ac505522b330 hit transient DB error - requeued in 60s (retry #2): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:20:37 +02:00: 2026-05-06T08:20:37.739Z [WARN] [JOB_POLL] Campaign a888d9ae-fd24-49e5-94a7-f6788cec8463 hit transient DB error - requeued in 60s (retry #2): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:21:03 +02:00: 2026-05-06T08:21:03.990Z [WARN] Pool keepalive query failed {"error":"timeout exceeded when trying to connect"}
+1|critsend | 2026-05-06 10:21:05 +02:00: 2026-05-06T08:21:05.323Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:21:05 +02:00: 2026-05-06T08:21:05.325Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:21:07 +02:00: 2026-05-06T08:21:07.327Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+
+ianisbaulleret@Ianiss-MacBook-Pro ~ % 

@@ -1,0 +1,232 @@
+ssh ubuntu@37.27.117.222 "export NVM_DIR=/home/ubuntu/.nvm && source \$NVM_DIR/nvm.sh && echo '=== PM2 STATUS ===' && pm2 list && echo '=== MEMORY ===' && free -h && echo '=== TOP PROCESSES ===' && ps aux --sort=-%mem | head -20"
+ubuntu@37.27.117.222's password: 
+manpath: can't set the locale; make sure $LC_* and $LANG are correct
+=== PM2 STATUS ===
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ default     │ 1.0.0   │ fork    │ 147738   │ 16m    │ 20   │ online    │ 0%       │ 286.5mb  │ ubuntu   │ disabled │
+│ 1  │ critsend-worker    │ default     │ 1.0.0   │ fork    │ 147754   │ 16m    │ 20   │ online    │ 0%       │ 793.9mb  │ ubuntu   │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           125Gi       4.9Gi       115Gi        44Mi       6.6Gi       120Gi
+Swap:          4.0Gi          0B       4.0Gi
+=== TOP PROCESSES ===
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+ubuntu    147754 11.7  0.6 12528156 820344 ?     Ssl  10:01   1:57 node /home/ubuntu/critsend/dist/worker-main.cjs
+ubuntu    147738  6.0  0.2 12022548 324692 ?     Ssl  10:00   1:00 node /home/ubuntu/critsend/dist/index.cjs
+ubuntu     21390  0.1  0.0 1239276 78664 ?       Ssl  Apr29  10:15 PM2 v6.0.14: God Daemon (/home/ubuntu/.pm2)
+www-data   22181  0.0  0.0  37252 33500 ?        S    Apr29   4:34 nginx: worker process
+root       67326  0.0  0.0  74972 29828 ?        S<s  May02   1:41 /usr/lib/systemd/systemd-journald
+www-data   22213  0.0  0.0  31408 27764 ?        S    Apr29   4:15 nginx: worker process
+root       17201  0.0  0.0 223544 27288 ?        SLsl Apr29   0:46 /sbin/multipathd -d -s
+www-data   22172  0.0  0.0  30404 26664 ?        S    Apr29   4:24 nginx: worker process
+www-data   22246  0.0  0.0  30232 26548 ?        S    Apr29   5:00 nginx: worker process
+www-data   22219  0.0  0.0  29392 25736 ?        S    Apr29   5:28 nginx: worker process
+www-data   22210  0.0  0.0  29376 25632 ?        S    Apr29   4:37 nginx: worker process
+www-data   22189  0.0  0.0  29224 25532 ?        S    Apr29   4:26 nginx: worker process
+www-data   22191  0.0  0.0  29108 25356 ?        S    Apr29   4:39 nginx: worker process
+www-data   22232  0.0  0.0  28804 25160 ?        S    Apr29   4:35 nginx: worker process
+www-data   22250  0.0  0.0  28860 25128 ?        S    Apr29   4:19 nginx: worker process
+www-data   22182  0.0  0.0  28624 24960 ?        S    Apr29   4:56 nginx: worker process
+www-data   22215  0.0  0.0  28624 24960 ?        S    Apr29   4:27 nginx: worker process
+www-data   22231  0.0  0.0  28608 24900 ?        S    Apr29   5:13 nginx: worker process
+www-data   22205  0.0  0.0  28548 24872 ?        S    Apr29   4:16 nginx: worker process
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222 "export NVM_DIR=/home/ubuntu/.nvm && source \$NVM_DIR/nvm.sh && pm2 logs critsend-web --lines 80 --nostream --err"
+ubuntu@37.27.117.222's password: 
+manpath: can't set the locale; make sure $LC_* and $LANG are correct
+[TAILING] Tailing last 80 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 80 lines:
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.843Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:06:13 +02:00: 2026-05-06T08:06:13.844Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+0|critsend | 2026-05-06 10:07:16 +02:00: 2026-05-06T08:07:16.373Z [WARN] Invalid tracking signature for unsubscribe: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=1a8f28ca-34ea-4f5a-a2ff-e257df75996d, sig=525f3b4a...
+0|critsend | 2026-05-06 10:07:19 +02:00: 2026-05-06T08:07:19.364Z [WARN] Invalid tracking signature for unsubscribe: campaign=b396b199-7394-496e-b849-967a790e204a, subscriber=1a8f28ca-34ea-4f5a-a2ff-e257df75996d, sig=153319e6...
+0|critsend | 2026-05-06 10:07:27 +02:00: 2026-05-06T08:07:27.635Z [WARN] Short unsubscribe token not found or invalid: DAUmzjQS,
+0|critsend | 2026-05-06 10:07:30 +02:00: 2026-05-06T08:07:30.717Z [WARN] Invalid tracking signature for unsubscribe: campaign=c141a080-6674-466f-9ff2-f08155baea77, subscriber=1a8f28ca-34ea-4f5a-a2ff-e257df75996d, sig=fb535145...
+0|critsend | 2026-05-06 10:07:41 +02:00: 2026-05-06T08:07:41.327Z [WARN] Short unsubscribe token not found or invalid: kMDiBSes,
+0|critsend | 2026-05-06 10:08:27 +02:00: 2026-05-06T08:08:27.217Z [WARN] Short unsubscribe token not found or invalid: 7XyAVdhn,
+0|critsend | 2026-05-06 10:09:25 +02:00: 2026-05-06T08:09:25.854Z [WARN] Short unsubscribe token not found or invalid: ht46ImS0,
+0|critsend | 2026-05-06 10:10:06 +02:00: 2026-05-06T08:10:06.661Z [WARN] Invalid tracking signature for unsubscribe: campaign=c141a080-6674-466f-9ff2-f08155baea77, subscriber=0e84e2d3-225b-4d65-81a9-23e54a93e74e, sig=e8283b98...
+0|critsend | 2026-05-06 10:10:40 +02:00: 2026-05-06T08:10:40.158Z [WARN] Invalid tracking signature for unsubscribe: campaign=751554e9-30c2-4af8-b4b5-fa50ccefda79, subscriber=3655f3c5-f338-4c11-8ced-8145be438a2c, sig=67a464d8...
+0|critsend | 2026-05-06 10:10:40 +02:00: 2026-05-06T08:10:40.213Z [WARN] Invalid tracking signature for unsubscribe: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=3655f3c5-f338-4c11-8ced-8145be438a2c, sig=e04ec771...
+0|critsend | 2026-05-06 10:11:07 +02:00: 2026-05-06T08:11:07.359Z [WARN] Invalid tracking signature for unsubscribe: campaign=b396b199-7394-496e-b849-967a790e204a, subscriber=519da7d8-26b8-41e1-854a-7c519fa37cf5, sig=ba8cba97...
+0|critsend | 2026-05-06 10:11:48 +02:00: 2026-05-06T08:11:48.779Z [WARN] Short unsubscribe token not found or invalid: 1KbLJFK7,
+0|critsend | 2026-05-06 10:12:03 +02:00: 2026-05-06T08:12:03.483Z [WARN] [POOL SAFETY] Load-shedding HEAD /api/tr=: pool active=30/30, waiting=18 (for 0ms), saturation=1.00 (reason=saturation)
+0|critsend | 2026-05-06 10:12:24 +02:00: 2026-05-06T08:12:24.679Z [WARN] Short unsubscribe token not found or invalid: btrrAnPr,
+0|critsend | 2026-05-06 10:12:42 +02:00: 2026-05-06T08:12:42.756Z [WARN] Short unsubscribe token not found or invalid: U9tnhU8q,
+0|critsend | 2026-05-06 10:12:55 +02:00: 2026-05-06T08:12:55.061Z [WARN] Short unsubscribe token not found or invalid: 6o3UysBL,
+0|critsend | 2026-05-06 10:13:16 +02:00: 2026-05-06T08:13:16.880Z [WARN] Short click token not found or invalid: MQ5=
+0|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.085Z [WARN] Short click token not found or invalid: Glk=
+0|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.450Z [WARN] Short click token not found or invalid: 9Q0=
+0|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.515Z [WARN] Short click token not found or invalid: MQ5=
+0|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.639Z [WARN] Short click token not found or invalid: 8=
+0|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.787Z [WARN] Short click token not found or invalid: Glk=
+0|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.892Z [WARN] Short click token not found or invalid: l7G=
+0|critsend | 2026-05-06 10:13:18 +02:00: 2026-05-06T08:13:18.005Z [WARN] Short click token not found or invalid: 9Q0=
+0|critsend | 2026-05-06 10:13:18 +02:00: 2026-05-06T08:13:18.371Z [WARN] Short click token not found or invalid: 8=
+0|critsend | 2026-05-06 10:13:18 +02:00: 2026-05-06T08:13:18.526Z [WARN] Short click token not found or invalid: l7G=
+0|critsend | 2026-05-06 10:13:53 +02:00: 2026-05-06T08:13:53.842Z [WARN] Short click token not found or invalid: =
+0|critsend | 2026-05-06 10:13:53 +02:00: 2026-05-06T08:13:53.899Z [WARN] Short click token not found or invalid: JSN=
+0|critsend | 2026-05-06 10:13:54 +02:00: 2026-05-06T08:13:54.478Z [WARN] Short click token not found or invalid: =
+0|critsend | 2026-05-06 10:13:54 +02:00: 2026-05-06T08:13:54.639Z [WARN] Short click token not found or invalid: JSN=
+0|critsend | 2026-05-06 10:14:31 +02:00: 2026-05-06T08:14:31.357Z [WARN] Short unsubscribe token not found or invalid: 8looC0pJ,
+0|critsend | 2026-05-06 10:14:36 +02:00: 2026-05-06T08:14:36.813Z [WARN] Invalid tracking signature for unsubscribe: campaign=41703b31-d956-4458-8969-3c6304356750, subscriber=8787bab0-d681-4c4c-a354-e0456552bd6f, sig=14bcb986...
+0|critsend | 2026-05-06 10:14:45 +02:00: 2026-05-06T08:14:45.543Z [WARN] Short click token not found or invalid: H=
+0|critsend | 2026-05-06 10:14:45 +02:00: 2026-05-06T08:14:45.657Z [WARN] Short click token not found or invalid: 7nB=
+0|critsend | 2026-05-06 10:14:45 +02:00: 2026-05-06T08:14:45.820Z [WARN] Short click token not found or invalid: OJu=
+0|critsend | 2026-05-06 10:14:46 +02:00: 2026-05-06T08:14:46.102Z [WARN] Short click token not found or invalid: H=
+0|critsend | 2026-05-06 10:14:46 +02:00: 2026-05-06T08:14:46.281Z [WARN] Short click token not found or invalid: 7nB=
+0|critsend | 2026-05-06 10:14:46 +02:00: 2026-05-06T08:14:46.449Z [WARN] Short click token not found or invalid: OJu=
+0|critsend | 2026-05-06 10:14:50 +02:00: 2026-05-06T08:14:50.857Z [WARN] Invalid tracking signature for unsubscribe: campaign=450b72d9-7800-49b7-b3b0-025f8e828c86, subscriber=6577c837-a957-464e-9ae5-9439471760d5, sig=a4914d14...
+0|critsend | 2026-05-06 10:15:07 +02:00: 2026-05-06T08:15:07.886Z [WARN] Invalid tracking signature for unsubscribe: campaign=e0602f0e-3403-461e-8638-1fc08934b46c, subscriber=8787bab0-d681-4c4c-a354-e0456552bd6f, sig=02573178...
+0|critsend | 2026-05-06 10:15:15 +02:00: 2026-05-06T08:15:15.902Z [WARN] Short unsubscribe token not found or invalid: iAs7bdhT,
+0|critsend | 2026-05-06 10:16:32 +02:00: 2026-05-06T08:16:32.361Z [WARN] Short click token not found or invalid: tYXx=
+0|critsend | 2026-05-06 10:16:32 +02:00: 2026-05-06T08:16:32.480Z [WARN] Short click token not found or invalid: KZOy=
+0|critsend | 2026-05-06 10:16:32 +02:00: 2026-05-06T08:16:32.586Z [WARN] Short click token not found or invalid: yCk=
+0|critsend | 2026-05-06 10:16:32 +02:00: 2026-05-06T08:16:32.684Z [WARN] Short click token not found or invalid: VoS=
+0|critsend | 2026-05-06 10:16:32 +02:00: 2026-05-06T08:16:32.993Z [WARN] Short click token not found or invalid: tYXx=
+0|critsend | 2026-05-06 10:16:33 +02:00: 2026-05-06T08:16:33.285Z [WARN] Short click token not found or invalid: yCk=
+0|critsend | 2026-05-06 10:16:33 +02:00: 2026-05-06T08:16:33.384Z [WARN] Short click token not found or invalid: VoS=
+0|critsend | 2026-05-06 10:16:40 +02:00: 2026-05-06T08:16:40.794Z [WARN] Short unsubscribe token not found or invalid: DM8QBg6g,
+0|critsend | 2026-05-06 10:16:55 +02:00: 2026-05-06T08:16:55.455Z [WARN] Short unsubscribe token not found or invalid: Wlue4zcv,
+0|critsend | 2026-05-06 10:16:55 +02:00: 2026-05-06T08:16:55.739Z [WARN] Short unsubscribe token not found or invalid: OKhYqrrL,
+0|critsend | 2026-05-06 10:17:08 +02:00: 2026-05-06T08:17:08.579Z [WARN] Short click token not found or invalid: KZOy=
+0|critsend | 2026-05-06 10:17:43 +02:00: 2026-05-06T08:17:43.214Z [WARN] Short unsubscribe token not found or invalid: DM8QBg6g,
+0|critsend | 2026-05-06 10:17:49 +02:00: 2026-05-06T08:17:49.020Z [WARN] Short unsubscribe token not found or invalid: 3gd8IYyj,
+0|critsend | 2026-05-06 10:17:55 +02:00: 2026-05-06T08:17:55.181Z [WARN] Short unsubscribe token not found or invalid: u44YSXu9,
+0|critsend | 2026-05-06 10:18:38 +02:00: 2026-05-06T08:18:38.969Z [WARN] Invalid tracking signature for unsubscribe: campaign=450b72d9-7800-49b7-b3b0-025f8e828c86, subscriber=f17f2398-4207-42e6-9153-f41fb143302c, sig=c88367b6...
+
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222 "export NVM_DIR=/home/ubuntu/.nvm && source \$NVM_DIR/nvm.sh && pm2 logs critsend-worker --lines 80 --nostream --err"
+ubuntu@37.27.117.222's password: 
+manpath: can't set the locale; make sure $LC_* and $LANG are correct
+[TAILING] Tailing last 80 lines for [critsend-worker] process (change the value with --lines option)
+/var/log/critsend/worker-err.log last 80 lines:
+1|critsend | 2026-05-06 09:58:42 +02:00: 2026-05-06T07:58:42.772Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 09:58:42 +02:00: 2026-05-06T07:58:42.777Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 09:58:44 +02:00: 2026-05-06T07:58:44.778Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:00:42 +02:00: 2026-05-06T08:00:42.772Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:00:56 +02:00: 2026-05-06T08:00:56.662Z [WARN] [WORKER] Drain timed out after 25s — proceeding with shutdown {"stillActiveCampaigns":["3196334d-9c1c-4592-8acd-61878e1bb033","3f46d3c0-8c83-4bdb-b734-4e60cb6758ce","4a006693-3d0a-429d-88a0-fd4fe1227f0b","653ef77f-2ff1-4dd6-925c-7da73deed817","9bc81864-4711-4d1e-84e4-ac505522b330"],"importJobActive":false,"flushJobActive":false}
+1|critsend | 2026-05-06 10:01:01 +02:00: 2026-05-06T08:01:01.645Z [ERROR] [WORKER] Graceful shutdown timed out, forcing exit
+1|critsend | 2026-05-06 10:01:02 +02:00: 2026-05-06T08:01:02.195Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=25, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:02:28 +02:00: 2026-05-06T08:02:28.369Z [WARN] [JOB_POLL] Startup: marked 1755 stale 'attempting' campaign_sends as 'failed' (process crash during send)
+1|critsend | 2026-05-06 10:05:03 +02:00: 2026-05-06T08:05:03.990Z [WARN] Pool keepalive query failed {"error":"timeout exceeded when trying to connect"}
+1|critsend | 2026-05-06 10:05:04 +02:00: 2026-05-06T08:05:04.879Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:05:04 +02:00: 2026-05-06T08:05:04.881Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:05:06 +02:00: 2026-05-06T08:05:06.882Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:05:52 +02:00: 2026-05-06T08:05:52.799Z [WARN] [JOB_POLL] Skipped duplicate job af6938ad-4322-4d95-bae8-8fe49797c86c - campaign 653ef77f-2ff1-4dd6-925c-7da73deed817 already active
+1|critsend | 2026-05-06 10:05:52 +02:00: 2026-05-06T08:05:52.864Z [WARN] [JOB_POLL] Skipped duplicate job 4fc10b83-bbe4-4a00-ac39-e7019ecf7cd7 - campaign 653ef77f-2ff1-4dd6-925c-7da73deed817 already active
+1|critsend | 2026-05-06 10:05:52 +02:00: 2026-05-06T08:05:52.927Z [WARN] [JOB_POLL] Skipped duplicate job befbde96-6b80-44ac-8209-f3ae2f0e7b63 - campaign 653ef77f-2ff1-4dd6-925c-7da73deed817 already active
+1|critsend | 2026-05-06 10:05:52 +02:00: 2026-05-06T08:05:52.993Z [WARN] [JOB_POLL] Skipped duplicate job 597df386-e581-4b72-8db9-90d215782910 - campaign 653ef77f-2ff1-4dd6-925c-7da73deed817 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.092Z [WARN] [JOB_POLL] Skipped duplicate job 46acc517-809c-4488-9905-9b3475b7ad2c - campaign 618280c4-f077-447c-ac46-f6512f360010 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.163Z [WARN] [JOB_POLL] Skipped duplicate job 74fdf301-01a8-4284-a4a0-9d22fe68ae31 - campaign 618280c4-f077-447c-ac46-f6512f360010 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.229Z [WARN] [JOB_POLL] Skipped duplicate job 99d92dcc-a823-485c-80c1-c112bfec133e - campaign 618280c4-f077-447c-ac46-f6512f360010 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.294Z [WARN] [JOB_POLL] Skipped duplicate job 7a1e3f7a-3b82-42a9-8af0-189727d4c7a3 - campaign 618280c4-f077-447c-ac46-f6512f360010 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.360Z [WARN] [JOB_POLL] Skipped duplicate job 8d3976e9-b4b3-4f9e-a08f-2e5595062db2 - campaign 618280c4-f077-447c-ac46-f6512f360010 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.428Z [WARN] [JOB_POLL] Skipped duplicate job 8d452b62-764f-4aac-98f1-70e65c4c0a30 - campaign 618280c4-f077-447c-ac46-f6512f360010 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.504Z [WARN] [JOB_POLL] Skipped duplicate job 4cba5a9c-dd89-4261-8dda-32d33592d275 - campaign 618280c4-f077-447c-ac46-f6512f360010 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.603Z [WARN] [JOB_POLL] Skipped duplicate job 72f71e89-5ad8-4914-a3d6-2fcec27ae260 - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.668Z [WARN] [JOB_POLL] Skipped duplicate job 175a7693-3a9f-4d5c-8e96-585def6c6133 - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.734Z [WARN] [JOB_POLL] Skipped duplicate job 73b5c282-6d63-46ca-8a84-b622f168d522 - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.800Z [WARN] [JOB_POLL] Skipped duplicate job 12b3f6e3-1012-4bd5-b368-18817a24dfe6 - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.867Z [WARN] [JOB_POLL] Skipped duplicate job 047153b0-6f9f-4c71-ac89-e5f7869404e5 - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:53 +02:00: 2026-05-06T08:05:53.931Z [WARN] [JOB_POLL] Skipped duplicate job d19ddda4-c87f-4e54-a01d-d22bef62d8ff - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.004Z [WARN] [JOB_POLL] Skipped duplicate job 18443990-15a5-4d29-8e01-8dc93bedd98d - campaign 9bc81864-4711-4d1e-84e4-ac505522b330 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.110Z [WARN] [JOB_POLL] Skipped duplicate job 27803ad4-db7f-4f9a-a852-2e7c2477e2a2 - campaign 3f46d3c0-8c83-4bdb-b734-4e60cb6758ce already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.179Z [WARN] [JOB_POLL] Skipped duplicate job d4ab9996-5f69-4afb-aaab-10ca68da1e12 - campaign 3f46d3c0-8c83-4bdb-b734-4e60cb6758ce already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.243Z [WARN] [JOB_POLL] Skipped duplicate job 372b8f36-0c04-4916-b487-2f35c0fec524 - campaign 3f46d3c0-8c83-4bdb-b734-4e60cb6758ce already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.342Z [WARN] [JOB_POLL] Skipped duplicate job 5bab77e1-ab8f-4968-8f7d-7e3b0f37e975 - campaign 3196334d-9c1c-4592-8acd-61878e1bb033 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.448Z [WARN] [JOB_POLL] Skipped duplicate job 5cee2d1b-7b5a-4fc4-b05e-f92784664c9a - campaign 4a006693-3d0a-429d-88a0-fd4fe1227f0b already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.553Z [WARN] [JOB_POLL] Skipped duplicate job c1cd551e-7a69-435f-9386-83c95968d786 - campaign a888d9ae-fd24-49e5-94a7-f6788cec8463 already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.660Z [WARN] [JOB_POLL] Skipped duplicate job 51deb2f3-d909-4697-8394-6eb946edbdd5 - campaign 486388ed-d011-49ee-a1fa-0ecb49a1592d already active
+1|critsend | 2026-05-06 10:05:54 +02:00: 2026-05-06T08:05:54.767Z [WARN] [JOB_POLL] Skipped duplicate job 158a668e-1aed-47f9-8209-bdcb42ffb377 - campaign 9bf11962-24bc-4a2a-b851-0a515466e1e4 already active
+1|critsend | 2026-05-06 10:09:01 +02:00: 2026-05-06T08:09:01.591Z [ERROR] [JOB_POLL] Error processing job e55e2a61-5d70-431c-a3e6-8c7dea59bcdc for campaign 486388ed-d011-49ee-a1fa-0ecb49a1592d:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.316Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.317Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.383Z [ERROR] [JOB_POLL] Failed to requeue after transient DB error for 486388ed-d011-49ee-a1fa-0ecb49a1592d:
+1|critsend | 2026-05-06 10:09:05 +02:00: 2026-05-06T08:09:05.391Z [WARN] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:70a6e329] Batch 7: token generation failed, falling back to HMAC links: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.317Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.384Z [ERROR] [JOB_POLL] Failed to schedule retry for campaign 486388ed-d011-49ee-a1fa-0ecb49a1592d:
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.391Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:70a6e329] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.bP [as bulkInsertCampaignSendAttempts] (/home/ubuntu/critsend/dist/worker-main.cjs:189:201)\n    at async Ii (/home/ubuntu/critsend/dist/worker-main.cjs:630:14632)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:22415)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.392Z [WARN] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:70a6e329] Transient DB error — re-throwing for job-level requeue (sent: 2, failed: 0, processed: 60000/144009)
+1|critsend | 2026-05-06 10:09:07 +02:00: 2026-05-06T08:09:07.392Z [ERROR] [JOB_POLL] Error processing job 70a6e329-9263-4810-bc4c-56b05fba6754 for campaign 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:09:09 +02:00: 2026-05-06T08:09:09.385Z [ERROR] [JOB_POLL] Failed to mark job e55e2a61-5d70-431c-a3e6-8c7dea59bcdc as failed:
+1|critsend | 2026-05-06 10:09:09 +02:00: 2026-05-06T08:09:09.394Z [WARN] [JOB_POLL] getCampaign(9bc81864-4711-4d1e-84e4-ac505522b330) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:09:12 +02:00: 2026-05-06T08:09:12.717Z [ERROR] [JOB_POLL] Failed to requeue after transient DB error for 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:09:14 +02:00: 2026-05-06T08:09:14.718Z [ERROR] [JOB_POLL] Failed to schedule retry for campaign 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:09:35 +02:00: 2026-05-06T08:09:35.316Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:09:37 +02:00: 2026-05-06T08:09:37.317Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:10:05 +02:00: 2026-05-06T08:10:05.924Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:10:06 +02:00: 2026-05-06T08:10:06.168Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:11:06 +02:00: 2026-05-06T08:11:06.959Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:11:07 +02:00: 2026-05-06T08:11:07.103Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:11:35 +02:00: 2026-05-06T08:11:35.316Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:12:05 +02:00: 2026-05-06T08:12:05.316Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:12:05 +02:00: 2026-05-06T08:12:05.318Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:12:07 +02:00: 2026-05-06T08:12:07.318Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:12:49 +02:00: 2026-05-06T08:12:49.810Z [ERROR] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:ec3584a4] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.bP [as bulkInsertCampaignSendAttempts] (/home/ubuntu/critsend/dist/worker-main.cjs:189:201)\n    at async Ii (/home/ubuntu/critsend/dist/worker-main.cjs:630:14632)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:22415)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:12:49 +02:00: 2026-05-06T08:12:49.811Z [WARN] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:ec3584a4] Transient DB error — re-throwing for job-level requeue (sent: 25, failed: 0, processed: 100025/222346)
+1|critsend | 2026-05-06 10:12:49 +02:00: 2026-05-06T08:12:49.811Z [ERROR] [JOB_POLL] Error processing job ec3584a4-0891-4586-9168-a2ee71f8e4e6 for campaign a888d9ae-fd24-49e5-94a7-f6788cec8463:
+1|critsend | 2026-05-06 10:12:51 +02:00: 2026-05-06T08:12:51.812Z [WARN] [JOB_POLL] getCampaign(a888d9ae-fd24-49e5-94a7-f6788cec8463) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:12:54 +02:00: 2026-05-06T08:12:54.706Z [WARN] [JOB_POLL] Campaign a888d9ae-fd24-49e5-94a7-f6788cec8463 hit transient DB error - requeued in 30s (retry #1): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:03 +02:00: 2026-05-06T08:13:03.990Z [WARN] Pool keepalive query failed {"error":"timeout exceeded when trying to connect"}
+1|critsend | 2026-05-06 10:13:17 +02:00: 2026-05-06T08:13:17.784Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:a14afc43] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:19 +02:00: 2026-05-06T08:13:19.785Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:a14afc43] Fatal error in send loop: timeout exceeded when trying to connect {"stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at async Object.B_ [as reserveSendSlot] (/home/ubuntu/critsend/dist/worker-main.cjs:90:54)\n    at async oE (/home/ubuntu/critsend/dist/worker-main.cjs:630:21281)\n    at async $j (/home/ubuntu/critsend/dist/worker-main.cjs:824:11377)"}
+1|critsend | 2026-05-06 10:13:19 +02:00: 2026-05-06T08:13:19.785Z [WARN] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:a14afc43] Transient DB error — re-throwing for job-level requeue (sent: 0, failed: 0, processed: 0/144008)
+1|critsend | 2026-05-06 10:13:19 +02:00: 2026-05-06T08:13:19.785Z [ERROR] [JOB_POLL] Error processing job a14afc43-31b5-457a-a31c-3ba1ca6f420d for campaign 9bc81864-4711-4d1e-84e4-ac505522b330:
+1|critsend | 2026-05-06 10:13:21 +02:00: 2026-05-06T08:13:21.786Z [WARN] [JOB_POLL] getCampaign(9bc81864-4711-4d1e-84e4-ac505522b330) failed (attempt 1/3): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:24 +02:00: 2026-05-06T08:13:24.535Z [WARN] [JOB_POLL] Campaign 9bc81864-4711-4d1e-84e4-ac505522b330 hit transient DB error - requeued in 30s (retry #1): timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:13:44 +02:00: 2026-05-06T08:13:44.185Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"error: deadlock detected"}
+1|critsend | 2026-05-06 10:14:05 +02:00: 2026-05-06T08:14:05.317Z [ERROR] [RECOVERY] Error resuming interrupted campaigns:
+1|critsend | 2026-05-06 10:14:05 +02:00: 2026-05-06T08:14:05.318Z [ERROR] Error checking MTA recovery:
+1|critsend | 2026-05-06 10:14:07 +02:00: 2026-05-06T08:14:07.318Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery:
+1|critsend | 2026-05-06 10:14:27 +02:00: 2026-05-06T08:14:27.759Z [ERROR] [CAMPAIGN 9bc81864-4711-4d1e-84e4-ac505522b330 job:81e36708] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+1|critsend | 2026-05-06 10:14:27 +02:00: 2026-05-06T08:14:27.879Z [ERROR] [CAMPAIGN a888d9ae-fd24-49e5-94a7-f6788cec8463 job:575fb9b1] Bulk reserve failed, falling back: timeout exceeded when trying to connect
+
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222 "export NVM_DIR=/home/ubuntu/.nvm && source \$NVM_DIR/nvm.sh && node -e \"const{Pool}=require('pg');const p=new Pool({connectionString:process.env.DATABASE_URL||require('fs').readFileSync('/home/ubuntu/critsend/.env','utf8').match(/DATABASE_URL=(.+)/)[1],ssl:{rejectUnauthorized:false}});p.query(\\\"UPDATE campaigns SET status='paused' WHERE status='sending'\\\").then(r=>{console.log('Paused',r.rowCount,'campaigns');return p.query(\\\"SELECT id,name,status FROM campaigns WHERE status IN ('sending','paused') ORDER BY id DESC LIMIT 10\\\")}).then(r=>{console.table(r.rows);p.end()}).catch(e=>{console.error(e);p.end()})\""
+ubuntu@37.27.117.222's password: 
+manpath: can't set the locale; make sure $LC_* and $LANG are correct
+node:internal/modules/cjs/loader:1210
+  throw err;
+  ^
+
+Error: Cannot find module 'pg'
+Require stack:
+- /home/ubuntu/[eval]
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1207:15)
+    at Module._load (node:internal/modules/cjs/loader:1038:27)
+    at Module.require (node:internal/modules/cjs/loader:1289:19)
+    at require (node:internal/modules/helpers:182:18)
+    at [eval]:1:13
+    at runScriptInThisContext (node:internal/vm:209:10)
+    at node:internal/process/execution:118:14
+    at [eval]-wrapper:6:24
+    at runScript (node:internal/process/execution:101:62)
+    at evalScript (node:internal/process/execution:133:3) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/home/ubuntu/[eval]' ]
+}
+
+Node.js v20.20.2

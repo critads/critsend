@@ -99,7 +99,7 @@ trackingPool.on("connect", (client) => {
   client.query("SET lock_timeout = '0'").catch(() => {});
 });
 
-const FLUSH_POOL_MAX = Number(process.env.PG_FLUSH_POOL_MAX || 3);
+const FLUSH_POOL_MAX = Number(process.env.PG_FLUSH_POOL_MAX || 8);
 
 const flushPoolConfig: pg.PoolConfig = {
   connectionString,

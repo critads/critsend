@@ -572,9 +572,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 let startupComplete = false;
 
 app.get("/api/health/startup", (_req: Request, res: Response) => {
-  const status = startupComplete ? "ready" : "starting";
-  res.status(startupComplete ? 200 : 503).json({
-    status,
+  res.json({
+    status: startupComplete ? "ready" : "starting",
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });

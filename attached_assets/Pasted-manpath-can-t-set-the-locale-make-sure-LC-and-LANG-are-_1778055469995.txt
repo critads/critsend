@@ -1,0 +1,33 @@
+manpath: can't set the locale; make sure $LC_* and $LANG are correct
+=== PM2 STATUS ===
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ default     │ 1.0.0   │ fork    │ 147738   │ 16m    │ 20   │ online    │ 0%       │ 286.5mb  │ ubuntu   │ disabled │
+│ 1  │ critsend-worker    │ default     │ 1.0.0   │ fork    │ 147754   │ 16m    │ 20   │ online    │ 0%       │ 793.9mb  │ ubuntu   │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           125Gi       4.9Gi       115Gi        44Mi       6.6Gi       120Gi
+Swap:          4.0Gi          0B       4.0Gi
+=== TOP PROCESSES ===
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+ubuntu    147754 11.7  0.6 12528156 820344 ?     Ssl  10:01   1:57 node /home/ubuntu/critsend/dist/worker-main.cjs
+ubuntu    147738  6.0  0.2 12022548 324692 ?     Ssl  10:00   1:00 node /home/ubuntu/critsend/dist/index.cjs
+ubuntu     21390  0.1  0.0 1239276 78664 ?       Ssl  Apr29  10:15 PM2 v6.0.14: God Daemon (/home/ubuntu/.pm2)
+www-data   22181  0.0  0.0  37252 33500 ?        S    Apr29   4:34 nginx: worker process
+root       67326  0.0  0.0  74972 29828 ?        S<s  May02   1:41 /usr/lib/systemd/systemd-journald
+www-data   22213  0.0  0.0  31408 27764 ?        S    Apr29   4:15 nginx: worker process
+root       17201  0.0  0.0 223544 27288 ?        SLsl Apr29   0:46 /sbin/multipathd -d -s
+www-data   22172  0.0  0.0  30404 26664 ?        S    Apr29   4:24 nginx: worker process
+www-data   22246  0.0  0.0  30232 26548 ?        S    Apr29   5:00 nginx: worker process
+www-data   22219  0.0  0.0  29392 25736 ?        S    Apr29   5:28 nginx: worker process
+www-data   22210  0.0  0.0  29376 25632 ?        S    Apr29   4:37 nginx: worker process
+www-data   22189  0.0  0.0  29224 25532 ?        S    Apr29   4:26 nginx: worker process
+www-data   22191  0.0  0.0  29108 25356 ?        S    Apr29   4:39 nginx: worker process
+www-data   22232  0.0  0.0  28804 25160 ?        S    Apr29   4:35 nginx: worker process
+www-data   22250  0.0  0.0  28860 25128 ?        S    Apr29   4:19 nginx: worker process
+www-data   22182  0.0  0.0  28624 24960 ?        S    Apr29   4:56 nginx: worker process
+www-data   22215  0.0  0.0  28624 24960 ?        S    Apr29   4:27 nginx: worker process
+www-data   22231  0.0  0.0  28608 24900 ?        S    Apr29   5:13 nginx: worker process
+www-data   22205  0.0  0.0  28548 24872 ?        S    Apr29   4:16 nginx: worker process
