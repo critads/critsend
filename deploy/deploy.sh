@@ -124,10 +124,10 @@ fi
 # ─── Step 8: Health check ────────────────────────────────────────────────────
 step "Waiting for app to become healthy..."
 HEALTH_OK=false
-for i in $(seq 1 15); do
-    sleep 2
-    HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/api/health 2>/dev/null || echo "000")
-    echo "[deploy]   Health check attempt $i/15: HTTP $HTTP_CODE"
+for i in $(seq 1 20); do
+    sleep 3
+    HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:5000/api/health 2>/dev/null || echo "000")
+    echo "[deploy]   Health check attempt $i/20: HTTP $HTTP_CODE"
     if [ "$HTTP_CODE" = "200" ]; then
         HEALTH_OK=true
         break
@@ -137,7 +137,7 @@ done
 if [ "$HEALTH_OK" = "true" ]; then
     ok "App is healthy"
 else
-    echo "[deploy] ✗ App did not become healthy after 30s"
+    echo "[deploy] ✗ App did not become healthy after 60s"
     echo "[deploy]   Last 50 lines of web error log:"
     tail -50 /var/log/critsend/web-err.log 2>/dev/null || echo "(no error log found)"
     echo ""

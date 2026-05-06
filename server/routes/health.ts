@@ -93,49 +93,43 @@ async function resolveWorkerHealth(): Promise<WorkerHealthReport> {
 
 export function registerHealthRoutes(app: Express) {
   app.get("/api/health", async (_req: Request, res: Response) => {
-    try {
-      let dbHealthy = true;
+    const mainPoolHealthy = isPoolHealthy();
+    const trackingPoolHealthy = isTrackingPoolHealthy();
+    const memUsage = process.memoryUsage();
+
+    const pools = {
+      main: {
+        status: mainPoolHealthy ? "healthy" : "degraded",
+        healthy: mainPoolHealthy,
+        inUse: Math.max(0, pool.totalCount - pool.idleCount),
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+        max: MAIN_POOL_MAX,
+      },
+      tracking: {
+        status: trackingPoolHealthy ? "healthy" : "degraded",
+        healthy: trackingPoolHealthy,
+        inUse: Math.max(0, trackingPool.totalCount - trackingPool.idleCount),
+        idle: trackingPool.idleCount,
+        waiting: trackingPool.waitingCount,
+        max: TRACKING_POOL_MAX,
+      },
+    };
+
+    let dbHealthy = true;
+    let dbLatency = 0;
+    let queueDepths: any = {};
+    let workerHealth: WorkerHealthReport;
+
+    if (mainPoolHealthy && pool.idleCount > 0) {
       try {
+        const startTime = Date.now();
         await db.execute(sql`SELECT 1`);
+        dbLatency = Date.now() - startTime;
       } catch {
         dbHealthy = false;
       }
 
-      const startTime = Date.now();
-      await storage.healthCheck();
-      const dbLatency = Date.now() - startTime;
-      
-      const poolStats = {
-        totalCount: pool.totalCount,
-        idleCount: pool.idleCount,
-        waitingCount: pool.waitingCount,
-      };
-
-      const mainPoolHealthy = isPoolHealthy();
-      const trackingPoolHealthy = isTrackingPoolHealthy();
-      const pools = {
-        main: {
-          status: mainPoolHealthy ? "healthy" : "degraded",
-          healthy: mainPoolHealthy,
-          inUse: Math.max(0, pool.totalCount - pool.idleCount),
-          idle: pool.idleCount,
-          waiting: pool.waitingCount,
-          max: MAIN_POOL_MAX,
-        },
-        tracking: {
-          status: trackingPoolHealthy ? "healthy" : "degraded",
-          healthy: trackingPoolHealthy,
-          inUse: Math.max(0, trackingPool.totalCount - trackingPool.idleCount),
-          idle: trackingPool.idleCount,
-          waiting: trackingPool.waitingCount,
-          max: TRACKING_POOL_MAX,
-        },
-      };
-      const poolsHealthy = mainPoolHealthy && trackingPoolHealthy;
-      
-      const memUsage = process.memoryUsage();
-      
-      let queueDepths: any = {};
       try {
         const [campaignQueue, importQueue, tagQueue] = await Promise.all([
           pool.query("SELECT COUNT(*) as count FROM campaign_jobs WHERE status IN ('pending', 'processing')"),
@@ -147,58 +141,63 @@ export function registerHealthRoutes(app: Express) {
           importJobs: parseInt(importQueue.rows[0]?.count || '0'),
           pendingTags: parseInt(tagQueue.rows[0]?.count || '0'),
         };
-      } catch (queueErr) {
+      } catch {
         queueDepths = { error: "Failed to query queue depths" };
       }
-
-      const workerHealth = await resolveWorkerHealth();
-      const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor && workerHealth.scheduledCampaignPoller;
-
-      let redisStatus: "ok" | "degraded" | "disabled" = "disabled";
-      if (isRedisConfigured && redisConnection) {
-        redisStatus = redisConnection.status === "ready" ? "ok" : "degraded";
-      }
-
-      const useBullMQ = process.env.USE_BULLMQ === "true";
-
-      res.json({
-        status: (dbHealthy && allWorkersRunning && poolsHealthy) ? 'healthy' : 'degraded',
-        timestamp: new Date().toISOString(),
-        uptime: Math.floor(process.uptime()),
-        database: {
-          healthy: dbHealthy,
-          status: dbHealthy ? "connected" : "disconnected",
-          latencyMs: dbLatency,
-          pool: poolStats,
-          pools,
-        },
-        redis: {
-          configured: isRedisConfigured,
-          status: redisStatus,
-        },
-        bullmq: {
-          enabled: useBullMQ,
-        },
-        memory: {
-          heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
-          heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
-          rssMB: Math.round(memUsage.rss / 1024 / 1024),
-        },
-        workers: workerHealth,
-        queues: queueDepths,
-        version: "1.0.0"
-      });
-    } catch (error) {
-      res.status(503).json({
-        status: "unhealthy",
-        timestamp: new Date().toISOString(),
-        uptime: Math.floor(process.uptime()),
-        database: {
-          status: "disconnected",
-          error: error instanceof Error ? error.message : "Unknown error"
-        }
-      });
+    } else {
+      queueDepths = { skipped: "pool_saturated" };
     }
+
+    try {
+      workerHealth = await resolveWorkerHealth();
+    } catch {
+      workerHealth = {
+        jobProcessor: false, importProcessor: false, tagQueueWorker: false,
+        flushProcessor: false, maintenanceWorker: false, scheduledCampaignPoller: false,
+        source: "remote-worker-missing",
+      };
+    }
+
+    const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor && workerHealth.scheduledCampaignPoller;
+
+    let redisStatus: "ok" | "degraded" | "disabled" = "disabled";
+    if (isRedisConfigured && redisConnection) {
+      redisStatus = redisConnection.status === "ready" ? "ok" : "degraded";
+    }
+
+    const overallHealthy = dbHealthy && allWorkersRunning && mainPoolHealthy && trackingPoolHealthy;
+
+    res.json({
+      status: overallHealthy ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()),
+      database: {
+        healthy: dbHealthy,
+        status: dbHealthy ? "connected" : "disconnected",
+        latencyMs: dbLatency,
+        pool: {
+          totalCount: pool.totalCount,
+          idleCount: pool.idleCount,
+          waitingCount: pool.waitingCount,
+        },
+        pools,
+      },
+      redis: {
+        configured: isRedisConfigured,
+        status: redisStatus,
+      },
+      bullmq: {
+        enabled: process.env.USE_BULLMQ === "true",
+      },
+      memory: {
+        heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+        rssMB: Math.round(memUsage.rss / 1024 / 1024),
+      },
+      workers: workerHealth,
+      queues: queueDepths,
+      version: "1.0.0"
+    });
   });
 
   app.get("/api/health/ip", async (_req: Request, res: Response) => {

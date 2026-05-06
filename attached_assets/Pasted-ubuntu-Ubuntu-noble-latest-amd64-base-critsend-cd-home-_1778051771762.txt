@@ -1,0 +1,207 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && git pull && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+remote: Enumerating objects: 12, done.
+remote: Counting objects: 100% (12/12), done.
+remote: Compressing objects: 100% (2/2), done.
+remote: Total 7 (delta 5), reused 7 (delta 5), pack-reused 0 (from 0)
+Unpacking objects: 100% (7/7), 5.74 KiB | 1.91 MiB/s, done.
+From https://github.com/critads/critsend
+   8ff06c5..985c152  main       -> origin/main
+Updating 8ff06c5..985c152
+Fast-forward
+ ...-amd64-base-critsend-cd-home-_1778051463985.txt | 217 +++++++++++++++++++++
+ server/tracking-buffer.ts                          |  15 +-
+ server/tracking-pool.ts                            |   1 +
+ 3 files changed, 226 insertions(+), 7 deletions(-)
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-cd-home-_1778051463985.txt
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: 985c152 Prevent email tracking crashes by disabling lock timeouts
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 835 packages, and audited 836 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+47 vulnerabilities (7 low, 9 moderate, 30 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2497 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-DhspueYc.css     88.69 kB │ gzip:  14.38 kB
+../dist/public/assets/index-D1Mck98J.js   1,288.12 kB │ gzip: 341.44 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.75s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 107ms
+building import worker...
+
+  dist/import-worker.cjs  198.1kb
+
+⚡ Done in 39ms
+building background worker...
+
+  dist/worker-main.cjs  937.2kb
+
+⚡ Done in 70ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images, uploads/imports)
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Waiting for app to become healthy...
+[deploy]   Health check attempt 1/15: HTTP 000000
+[deploy]   Health check attempt 2/15: HTTP 000000
+[deploy]   Health check attempt 3/15: HTTP 000000
+[deploy]   Health check attempt 4/15: HTTP 000000
+[deploy]   Health check attempt 5/15: HTTP 000000
+[deploy]   Health check attempt 6/15: HTTP 000000
+[deploy]   Health check attempt 7/15: HTTP 000000
+[deploy]   Health check attempt 8/15: HTTP 000000
+[deploy]   Health check attempt 9/15: HTTP 000000
+[deploy]   Health check attempt 10/15: HTTP 000000
+[deploy]   Health check attempt 11/15: HTTP 000000
+[deploy]   Health check attempt 12/15: HTTP 000000
+[deploy]   Health check attempt 13/15: HTTP 000000
+[deploy]   Health check attempt 14/15: HTTP 000000
+[deploy]   Health check attempt 15/15: HTTP 000000
+[deploy] ✗ App did not become healthy after 30s
+[deploy]   Last 50 lines of web error log:
+2026-05-06 09:13:08 +02:00: 2026-05-06T07:13:08.281Z [WARN] Short unsubscribe token not found or invalid: a6Q2lFfB,
+2026-05-06 09:13:12 +02:00: 2026-05-06T07:13:12.059Z [WARN] Short unsubscribe token not found or invalid: EGGZChkW,
+2026-05-06 09:13:13 +02:00: 2026-05-06T07:13:13.579Z [WARN] Invalid tracking signature for unsubscribe: campaign=fdfa9d72-b20b-496b-b7ac-b229c2136769, subscriber=9e46c7a3-2d0b-44e8-bce3-91dfc08514cc, sig=3fdc3931...
+2026-05-06 09:13:18 +02:00: 2026-05-06T07:13:18.506Z [WARN] Short unsubscribe token not found or invalid: O8TpPAXr,
+2026-05-06 09:13:22 +02:00: 2026-05-06T07:13:22.474Z [WARN] Invalid tracking signature for unsubscribe: campaign=d2370890-0adb-4ea6-ab64-d53fdb9b02ed, subscriber=9e46c7a3-2d0b-44e8-bce3-91dfc08514cc, sig=b42955ae...
+2026-05-06 09:13:23 +02:00: 2026-05-06T07:13:23.027Z [WARN] [POOL SAFETY] Load-shedding GET /api/jobs/stream: pool active=20/20, waiting=6 (for 0ms), saturation=1.00 (reason=saturation)
+2026-05-06 09:13:24 +02:00: 2026-05-06T07:13:24.406Z [ERROR] [TRACKING BUFFER] enqueue click tag failed: timeout exceeded when trying to connect
+2026-05-06 09:13:24 +02:00: 2026-05-06T07:13:24.406Z [ERROR] [TRACKING BUFFER] enqueue click tag failed: timeout exceeded when trying to connect
+2026-05-06 09:13:24 +02:00: 2026-05-06T07:13:24.407Z [ERROR] [TRACKING BUFFER] enqueue click tag failed: timeout exceeded when trying to connect
+2026-05-06 09:13:24 +02:00: 2026-05-06T07:13:24.407Z [ERROR] [TRACKING BUFFER] enqueue click tag failed: timeout exceeded when trying to connect
+2026-05-06 09:13:24 +02:00: 2026-05-06T07:13:24.407Z [ERROR] [TRACKING BUFFER] enqueue click tag failed: timeout exceeded when trying to connect
+2026-05-06 09:13:24 +02:00: 2026-05-06T07:13:24.407Z [ERROR] [TRACKING BUFFER] enqueue click tag failed: timeout exceeded when trying to connect
+2026-05-06 09:13:25 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:25 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:25 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:26 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:26 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:26 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:27 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:27 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:27 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:27 +02:00: 2026-05-06T07:13:27.410Z [WARN] Invalid tracking signature for unsubscribe: campaign=5667865c-9d67-4f20-b356-81d814a5efb2, subscriber=9e46c7a3-2d0b-44e8-bce3-91dfc08514cc, sig=a6da7d99...
+2026-05-06 09:13:29 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:29 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:29 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:30 +02:00: 2026-05-06T07:13:30.912Z [ERROR] Metrics collection error {"error":"Error: timeout exceeded when trying to connect"}
+2026-05-06 09:13:32 +02:00: 2026-05-06T07:13:32.023Z [WARN] Invalid tracking signature for unsubscribe: campaign=d8cf5190-0b86-4c3d-8b29-92057eccce31, subscriber=9e46c7a3-2d0b-44e8-bce3-91dfc08514cc, sig=7bef977f...
+2026-05-06 09:13:32 +02:00: 2026-05-06T07:13:32.433Z [WARN] Short unsubscribe token not found or invalid: nTFqBO6K,
+2026-05-06 09:13:34 +02:00: 2026-05-06T07:13:34.500Z [WARN] [POOL SAFETY] Checkout timeout on GET /favicon.ico: timeout exceeded when trying to connect
+2026-05-06 09:13:36 +02:00: 2026-05-06T07:13:36.389Z [WARN] Invalid tracking signature for unsubscribe: campaign=b396b199-7394-496e-b849-967a790e204a, subscriber=9e46c7a3-2d0b-44e8-bce3-91dfc08514cc, sig=321d230e...
+2026-05-06 09:13:36 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:36 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:36 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:37 +02:00: 2026-05-06T07:13:37.675Z [WARN] [POOL SAFETY] Load-shedding GET /api/campaigns: pool active=20/20, waiting=3 (for 0ms), saturation=1.00 (reason=saturation)
+2026-05-06 09:13:38 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:38 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:38 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:39 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:39 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:39 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:39 +02:00: Error: timeout exceeded when trying to connect
+2026-05-06 09:13:39 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:70:13356
+2026-05-06 09:13:39 +02:00:     at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)
+2026-05-06 09:13:42 +02:00: 2026-05-06T07:13:42.011Z [WARN] [POOL SAFETY] Checkout timeout on GET /api/auth/me: timeout exceeded when trying to connect
+2026-05-06 09:13:42 +02:00: 2026-05-06T07:13:42.011Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:70:13356\n    at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)","path":"/api/auth/me","method":"GET"}
+2026-05-06 09:13:42 +02:00: 2026-05-06T07:13:42.696Z [WARN] [POOL SAFETY] Checkout timeout on GET /favicon.ico: timeout exceeded when trying to connect
+2026-05-06 09:13:48 +02:00: 2026-05-06T07:13:48.739Z [WARN] Short unsubscribe token not found or invalid: MAYACQpp,
+2026-05-06 09:14:42 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+2026-05-06 09:14:45 +02:00: 2026-05-06T07:14:45.609Z [WARN] Short unsubscribe token not found or invalid: uvI6y9vr,
+2026-05-06 09:15:03 +02:00: 2026-05-06T07:15:03.655Z [ERROR] Graceful shutdown timed out, forcing exit
+
+[deploy]   Last 30 lines of web out log:
+2026-05-06 09:14:47 +02:00: 2026-05-06T07:14:47.868Z [INFO] Short unsubscribe: campaign=6c51213c-f8a1-4f51-8eb1-c6cc7c183f42, subscriber=e1e27c04-53c7-4d33-97f9-c54dab39b868
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.655Z [INFO] Received SIGINT, starting graceful shutdown... {"signal":"SIGINT"}
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.655Z [INFO] [SHUTDOWN] Stopping all background workers...
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.656Z [INFO] Tag queue worker stopped
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.656Z [INFO] [SHUTDOWN] All background workers stopped
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.656Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian stopped
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.656Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian stopped
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.656Z [INFO] Background workers stopped
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.657Z [INFO] [BullMQ] Workers closed
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.657Z [INFO] [BullMQ] Queues closed
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.719Z [INFO] NotifyQueue shut down
+2026-05-06 09:14:48 +02:00: 2026-05-06T07:14:48.748Z [INFO] [Redis] Connections closed
+2026-05-06 09:14:50 +02:00: 2026-05-06T07:14:50.749Z [INFO] [TRACKING BUFFER] draining 870 events on shutdown
+2026-05-06 09:14:53 +02:00: 2026-05-06T07:14:53.655Z [INFO] Destroying remaining keep-alive connections
+2026-05-06 09:14:53 +02:00: 2026-05-06T07:14:53.655Z [INFO] HTTP server closed - no new connections
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.012Z [INFO] Database SSL enabled for external connection (Neon)
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.013Z [INFO] PG pool configured: max=20, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.217Z [INFO] [TRACKING POOL] configured: max=50, connTimeout=5000ms, external=true, mode=auto-derived pooler, pooler=true
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.239Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.379Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.382Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":143734,"nodeVersion":"v20.20.2","gcExposed":true}
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.514Z [INFO] [Redis/main] Connected
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.516Z [INFO] [Redis/bullmq] Connected
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.663Z [INFO] [tracking_tokens] Another process is running bootstrap — skipping
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.664Z [INFO] [TRACKING] Another process is running bootstrap — skipping
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.811Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.826Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 20 | Tracking pool: 50 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+2026-05-06 09:15:04 +02:00: 2026-05-06T07:15:04.826Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(0)+import(0)+notify(2) = 40 of 50 (headroom 10, required >= 2) OK [tracking=50, import=6 via pooler, excluded]
+2026-05-06 09:15:05 +02:00: 2026-05-06T07:15:05.107Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+2026-05-06 09:15:05 +02:00: 2026-05-06T07:15:05.374Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+
+[deploy]   PM2 status:
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 16   │ online    │ 0%       │ 231.9mb  │
+│ 1  │ critsend-worker    │ fork     │ 16   │ online    │ 0%       │ 89.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[deploy] ✗ Health check failed — app may not be running. Check logs above.
