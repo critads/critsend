@@ -63,7 +63,7 @@ export const TRACKING_POOL_USE_POOLER: boolean = (() => {
 
 export const TRACKING_POOL_MAX = (() => {
   if (processType === 'worker') return 0;
-  return Number(process.env.PG_TRACKING_POOL_MAX || (TRACKING_POOL_USE_POOLER ? 20 : 10));
+  return Number(process.env.PG_TRACKING_POOL_MAX || (TRACKING_POOL_USE_POOLER ? 25 : 10));
 })();
 
 // ── Import pool ───────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ function computeHintWebMain(): number {
 
 function TRACKING_POOL_MAX_HINT(): number {
   const usePooler = TRACKING_POOL_USE_POOLER_HINT();
-  return Number(process.env.PG_TRACKING_POOL_MAX || (usePooler ? 20 : 10));
+  return Number(process.env.PG_TRACKING_POOL_MAX || (usePooler ? 25 : 10));
 }
 
 function TRACKING_POOL_USE_POOLER_HINT(): boolean {
