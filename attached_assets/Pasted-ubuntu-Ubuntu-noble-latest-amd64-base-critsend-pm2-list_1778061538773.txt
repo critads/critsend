@@ -1,0 +1,153 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 list
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 28   │ online    │ 0%       │ 257.0mb  │
+│ 1  │ critsend-worker    │ fork     │ 28   │ online    │ 0%       │ 816.9mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs --lines 200 --nostream | grep -iE "service_busy|503|502|pool.*saturation|ECONNREFUSED"
+0|critsend | 2026-05-06 11:01:08 +02:00: 2026-05-06T09:01:08.502Z [WARN] Short click token not found or invalid: btrn.zip
+0|critsend | 2026-05-06 11:34:53 +02:00: 2026-05-06T09:34:53.503Z [WARN] Short click token not found or invalid: YsSD7C2l.gz
+0|critsend | 2026-05-06 11:46:35 +02:00: 2026-05-06T09:46:35.202Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=041e5a44-ab11-4d17-9b0c-19bcaa41436a
+0|critsend | 2026-05-06 11:47:09 +02:00: 2026-05-06T09:47:09.205Z [INFO] Unsubscribe request: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=390a8d49-db8f-4464-9ec4-0f056dbb4ed7
+0|critsend | 2026-05-06 11:48:43 +02:00: 2026-05-06T09:48:43.345Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=fe9b0148-a757-4784-8861-129509c0440f
+0|critsend | 2026-05-06 11:50:11 +02:00: 2026-05-06T09:50:11.147Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=883f3340-fcda-4d9c-9ba4-0fc0429d35f7
+0|critsend | 2026-05-06 11:51:02 +02:00: 2026-05-06T09:51:02.165Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=f81db471-20d0-400b-aad2-0a30d9e40e99
+0|critsend | 2026-05-06 11:55:34 +02:00: 2026-05-06T09:55:34.359Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=8994990f-bcbb-4f68-807e-d40691d4c59e
+0|critsend | 2026-05-06 11:56:02 +02:00: 2026-05-06T09:56:02.832Z [INFO] Short unsubscribe: campaign=8bf32077-8981-48d5-ad4a-c2bd3b715034, subscriber=8c8ae364-1afb-4d6f-8123-b2476826e9a5
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs --lines 500 --nostream | grep -i "tracking.*pool\|pool.*waiting\|pool.*saturation"
+1|critsend | 2026-05-06 10:01:02 +02:00: 2026-05-06T08:01:02.195Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=25, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:24:56 +02:00: 2026-05-06T08:24:56.020Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=25, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:30:12 +02:00: 2026-05-06T08:30:12.040Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:34:31 +02:00: 2026-05-06T08:34:31.641Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:35:45 +02:00: 2026-05-06T08:35:45.827Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:43:12 +02:00: 2026-05-06T08:43:12.577Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:51:32 +02:00: 2026-05-06T08:51:32.088Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 10:57:22 +02:00: 2026-05-06T08:57:22.772Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-06 11:46:49 +02:00: 2026-05-06T09:46:49.153Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-06 10:47:50 +02:00: 2026-05-06T08:47:50.478Z [WARN] Short click /c/tW2qxZZE: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:47:50 +02:00: 2026-05-06T08:47:50.700Z [WARN] [POOL SAFETY] Load-shedding GET /api/system-metrics: pool active=30/30, waiting=0 (for 0ms), saturation=1.00 (reason=saturation)
+0|critsend | 2026-05-06 10:47:52 +02:00: 2026-05-06T08:47:52.306Z [WARN] Short unsubscribe /u/UAzQfDkI: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:47:55 +02:00: 2026-05-06T08:47:55.117Z [WARN] [TRACKING QUERIES] resolveTrackingToken(vja4X9Yf) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:47:55 +02:00: 2026-05-06T08:47:55.174Z [WARN] [TRACKING QUERIES] resolveTrackingToken(LUgBK5BI) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:47:55 +02:00: 2026-05-06T08:47:55.228Z [WARN] [TRACKING BUFFER] getLinkDestinationCached(4945ae70-d8e7-4539-9158-6d6c62555109) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:47:55 +02:00: 2026-05-06T08:47:55.933Z [WARN] [TRACKING QUERIES] resolveTrackingToken(BOGnyDg3,) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:47:57 +02:00: 2026-05-06T08:47:57.117Z [WARN] Short click /c/vja4X9Yf: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:47:57 +02:00: 2026-05-06T08:47:57.174Z [WARN] Short click /c/LUgBK5BI: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:47:57 +02:00: 2026-05-06T08:47:57.229Z [WARN] Click lid=4945ae70-d8e7-4539-9158-6d6c62555109: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:47:57 +02:00: 2026-05-06T08:47:57.933Z [WARN] Short unsubscribe /u/BOGnyDg3,: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:48:01 +02:00: 2026-05-06T08:48:01.525Z [WARN] [TRACKING QUERIES] resolveTrackingToken(uP83qkzk) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:48:02 +02:00: 2026-05-06T08:48:02.993Z [WARN] [TRACKING BUFFER] getLinkDestinationCached(a88513a3-7bed-4caa-87c4-8f4abbcb18e5) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:48:03 +02:00: 2026-05-06T08:48:03.526Z [WARN] Short click /c/uP83qkzk: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:49:41 +02:00: 2026-05-06T08:49:41.928Z [WARN] [TRACKING QUERIES] resolveTrackingToken(mHodWtaz,) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:49:43 +02:00: 2026-05-06T08:49:43.928Z [WARN] Short unsubscribe /u/mHodWtaz,: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:49:46 +02:00: 2026-05-06T08:49:46.288Z [WARN] [TRACKING QUERIES] resolveTrackingToken(vk2ElONQ) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:06 +02:00: 2026-05-06T08:50:06.494Z [WARN] [TRACKING QUERIES] resolveTrackingToken(YGJqaDjb,) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:08 +02:00: 2026-05-06T08:50:08.494Z [WARN] Short unsubscribe /u/YGJqaDjb,: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:09 +02:00: 2026-05-06T08:50:09.948Z [WARN] [TRACKING QUERIES] resolveTrackingToken(e39Vt24T) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:11 +02:00: 2026-05-06T08:50:11.721Z [WARN] [TRACKING QUERIES] resolveTrackingToken(vVTTA76Q) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:11 +02:00: 2026-05-06T08:50:11.948Z [WARN] Short click /c/e39Vt24T: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:13 +02:00: 2026-05-06T08:50:13.228Z [WARN] [TRACKING QUERIES] resolveTrackingToken(Ft3WNU1Y) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:13 +02:00: 2026-05-06T08:50:13.721Z [WARN] Short click /c/vVTTA76Q: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:15 +02:00: 2026-05-06T08:50:15.013Z [WARN] [TRACKING QUERIES] resolveTrackingToken(ICayAFom) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:15 +02:00: 2026-05-06T08:50:15.214Z [WARN] [TRACKING QUERIES] resolveTrackingToken(pRQ8lllW,) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:15 +02:00: 2026-05-06T08:50:15.230Z [WARN] Short click /c/Ft3WNU1Y: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:17 +02:00: 2026-05-06T08:50:17.013Z [WARN] Short click /c/ICayAFom: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:17 +02:00: 2026-05-06T08:50:17.215Z [WARN] Short unsubscribe /u/pRQ8lllW,: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:23 +02:00: 2026-05-06T08:50:23.012Z [WARN] [TRACKING QUERIES] resolveTrackingToken(4zEl7DQ9) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:24 +02:00: 2026-05-06T08:50:24.478Z [WARN] [TRACKING QUERIES] resolveTrackingToken(ZAY61P6G,) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:25 +02:00: 2026-05-06T08:50:25.012Z [WARN] Short click /c/4zEl7DQ9: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:25 +02:00: 2026-05-06T08:50:25.362Z [WARN] [TRACKING QUERIES] resolveTrackingToken(YVMsuemH) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:26 +02:00: 2026-05-06T08:50:26.478Z [WARN] Short unsubscribe /u/ZAY61P6G,: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:27 +02:00: 2026-05-06T08:50:27.363Z [WARN] Short unsubscribe /u/YVMsuemH: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:32 +02:00: 2026-05-06T08:50:32.441Z [WARN] [TRACKING QUERIES] resolveTrackingToken(AvDaUUFe) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:34 +02:00: 2026-05-06T08:50:34.440Z [WARN] Short click /c/AvDaUUFe: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:46 +02:00: 2026-05-06T08:50:46.190Z [WARN] [TRACKING QUERIES] resolveTrackingToken(SllsRKtz) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:48 +02:00: 2026-05-06T08:50:48.190Z [WARN] Short click /c/SllsRKtz: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:49 +02:00: 2026-05-06T08:50:49.349Z [WARN] [TRACKING QUERIES] resolveTrackingToken(OEJjx2jw) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:51 +02:00: 2026-05-06T08:50:51.349Z [WARN] Short click /c/OEJjx2jw: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:53 +02:00: 2026-05-06T08:50:53.668Z [WARN] [TRACKING QUERIES] resolveTrackingToken(qg05l4FH) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:54 +02:00: 2026-05-06T08:50:54.885Z [WARN] [TRACKING QUERIES] resolveTrackingToken(C5cIsObx) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:55 +02:00: 2026-05-06T08:50:55.319Z [WARN] [TRACKING QUERIES] resolveTrackingToken(CWc8BGUf) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:55 +02:00: 2026-05-06T08:50:55.668Z [WARN] Short unsubscribe /u/qg05l4FH: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:55 +02:00: 2026-05-06T08:50:55.875Z [WARN] [TRACKING QUERIES] resolveTrackingToken(xXisdf73) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:55 +02:00: 2026-05-06T08:50:55.926Z [WARN] [TRACKING QUERIES] resolveTrackingToken(qWyGALVL) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:56 +02:00: 2026-05-06T08:50:56.886Z [WARN] Short click /c/C5cIsObx: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:57 +02:00: 2026-05-06T08:50:57.319Z [WARN] Short unsubscribe /u/CWc8BGUf: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:57 +02:00: 2026-05-06T08:50:57.573Z [WARN] [TRACKING QUERIES] resolveTrackingToken(R3wymowi) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:50:57 +02:00: 2026-05-06T08:50:57.876Z [WARN] Short click /c/xXisdf73: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:57 +02:00: 2026-05-06T08:50:57.926Z [WARN] Short click /c/qWyGALVL: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:50:59 +02:00: 2026-05-06T08:50:59.574Z [WARN] Short unsubscribe /u/R3wymowi: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:51:01 +02:00: 2026-05-06T08:51:01.923Z [WARN] [TRACKING QUERIES] resolveTrackingToken(xjboXY07) tracking-pool checkout timeout — retrying once
+0|critsend | 2026-05-06 10:51:03 +02:00: 2026-05-06T08:51:03.924Z [WARN] Short unsubscribe /u/xjboXY07: tracking pool unavailable, returning 503
+0|critsend | 2026-05-06 10:51:21 +02:00: 2026-05-06T08:51:21.837Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-06 10:51:34 +02:00: 2026-05-06T08:51:34.571Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:36 +02:00: 2026-05-06T08:51:36.181Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:36 +02:00: 2026-05-06T08:51:36.219Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:36 +02:00: 2026-05-06T08:51:36.342Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:40 +02:00: 2026-05-06T08:51:40.490Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:40 +02:00: 2026-05-06T08:51:40.900Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:42 +02:00: 2026-05-06T08:51:42.452Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:43 +02:00: 2026-05-06T08:51:43.042Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:44 +02:00: 2026-05-06T08:51:44.531Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:44 +02:00: 2026-05-06T08:51:44.696Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:45 +02:00: 2026-05-06T08:51:45.538Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:50 +02:00: 2026-05-06T08:51:50.500Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:56 +02:00: 2026-05-06T08:51:56.962Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:57 +02:00: 2026-05-06T08:51:57.436Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:51:58 +02:00: 2026-05-06T08:51:58.020Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:25 +02:00: 2026-05-06T08:52:25.194Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:26 +02:00: 2026-05-06T08:52:26.996Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:33 +02:00: 2026-05-06T08:52:33.713Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:33 +02:00: 2026-05-06T08:52:33.996Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:34 +02:00: 2026-05-06T08:52:34.452Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:46 +02:00: 2026-05-06T08:52:46.617Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:50 +02:00: 2026-05-06T08:52:50.742Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:53 +02:00: 2026-05-06T08:52:53.616Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:58 +02:00: 2026-05-06T08:52:58.081Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:58 +02:00: 2026-05-06T08:52:58.081Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:52:58 +02:00: 2026-05-06T08:52:58.359Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:54:01 +02:00: 2026-05-06T08:54:01.752Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:54:01 +02:00: 2026-05-06T08:54:01.878Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:54:01 +02:00: 2026-05-06T08:54:01.879Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:55:26 +02:00: 2026-05-06T08:55:26.371Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:55:32 +02:00: 2026-05-06T08:55:32.830Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:57:18 +02:00: 2026-05-06T08:57:18.224Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-06 10:58:05 +02:00: 2026-05-06T08:58:05.443Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:05 +02:00: 2026-05-06T08:58:05.668Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:08 +02:00: 2026-05-06T08:58:08.787Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:17 +02:00: 2026-05-06T08:58:17.687Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:18 +02:00: 2026-05-06T08:58:18.521Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:25 +02:00: 2026-05-06T08:58:25.254Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:35 +02:00: 2026-05-06T08:58:35.489Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:36 +02:00: 2026-05-06T08:58:36.133Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:49 +02:00: 2026-05-06T08:58:49.770Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:51 +02:00: 2026-05-06T08:58:51.834Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:51 +02:00: 2026-05-06T08:58:51.839Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:51 +02:00: 2026-05-06T08:58:51.842Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:51 +02:00: 2026-05-06T08:58:51.873Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:58:54 +02:00: 2026-05-06T08:58:54.509Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 10:59:00 +02:00: 2026-05-06T08:59:00.483Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 11:07:48 +02:00: 2026-05-06T09:07:48.116Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 11:07:50 +02:00: 2026-05-06T09:07:50.077Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 11:07:57 +02:00: 2026-05-06T09:07:57.129Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-06 11:46:51 +02:00: 2026-05-06T09:46:51.404Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-06 11:46:50 +02:00: 2026-05-06T09:46:50.651Z [INFO] [TRACKING POOL] read + flush pools closed
+0|critsend | 2026-05-06 11:46:51 +02:00: 2026-05-06T09:46:51.218Z [INFO] [TRACKING POOL] read pool: max=50, flush pool: max=8, connTimeout=2000ms, stmtTimeout=10000ms, jsTimeout=12000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-05-06 11:46:51 +02:00: 2026-05-06T09:46:51.403Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 30 | Tracking pool: 50 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 31 | External: true
+0|critsend | 2026-05-06 11:46:51 +02:00: 2026-05-06T09:46:51.736Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+1|critsend | 2026-05-06 11:46:49 +02:00: 2026-05-06T09:46:49.153Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: worker | Main pool: 18 | Tracking pool: 0 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 19 | External: true
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs --lines 500 --nostream | grep -iE "counter reconciler started|analytics.*rollup|Deferring analytics"
+1|critsend | 2026-05-06 09:49:36 +02:00: 2026-05-06T07:49:36.284Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"Error: timeout exceeded when trying to connect"}
+1|critsend | 2026-05-06 10:13:44 +02:00: 2026-05-06T08:13:44.185Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"error: deadlock detected"}
+1|critsend | 2026-05-06 10:49:47 +02:00: 2026-05-06T08:49:47.560Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"Error: timeout exceeded when trying to connect"}
+1|critsend | 2026-05-06 10:52:12 +02:00: 2026-05-06T08:52:12.898Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-06 10:58:03 +02:00: 2026-05-06T08:58:03.628Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-06 11:14:53 +02:00: 2026-05-06T09:14:53.283Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-06 11:44:53 +02:00: 2026-05-06T09:44:53.302Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-06 11:45:40 +02:00: 2026-05-06T09:45:40.784Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-06 11:53:49 +02:00: 2026-05-06T09:53:49.846Z [ERROR] [ANALYTICS_ROLLUP] Initial smart rollup failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-06 11:46:49 +02:00: 2026-05-06T09:46:49.677Z [INFO] [WORKER] Deferring analytics + counter reconciler by 300000ms to avoid startup storm
+1|critsend | 2026-05-06 11:51:49 +02:00: 2026-05-06T09:51:49.781Z [INFO] [ANALYTICS_ROLLUP] Last rollup date: 2026-05-05 — gap-filling 2 days
+1|critsend | 2026-05-06 11:53:49 +02:00: 2026-05-06T09:53:49.847Z [INFO] [WORKER] Counter reconciler started after analytics rollup completed
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

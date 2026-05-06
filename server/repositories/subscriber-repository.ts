@@ -241,7 +241,11 @@ export async function getSubscribersForSegment(segmentId: string, limit?: number
 
   const whereCondition = compileSegmentRules(normalized);
   let query = db.select().from(subscribers).where(
-    and(not(sql`'BCK' = ANY(${subscribers.tags})`), whereCondition)
+    and(
+      not(sql`'BCK' = ANY(${subscribers.tags})`),
+      sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+      whereCondition,
+    )
   );
 
   if (limit !== undefined) query = query.limit(limit) as typeof query;
@@ -258,7 +262,11 @@ export async function getSubscribersForSegmentCursor(segmentId: string, limit: n
   if (!normalized) return [];
 
   const segmentCondition = compileSegmentRules(normalized);
-  const baseCondition = and(not(sql`'BCK' = ANY(${subscribers.tags})`), segmentCondition);
+  const baseCondition = and(
+    not(sql`'BCK' = ANY(${subscribers.tags})`),
+    sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+    segmentCondition,
+  );
 
   if (afterId) {
     return db.select().from(subscribers).where(
@@ -333,7 +341,11 @@ export async function countSubscribersForSegment(segmentId: string): Promise<num
   const whereCondition = compileSegmentRules(normalized);
   const [{ count }] = await db.select({ count: sql<number>`count(*)` })
     .from(subscribers)
-    .where(and(not(sql`'BCK' = ANY(${subscribers.tags})`), whereCondition));
+    .where(and(
+      not(sql`'BCK' = ANY(${subscribers.tags})`),
+      sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+      whereCondition,
+    ));
 
   return Number(count);
 }
