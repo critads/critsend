@@ -4,6 +4,17 @@ import { logger } from "../logger";
 import { insertSegmentSchema, segmentRulesInputSchema, migrateRulesV1toV2 } from "@shared/schema";
 import type { SegmentRulesV2 } from "@shared/schema";
 import { z } from "zod";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
+
+(async () => {
+  try {
+    await db.execute(sql`ALTER TABLE segments ADD COLUMN IF NOT EXISTS cached_count integer`);
+    logger.info("[SEGMENT] Bootstrap migration: cached_count column ready");
+  } catch (err: any) {
+    logger.error(`[SEGMENT] Bootstrap migration FAILED (cached_count): ${err?.message || err}`);
+  }
+})();
 
 export function registerSegmentRoutes(app: Express, helpers: {
   parsePagination: (query: any) => { page: number; limit: number };
