@@ -97,6 +97,11 @@ async function gracefulShutdown(signal: string) {
 
   logger.info(`[SHUTDOWN] Received ${signal}, starting graceful shutdown...`, { signal });
 
+  const forceWarnTimer = setTimeout(() => {
+    logger.warn(`[SHUTDOWN] Approaching force-exit deadline — ${Math.round(SHUTDOWN_TIMEOUT_MS * 0.1 / 1000)}s remaining`);
+  }, Math.round(SHUTDOWN_TIMEOUT_MS * 0.9));
+  forceWarnTimer.unref();
+
   const forceExitTimer = setTimeout(() => {
     logger.error(`[SHUTDOWN] Force-exit after ${SHUTDOWN_TIMEOUT_MS}ms — cleanup did not finish in time`);
     process.exit(1);
@@ -106,7 +111,10 @@ async function gracefulShutdown(signal: string) {
   // ── Phase 1: Stop accepting new HTTP connections ────────────────────
   logger.info('[SHUTDOWN] Phase 1: Stop accepting new connections');
   await new Promise<void>((resolve) => {
+    let drainTimer: NodeJS.Timeout | null = null;
+
     httpServer.close((err) => {
+      if (drainTimer) { clearTimeout(drainTimer); drainTimer = null; }
       if (err) {
         logger.warn(`[SHUTDOWN] httpServer.close callback error: ${String(err)}`);
       } else {
@@ -115,7 +123,7 @@ async function gracefulShutdown(signal: string) {
       resolve();
     });
 
-    setTimeout(() => {
+    drainTimer = setTimeout(() => {
       logger.info('[SHUTDOWN] HTTP drain timeout reached, destroying remaining keep-alive connections');
       httpServer.closeAllConnections();
     }, HTTP_DRAIN_TIMEOUT_MS);
