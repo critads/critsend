@@ -88,7 +88,6 @@ function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; 
       <button
         type="button"
         onClick={onClick}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
         className="inline-flex focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
         aria-label={`View ${label} details`}
         data-testid={campaignId ? `badge-failed-status-${campaignId}` : undefined}
