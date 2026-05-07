@@ -58,7 +58,7 @@ import {
   Edit,
   X,
 } from "lucide-react";
-import type { Campaign, ErrorLog, Segment } from "@shared/schema";
+import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
 
 function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; onClick?: () => void; campaignId?: string }) {
   const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }> = {
@@ -102,7 +102,7 @@ function parseFollowUpPendingError(err: Error): string | null {
 }
 
 interface PaginatedCampaigns {
-  campaigns: Campaign[];
+  campaigns: CampaignListItem[];
   total: number;
   page: number;
   totalPages: number;
@@ -491,7 +491,7 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell data-testid={`text-mta-${campaign.id}`}>
                         <span className="text-sm text-muted-foreground truncate max-w-[120px] inline-block align-bottom">
-                          {(campaign as unknown as { mtaName: string | null }).mtaName ?? "—"}
+                          {campaign.mtaName ?? "—"}
                         </span>
                       </TableCell>
                       <TableCell>

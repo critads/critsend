@@ -619,6 +619,7 @@ export type EmailHeader = typeof emailHeaders.$inferSelect;
 export type InsertEmailHeader = z.infer<typeof insertEmailHeaderSchema>;
 
 export type Campaign = typeof campaigns.$inferSelect;
+export type CampaignListItem = Campaign & { mtaName: string | null };
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
 
 export type CampaignStat = typeof campaignStats.$inferSelect;

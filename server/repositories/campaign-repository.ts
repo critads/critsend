@@ -9,6 +9,7 @@ import {
   mtas,
   segments,
   type Campaign,
+  type CampaignListItem,
   type InsertCampaign,
   type CampaignStat,
   type CampaignSend,
@@ -112,7 +113,7 @@ export async function getCampaignsPaginated(opts: {
     .limit(limit)
     .offset(offset);
 
-  return { campaigns: rows as any, total };
+  return { campaigns: rows as CampaignListItem[], total };
 }
 
 export async function getCampaign(id: string): Promise<Campaign | undefined> {

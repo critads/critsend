@@ -25,6 +25,7 @@ import type {
   DbMaintenanceRule,
   InsertDbMaintenanceRule,
   DbMaintenanceLog,
+  CampaignListItem,
 } from "@shared/schema";
 import type { SegmentRulesV2 } from "@shared/schema";
 
@@ -93,7 +94,7 @@ export interface IStorage {
     limit: number;
     search?: string;
     originalsOnly?: boolean;
-  }): Promise<{ campaigns: Campaign[]; total: number }>;
+  }): Promise<{ campaigns: CampaignListItem[]; total: number }>;
   getCampaign(id: string): Promise<Campaign | undefined>;
   getCampaignStatus(id: string): Promise<string | null>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;
