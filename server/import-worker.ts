@@ -412,10 +412,19 @@ async function copyBatchUpsert(
         ${tagsConflict},
         ${refsConflict},
         ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
+      RETURNING id, (xmax = 0) AS inserted
     `);
     const totalProcessed = mergeResult.rowCount || 0;
+    const newSubscriberIds = (mergeResult.rows as Array<{ id: string; inserted: boolean }>)
+      .filter(r => r.inserted)
+      .map(r => r.id);
 
     await client.query("COMMIT");
+
+    if (newSubscriberIds.length > 0) {
+      const { dispatchSubscriberAddedTriggers } = await import("./services/automation-engine");
+      dispatchSubscriberAddedTriggers(newSubscriberIds);
+    }
 
     return {
       inserted: Math.max(totalProcessed - preExisting, 0),
@@ -473,12 +482,20 @@ async function directBatchUpsert(
         ${tagsConflict},
         ${refsConflict},
         ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
+      RETURNING id, (xmax = 0) AS inserted
     `;
 
     const result = await client.query(query, params);
     const totalProcessed = result.rowCount || 0;
+    const newSubscriberIds = (result.rows as Array<{ id: string; inserted: boolean }>)
+      .filter(r => r.inserted)
+      .map(r => r.id);
 
     await client.query("COMMIT");
+    if (newSubscriberIds.length > 0) {
+      const { dispatchSubscriberAddedTriggers } = await import("./services/automation-engine");
+      dispatchSubscriberAddedTriggers(newSubscriberIds);
+    }
     return {
       inserted: Math.max(totalProcessed - preExisting, 0),
       updated: Math.min(preExisting, totalProcessed),
@@ -513,15 +530,20 @@ async function singleUpsert(
   );
   const existed = (existsResult.rowCount || 0) > 0;
 
-  await pool.query(
+  const upsertResult = await pool.query(
     `INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
      VALUES ($1, $2::text[], $3::text[], $4, NOW())
      ON CONFLICT (email) DO UPDATE SET
        ${tagsConflict},
        ${refsConflict},
-       ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`,
+       ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
+     RETURNING id, (xmax = 0) AS inserted`,
     [row.email.toLowerCase(), row.tags, row.refs, row.ipAddress]
   );
+  if (!existed && upsertResult.rows[0]?.inserted) {
+    const { dispatchSubscriberAddedTriggers } = await import("./services/automation-engine");
+    dispatchSubscriberAddedTriggers([upsertResult.rows[0].id]);
+  }
   return existed ? "updated" : "inserted";
 }
 

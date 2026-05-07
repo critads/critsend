@@ -441,6 +441,21 @@ async function markEnrollmentCompleted(enrollment: AutomationEnrollment, workflo
   logger.info(`[AUTOMATION] Enrollment ${enrollment.id.substring(0, 8)} completed all steps for workflow '${workflow.name}'`);
 }
 
+/**
+ * Batch dispatcher: emits subscriber_added trigger for every newly inserted
+ * subscriber from a bulk import. Fire-and-forget per ID so a single workflow
+ * failure doesn't stall the import; per-call errors are logged inside
+ * checkAndEnrollForTrigger.
+ */
+export function dispatchSubscriberAddedTriggers(subscriberIds: string[]): void {
+  if (!subscriberIds || subscriberIds.length === 0) return;
+  for (const id of subscriberIds) {
+    checkAndEnrollForTrigger("subscriber_added", id, {}).catch((err: any) => {
+      logger.error(`[AUTOMATION] subscriber_added dispatch failed for ${id.substring(0, 8)}: ${err?.message || err}`);
+    });
+  }
+}
+
 export async function checkAndEnrollForTrigger(
   triggerType: TriggerType,
   subscriberId: string,

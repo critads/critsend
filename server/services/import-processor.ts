@@ -133,9 +133,18 @@ async function copyBatchUpsert(
         ${tagsConflict},
         ${refsConflict},
         ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)
+      RETURNING id, (xmax = 0) AS inserted
     `);
     const totalProcessed = mergeResult.rowCount || 0;
+    const newSubscriberIds = (mergeResult.rows as Array<{ id: string; inserted: boolean }>)
+      .filter(r => r.inserted)
+      .map(r => r.id);
     await client.query("COMMIT");
+    // Fire automation subscriber_added triggers for newly inserted subscribers.
+    if (newSubscriberIds.length > 0) {
+      const { dispatchSubscriberAddedTriggers } = await import("./automation-engine");
+      dispatchSubscriberAddedTriggers(newSubscriberIds);
+    }
     return { inserted: Math.max(totalProcessed - preExisting, 0), updated: Math.min(preExisting, totalProcessed) };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -171,11 +180,18 @@ async function directBatchUpsert(
     const existingResult = await client.query(`SELECT COUNT(*) AS cnt FROM subscribers WHERE email = ANY($1)`, [emails]);
     const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
     const result = await client.query(
-      `INSERT INTO subscribers (email, tags, refs, ip_address, import_date) VALUES ${valuesClauses.join(", ")} ON CONFLICT (email) DO UPDATE SET ${tagsConflict}, ${refsConflict}, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`,
+      `INSERT INTO subscribers (email, tags, refs, ip_address, import_date) VALUES ${valuesClauses.join(", ")} ON CONFLICT (email) DO UPDATE SET ${tagsConflict}, ${refsConflict}, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address) RETURNING id, (xmax = 0) AS inserted`,
       params
     );
     const totalProcessed = result.rowCount || 0;
+    const newSubscriberIds = (result.rows as Array<{ id: string; inserted: boolean }>)
+      .filter(r => r.inserted)
+      .map(r => r.id);
     await client.query("COMMIT");
+    if (newSubscriberIds.length > 0) {
+      const { dispatchSubscriberAddedTriggers } = await import("./automation-engine");
+      dispatchSubscriberAddedTriggers(newSubscriberIds);
+    }
     return { inserted: Math.max(totalProcessed - preExisting, 0), updated: Math.min(preExisting, totalProcessed) };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -196,10 +212,14 @@ async function singleUpsert(
 
   const existsResult = await pool.query(`SELECT 1 FROM subscribers WHERE email = $1 LIMIT 1`, [row.email.toLowerCase()]);
   const existed = (existsResult.rowCount || 0) > 0;
-  await pool.query(
-    `INSERT INTO subscribers (email, tags, refs, ip_address, import_date) VALUES ($1, $2::text[], $3::text[], $4, NOW()) ON CONFLICT (email) DO UPDATE SET ${tagsConflict}, ${refsConflict}, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address)`,
+  const upsertResult = await pool.query(
+    `INSERT INTO subscribers (email, tags, refs, ip_address, import_date) VALUES ($1, $2::text[], $3::text[], $4, NOW()) ON CONFLICT (email) DO UPDATE SET ${tagsConflict}, ${refsConflict}, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address) RETURNING id, (xmax = 0) AS inserted`,
     [row.email.toLowerCase(), row.tags, row.refs, row.ipAddress]
   );
+  if (!existed && upsertResult.rows[0]?.inserted) {
+    const { dispatchSubscriberAddedTriggers } = await import("./automation-engine");
+    dispatchSubscriberAddedTriggers([upsertResult.rows[0].id]);
+  }
   return existed ? "updated" : "inserted";
 }
 
