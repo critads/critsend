@@ -121,10 +121,17 @@ async function gracefulShutdown(signal: string) {
     try {
       const { closeImportPool } = await import("./import-pool");
       await closeImportPool();
-    } catch {}
+      logger.info("[WORKER] Import pool closed");
+    } catch (err: any) {
+      logger.warn(`[WORKER] closeImportPool failed: ${err?.message || err}`);
+    }
 
-    await pool.end();
-    logger.info("[WORKER] Database pool closed");
+    try {
+      await pool.end();
+      logger.info("[WORKER] Database pool closed");
+    } catch (err: any) {
+      logger.warn(`[WORKER] Main pool close failed: ${err?.message || err}`);
+    }
 
     logger.info("[WORKER] Graceful shutdown complete");
   } catch (err) {

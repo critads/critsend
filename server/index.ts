@@ -69,83 +69,148 @@ import('v8').then((v8) => {
 let isShuttingDown = false;
 let redisSubscriber: ReturnType<typeof createRedisConnection> = null;
 
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS || 25_000);
+const HTTP_DRAIN_TIMEOUT_MS = Number(process.env.HTTP_DRAIN_TIMEOUT_MS || 5_000);
+const BUFFER_FLUSH_TIMEOUT_MS = Number(process.env.BUFFER_FLUSH_TIMEOUT_MS || 8_000);
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | 'timeout'> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<'timeout'>(resolve => {
+    timer = setTimeout(() => resolve('timeout'), ms);
+  });
+  try {
+    const result = await Promise.race([promise, timeout]);
+    clearTimeout(timer!);
+    if (result === 'timeout') {
+      logger.warn(`[SHUTDOWN] ${label} timed out after ${ms}ms`);
+    }
+    return result;
+  } catch (err) {
+    clearTimeout(timer!);
+    throw err;
+  }
+}
+
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  
-  logger.info(`Received ${signal}, starting graceful shutdown...`, { signal });
-  
-  const SHUTDOWN_TIMEOUT = 15000;
-  const CONNECTION_DRAIN_TIMEOUT = 5000;
-  
+
+  logger.info(`[SHUTDOWN] Received ${signal}, starting graceful shutdown...`, { signal });
+
   const forceExitTimer = setTimeout(() => {
-    logger.error('Graceful shutdown timed out, forcing exit');
+    logger.error(`[SHUTDOWN] Force-exit after ${SHUTDOWN_TIMEOUT_MS}ms — cleanup did not finish in time`);
     process.exit(1);
-  }, SHUTDOWN_TIMEOUT);
+  }, SHUTDOWN_TIMEOUT_MS);
   forceExitTimer.unref();
-  
-  try {
+
+  // ── Phase 1: Stop accepting new HTTP connections ────────────────────
+  logger.info('[SHUTDOWN] Phase 1: Stop accepting new connections');
+  await new Promise<void>((resolve) => {
     httpServer.close((err) => {
       if (err) {
-        logger.error('Error closing HTTP server', { error: String(err) });
+        logger.warn(`[SHUTDOWN] httpServer.close callback error: ${String(err)}`);
       } else {
-        logger.info('HTTP server closed - no new connections');
+        logger.info('[SHUTDOWN] HTTP server closed — no new connections');
       }
+      resolve();
     });
-    
+
     setTimeout(() => {
-      logger.info('Destroying remaining keep-alive connections');
+      logger.info('[SHUTDOWN] HTTP drain timeout reached, destroying remaining keep-alive connections');
       httpServer.closeAllConnections();
-    }, CONNECTION_DRAIN_TIMEOUT);
-    
-    stopAllBackgroundWorkers();
-    stopImportGuardian();
-    stopCampaignGuardian();
-    stopMetricsCollector();
-    logger.info('Background workers stopped');
+    }, HTTP_DRAIN_TIMEOUT_MS);
+  });
 
-    await Promise.allSettled([
-      messageQueue.shutdown(),
-      closeBullMQWorkers(),
-      closeQueues(),
-      redisSubscriber?.quit(),
-    ]);
+  // ── Phase 2: Stop background workers and guardians ──────────────────
+  logger.info('[SHUTDOWN] Phase 2: Stop background workers and guardians');
+  try { stopAllBackgroundWorkers(); } catch (err: any) {
+    logger.warn(`[SHUTDOWN] stopAllBackgroundWorkers failed: ${err?.message || err}`);
+  }
+  try { stopImportGuardian(); } catch (err: any) {
+    logger.warn(`[SHUTDOWN] stopImportGuardian failed: ${err?.message || err}`);
+  }
+  try { stopCampaignGuardian(); } catch (err: any) {
+    logger.warn(`[SHUTDOWN] stopCampaignGuardian failed: ${err?.message || err}`);
+  }
+  try { stopMetricsCollector(); } catch (err: any) {
+    logger.warn(`[SHUTDOWN] stopMetricsCollector failed: ${err?.message || err}`);
+  }
+  logger.info('[SHUTDOWN] Background workers stopped');
 
+  // ── Phase 3: Flush in-memory buffers (BEFORE closing pools) ─────────
+  logger.info('[SHUTDOWN] Phase 3: Flush in-memory tracking and bounce buffers');
+  try {
+    const { stopTrackingBufferFlusher } = await import("./tracking-buffer");
+    const result = await withTimeout(stopTrackingBufferFlusher(), BUFFER_FLUSH_TIMEOUT_MS, 'tracking buffer flush');
+    if (result === 'timeout') {
+      logger.warn('[SHUTDOWN] Tracking buffer flush timed out — some events may be lost');
+    } else {
+      logger.info('[SHUTDOWN] Tracking buffer flushed successfully');
+    }
+  } catch (err: any) {
+    logger.warn(`[SHUTDOWN] Tracking buffer flush failed: ${err?.message || err}`);
+  }
+  try {
+    const { stopBounceBufferFlusher } = await import("./bounce-buffer");
+    const result = await withTimeout(stopBounceBufferFlusher(), BUFFER_FLUSH_TIMEOUT_MS, 'bounce buffer flush');
+    if (result === 'timeout') {
+      logger.warn('[SHUTDOWN] Bounce buffer flush timed out — some events may be lost');
+    } else {
+      logger.info('[SHUTDOWN] Bounce buffer flushed successfully');
+    }
+  } catch (err: any) {
+    logger.warn(`[SHUTDOWN] Bounce buffer flush failed: ${err?.message || err}`);
+  }
+
+  // ── Phase 4: Close queues and Redis ─────────────────────────────────
+  logger.info('[SHUTDOWN] Phase 4: Close message queues and Redis');
+  const queueResults = await Promise.allSettled([
+    messageQueue.shutdown(),
+    closeBullMQWorkers(),
+    closeQueues(),
+    redisSubscriber?.quit(),
+  ]);
+  for (let i = 0; i < queueResults.length; i++) {
+    const r = queueResults[i];
+    if (r.status === 'rejected') {
+      const labels = ['messageQueue.shutdown', 'closeBullMQWorkers', 'closeQueues', 'redisSubscriber.quit'];
+      logger.warn(`[SHUTDOWN] ${labels[i]} failed: ${r.reason?.message || r.reason}`);
+    }
+  }
+
+  try {
     await closeRedisConnections();
-    
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    logger.info('[SHUTDOWN] Redis connections closed');
+  } catch (err: any) {
+    logger.warn(`[SHUTDOWN] closeRedisConnections failed: ${err?.message || err}`);
+  }
 
-    // Drain buffered tracking events before closing the dedicated pool.
-    try {
-      const { stopTrackingBufferFlusher } = await import("./tracking-buffer");
-      await stopTrackingBufferFlusher();
-    } catch (err: any) {
-      logger.warn(`[TRACKING BUFFER] stop failed: ${err?.message || err}`);
-    }
-    try {
-      const { stopBounceBufferFlusher } = await import("./bounce-buffer");
-      await stopBounceBufferFlusher();
-    } catch (err: any) {
-      logger.warn(`[BOUNCE BUFFER] stop failed: ${err?.message || err}`);
-    }
-    try {
-      const { closeTrackingPool } = await import("./tracking-pool");
-      await closeTrackingPool();
-    } catch {}
-    try {
-      const { closeImportPool } = await import("./import-pool");
-      await closeImportPool();
-    } catch {}
+  // ── Phase 5: Close database pools ───────────────────────────────────
+  logger.info('[SHUTDOWN] Phase 5: Close database pools');
+  try {
+    const { closeTrackingPool } = await import("./tracking-pool");
+    await closeTrackingPool();
+    logger.info('[SHUTDOWN] Tracking pool closed');
+  } catch (err: any) {
+    logger.warn(`[SHUTDOWN] closeTrackingPool failed: ${err?.message || err}`);
+  }
+  try {
+    const { closeImportPool } = await import("./import-pool");
+    await closeImportPool();
+    logger.info('[SHUTDOWN] Import pool closed');
+  } catch (err: any) {
+    logger.warn(`[SHUTDOWN] closeImportPool failed: ${err?.message || err}`);
+  }
 
+  try {
     const { pool } = await import("./db");
     await pool.end();
-    logger.info('Database pool closed');
-    
-    logger.info('Graceful shutdown complete');
-  } catch (err) {
-    logger.error('Error during shutdown', { error: String(err) });
+    logger.info('[SHUTDOWN] Main database pool closed');
+  } catch (err: any) {
+    logger.warn(`[SHUTDOWN] Main pool close failed: ${err?.message || err}`);
   }
-  
+
+  logger.info('[SHUTDOWN] Graceful shutdown complete');
   process.exit(0);
 }
 
