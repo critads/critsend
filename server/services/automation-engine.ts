@@ -98,10 +98,14 @@ export async function processAutomationEnrollments(): Promise<number> {
         to_jsonb(w.*) AS workflow_json
     `);
 
-    const rows = claimResult.rows as unknown as Array<{
-      enrollment_json: any;
-      workflow_json: any;
-    }>;
+    // db.execute() returns a generic QueryResult<Record<string, unknown>>,
+    // so a typed cast of `.rows` is the documented drizzle pattern for
+    // raw-SQL access. The shape here is fixed by the RETURNING clause above.
+    interface ClaimRow {
+      enrollment_json: Record<string, unknown>;
+      workflow_json: Record<string, unknown>;
+    }
+    const rows = claimResult.rows as unknown as ClaimRow[];
 
     for (const row of rows) {
       const enrollment = jsonRowToEnrollment(row.enrollment_json);
@@ -137,7 +141,7 @@ export async function processAutomationEnrollments(): Promise<number> {
   return processed;
 }
 
-function jsonRowToEnrollment(j: any): AutomationEnrollment {
+function jsonRowToEnrollment(j: Record<string, any>): AutomationEnrollment {
   return {
     id: j.id,
     workflowId: j.workflow_id,
@@ -151,7 +155,7 @@ function jsonRowToEnrollment(j: any): AutomationEnrollment {
   } as AutomationEnrollment;
 }
 
-function jsonRowToWorkflow(j: any): AutomationWorkflow {
+function jsonRowToWorkflow(j: Record<string, any>): AutomationWorkflow {
   return {
     id: j.id,
     name: j.name,
@@ -169,12 +173,46 @@ function jsonRowToWorkflow(j: any): AutomationWorkflow {
   } as AutomationWorkflow;
 }
 
+/**
+ * Pre-step liveness check: re-read enrollment + workflow status from the DB
+ * RIGHT BEFORE running any side effects so cancellations/pauses that landed
+ * after we claimed the row are honored. There is still a narrow TOCTOU
+ * window between this check and the side effect itself (we cannot hold a
+ * row lock across a multi-second SMTP send), but this dramatically
+ * narrows it. send_email re-checks one more time immediately before the
+ * SMTP call to further shrink the window for the most-impactful step.
+ */
+async function isEnrollmentStillActive(enrollment: AutomationEnrollment, workflow: AutomationWorkflow): Promise<boolean> {
+  const [freshEnrollment] = await db
+    .select({ status: automationEnrollments.status })
+    .from(automationEnrollments)
+    .where(eq(automationEnrollments.id, enrollment.id));
+  if (!freshEnrollment || freshEnrollment.status !== "active") {
+    logger.info(`[AUTOMATION] Enrollment ${enrollment.id.substring(0, 8)} no longer active (status=${freshEnrollment?.status}) — skipping side effects`);
+    return false;
+  }
+  const [freshWorkflow] = await db
+    .select({ status: automationWorkflows.status })
+    .from(automationWorkflows)
+    .where(eq(automationWorkflows.id, workflow.id));
+  if (!freshWorkflow || freshWorkflow.status !== "active") {
+    logger.info(`[AUTOMATION] Workflow ${workflow.id.substring(0, 8)} not active (status=${freshWorkflow?.status}) — skipping enrollment side effects (lease will expire)`);
+    return false;
+  }
+  return true;
+}
+
 async function processEnrollment(enrollment: AutomationEnrollment, workflow: AutomationWorkflow): Promise<void> {
   const steps = (workflow.steps as WorkflowStep[]) || [];
   const stepIndex = enrollment.currentStepIndex;
 
   if (stepIndex >= steps.length) {
     await markEnrollmentCompleted(enrollment, workflow);
+    return;
+  }
+
+  // Liveness check immediately before any side effects.
+  if (!(await isEnrollmentStillActive(enrollment, workflow))) {
     return;
   }
 
@@ -196,8 +234,10 @@ async function processEnrollment(enrollment: AutomationEnrollment, workflow: Aut
     case "remove_tag":
       await executeRemoveTagStep(enrollment, step, logPrefix);
       break;
-    default:
-      throw new Error(`Unknown step type: ${(step as any).type}`);
+    default: {
+      const unknownStep: { type?: string } = step;
+      throw new Error(`Unknown step type: ${unknownStep.type ?? "undefined"}`);
+    }
   }
 
   const nextIndex = stepIndex + 1;
@@ -264,6 +304,15 @@ async function executeSendEmailStep(
   const personalizedSubject = subject
     .replace(/\{\{email\}\}/gi, subscriber.email)
     .replace(/\{\{name\}\}/gi, subscriber.name || subscriber.email);
+
+  // Final liveness re-check immediately before the SMTP call. This minimizes
+  // the window in which a cancellation could be issued but the email is
+  // still sent. We cannot eliminate it entirely without holding a row lock
+  // across the network call, which would be unacceptable.
+  if (!(await isEnrollmentStillActive(enrollment, workflow))) {
+    logger.info(`${logPrefix} Cancelled before SMTP dispatch — email NOT sent`);
+    return;
+  }
 
   const result = await sendAutomationEmail(mta, {
     to: subscriber.email,
@@ -360,9 +409,9 @@ async function executeRemoveTagStep(
 async function markEnrollmentCompleted(enrollment: AutomationEnrollment, workflow: AutomationWorkflow): Promise<void> {
   // Conditional update: only complete enrollments that are still active. If a
   // user cancelled the enrollment after we claimed it, the cancellation wins.
-  // updateResult.rowCount tells us whether we actually completed the row, so
-  // we only bump totalCompleted in that case.
-  const updateResult = await db
+  // .returning() gives us a typed array we can check for affected rows
+  // without resorting to driver-specific .rowCount on an `any`-typed result.
+  const completed = await db
     .update(automationEnrollments)
     .set({
       status: "completed",
@@ -373,10 +422,10 @@ async function markEnrollmentCompleted(enrollment: AutomationEnrollment, workflo
     .where(and(
       eq(automationEnrollments.id, enrollment.id),
       eq(automationEnrollments.status, "active"),
-    ));
+    ))
+    .returning({ id: automationEnrollments.id });
 
-  const rowsAffected = (updateResult as any).rowCount ?? 0;
-  if (rowsAffected === 0) {
+  if (completed.length === 0) {
     logger.info(`[AUTOMATION] Enrollment ${enrollment.id.substring(0, 8)} no longer active — skipping completion (was likely cancelled)`);
     return;
   }
