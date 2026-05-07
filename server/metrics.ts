@@ -327,6 +327,27 @@ export const bounceBufferFlushPartialFailure = new client.Counter({
   registers: [register],
 });
 
+// ─── Campaign finalize fallback observability ──────────────────────────────
+export const finalizeBatchRetryTotal = new client.Counter({
+  name: 'critsend_campaign_finalize_batch_retry_total',
+  help: 'Number of times bulk finalize retried with a smaller batch size',
+  labelNames: ['level'] as const,
+  registers: [register],
+});
+
+export const finalizeFallbackTotal = new client.Counter({
+  name: 'critsend_campaign_finalize_fallback_total',
+  help: 'Number of times bulk finalize fell back to individual writes',
+  registers: [register],
+});
+
+export const finalizeFallbackRowsTotal = new client.Counter({
+  name: 'critsend_campaign_finalize_fallback_rows_total',
+  help: 'Total rows finalized via individual-write fallback path',
+  labelNames: ['outcome'] as const,
+  registers: [register],
+});
+
 // ─── Pool safety / load-shed observability ─────────────────────────────────
 export const poolLoadShedTotal = new client.Counter({
   name: 'critsend_db_pool_load_shed_total',

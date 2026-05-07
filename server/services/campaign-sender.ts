@@ -9,7 +9,7 @@ import {
   preregisterCampaignLinks,
 } from "../email-service";
 import { logger } from "../logger";
-import { campaignReconciliationDiscrepancy } from "../metrics";
+import { campaignReconciliationDiscrepancy, finalizeBatchRetryTotal, finalizeFallbackTotal, finalizeFallbackRowsTotal } from "../metrics";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 import { jobEvents } from "../job-events";
 import { messageQueue } from "../message-queue";
@@ -36,6 +36,105 @@ async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxAttempts = S
     }
   }
   throw new Error('Unreachable');
+}
+
+const FALLBACK_CONCURRENCY = 5;
+const BATCH_TIERS = [500, 100, 25];
+
+async function tieredFinalizeFallback(
+  campaignId: string,
+  successBatch: string[],
+  failedBatch: string[],
+  logPrefix: string,
+  initialError: Error,
+): Promise<void> {
+  let remaining = [
+    ...successBatch.map(id => ({ id, success: true })),
+    ...failedBatch.map(id => ({ id, success: false })),
+  ];
+  const originalTotal = remaining.length;
+
+  for (let tierIdx = 0; tierIdx < BATCH_TIERS.length; tierIdx++) {
+    const batchSize = BATCH_TIERS[tierIdx];
+    if (batchSize >= remaining.length) continue;
+
+    const level = String(tierIdx + 1);
+    finalizeBatchRetryTotal.inc({ level });
+    logger.warn(`${logPrefix} Tiered retry level ${level}: splitting ${remaining.length} rows into batches of ${batchSize} (original error: ${initialError.message})`);
+
+    const stillPending: typeof remaining = [];
+    let tierFailed = false;
+
+    for (let i = 0; i < remaining.length; i += batchSize) {
+      const chunk = remaining.slice(i, i + batchSize);
+      const chunkSuccess = chunk.filter(c => c.success).map(c => c.id);
+      const chunkFailed = chunk.filter(c => !c.success).map(c => c.id);
+      try {
+        await storage.bulkFinalizeSends(campaignId, chunkSuccess, chunkFailed);
+      } catch (err: any) {
+        tierFailed = true;
+        stillPending.push(...chunk);
+        logger.warn(`${logPrefix} Tiered retry level ${level} chunk failed (offset ${i}, size ${chunk.length}): ${err.message}`);
+      }
+    }
+
+    if (!tierFailed) {
+      logger.info(`${logPrefix} Tiered retry level ${level} succeeded (batch size ${batchSize}, ${remaining.length} rows)`);
+      return;
+    }
+
+    remaining = stillPending;
+    if (remaining.length === 0) {
+      logger.info(`${logPrefix} Tiered retry level ${level}: all chunks resolved despite partial failures`);
+      return;
+    }
+    logger.warn(`${logPrefix} Tiered retry level ${level}: ${remaining.length} rows still pending after partial failure`);
+  }
+
+  finalizeFallbackTotal.inc();
+  logger.warn(`${logPrefix} All tiered retries exhausted, falling back to individual writes (${remaining.length}/${originalTotal} rows, concurrency ${FALLBACK_CONCURRENCY})`);
+
+  let active = 0;
+  let idx = 0;
+  const errors: string[] = [];
+  const items = remaining;
+
+  await new Promise<void>((resolve) => {
+    function next() {
+      while (active < FALLBACK_CONCURRENCY && idx < items.length) {
+        const item = items[idx++];
+        active++;
+        storage.finalizeSend(campaignId, item.id, item.success)
+          .then(() => {
+            finalizeFallbackRowsTotal.inc({ outcome: "ok" });
+          })
+          .catch(() =>
+            storage.forceFailPendingSend(campaignId, item.id)
+              .then(() => { finalizeFallbackRowsTotal.inc({ outcome: "force_failed" }); })
+              .catch((err: Error) => {
+                finalizeFallbackRowsTotal.inc({ outcome: "lost" });
+                errors.push(`${item.id}: ${err.message}`);
+              })
+          )
+          .finally(() => {
+            active--;
+            if (idx >= items.length && active === 0) {
+              resolve();
+            } else {
+              next();
+            }
+          });
+      }
+    }
+    if (items.length === 0) return resolve();
+    next();
+  });
+
+  if (errors.length > 0) {
+    logger.error(`${logPrefix} Individual fallback completed with ${errors.length} permanent failures: ${errors.slice(0, 5).join("; ")}${errors.length > 5 ? ` (+${errors.length - 5} more)` : ""}`);
+  } else {
+    logger.info(`${logPrefix} Individual fallback completed successfully (${items.length} rows)`);
+  }
 }
 
 export const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency: number }> = {
@@ -240,21 +339,8 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         }
         await Promise.all(flushOps);
       } catch (err: any) {
-        logger.error(`${logPrefix} Bulk finalize failed, falling back: ${err.message}`);
-        for (const sid of successBatch) {
-          try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
-              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
-            });
-          }
-        }
-        for (const sid of failedBatch) {
-          try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
-              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
-            });
-          }
-        }
+        logger.error(`${logPrefix} Bulk finalize failed, entering tiered fallback: ${err.message}`);
+        await tieredFinalizeFallback(campaignId, successBatch, failedBatch, logPrefix, err);
       }
       lastFlushTime = Date.now();
     };
@@ -284,21 +370,8 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         }
         await Promise.all(flushOps);
       } catch (err: any) {
-        logger.error(`${logPrefix} Async flush failed: ${err.message}`);
-        for (const sid of successBatch) {
-          try { await storage.finalizeSend(campaignId, sid, true); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
-              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
-            });
-          }
-        }
-        for (const sid of failedBatch) {
-          try { await storage.finalizeSend(campaignId, sid, false); } catch (e) {
-            await storage.forceFailPendingSend(campaignId, sid).catch((err: any) => {
-              logger.warn(`${logPrefix} forceFailPendingSend failed for ${sid}: ${err.message}`);
-            });
-          }
-        }
+        logger.error(`${logPrefix} Async flush failed, entering tiered fallback: ${err.message}`);
+        await tieredFinalizeFallback(campaignId, successBatch, failedBatch, logPrefix, err);
       }
       lastFlushTime = Date.now();
       flushPromise = null;
