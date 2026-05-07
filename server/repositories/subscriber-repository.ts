@@ -146,14 +146,26 @@ export async function getSubscribersByEmails(emails: string[]): Promise<Map<stri
   return result;
 }
 
+// Cached promise for the automation engine module to avoid resolving the
+// dynamic import on every createSubscriber call (hot path during CSV imports).
+// Dynamic import is required to break the circular dep: automation-engine →
+// storage → repositories → subscriber-repository.
+let _automationEnginePromise: Promise<typeof import("../services/automation-engine")> | null = null;
+function getAutomationEngine() {
+  if (!_automationEnginePromise) {
+    _automationEnginePromise = import("../services/automation-engine");
+  }
+  return _automationEnginePromise;
+}
+
 export async function createSubscriber(data: InsertSubscriber): Promise<Subscriber> {
   const [sub] = await db.insert(subscribers).values({
     ...data,
     email: data.email.toLowerCase(),
   }).returning();
-  import("../services/automation-engine").then(({ checkAndEnrollForTrigger }) => {
-    checkAndEnrollForTrigger("subscriber_added", sub.id).catch(() => {});
-  }).catch(() => {});
+  getAutomationEngine()
+    .then(({ checkAndEnrollForTrigger }) => checkAndEnrollForTrigger("subscriber_added", sub.id))
+    .catch(() => {});
   return sub;
 }
 

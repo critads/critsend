@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { sql, eq, and, lte, inArray } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import { automationWorkflows, automationEnrollments, subscribers } from "@shared/schema";
 import type { AutomationWorkflow, AutomationEnrollment, TriggerType } from "@shared/schema";
 import { logger } from "../logger";
@@ -13,34 +13,50 @@ interface WorkflowStep {
 }
 
 const AUTOMATION_BATCH_SIZE = 50;
-
-let isProcessing = false;
+const AUTOMATION_LEASE_MINUTES = 5;
 
 export async function processAutomationEnrollments(): Promise<number> {
-  if (isProcessing) return 0;
   if (!isPoolHealthy()) return 0;
 
-  isProcessing = true;
   let processed = 0;
 
   try {
-    const dueEnrollments = await db
-      .select({
-        enrollment: automationEnrollments,
-        workflow: automationWorkflows,
-      })
-      .from(automationEnrollments)
-      .innerJoin(automationWorkflows, eq(automationEnrollments.workflowId, automationWorkflows.id))
-      .where(
-        and(
-          eq(automationEnrollments.status, "active"),
-          eq(automationWorkflows.status, "active"),
-          lte(automationEnrollments.nextActionAt, new Date())
-        )
+    // Atomically claim a batch of due enrollments by pushing nextActionAt forward
+    // by a lease window. FOR UPDATE SKIP LOCKED prevents two workers grabbing
+    // the same row; if processing crashes, the lease expires and another worker
+    // picks it up.
+    const claimResult = await db.execute<{
+      enrollment_json: AutomationEnrollment;
+      workflow_json: AutomationWorkflow;
+    }>(sql`
+      WITH claimed AS (
+        SELECT e.id
+        FROM automation_enrollments e
+        JOIN automation_workflows w ON w.id = e.workflow_id
+        WHERE e.status = 'active'
+          AND w.status = 'active'
+          AND e.next_action_at <= NOW()
+        ORDER BY e.next_action_at ASC
+        LIMIT ${AUTOMATION_BATCH_SIZE}
+        FOR UPDATE OF e SKIP LOCKED
       )
-      .limit(AUTOMATION_BATCH_SIZE);
+      UPDATE automation_enrollments e
+      SET next_action_at = NOW() + (${sql.raw(String(AUTOMATION_LEASE_MINUTES))} * INTERVAL '1 minute')
+      FROM claimed c, automation_workflows w
+      WHERE e.id = c.id AND w.id = e.workflow_id
+      RETURNING
+        to_jsonb(e.*) AS enrollment_json,
+        to_jsonb(w.*) AS workflow_json
+    `);
 
-    for (const { enrollment, workflow } of dueEnrollments) {
+    const rows = claimResult.rows as unknown as Array<{
+      enrollment_json: any;
+      workflow_json: any;
+    }>;
+
+    for (const row of rows) {
+      const enrollment = jsonRowToEnrollment(row.enrollment_json);
+      const workflow = jsonRowToWorkflow(row.workflow_json);
       try {
         await processEnrollment(enrollment, workflow);
         processed++;
@@ -52,6 +68,7 @@ export async function processAutomationEnrollments(): Promise<number> {
             status: "failed",
             lastError: (err.message || "Unknown error").slice(0, 1000),
             completedAt: new Date(),
+            nextActionAt: null,
           })
           .where(eq(automationEnrollments.id, enrollment.id));
 
@@ -66,11 +83,41 @@ export async function processAutomationEnrollments(): Promise<number> {
     }
   } catch (err: any) {
     logger.error(`[AUTOMATION] Error in enrollment processor: ${err.message}`);
-  } finally {
-    isProcessing = false;
   }
 
   return processed;
+}
+
+function jsonRowToEnrollment(j: any): AutomationEnrollment {
+  return {
+    id: j.id,
+    workflowId: j.workflow_id,
+    subscriberId: j.subscriber_id,
+    currentStepIndex: j.current_step_index,
+    status: j.status,
+    enrolledAt: j.enrolled_at ? new Date(j.enrolled_at) : new Date(),
+    nextActionAt: j.next_action_at ? new Date(j.next_action_at) : null,
+    completedAt: j.completed_at ? new Date(j.completed_at) : null,
+    lastError: j.last_error ?? null,
+  } as AutomationEnrollment;
+}
+
+function jsonRowToWorkflow(j: any): AutomationWorkflow {
+  return {
+    id: j.id,
+    name: j.name,
+    description: j.description ?? null,
+    status: j.status,
+    triggerType: j.trigger_type,
+    triggerConfig: j.trigger_config ?? {},
+    steps: j.steps ?? [],
+    mtaId: j.mta_id ?? null,
+    totalEnrolled: j.total_enrolled ?? 0,
+    totalCompleted: j.total_completed ?? 0,
+    totalFailed: j.total_failed ?? 0,
+    createdAt: j.created_at ? new Date(j.created_at) : new Date(),
+    updatedAt: j.updated_at ? new Date(j.updated_at) : new Date(),
+  } as AutomationWorkflow;
 }
 
 async function processEnrollment(enrollment: AutomationEnrollment, workflow: AutomationWorkflow): Promise<void> {
@@ -295,26 +342,18 @@ export async function checkAndEnrollForTrigger(
       if (!matchesTriggerConfig(workflow, triggerType, context)) continue;
 
       try {
-        await db
-          .insert(automationEnrollments)
-          .values({
-            workflowId: workflow.id,
-            subscriberId,
-            status: "active",
-            nextActionAt: new Date(),
-          })
-          .onConflictDoNothing();
-
-        const result = await db.execute(sql`
-          SELECT id FROM automation_enrollments
-          WHERE workflow_id = ${workflow.id}
-            AND subscriber_id = ${subscriberId}
-            AND status = 'active'
-            AND current_step_index = 0
-            AND enrolled_at > NOW() - INTERVAL '5 seconds'
+        // INSERT ... ON CONFLICT DO NOTHING RETURNING — only increment counter
+        // when a row is actually inserted, so concurrent triggers cannot
+        // overcount totalEnrolled.
+        const insertResult = await db.execute(sql`
+          INSERT INTO automation_enrollments
+            (workflow_id, subscriber_id, status, next_action_at, current_step_index)
+          VALUES (${workflow.id}, ${subscriberId}, 'active', NOW(), 0)
+          ON CONFLICT DO NOTHING
+          RETURNING id
         `);
 
-        if (result.rows.length > 0) {
+        if (insertResult.rows.length > 0) {
           await db
             .update(automationWorkflows)
             .set({

@@ -5,6 +5,15 @@ import { eq, and, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { z } from "zod";
 
+(async () => {
+  try {
+    await db.execute(sql`ALTER TABLE automation_workflows ADD COLUMN IF NOT EXISTS mta_id varchar`);
+    logger.info("[AUTOMATION] Bootstrap migration: mta_id column ready");
+  } catch (err: any) {
+    logger.error(`[AUTOMATION] Bootstrap migration FAILED (mta_id): ${err?.message || err}`);
+  }
+})();
+
 export function registerAutomationRoutes(app: Express, helpers: { validateId: (id: string) => boolean }) {
   const { validateId } = helpers;
 
@@ -244,6 +253,122 @@ export function registerAutomationRoutes(app: Express, helpers: { validateId: (i
       }
       logger.error("Error enrolling subscriber:", error);
       res.status(500).json({ error: "Failed to enroll subscriber" });
+    }
+  });
+
+  app.post("/api/automation/:id/enrollments/:enrollmentId/retry", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id) || !validateId(req.params.enrollmentId)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const [enrollment] = await db
+        .select()
+        .from(automationEnrollments)
+        .where(
+          and(
+            eq(automationEnrollments.id, req.params.enrollmentId),
+            eq(automationEnrollments.workflowId, req.params.id)
+          )
+        );
+      if (!enrollment) {
+        return res.status(404).json({ error: "Enrollment not found" });
+      }
+      if (enrollment.status !== "failed") {
+        return res.status(400).json({ error: "Only failed enrollments can be retried" });
+      }
+      const [updated] = await db
+        .update(automationEnrollments)
+        .set({
+          status: "active",
+          nextActionAt: new Date(),
+          completedAt: null,
+          lastError: null,
+        })
+        .where(eq(automationEnrollments.id, req.params.enrollmentId))
+        .returning();
+      await db
+        .update(automationWorkflows)
+        .set({
+          totalFailed: sql`GREATEST(${automationWorkflows.totalFailed} - 1, 0)`,
+          updatedAt: new Date(),
+        })
+        .where(eq(automationWorkflows.id, req.params.id));
+      res.json(updated);
+    } catch (error) {
+      logger.error("Error retrying automation enrollment:", error);
+      res.status(500).json({ error: "Failed to retry enrollment" });
+    }
+  });
+
+  app.post("/api/automation/:id/enrollments/:enrollmentId/skip", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id) || !validateId(req.params.enrollmentId)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const [enrollment] = await db
+        .select()
+        .from(automationEnrollments)
+        .where(
+          and(
+            eq(automationEnrollments.id, req.params.enrollmentId),
+            eq(automationEnrollments.workflowId, req.params.id)
+          )
+        );
+      if (!enrollment) {
+        return res.status(404).json({ error: "Enrollment not found" });
+      }
+      const [workflow] = await db
+        .select()
+        .from(automationWorkflows)
+        .where(eq(automationWorkflows.id, req.params.id));
+      const steps = (workflow?.steps as any[]) || [];
+      const nextIndex = enrollment.currentStepIndex + 1;
+      const wasFailed = enrollment.status === "failed";
+      if (nextIndex >= steps.length) {
+        const [updated] = await db
+          .update(automationEnrollments)
+          .set({
+            status: "completed",
+            completedAt: new Date(),
+            nextActionAt: null,
+            lastError: null,
+          })
+          .where(eq(automationEnrollments.id, req.params.enrollmentId))
+          .returning();
+        await db
+          .update(automationWorkflows)
+          .set({
+            totalCompleted: sql`${automationWorkflows.totalCompleted} + 1`,
+            ...(wasFailed ? { totalFailed: sql`GREATEST(${automationWorkflows.totalFailed} - 1, 0)` } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(automationWorkflows.id, req.params.id));
+        return res.json(updated);
+      }
+      const [updated] = await db
+        .update(automationEnrollments)
+        .set({
+          currentStepIndex: nextIndex,
+          status: "active",
+          nextActionAt: new Date(),
+          completedAt: null,
+          lastError: null,
+        })
+        .where(eq(automationEnrollments.id, req.params.enrollmentId))
+        .returning();
+      if (wasFailed) {
+        await db
+          .update(automationWorkflows)
+          .set({
+            totalFailed: sql`GREATEST(${automationWorkflows.totalFailed} - 1, 0)`,
+            updatedAt: new Date(),
+          })
+          .where(eq(automationWorkflows.id, req.params.id));
+      }
+      res.json(updated);
+    } catch (error) {
+      logger.error("Error skipping automation enrollment step:", error);
+      res.status(500).json({ error: "Failed to skip step" });
     }
   });
 
