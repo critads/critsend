@@ -68,7 +68,7 @@ export async function getCampaignsPaginated(opts: {
       id: campaigns.id,
       name: campaigns.name,
       mtaId: campaigns.mtaId,
-      mtaName: sql<string | null>`(SELECT ${mtas.name} FROM ${mtas} WHERE ${mtas.id} = ${campaigns.mtaId})`.as("mta_name"),
+      mtaName: mtas.name,
       segmentId: campaigns.segmentId,
       fromName: campaigns.fromName,
       fromEmail: campaigns.fromEmail,
@@ -108,6 +108,7 @@ export async function getCampaignsPaginated(opts: {
       completedAt: campaigns.completedAt,
     })
     .from(campaigns)
+    .leftJoin(mtas, eq(campaigns.mtaId, mtas.id))
     .where(whereClause)
     .orderBy(desc(campaigns.createdAt))
     .limit(limit)
@@ -382,15 +383,22 @@ export async function spawnFollowUpCampaign(
 export async function getLinkedFollowUp(campaignId: string): Promise<{ parent: Campaign | null; child: Campaign | null }> {
   const c = await getCampaign(campaignId);
   if (!c) return { parent: null, child: null };
-  let parent: Campaign | null = null;
-  let child: Campaign | null = null;
-  if (c.parentCampaignId) {
-    parent = (await getCampaign(c.parentCampaignId)) ?? null;
-  }
-  if (c.followUpCampaignId) {
-    child = (await getCampaign(c.followUpCampaignId)) ?? null;
-  }
-  return { parent, child };
+
+  const idsToFetch: string[] = [];
+  if (c.parentCampaignId) idsToFetch.push(c.parentCampaignId);
+  if (c.followUpCampaignId) idsToFetch.push(c.followUpCampaignId);
+  if (idsToFetch.length === 0) return { parent: null, child: null };
+
+  const linked = await db
+    .select()
+    .from(campaigns)
+    .where(sql`${campaigns.id} = ANY(${idsToFetch})`);
+
+  const byId = new Map(linked.map(r => [r.id, r]));
+  return {
+    parent: c.parentCampaignId ? byId.get(c.parentCampaignId) ?? null : null,
+    child: c.followUpCampaignId ? byId.get(c.followUpCampaignId) ?? null : null,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
