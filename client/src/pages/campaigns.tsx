@@ -71,18 +71,34 @@ function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; 
   };
 
   const config = variants[status] || variants.draft;
+  const label = status.charAt(0).toUpperCase() + status.slice(1);
 
-  return (
+  const badge = (
     <Badge
       variant={config.variant}
       className={`gap-1 ${config.className || ""} ${onClick ? "cursor-pointer" : ""}`}
-      onClick={onClick}
-      data-testid={onClick && campaignId ? `badge-failed-status-${campaignId}` : undefined}
     >
       {config.icon}
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {label}
     </Badge>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+        className="inline-flex focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
+        aria-label={`View ${label} details`}
+        data-testid={campaignId ? `badge-failed-status-${campaignId}` : undefined}
+      >
+        {badge}
+      </button>
+    );
+  }
+
+  return badge;
 }
 
 // apiRequest throws `${status}: ${body}` on non-2xx (see queryClient.ts).
@@ -425,7 +441,7 @@ export default function Campaigns() {
                     <TableHead><span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />Opens</span></TableHead>
                     <TableHead><span className="flex items-center gap-1"><MousePointerClick className="h-3.5 w-3.5" />Clicks</span></TableHead>
                     <TableHead><span className="flex items-center gap-1"><UserMinus className="h-3.5 w-3.5" />Unsubs</span></TableHead>
-                    <TableHead><span className="flex items-center gap-1"><ShieldAlert className="h-3.5 w-3.5" />Plaintes</span></TableHead>
+                    <TableHead><span className="flex items-center gap-1"><ShieldAlert className="h-3.5 w-3.5" />Complaints</span></TableHead>
                     <TableHead>Dates</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
