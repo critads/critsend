@@ -106,7 +106,7 @@ export default function Segments() {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [refreshingSegmentId, setRefreshingSegmentId] = useState<string | null>(null);
+  const [refreshingSegmentIds, setRefreshingSegmentIds] = useState<Set<string>>(new Set());
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchInput(value);
@@ -202,7 +202,7 @@ export default function Segments() {
   };
 
   const handleRefreshSingleCount = async (segmentId: string) => {
-    setRefreshingSegmentId(segmentId);
+    setRefreshingSegmentIds((prev) => new Set(prev).add(segmentId));
     try {
       const res = await fetch(
         `/api/segments/counts?ids=${encodeURIComponent(segmentId)}&refresh=true`,
@@ -222,7 +222,11 @@ export default function Segments() {
         variant: "destructive",
       });
     } finally {
-      setRefreshingSegmentId(null);
+      setRefreshingSegmentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(segmentId);
+        return next;
+      });
     }
   };
 
@@ -617,11 +621,11 @@ export default function Segments() {
                       size="icon"
                       className="h-6 w-6"
                       onClick={() => handleRefreshSingleCount(segment.id)}
-                      disabled={refreshingSegmentId === segment.id}
+                      disabled={refreshingSegmentIds.has(segment.id)}
                       title="Refresh subscriber count"
                       data-testid={`button-refresh-count-${segment.id}`}
                     >
-                      {refreshingSegmentId === segment.id ? (
+                      {refreshingSegmentIds.has(segment.id) ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <RefreshCw className="h-3.5 w-3.5" />
