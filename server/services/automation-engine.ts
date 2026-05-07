@@ -300,14 +300,22 @@ async function executeSendEmailStep(
     return;
   }
 
-  const mtaId = workflow.mtaId;
-  if (!mtaId) {
-    throw new Error("Workflow has no MTA configured for email sending");
-  }
-
-  const mta = await storage.getMta(mtaId);
+  // Resolve MTA: prefer the workflow's configured MTA; fall back to the
+  // account's first available MTA so workflows authored before the mta_id
+  // column existed (or via UI paths that haven't yet exposed MTA selection)
+  // still execute instead of failing every send_email step.
+  let mta = workflow.mtaId ? await storage.getMta(workflow.mtaId) : null;
   if (!mta) {
-    throw new Error(`MTA ${mtaId} not found`);
+    const allMtas = await storage.getMtas();
+    if (allMtas.length === 0) {
+      throw new Error("No MTAs configured — cannot send automation email");
+    }
+    mta = allMtas[0];
+    if (!workflow.mtaId) {
+      logger.warn(`${logPrefix} Workflow has no MTA configured; falling back to MTA '${mta.name}' (${mta.id.substring(0, 8)})`);
+    } else {
+      logger.warn(`${logPrefix} Configured MTA ${workflow.mtaId.substring(0, 8)} not found; falling back to '${mta.name}' (${mta.id.substring(0, 8)})`);
+    }
   }
 
   const personalizedHtml = htmlContent

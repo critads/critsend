@@ -235,6 +235,10 @@ export function registerAutomationRoutes(app: Express, helpers: { validateId: (i
           workflowId: req.params.id,
           subscriberId,
           status: "active",
+          // The processor only claims rows with next_action_at <= NOW().
+          // Without this, manually-enrolled rows would never be picked up
+          // and would sit idle forever. Mirrors trigger-based enrollment.
+          nextActionAt: new Date(),
         })
         .returning();
       await db
