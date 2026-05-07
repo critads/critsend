@@ -195,8 +195,9 @@ export function loadShedMiddleware(req: Request, res: Response, next: NextFuncti
   if (now - lastShedLogAt > SHED_LOG_INTERVAL_MS) {
     lastShedLogAt = now;
     const persistedFor = waitingSinceMs > 0 ? now - waitingSinceMs : 0;
+    const reqId = (req as any).requestId || '-';
     logger.warn(
-      `[POOL SAFETY] Load-shedding ${req.method} ${req.path}: pool active=${pool.totalCount - pool.idleCount}/${MAIN_POOL_MAX}, waiting=${waiting} (for ${persistedFor}ms), saturation=${saturation.toFixed(2)} (reason=${reason})`,
+      `[POOL SAFETY] Load-shedding ${req.method} ${req.path}: pool active=${pool.totalCount - pool.idleCount}/${MAIN_POOL_MAX}, waiting=${waiting} (for ${persistedFor}ms), saturation=${saturation.toFixed(2)} (reason=${reason}) rid=${reqId}`,
     );
   }
   sendServiceBusy(res);
@@ -219,7 +220,8 @@ export function poolErrorHandler(err: unknown, req: Request, res: Response, next
   if (!isPoolCheckoutError(err)) return next(err);
   poolCheckoutTimeoutTotal.inc();
   const msg = err instanceof Error ? err.message : String(err);
-  logger.warn(`[POOL SAFETY] Checkout timeout on ${req.method} ${req.path}: ${msg}`);
+  const reqId = (req as any).requestId || '-';
+  logger.warn(`[POOL SAFETY] Checkout timeout on ${req.method} ${req.path}: ${msg} rid=${reqId}`);
   if (res.headersSent) return next(err);
   sendServiceBusy(res);
 }
