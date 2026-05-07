@@ -20,7 +20,6 @@ export function registerSegmentRoutes(app: Express, helpers: {
 
   app.get("/api/segments", async (req: Request, res: Response) => {
     try {
-      const segmentsList = await storage.getSegments();
       const wantsPaginated = req.query.paginate === "true" || req.query.page !== undefined || req.query.limit !== undefined;
       if (wantsPaginated) {
         const rawPage = req.query.page;
@@ -35,15 +34,11 @@ export function registerSegmentRoutes(app: Express, helpers: {
             error: "Invalid pagination: page must be an integer in [1,10000] and limit must be an integer in [1,100]",
           });
         }
-        const searchTerm = (typeof req.query.search === "string" ? req.query.search : "").trim().toLowerCase();
-        const filtered = searchTerm
-          ? segmentsList.filter((s) => s.name.toLowerCase().includes(searchTerm))
-          : segmentsList;
-        const total = filtered.length;
-        const start = (pageNum - 1) * limitNum;
-        const slice = filtered.slice(start, start + limitNum);
-        return res.json({ segments: slice, total, page: pageNum, limit: limitNum });
+        const search = (typeof req.query.search === "string" ? req.query.search : "").trim() || undefined;
+        const result = await storage.getSegmentsPaginated({ page: pageNum, limit: limitNum, search });
+        return res.json({ segments: result.segments, total: result.total, page: pageNum, limit: limitNum });
       }
+      const segmentsList = await storage.getSegments();
       res.json(segmentsList);
     } catch (error) {
       logger.error("Error fetching segments:", error);

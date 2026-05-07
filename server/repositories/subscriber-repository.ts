@@ -391,6 +391,34 @@ export async function getSegments(): Promise<Segment[]> {
   return db.select().from(segments).orderBy(desc(segments.createdAt));
 }
 
+export async function getSegmentsPaginated(opts: {
+  page: number;
+  limit: number;
+  search?: string;
+}): Promise<{ segments: Segment[]; total: number }> {
+  const { page, limit, search } = opts;
+  const conditions = search
+    ? [sql`${segments.name} ILIKE ${"%" + search + "%"}`]
+    : [];
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(segments)
+    .where(whereClause);
+  const total = countResult?.count ?? 0;
+
+  const rows = await db
+    .select()
+    .from(segments)
+    .where(whereClause)
+    .orderBy(desc(segments.createdAt))
+    .limit(limit)
+    .offset((page - 1) * limit);
+
+  return { segments: rows, total };
+}
+
 export async function getSegment(id: string): Promise<Segment | undefined> {
   const [segment] = await db.select().from(segments).where(eq(segments.id, id));
   return segment;

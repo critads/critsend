@@ -57,6 +57,7 @@ export interface IStorage {
   countOpenersForParentCampaign(parentCampaignId: string): Promise<number>;
   countSubscribersForRules(rules: any[]): Promise<number>;
   getSegments(): Promise<Segment[]>;
+  getSegmentsPaginated(opts: { page: number; limit: number; search?: string }): Promise<{ segments: Segment[]; total: number }>;
   getSegment(id: string): Promise<Segment | undefined>;
   createSegment(data: InsertSegment): Promise<Segment>;
   updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined>;
