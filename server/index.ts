@@ -665,9 +665,11 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
   runAnalyticsBootstrapMigrations();
 
-  const { ensureSegmentNameTrigramIndex } = await import("./repositories/subscriber-repository");
+  const { ensureSegmentNameTrigramIndex, ensureSegmentNameLowerIndex } = await import("./repositories/subscriber-repository");
   ensureSegmentNameTrigramIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create segment name trigram index (non-fatal):', err?.message || err));
+  ensureSegmentNameLowerIndex()
+    .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create segment name lower index (non-fatal):', err?.message || err));
 
   const { ensureCampaignNameTrigramIndex } = await import("./repositories/campaign-repository");
   ensureCampaignNameTrigramIndex()

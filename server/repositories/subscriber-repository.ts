@@ -24,6 +24,7 @@ const REDIS_SEGMENT_COUNT_PREFIX = "segment:count:";
 
 const segmentCountCache = new Map<string, { count: number; timestamp: number }>();
 
+
 // Auto-prune expired in-memory entries every 5 minutes (no-op when Redis is used)
 setInterval(() => {
   const now = Date.now();
@@ -533,10 +534,33 @@ export async function ensureSegmentNameTrigramIndex(): Promise<LockResult | "exi
   );
   if (result === "ran") {
     logger.info("[TRIGRAM] segment_name_trgm_idx created successfully");
+
   } else if (result === "skipped") {
     logger.info("[TRIGRAM] segment_name_trgm_idx creation skipped — another process is handling it");
   } else {
     logger.warn("[TRIGRAM] segment_name_trgm_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
+export async function ensureSegmentNameLowerIndex(): Promise<LockResult | "exists"> {
+  if (await indexExistsAndValid("segment_name_lower_idx")) {
+    logger.info("[INDEX] segment_name_lower_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.SEGMENT_NAME_LOWER,
+    "SEGMENT_NAME_LOWER",
+    async (_lockClient) => {
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS segment_name_lower_idx ON segments (lower(name) text_pattern_ops)`);
+    },
+  );
+  if (result === "ran") {
+    logger.info("[INDEX] segment_name_lower_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[INDEX] segment_name_lower_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[INDEX] segment_name_lower_idx creation encountered an error during advisory lock");
   }
   return result;
 }
