@@ -10,7 +10,7 @@ import {
 import { db, pool } from "../db";
 import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { logger } from "../logger";
-import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS } from "../bootstrap-lock";
+import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
 import { compileSegmentRules } from "../services/segment-compiler";
 import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
 import { redisConnection, isRedisConfigured } from "../redis";
@@ -516,6 +516,29 @@ export async function ensureTrigramIndex(): Promise<void> {
       await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS email_trgm_idx ON subscribers USING gin (email gin_trgm_ops)`);
     },
   );
+}
+
+export async function ensureSegmentNameTrigramIndex(): Promise<LockResult | "exists"> {
+  if (await indexExistsAndValid("segment_name_trgm_idx")) {
+    logger.info("[TRIGRAM] segment_name_trgm_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.SEGMENT_NAME_TRGM,
+    "SEGMENT_NAME_TRGM",
+    async (_lockClient) => {
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS segment_name_trgm_idx ON segments USING gin (name gin_trgm_ops)`);
+    },
+  );
+  if (result === "ran") {
+    logger.info("[TRIGRAM] segment_name_trgm_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[TRIGRAM] segment_name_trgm_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[TRIGRAM] segment_name_trgm_idx creation encountered an error during advisory lock");
+  }
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════

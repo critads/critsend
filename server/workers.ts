@@ -1081,6 +1081,9 @@ function startImportJobProcessor() {
     .then(() => logger.info('[IMPORT] Email trigram index verified'))
     .catch((err: any) => logger.error('[IMPORT] Failed to create email trigram index:', err.message));
 
+  storage.ensureSegmentNameTrigramIndex()
+    .catch((err: any) => logger.error('[IMPORT] Failed to create segment name trigram index:', err.message));
+
   (async () => {
     try {
       const recoveredCount = await storage.recoverStuckImportJobs();

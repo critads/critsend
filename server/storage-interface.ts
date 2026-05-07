@@ -28,6 +28,7 @@ import type {
   CampaignListItem,
 } from "@shared/schema";
 import type { SegmentRulesV2 } from "@shared/schema";
+import type { LockResult } from "./bootstrap-lock";
 
 export interface IStorage {
   // ═══════════════════════════════════════════════════════════════
@@ -203,6 +204,7 @@ export interface IStorage {
   recreateSubscriberGinIndexes(): Promise<void>;
   areGinIndexesPresent(): Promise<boolean>;
   ensureTrigramIndex(): Promise<void>;
+  ensureSegmentNameTrigramIndex(): Promise<LockResult | "exists">;
 
   // ═══════════════════════════════════════════════════════════════
   // TAG OPERATIONS
