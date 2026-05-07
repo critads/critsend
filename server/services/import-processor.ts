@@ -1,5 +1,6 @@
 import * as readline from "readline";
 import * as fs from "fs";
+import * as path from "path";
 import { from as copyFrom } from "pg-copy-streams";
 import { sql } from "drizzle-orm";
 import { importPool as pool, importDb as db } from "../import-pool";
@@ -12,6 +13,36 @@ import { IMPORT_CONCURRENCY } from "../connection-budget";
 const objectStorageService = new ObjectStorageService();
 
 const CONCURRENCY = IMPORT_CONCURRENCY;
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fileExistsWithRetry(filePath: string, jobId: string, retries = 3, delayMs = 2000): Promise<boolean> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    if (fs.existsSync(filePath)) return true;
+    if (attempt < retries) {
+      logger.warn(`[IMPORT] ${jobId}: fs.existsSync returned false for ${filePath} (attempt ${attempt}/${retries}), retrying in ${delayMs}ms...`);
+      await waitMs(delayMs);
+    }
+  }
+  try {
+    const dir = path.dirname(filePath);
+    const basename = path.basename(filePath);
+    const dirContents = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+    const matches = dirContents.filter((f: string) => f.includes(basename.slice(0, 20)));
+    logger.error(`[IMPORT] ${jobId}: File not found after ${retries} retries: ${filePath}`, {
+      dirExists: fs.existsSync(dir),
+      dirFileCount: dirContents.length,
+      similarFiles: matches.slice(0, 5),
+      cwd: process.cwd(),
+      pid: process.pid,
+    });
+  } catch (diagErr: any) {
+    logger.error(`[IMPORT] ${jobId}: File not found and diagnostics failed: ${diagErr.message}`);
+  }
+  return false;
+}
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -544,7 +575,7 @@ async function peekCsvHasRefsColumn(csvFilePath: string): Promise<boolean> {
       rl.on("close", () => resolve(firstLine));
     });
   } else {
-    if (!fs.existsSync(csvFilePath)) return false;
+    if (!(await fileExistsWithRetry(csvFilePath, "peek"))) return false;
     const stream = fs.createReadStream(csvFilePath, { encoding: "utf-8", highWaterMark: 1024 });
     firstLine = await new Promise<string>((resolve, reject) => {
       const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -598,7 +629,7 @@ async function processImport(
     fileSizeBytes = queueItemForSize?.fileSizeBytes || 0;
     logger.info(`[IMPORT] ${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
   } else {
-    if (!fs.existsSync(csvFilePath)) {
+    if (!(await fileExistsWithRetry(csvFilePath, importJobId))) {
       const existingJob = await storage.getImportJob(importJobId);
       if (existingJob?.status === "completed") {
         logger.info(`[IMPORT] ${importJobId}: CSV file already cleaned up from previous successful run — skipping re-processing`);
@@ -1238,7 +1269,7 @@ async function processRefsImportPhase1(
     }
     fileStream = await objectStorageService.getObjectStream(csvFilePath);
   } else {
-    if (!fs.existsSync(csvFilePath)) {
+    if (!(await fileExistsWithRetry(csvFilePath, importJobId))) {
       const existingJob = await storage.getImportJob(importJobId);
       if (existingJob?.status === "completed" || (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0))) {
         logger.warn(`[IMPORT] ${importJobId}: [REFS PHASE 1] CSV missing but all rows already imported — skipping`);
@@ -1453,7 +1484,7 @@ async function processRefsImportPhase2(
     }
     fileStream = await objectStorageService.getObjectStream(resolvedCsvPath);
   } else {
-    if (!fs.existsSync(resolvedCsvPath)) {
+    if (!(await fileExistsWithRetry(resolvedCsvPath, importJobId))) {
       const existingJob = await storage.getImportJob(importJobId);
       if (existingJob?.status === "completed" || (existingJob && (existingJob.totalRows ?? 0) > 0 && (existingJob.processedRows ?? 0) >= (existingJob.totalRows ?? 0))) {
         logger.warn(`[IMPORT] ${importJobId}: [REFS PHASE 2] CSV missing but all rows already imported — skipping`);
