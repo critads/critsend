@@ -4,16 +4,65 @@ import { automationWorkflows, automationEnrollments, subscribers } from "@shared
 import type { AutomationWorkflow, AutomationEnrollment, TriggerType } from "@shared/schema";
 import { logger } from "../logger";
 import { isPoolHealthy } from "../db";
-import { sendTestEmailViaSMTP } from "../email-service";
+import { sendAutomationEmail } from "../email-service";
 import { storage } from "../storage";
+import { automationQueue } from "../queues";
 
 interface WorkflowStep {
   type: "send_email" | "wait" | "add_tag" | "remove_tag";
-  config: Record<string, string | number>;
+  config: {
+    subject?: string;
+    fromName?: string;
+    fromEmail?: string;
+    htmlContent?: string;
+    duration?: number | string;
+    unit?: string;
+    tagName?: string;
+  };
+}
+
+interface WorkflowRow {
+  id: string;
+  name: string;
+  status: string;
+  triggerType: string;
+  triggerConfig: Record<string, string>;
+  steps: WorkflowStep[];
+  mtaId: string | null;
 }
 
 const AUTOMATION_BATCH_SIZE = 50;
 const AUTOMATION_LEASE_MINUTES = 5;
+
+// Bootstrap migration: ALTER TABLE ... ADD COLUMN IF NOT EXISTS is idempotent
+// and concurrent-safe at the PostgreSQL level. Runs once per process at module
+// load (web + worker) before the engine begins polling.
+(async () => {
+  try {
+    await db.execute(sql`ALTER TABLE automation_workflows ADD COLUMN IF NOT EXISTS mta_id varchar`);
+    logger.info("[AUTOMATION] Bootstrap migration: mta_id column ready");
+  } catch (err: any) {
+    logger.error(`[AUTOMATION] Bootstrap migration FAILED (mta_id): ${err?.message || err}`);
+  }
+})();
+
+/**
+ * Notify the automation BullMQ worker (if Redis is configured) to immediately
+ * poll for due enrollments. Falls back silently to the periodic poller when
+ * Redis isn't available.
+ */
+async function notifyAutomationWorker(): Promise<void> {
+  if (!automationQueue) return;
+  try {
+    await automationQueue.add(
+      "poll",
+      { triggeredAt: Date.now() },
+      { removeOnComplete: true, removeOnFail: true }
+    );
+  } catch (err: any) {
+    logger.error(`[AUTOMATION] Failed to enqueue BullMQ poll job: ${err?.message || err}`);
+  }
+}
 
 export async function processAutomationEnrollments(): Promise<number> {
   if (!isPoolHealthy()) return 0;
@@ -172,12 +221,7 @@ async function executeSendEmailStep(
   step: WorkflowStep,
   logPrefix: string
 ): Promise<void> {
-  const { subject, fromName, fromEmail, htmlContent } = step.config as {
-    subject?: string;
-    fromName?: string;
-    fromEmail?: string;
-    htmlContent?: string;
-  };
+  const { subject, fromName, fromEmail, htmlContent } = step.config;
 
   if (!subject || !htmlContent) {
     throw new Error("send_email step missing required subject or htmlContent");
@@ -197,7 +241,7 @@ async function executeSendEmailStep(
     return;
   }
 
-  const mtaId = (workflow as any).mtaId;
+  const mtaId = workflow.mtaId;
   if (!mtaId) {
     throw new Error("Workflow has no MTA configured for email sending");
   }
@@ -207,18 +251,18 @@ async function executeSendEmailStep(
     throw new Error(`MTA ${mtaId} not found`);
   }
 
-  const personalizedHtml = (htmlContent as string)
+  const personalizedHtml = htmlContent
     .replace(/\{\{email\}\}/gi, subscriber.email)
     .replace(/\{\{name\}\}/gi, subscriber.name || subscriber.email);
 
-  const personalizedSubject = (subject as string)
+  const personalizedSubject = subject
     .replace(/\{\{email\}\}/gi, subscriber.email)
     .replace(/\{\{name\}\}/gi, subscriber.name || subscriber.email);
 
-  const result = await sendTestEmailViaSMTP(mta, {
+  const result = await sendAutomationEmail(mta, {
     to: subscriber.email,
-    fromName: (fromName as string) || mta.fromName || "Critsend",
-    fromEmail: (fromEmail as string) || mta.fromEmail || mta.username,
+    fromName: fromName || mta.fromName || "Critsend",
+    fromEmail: fromEmail || mta.fromEmail || mta.username,
     subject: personalizedSubject,
     htmlContent: personalizedHtml,
   });
@@ -365,6 +409,11 @@ export async function checkAndEnrollForTrigger(
           logger.info(
             `[AUTOMATION] Enrolled subscriber ${subscriberId.substring(0, 8)} in workflow '${workflow.name}' (trigger: ${triggerType})`
           );
+
+          // Wake the BullMQ automation worker so the new enrollment is processed
+          // immediately rather than waiting for the next periodic poll. Falls
+          // back to the periodic poller when Redis is not configured.
+          notifyAutomationWorker().catch(() => {});
         }
       } catch (err: any) {
         if (err?.code === "23505") continue;

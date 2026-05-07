@@ -744,6 +744,21 @@ export interface TestEmailOptions {
   headers?: Record<string, string>;
 }
 
+/**
+ * Single-shot transactional send (no per-campaign tracking, but uses the same
+ * MTA transport, retries, image rewriting and footer infrastructure as the
+ * campaign sender). Used by the automation engine for send_email steps.
+ *
+ * This is an alias of sendTestEmailViaSMTP — kept distinct so callers express
+ * intent and we can specialize it later (e.g. opt-in tracking).
+ */
+export async function sendAutomationEmail(
+  mta: Mta,
+  options: TestEmailOptions
+): Promise<SendEmailResult> {
+  return sendTestEmailViaSMTP(mta, options);
+}
+
 export async function sendTestEmailViaSMTP(
   mta: Mta,
   options: TestEmailOptions

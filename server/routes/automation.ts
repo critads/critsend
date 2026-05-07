@@ -4,15 +4,10 @@ import { automationWorkflows, automationEnrollments, subscribers, insertAutomati
 import { eq, and, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { z } from "zod";
-
-(async () => {
-  try {
-    await db.execute(sql`ALTER TABLE automation_workflows ADD COLUMN IF NOT EXISTS mta_id varchar`);
-    logger.info("[AUTOMATION] Bootstrap migration: mta_id column ready");
-  } catch (err: any) {
-    logger.error(`[AUTOMATION] Bootstrap migration FAILED (mta_id): ${err?.message || err}`);
-  }
-})();
+// Bootstrap migration for automation_workflows.mta_id is performed inside
+// server/services/automation-engine.ts so it runs in BOTH the web process
+// (via these routes) and the worker process (via workers.ts) before the
+// engine starts polling.
 
 export function registerAutomationRoutes(app: Express, helpers: { validateId: (id: string) => boolean }) {
   const { validateId } = helpers;
