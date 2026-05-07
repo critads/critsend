@@ -210,6 +210,7 @@ export interface IStorage {
   ensureCampaignSubjectTrigramIndex(): Promise<LockResult | "exists">;
   ensureMtaNameTrigramIndex(): Promise<LockResult | "exists">;
   ensureSegmentNameLowerIndex(): Promise<LockResult | "exists">;
+  ensureMtaHostnameTrigramIndex(): Promise<LockResult | "exists">;
 
   // ═══════════════════════════════════════════════════════════════
   // TAG OPERATIONS

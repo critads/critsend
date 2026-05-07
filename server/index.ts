@@ -677,9 +677,11 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   ensureCampaignSubjectTrigramIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign subject trigram index (non-fatal):', err?.message || err));
 
-  const { ensureMtaNameTrigramIndex } = await import("./repositories/mta-repository");
+  const { ensureMtaNameTrigramIndex, ensureMtaHostnameTrigramIndex } = await import("./repositories/mta-repository");
   ensureMtaNameTrigramIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create MTA name trigram index (non-fatal):', err?.message || err));
+  ensureMtaHostnameTrigramIndex()
+    .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create MTA hostname trigram index (non-fatal):', err?.message || err));
 
   const { startTrackingBufferFlusher } = await import("./tracking-buffer");
   startTrackingBufferFlusher();

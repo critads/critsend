@@ -8,7 +8,7 @@ import {
   type InsertEmailHeader,
 } from "@shared/schema";
 import { db, pool } from "../db";
-import { eq, desc, sql, ilike } from "drizzle-orm";
+import { eq, desc, sql, ilike, or } from "drizzle-orm";
 import { encrypt, decrypt } from "../crypto";
 import { logger } from "../logger";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
@@ -33,13 +33,11 @@ export async function getMtasPaginated(opts: {
   const { page, limit, search } = opts;
   const offset = (page - 1) * limit;
 
-  const conditions = [];
+  let whereClause;
   if (search) {
     const pattern = `%${search}%`;
-    conditions.push(ilike(mtas.name, pattern));
+    whereClause = or(ilike(mtas.name, pattern), ilike(mtas.hostname, pattern));
   }
-
-  const whereClause = conditions.length > 0 ? conditions[0] : undefined;
 
   const [countResult] = await db.select({ count: sql<number>`count(*)::int` })
     .from(mtas)
@@ -80,6 +78,29 @@ export async function ensureMtaNameTrigramIndex(): Promise<LockResult | "exists"
     logger.info("[TRIGRAM] mta_name_trgm_idx creation skipped — another process is handling it");
   } else {
     logger.warn("[TRIGRAM] mta_name_trgm_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
+export async function ensureMtaHostnameTrigramIndex(): Promise<LockResult | "exists"> {
+  if (await indexExistsAndValid("mta_hostname_trgm_idx")) {
+    logger.info("[TRIGRAM] mta_hostname_trgm_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.MTA_HOSTNAME_TRGM,
+    "MTA_HOSTNAME_TRGM",
+    async (_lockClient) => {
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS mta_hostname_trgm_idx ON mtas USING gin (hostname gin_trgm_ops)`);
+    },
+  );
+  if (result === "ran") {
+    logger.info("[TRIGRAM] mta_hostname_trgm_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[TRIGRAM] mta_hostname_trgm_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[TRIGRAM] mta_hostname_trgm_idx creation encountered an error during advisory lock");
   }
   return result;
 }
