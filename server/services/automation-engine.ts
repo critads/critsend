@@ -204,6 +204,9 @@ async function processEnrollment(enrollment: AutomationEnrollment, workflow: Aut
   if (nextIndex >= steps.length) {
     await markEnrollmentCompleted(enrollment, workflow);
   } else {
+    // Guard on status='active' so a cancellation/pause that landed after we
+    // claimed the row (but before/during step execution) is honored — the
+    // worker will not advance a no-longer-active enrollment.
     await db
       .update(automationEnrollments)
       .set({
@@ -211,7 +214,10 @@ async function processEnrollment(enrollment: AutomationEnrollment, workflow: Aut
         nextActionAt: new Date(),
         lastError: null,
       })
-      .where(eq(automationEnrollments.id, enrollment.id));
+      .where(and(
+        eq(automationEnrollments.id, enrollment.id),
+        eq(automationEnrollments.status, "active"),
+      ));
   }
 }
 
@@ -307,7 +313,10 @@ async function executeWaitStep(
       nextActionAt,
       lastError: null,
     })
-    .where(eq(automationEnrollments.id, enrollment.id));
+    .where(and(
+      eq(automationEnrollments.id, enrollment.id),
+      eq(automationEnrollments.status, "active"),
+    ));
 }
 
 async function executeAddTagStep(
@@ -340,10 +349,20 @@ async function executeRemoveTagStep(
     WHERE id = ${enrollment.subscriberId}
   `);
   logger.info(`${logPrefix} Removed tag '${tagName}' from subscriber ${enrollment.subscriberId.substring(0, 8)}`);
+
+  // Emit tag_removed trigger so downstream workflows configured for this
+  // event can auto-enroll. The automation engine itself is currently the
+  // only runtime path that removes tags from a subscriber, so this is the
+  // only place tag_removed needs to be wired.
+  checkAndEnrollForTrigger("tag_removed", enrollment.subscriberId, { tagName }).catch(() => {});
 }
 
 async function markEnrollmentCompleted(enrollment: AutomationEnrollment, workflow: AutomationWorkflow): Promise<void> {
-  await db
+  // Conditional update: only complete enrollments that are still active. If a
+  // user cancelled the enrollment after we claimed it, the cancellation wins.
+  // updateResult.rowCount tells us whether we actually completed the row, so
+  // we only bump totalCompleted in that case.
+  const updateResult = await db
     .update(automationEnrollments)
     .set({
       status: "completed",
@@ -351,7 +370,16 @@ async function markEnrollmentCompleted(enrollment: AutomationEnrollment, workflo
       nextActionAt: null,
       lastError: null,
     })
-    .where(eq(automationEnrollments.id, enrollment.id));
+    .where(and(
+      eq(automationEnrollments.id, enrollment.id),
+      eq(automationEnrollments.status, "active"),
+    ));
+
+  const rowsAffected = (updateResult as any).rowCount ?? 0;
+  if (rowsAffected === 0) {
+    logger.info(`[AUTOMATION] Enrollment ${enrollment.id.substring(0, 8)} no longer active — skipping completion (was likely cancelled)`);
+    return;
+  }
 
   await db
     .update(automationWorkflows)

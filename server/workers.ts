@@ -54,7 +54,7 @@ export function getImportJobProcessorRunning(): boolean {
   return !!importJobPollingInterval;
 }
 
-export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean; maintenanceWorker: boolean; scheduledCampaignPoller: boolean } {
+export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean; maintenanceWorker: boolean; scheduledCampaignPoller: boolean; automationProcessor: boolean } {
   return {
     jobProcessor: !!jobPollingInterval,
     importProcessor: !!importJobPollingInterval,
