@@ -1,4 +1,5 @@
 import { type Express, type Request, type Response } from "express";
+import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
 import { db, pool, isPoolHealthy } from "../db";
 import { sql } from "drizzle-orm";
@@ -6,11 +7,23 @@ import { getWorkerHealth, WORKER_HEARTBEAT_KEY } from "../workers";
 import { redisConnection, isRedisConfigured } from "../redis";
 import { trackingPool, flushPool, isTrackingPoolHealthy, getFlushPoolStats } from "../tracking-pool";
 import { MAIN_POOL_MAX, TRACKING_POOL_MAX } from "../connection-budget";
-import { register } from "../metrics";
+import { register, healthCheckDuration } from "../metrics";
 import { logger } from "../logger";
 import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
+
+const HEALTH_CHECK_TIMEOUT_MS = 2000;
+const IP_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+let cachedIp: { value: string; expiresAt: number } | null = null;
 
 type WorkerHealthFlags = ReturnType<typeof getWorkerHealth>;
 type WorkerHealthReport = WorkerHealthFlags & {
@@ -93,6 +106,7 @@ async function resolveWorkerHealth(): Promise<WorkerHealthReport> {
 
 export function registerHealthRoutes(app: Express) {
   app.get("/api/health", async (_req: Request, res: Response) => {
+    const start = Date.now();
     const mainPoolHealthy = isPoolHealthy();
     const trackingPoolHealthy = isTrackingPoolHealthy();
     const memUsage = process.memoryUsage();
@@ -128,41 +142,47 @@ export function registerHealthRoutes(app: Express) {
     let workerHealth: WorkerHealthReport;
 
     if (mainPoolHealthy && pool.idleCount > 0) {
-      try {
-        const startTime = Date.now();
-        await db.execute(sql`SELECT 1`);
-        dbLatency = Date.now() - startTime;
-      } catch {
-        dbHealthy = false;
-      }
+      const dbResult = await withTimeout(
+        (async () => {
+          const t0 = Date.now();
+          await db.execute(sql`SELECT 1`);
+          return { healthy: true, latency: Date.now() - t0 };
+        })(),
+        HEALTH_CHECK_TIMEOUT_MS,
+        { healthy: false, latency: 0 },
+      );
+      dbHealthy = dbResult.healthy;
+      dbLatency = dbResult.latency;
 
-      try {
-        const [campaignQueue, importQueue, tagQueue] = await Promise.all([
-          pool.query("SELECT COUNT(*) as count FROM campaign_jobs WHERE status IN ('pending', 'processing')"),
-          pool.query("SELECT COUNT(*) as count FROM import_job_queue WHERE status IN ('pending', 'processing')"),
-          pool.query("SELECT COUNT(*) as count FROM pending_tag_operations WHERE status IN ('pending', 'processing')"),
-        ]);
-        queueDepths = {
-          campaignJobs: parseInt(campaignQueue.rows[0]?.count || '0'),
-          importJobs: parseInt(importQueue.rows[0]?.count || '0'),
-          pendingTags: parseInt(tagQueue.rows[0]?.count || '0'),
-        };
-      } catch {
-        queueDepths = { error: "Failed to query queue depths" };
-      }
+      queueDepths = await withTimeout(
+        (async () => {
+          const [campaignQueue, importQueue, tagQueue] = await Promise.all([
+            pool.query("SELECT COUNT(*) as count FROM campaign_jobs WHERE status IN ('pending', 'processing')"),
+            pool.query("SELECT COUNT(*) as count FROM import_job_queue WHERE status IN ('pending', 'processing')"),
+            pool.query("SELECT COUNT(*) as count FROM pending_tag_operations WHERE status IN ('pending', 'processing')"),
+          ]);
+          return {
+            campaignJobs: parseInt(campaignQueue.rows[0]?.count || '0'),
+            importJobs: parseInt(importQueue.rows[0]?.count || '0'),
+            pendingTags: parseInt(tagQueue.rows[0]?.count || '0'),
+          };
+        })(),
+        HEALTH_CHECK_TIMEOUT_MS,
+        { error: "Timed out querying queue depths" },
+      );
     } else {
       queueDepths = { skipped: "pool_saturated" };
     }
 
-    try {
-      workerHealth = await resolveWorkerHealth();
-    } catch {
-      workerHealth = {
+    workerHealth = await withTimeout(
+      resolveWorkerHealth(),
+      HEALTH_CHECK_TIMEOUT_MS,
+      {
         jobProcessor: false, importProcessor: false, tagQueueWorker: false,
         flushProcessor: false, maintenanceWorker: false, scheduledCampaignPoller: false,
-        source: "remote-worker-missing",
-      };
-    }
+        source: "remote-worker-missing" as const,
+      },
+    );
 
     const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor && workerHealth.scheduledCampaignPoller;
 
@@ -172,6 +192,8 @@ export function registerHealthRoutes(app: Express) {
     }
 
     const overallHealthy = dbHealthy && allWorkersRunning && mainPoolHealthy && trackingPoolHealthy;
+
+    healthCheckDuration.observe({ endpoint: "/api/health" }, (Date.now() - start) / 1000);
 
     res.json({
       status: overallHealthy ? 'healthy' : 'degraded',
@@ -207,20 +229,40 @@ export function registerHealthRoutes(app: Express) {
   });
 
   app.get("/api/health/ip", async (_req: Request, res: Response) => {
+    const start = Date.now();
+    if (cachedIp && Date.now() < cachedIp.expiresAt) {
+      healthCheckDuration.observe({ endpoint: "/api/health/ip" }, (Date.now() - start) / 1000);
+      return res.json({ outboundIp: cachedIp.value, cached: true, timestamp: new Date().toISOString() });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
     try {
-      const response = await fetch("https://api.ipify.org?format=json");
+      const response = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
       const data = await response.json() as { ip: string };
-      res.json({ outboundIp: data.ip, timestamp: new Date().toISOString() });
-    } catch (error) {
+      cachedIp = { value: data.ip, expiresAt: Date.now() + IP_CACHE_TTL_MS };
+      healthCheckDuration.observe({ endpoint: "/api/health/ip" }, (Date.now() - start) / 1000);
+      res.json({ outboundIp: data.ip, cached: false, timestamp: new Date().toISOString() });
+    } catch {
+      healthCheckDuration.observe({ endpoint: "/api/health/ip" }, (Date.now() - start) / 1000);
+      if (cachedIp) {
+        return res.json({ outboundIp: cachedIp.value, cached: true, stale: true, timestamp: new Date().toISOString() });
+      }
       res.status(500).json({ error: "Failed to resolve outbound IP" });
+    } finally {
+      clearTimeout(timeout);
     }
   });
 
   app.get("/api/health/ready", async (_req: Request, res: Response) => {
+    const start = Date.now();
     try {
-      await storage.healthCheck();
-      const activeJobs = await storage.getActiveJobs();
-      
+      const dbOk = await withTimeout(storage.healthCheck().then(() => true), HEALTH_CHECK_TIMEOUT_MS, false);
+      if (!dbOk) throw new Error("Health check timed out or failed");
+
+      const activeJobs = await withTimeout(storage.getActiveJobs(), HEALTH_CHECK_TIMEOUT_MS, []);
+
+      healthCheckDuration.observe({ endpoint: "/api/health/ready" }, (Date.now() - start) / 1000);
       res.json({
         ready: true,
         timestamp: new Date().toISOString(),
@@ -230,6 +272,7 @@ export function registerHealthRoutes(app: Express) {
         }
       });
     } catch (error) {
+      healthCheckDuration.observe({ endpoint: "/api/health/ready" }, (Date.now() - start) / 1000);
       res.status(503).json({
         ready: false,
         timestamp: new Date().toISOString(),
@@ -278,7 +321,15 @@ export function registerHealthRoutes(app: Express) {
     }
   });
 
-  app.get("/api/system-metrics", async (_req: Request, res: Response) => {
+  const systemMetricsLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 15,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many system-metrics requests, please try again later" },
+  });
+
+  app.get("/api/system-metrics", systemMetricsLimiter, async (_req: Request, res: Response) => {
     try {
       const metricsJson = await register.getMetricsAsJSON();
       const lookup = new Map<string, any>();

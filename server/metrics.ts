@@ -348,6 +348,15 @@ export const finalizeFallbackRowsTotal = new client.Counter({
   registers: [register],
 });
 
+// ─── Health endpoint latency ───────────────────────────────────────────────
+export const healthCheckDuration = new client.Histogram({
+  name: 'critsend_health_check_duration_seconds',
+  help: 'Health endpoint response time in seconds',
+  labelNames: ['endpoint'] as const,
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5],
+  registers: [register],
+});
+
 // ─── Pool safety / load-shed observability ─────────────────────────────────
 export const poolLoadShedTotal = new client.Counter({
   name: 'critsend_db_pool_load_shed_total',
