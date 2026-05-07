@@ -412,7 +412,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       // Track used filenames within this request to handle conflicts with a numeric suffix
       const usedFilenames = new Set<string>();
 
-      const useSSE = req.headers.accept === "text/event-stream";
+      const useSSE = (req.headers.accept || "").includes("text/event-stream");
       let clientDisconnected = false;
       if (useSSE) {
         res.writeHead(200, {
