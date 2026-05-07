@@ -72,6 +72,7 @@ export interface IStorage {
   // MTA MANAGEMENT
   // ═══════════════════════════════════════════════════════════════
   getMtas(): Promise<Mta[]>;
+  getMtasPaginated(opts: { page: number; limit: number; search?: string }): Promise<{ mtas: Mta[]; total: number }>;
   getMta(id: string): Promise<Mta | undefined>;
   createMta(data: InsertMta): Promise<Mta>;
   updateMta(id: string, data: Partial<InsertMta>): Promise<Mta | undefined>;
@@ -205,6 +206,8 @@ export interface IStorage {
   areGinIndexesPresent(): Promise<boolean>;
   ensureTrigramIndex(): Promise<void>;
   ensureSegmentNameTrigramIndex(): Promise<LockResult | "exists">;
+  ensureCampaignNameTrigramIndex(): Promise<LockResult | "exists">;
+  ensureMtaNameTrigramIndex(): Promise<LockResult | "exists">;
 
   // ═══════════════════════════════════════════════════════════════
   // TAG OPERATIONS

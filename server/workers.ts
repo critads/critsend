@@ -1084,6 +1084,12 @@ function startImportJobProcessor() {
   storage.ensureSegmentNameTrigramIndex()
     .catch((err: any) => logger.error('[IMPORT] Failed to create segment name trigram index:', err.message));
 
+  storage.ensureCampaignNameTrigramIndex()
+    .catch((err: any) => logger.error('[IMPORT] Failed to create campaign name trigram index:', err.message));
+
+  storage.ensureMtaNameTrigramIndex()
+    .catch((err: any) => logger.error('[IMPORT] Failed to create MTA name trigram index:', err.message));
+
   (async () => {
     try {
       const recoveredCount = await storage.recoverStuckImportJobs();

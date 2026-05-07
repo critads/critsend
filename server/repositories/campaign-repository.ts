@@ -116,6 +116,29 @@ export async function getCampaignsPaginated(opts: {
   return { campaigns: rows as CampaignListItem[], total };
 }
 
+export async function ensureCampaignNameTrigramIndex(): Promise<LockResult | "exists"> {
+  if (await indexExistsAndValid("campaign_name_trgm_idx")) {
+    logger.info("[TRIGRAM] campaign_name_trgm_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGN_NAME_TRGM,
+    "CAMPAIGN_NAME_TRGM",
+    async (_lockClient) => {
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_name_trgm_idx ON campaigns USING gin (name gin_trgm_ops)`);
+    },
+  );
+  if (result === "ran") {
+    logger.info("[TRIGRAM] campaign_name_trgm_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[TRIGRAM] campaign_name_trgm_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[TRIGRAM] campaign_name_trgm_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
 export async function getCampaign(id: string): Promise<Campaign | undefined> {
   const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));
   return campaign;

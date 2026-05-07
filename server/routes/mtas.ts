@@ -183,8 +183,22 @@ export function registerMtaRoutes(app: Express, helpers: {
 
   app.get("/api/mtas", async (req: Request, res: Response) => {
     try {
-      const mtasList = await storage.getMtas();
-      res.json(mtasList);
+      const paginate = req.query.paginate === "true";
+      if (paginate) {
+        const page = Math.max(1, parseInt(req.query.page as string) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+        const search = (req.query.search as string)?.trim() || undefined;
+        const result = await storage.getMtasPaginated({ page, limit, search });
+        res.json({
+          mtas: result.mtas,
+          total: result.total,
+          page,
+          totalPages: Math.max(1, Math.ceil(result.total / limit)),
+        });
+      } else {
+        const mtasList = await storage.getMtas();
+        res.json(mtasList);
+      }
     } catch (error) {
       logger.error("Error fetching MTAs:", error);
       res.status(500).json({ error: "Failed to fetch MTAs" });

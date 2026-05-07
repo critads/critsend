@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { Input } from "@/components/ui/input";
 import {
   Server, Plus, MoreVertical, Trash2, Edit2,
   CheckCircle2, XCircle, FlaskConical, Wifi, WifiOff, Loader2,
-  Lightbulb, ChevronDown, ChevronRight, Clock,
+  Lightbulb, ChevronDown, ChevronRight, Clock, Search,
+  ChevronLeft, ChevronRight as ChevronRightIcon,
 } from "lucide-react";
 import type { Mta } from "@shared/schema";
 
@@ -41,23 +43,67 @@ interface SmtpTestResult {
   serverBanner?: string;
 }
 
+interface PaginatedMtas {
+  mtas: Mta[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+const PAGE_SIZE = 20;
+
 export default function MTAs() {
   const [, navigate] = useLocation();
   const [deleteConfirm, setDeleteConfirm] = useState<Mta | null>(null);
   const [testingMta, setTestingMta] = useState<Mta | null>(null);
   const [testResult, setTestResult] = useState<SmtpTestResult | null>(null);
   const [showRawError, setShowRawError] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const { toast } = useToast();
 
-  const { data: mtas, isLoading } = useQuery<Mta[]>({
-    queryKey: ["/api/mtas"],
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(value.trim());
+      setCurrentPage(1);
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
+
+  const queryParams = new URLSearchParams();
+  queryParams.set("paginate", "true");
+  queryParams.set("page", String(currentPage));
+  queryParams.set("limit", String(PAGE_SIZE));
+  if (debouncedSearch) queryParams.set("search", debouncedSearch);
+  const queryString = queryParams.toString();
+
+  const { data: mtasData, isLoading } = useQuery<PaginatedMtas>({
+    queryKey: ["/api/mtas", { page: currentPage, search: debouncedSearch }],
+    queryFn: async () => {
+      const res = await fetch(`/api/mtas?${queryString}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    placeholderData: keepPreviousData,
   });
+
+  const mtas = mtasData?.mtas;
+  const totalPages = mtasData?.totalPages ?? 1;
+  const totalMtas = mtasData?.total ?? 0;
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/mtas/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mtas"] });
       setDeleteConfirm(null);
+      setCurrentPage(1);
       toast({ title: "MTA deleted", description: "Sending server removed." });
     },
     onError: (error: any) => {
@@ -103,10 +149,22 @@ export default function MTAs() {
             Configure your Mail Transfer Agents (sending servers)
           </p>
         </div>
-        <Button onClick={() => navigate("/mtas/new")} data-testid="button-add-mta">
-          <Plus className="h-4 w-4 mr-2" />
-          Add MTA
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search MTAs..."
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="pl-9"
+              data-testid="input-search-mtas"
+            />
+          </div>
+          <Button onClick={() => navigate("/mtas/new")} data-testid="button-add-mta">
+            <Plus className="h-4 w-4 mr-2" />
+            Add MTA
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -220,16 +278,60 @@ export default function MTAs() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Server className="h-16 w-16 text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No sending servers configured</h3>
-            <p className="text-muted-foreground max-w-md mb-4">
-              Add an SMTP server to start sending email campaigns.
-            </p>
-            <Button onClick={() => navigate("/mtas/new")}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Your First MTA
-            </Button>
+            {debouncedSearch ? (
+              <>
+                <h3 className="text-lg font-semibold mb-2">No MTAs match your search</h3>
+                <p className="text-muted-foreground max-w-md mb-4">
+                  Try a different search term or clear the search.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold mb-2">No sending servers configured</h3>
+                <p className="text-muted-foreground max-w-md mb-4">
+                  Add an SMTP server to start sending email campaigns.
+                </p>
+                <Button onClick={() => navigate("/mtas/new")}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Your First MTA
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-sm text-muted-foreground" data-testid="text-mta-pagination-info">
+            Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, totalMtas)} of {totalMtas}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              data-testid="button-mta-prev-page"
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              data-testid="button-mta-next-page"
+            >
+              Next
+              <ChevronRightIcon className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Dialog */}
