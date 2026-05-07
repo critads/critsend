@@ -53,16 +53,24 @@ const DISK_FULL_PATTERNS = [
 const CONNECTION_PATTERNS = [
   /econnrefused/i,
   /econnreset/i,
+  /etimedout/i,
+  /epipe/i,
   /connection terminated/i,
+  /connection timeout/i,
   /connection reset/i,
+  /connection refused/i,
   /server closed the connection/i,
   /terminating connection/i,
   /client has encountered a connection error/i,
+  /unexpected eof/i,
+  /cannot use a pool after calling end/i,
+  /getaddrinfo enotfound/i,
 ];
 
 const TIMEOUT_PATTERNS = [
   /statement timeout/i,
   /canceling statement due to/i,
+  /timeout exceeded/i,
 ];
 
 export function classifyDbError(err: unknown): ClassifiedDbError {
@@ -106,6 +114,23 @@ export function isTransientDbError(err: unknown): boolean {
  * Never includes the raw Postgres text so we don't leak "Disk quota exceeded"
  * or internal file paths to the browser.
  */
+/**
+ * Custom error subclass thrown by retryDbOp when in-loop retries are
+ * exhausted. The job-level handler inspects this flag to know the sender
+ * already retried internally and should NOT apply its own fast-retry path
+ * on top — preventing retry multiplication.
+ */
+export class SenderRetriesExhaustedError extends Error {
+  public readonly senderRetriesExhausted = true;
+  public readonly classification: ClassifiedDbError;
+  constructor(cause: unknown, classification: ClassifiedDbError, senderAttempts: number) {
+    super(`Sender retries exhausted (${senderAttempts} attempts): ${classification.message}`);
+    this.name = "SenderRetriesExhaustedError";
+    this.classification = classification;
+    if (cause instanceof Error) this.cause = cause;
+  }
+}
+
 export function userFacingMessageFor(kind: DbErrorKind): string {
   switch (kind) {
     case "disk_full":

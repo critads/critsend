@@ -10,6 +10,7 @@ import { workerRestartsTotal, flushJobsTotal } from "./metrics";
 import { jobEvents, type JobProgressEvent } from "./job-events";
 import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
+import { classifyDbError } from "./db-errors";
 import { processAutomationEnrollments, checkAndEnrollForTrigger, runAutomationBootstrapMigrations } from "./services/automation-engine";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
@@ -515,7 +516,11 @@ async function handleJobCompletion(job: CampaignJob) {
 async function handleJobError(job: CampaignJob, error: any) {
   const jobRetryCount = (job as any).retryCount || 0;
   const errMsg = (error?.message || String(error || '')).toString();
-  const isTransientDb = /connection timeout|timeout exceeded when trying to connect|timeout exceeded|Connection terminated|connection refused|ECONNRESET|ETIMEDOUT|EPIPE|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer|Cannot use a pool after calling end|read ECONNRESET|getaddrinfo ENOTFOUND/i.test(errMsg);
+
+  const classified = classifyDbError(error);
+  const senderAlreadyRetried = !!(error as any)?.senderRetriesExhausted;
+  const isTransientDb = classified.transient;
+  const errMeta = `kind=${classified.kind}, code=${classified.code ?? 'n/a'}, transient=${isTransientDb}, senderRetried=${senderAlreadyRetried}`;
 
   let campaignData: Awaited<ReturnType<typeof storage.getCampaign>> | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -530,7 +535,7 @@ async function handleJobError(job: CampaignJob, error: any) {
 
   if (!campaignData) {
     const backoffSeconds = Math.min(60 * Math.pow(2, jobRetryCount), 15 * 60);
-    logger.warn(`[JOB_POLL] Cannot fetch campaign ${job.campaignId} — DB likely down. Requeuing job in ${backoffSeconds}s (retry #${jobRetryCount + 1}). Original error: ${errMsg}`);
+    logger.warn(`[JOB_POLL] Cannot fetch campaign ${job.campaignId} — DB likely down. Requeuing job in ${backoffSeconds}s (retry #${jobRetryCount + 1}). Original error [${errMeta}]: ${errMsg}`);
     try {
       await storage.completeJob(job.id, "failed", `DB unreachable during error handling — safe requeue (retry #${jobRetryCount + 1})`);
     } catch { /* best-effort */ }
@@ -547,7 +552,7 @@ async function handleJobError(job: CampaignJob, error: any) {
   if (campaignStatus === "paused") {
     try {
       await storage.completeJob(job.id, "failed", `Campaign paused - no automatic retry for paused campaigns`);
-      logger.info(`[JOB_POLL] Job ${job.id} error but campaign ${job.campaignId} is paused (skipping retry)`);
+      logger.info(`[JOB_POLL] Job ${job.id} error but campaign ${job.campaignId} is paused (skipping retry) [${errMeta}]`);
     } catch (completeErr) {
       logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
     }
@@ -565,10 +570,10 @@ async function handleJobError(job: CampaignJob, error: any) {
     if (isTransientDb) {
       const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
       try {
-        await storage.completeJob(job.id, "failed", `Transient DB error: ${errMsg} - requeuing in ${backoffSeconds}s`);
+        await storage.completeJob(job.id, "failed", `Transient DB error [${errMeta}]: ${errMsg} - requeuing in ${backoffSeconds}s`);
         await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
         await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
-        logger.warn(`[JOB_POLL] Campaign ${job.campaignId} hit transient DB error - requeued in ${backoffSeconds}s (retry #${jobRetryCount + 1}): ${errMsg}`);
+        logger.warn(`[JOB_POLL] Campaign ${job.campaignId} hit transient DB error - requeued in ${backoffSeconds}s (retry #${jobRetryCount + 1}) [${errMeta}]: ${errMsg}`);
         return;
       } catch (transientRetryErr) {
         logger.error(`[JOB_POLL] Failed to requeue after transient DB error for ${job.campaignId}:`, transientRetryErr);
@@ -578,28 +583,28 @@ async function handleJobError(job: CampaignJob, error: any) {
     if (retryDeadline && Date.now() < retryDeadline.getTime()) {
       const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
       try {
-        await storage.completeJob(job.id, "failed", `Error: ${error.message} - scheduling retry #${jobRetryCount + 1}`);
+        await storage.completeJob(job.id, "failed", `Error [${errMeta}]: ${errMsg} - scheduling retry #${jobRetryCount + 1}`);
         await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
         await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
-        logger.info(`[JOB_POLL] Campaign ${job.campaignId} error - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s`);
+        logger.info(`[JOB_POLL] Campaign ${job.campaignId} error - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s [${errMeta}]`);
       } catch (retryErr) {
         logger.error(`[JOB_POLL] Failed to schedule retry for campaign ${job.campaignId}:`, retryErr);
         try {
-          await storage.completeJob(job.id, "failed", error.message || "Unknown error");
+          await storage.completeJob(job.id, "failed", errMsg || "Unknown error");
         } catch (completeErr) {
           logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
         }
       }
     } else {
       try {
-        await storage.completeJob(job.id, "failed", error.message || "Unknown error");
+        await storage.completeJob(job.id, "failed", errMsg || "Unknown error");
       } catch (completeErr) {
         logger.error(`[JOB_POLL] Failed to mark job ${job.id} as failed:`, completeErr);
       }
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           await storage.updateCampaignStatusAtomic(job.campaignId, "failed");
-          logger.info(`[JOB_POLL] Campaign ${job.campaignId} marked as failed (attempt ${attempt + 1})`);
+          logger.info(`[JOB_POLL] Campaign ${job.campaignId} marked as failed (attempt ${attempt + 1}) [${errMeta}]`);
           break;
         } catch (statusErr) {
           logger.error(`[JOB_POLL] Failed to mark campaign ${job.campaignId} as failed (attempt ${attempt + 1}):`, statusErr);

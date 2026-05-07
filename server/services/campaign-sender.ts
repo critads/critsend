@@ -13,21 +13,25 @@ import { campaignReconciliationDiscrepancy } from "../metrics";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 import { jobEvents } from "../job-events";
 import { messageQueue } from "../message-queue";
+import { classifyDbError, SenderRetriesExhaustedError } from "../db-errors";
 
 const MAX_AUTO_RETRIES = 3;
+const SENDER_MAX_FAST_RETRIES = 2;
 
-async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxRetries = 3): Promise<T> {
+async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxRetries = SENDER_MAX_FAST_RETRIES): Promise<T> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
-      const msg = err.message || '';
-      const isTransient = /connection timeout|Connection terminated|connection refused|ECONNRESET|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer/i.test(msg);
-      if (!isTransient || attempt >= maxRetries) {
+      const classified = classifyDbError(err);
+      if (!classified.transient || attempt >= maxRetries) {
+        if (classified.transient) {
+          throw new SenderRetriesExhaustedError(err, classified, attempt);
+        }
         throw err;
       }
       const delay = Math.pow(2, attempt - 1) * 1000;
-      logger.warn(`${label} DB operation failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms: ${msg}`);
+      logger.warn(`${label} DB operation failed (attempt ${attempt}/${maxRetries}, kind=${classified.kind}, code=${classified.code ?? 'n/a'}), retrying in ${delay}ms: ${classified.message}`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
