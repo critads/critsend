@@ -257,6 +257,13 @@ if (process.env.NODE_ENV === "production") {
 }
 
 app.use((req: Request, res: Response, next: NextFunction) => {
+  const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
+  res.setHeader('x-request-id', requestId);
+  (req as any).requestId = requestId;
+  next();
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
   if (isShuttingDown) {
     res.status(503).json({ error: 'Server is shutting down' });
     return;
@@ -278,13 +285,6 @@ app.use(requestLeaseMiddleware);
 // Upgrade any 500 to 503+Retry-After when a pool checkout error happened
 // during this request — guarantees no per-handler 500-from-saturation gaps.
 app.use(poolErrorResponseUpgrade);
-
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
-  res.setHeader('x-request-id', requestId);
-  (req as any).requestId = requestId;
-  next();
-});
 
 const PostgresSessionStore = connectPg(session);
 
