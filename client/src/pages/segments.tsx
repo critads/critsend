@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
@@ -45,6 +45,8 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  Search,
+  Loader2,
 } from "lucide-react";
 import type { Segment, SegmentGroup, SegmentRulesV2, Subscriber } from "@shared/schema";
 import { operatorLabelsV2 } from "@shared/schema";
@@ -101,6 +103,26 @@ export default function Segments() {
   const [segmentPage, setSegmentPage] = useState(1);
   const SEGMENTS_PER_PAGE = 20;
 
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [refreshingSegmentId, setRefreshingSegmentId] = useState<string | null>(null);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchInput(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setSearchQuery(value.trim());
+      setSegmentPage(1);
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rootGroup, setRootGroup] = useState<SegmentGroup>(defaultRootGroup());
@@ -108,19 +130,21 @@ export default function Segments() {
   const [isCountLoading, setIsCountLoading] = useState(false);
   const { toast } = useToast();
 
-  // Server-side paginated list. Returns { segments, total, page, limit }.
   const { data: segmentsPage, isLoading } = useQuery<{
     segments: Segment[];
     total: number;
     page: number;
     limit: number;
   }>({
-    queryKey: ["/api/segments", "paginated", segmentPage, SEGMENTS_PER_PAGE],
+    queryKey: ["/api/segments", "paginated", segmentPage, SEGMENTS_PER_PAGE, searchQuery],
     queryFn: async () => {
-      const res = await fetch(
-        `/api/segments?paginate=true&page=${segmentPage}&limit=${SEGMENTS_PER_PAGE}`,
-        { credentials: "include" }
-      );
+      const params = new URLSearchParams({
+        paginate: "true",
+        page: String(segmentPage),
+        limit: String(SEGMENTS_PER_PAGE),
+      });
+      if (searchQuery) params.set("search", searchQuery);
+      const res = await fetch(`/api/segments?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch segments");
       return res.json();
     },
@@ -165,7 +189,6 @@ export default function Segments() {
         { credentials: "include" }
       );
       if (!res.ok) throw new Error("Failed to refresh counts");
-      // Invalidate so the existing query re-reads with the now-fresh cache.
       queryClient.invalidateQueries({ queryKey: ["/api/segments/counts", visibleIdsKey] });
       await refetchCounts();
       toast({ title: "Counts refreshed", description: "Subscriber counts are now up to date." });
@@ -175,6 +198,31 @@ export default function Segments() {
         description: "Failed to refresh counts. Please try again.",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleRefreshSingleCount = async (segmentId: string) => {
+    setRefreshingSegmentId(segmentId);
+    try {
+      const res = await fetch(
+        `/api/segments/counts?ids=${encodeURIComponent(segmentId)}&refresh=true`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to refresh count");
+      const freshCounts = await res.json();
+      queryClient.setQueryData<Record<string, number>>(
+        ["/api/segments/counts", visibleIdsKey],
+        (prev) => ({ ...prev, ...freshCounts })
+      );
+      toast({ title: "Count refreshed", description: "Subscriber count updated." });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to refresh count. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshingSegmentId(null);
     }
   };
 
@@ -466,6 +514,17 @@ export default function Segments() {
         </Button>
       </div>
 
+      <div className="relative w-full sm:w-72">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search segments..."
+          value={searchInput}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          className="pl-9"
+          data-testid="input-search-segments"
+        />
+      </div>
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map((i) => (
@@ -544,13 +603,30 @@ export default function Segments() {
                   </DropdownMenu>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Users className="h-4 w-4" />
-                    <span data-testid={`text-segment-count-${segment.id}`}>
-                      {segmentCounts
-                        ? `${(segmentCounts[segment.id] ?? 0).toLocaleString()} subscribers`
-                        : "Loading..."}
-                    </span>
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      <span data-testid={`text-segment-count-${segment.id}`}>
+                        {segmentCounts
+                          ? `${(segmentCounts[segment.id] ?? 0).toLocaleString()} subscribers`
+                          : "Loading..."}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => handleRefreshSingleCount(segment.id)}
+                      disabled={refreshingSegmentId === segment.id}
+                      title="Refresh subscriber count"
+                      data-testid={`button-refresh-count-${segment.id}`}
+                    >
+                      {refreshingSegmentId === segment.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
                   </div>
                   <div className="space-y-1">
                     {summary.map((item, i) => (

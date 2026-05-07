@@ -21,14 +21,8 @@ export function registerSegmentRoutes(app: Express, helpers: {
   app.get("/api/segments", async (req: Request, res: Response) => {
     try {
       const segmentsList = await storage.getSegments();
-      // Server-side pagination. If the client passes paginate=true (or any
-      // page/limit param), return an envelope { segments, total, page, limit }.
-      // Otherwise return the raw array for backward compatibility with older
-      // callers (campaign wizards etc. that need the full list).
       const wantsPaginated = req.query.paginate === "true" || req.query.page !== undefined || req.query.limit !== undefined;
       if (wantsPaginated) {
-        // Strict validation: reject invalid page/limit instead of silently
-        // clamping. Allows the client to detect bad requests early.
         const rawPage = req.query.page;
         const rawLimit = req.query.limit;
         const pageNum = rawPage === undefined ? 1 : Number(rawPage);
@@ -41,9 +35,13 @@ export function registerSegmentRoutes(app: Express, helpers: {
             error: "Invalid pagination: page must be an integer in [1,10000] and limit must be an integer in [1,100]",
           });
         }
-        const total = segmentsList.length;
+        const searchTerm = (typeof req.query.search === "string" ? req.query.search : "").trim().toLowerCase();
+        const filtered = searchTerm
+          ? segmentsList.filter((s) => s.name.toLowerCase().includes(searchTerm))
+          : segmentsList;
+        const total = filtered.length;
         const start = (pageNum - 1) * limitNum;
-        const slice = segmentsList.slice(start, start + limitNum);
+        const slice = filtered.slice(start, start + limitNum);
         return res.json({ segments: slice, total, page: pageNum, limit: limitNum });
       }
       res.json(segmentsList);
