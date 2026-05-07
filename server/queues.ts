@@ -12,6 +12,7 @@ const DEFAULT_JOB_OPTIONS = {
 export let campaignQueue: Queue | null = null;
 export let importQueue: Queue | null = null;
 export let flushQueue: Queue | null = null;
+export let automationQueue: Queue | null = null;
 
 export function initQueues(): void {
   if (!isRedisConfigured || !redisBullMQ) {
@@ -36,7 +37,12 @@ export function initQueues(): void {
     defaultJobOptions: DEFAULT_JOB_OPTIONS,
   });
 
-  logger.info("[BullMQ] Queues initialized: campaigns, imports, flushes");
+  automationQueue = new Queue("automations", {
+    connection: redisBullMQ,
+    defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  });
+
+  logger.info("[BullMQ] Queues initialized: campaigns, imports, flushes, automations");
 }
 
 export async function closeQueues(): Promise<void> {
@@ -44,6 +50,7 @@ export async function closeQueues(): Promise<void> {
     campaignQueue?.close(),
     importQueue?.close(),
     flushQueue?.close(),
+    automationQueue?.close(),
   ]);
   logger.info("[BullMQ] Queues closed");
 }

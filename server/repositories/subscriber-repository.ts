@@ -151,6 +151,9 @@ export async function createSubscriber(data: InsertSubscriber): Promise<Subscrib
     ...data,
     email: data.email.toLowerCase(),
   }).returning();
+  import("../services/automation-engine").then(({ checkAndEnrollForTrigger }) => {
+    checkAndEnrollForTrigger("subscriber_added", sub.id).catch(() => {});
+  }).catch(() => {});
   return sub;
 }
 

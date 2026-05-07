@@ -946,6 +946,7 @@ export const automationWorkflows = pgTable("automation_workflows", {
   triggerType: text("trigger_type").notNull(),
   triggerConfig: jsonb("trigger_config").notNull().default(sql`'{}'::jsonb`),
   steps: jsonb("steps").notNull().default(sql`'[]'::jsonb`),
+  mtaId: varchar("mta_id"),
   totalEnrolled: integer("total_enrolled").notNull().default(0),
   totalCompleted: integer("total_completed").notNull().default(0),
   totalFailed: integer("total_failed").notNull().default(0),

@@ -5,11 +5,13 @@ import {
   triggerCampaignJobPoll,
   triggerImportJobPoll,
   triggerFlushJobPoll,
+  triggerAutomationPoll,
 } from "./workers";
 
 let campaignWorker: Worker | null = null;
 let importWorker: Worker | null = null;
 let flushWorker: Worker | null = null;
+let automationWorker: Worker | null = null;
 
 export function startBullMQWorkers(): void {
   if (!isRedisConfigured || !redisBullMQ) {
@@ -73,7 +75,25 @@ export function startBullMQWorkers(): void {
     logger.error(`[BullMQ/flushes] Job ${job?.id} failed: ${err.message}`);
   });
 
-  logger.info("[BullMQ] Workers started: campaigns, imports, flushes");
+  automationWorker = new Worker(
+    "automations",
+    async (job) => {
+      logger.info(
+        `[BullMQ/automations] Job received: id=${job.id}`
+      );
+      await triggerAutomationPoll();
+    },
+    { connection: redisBullMQ, concurrency: 1 }
+  );
+
+  automationWorker.on("completed", (job) => {
+    logger.info(`[BullMQ/automations] Job ${job.id} completed`);
+  });
+  automationWorker.on("failed", (job, err) => {
+    logger.error(`[BullMQ/automations] Job ${job?.id} failed: ${err.message}`);
+  });
+
+  logger.info("[BullMQ] Workers started: campaigns, imports, flushes, automations");
 }
 
 export async function closeBullMQWorkers(): Promise<void> {
@@ -81,6 +101,7 @@ export async function closeBullMQWorkers(): Promise<void> {
     campaignWorker?.close(),
     importWorker?.close(),
     flushWorker?.close(),
+    automationWorker?.close(),
   ]);
   logger.info("[BullMQ] Workers closed");
 }

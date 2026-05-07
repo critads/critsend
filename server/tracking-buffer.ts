@@ -801,17 +801,20 @@ async function processSideEffects(
   if (events.length === 0) return;
 
   if (type === "open") {
-    // first-mark already happened atomically inside the txn; only the
-    // tag enqueues remain.
     const firsts = precomputedFirsts ?? new Set<string>();
     if (firsts.size > 0) {
       const { storage } = await import("./storage");
+      const { checkAndEnrollForTrigger } = await import("./services/automation-engine");
       for (const ev of events) {
         const k = `${ev.campaignId}|${ev.subscriberId}`;
-        if (firsts.has(k) && ev.openTag) {
-          storage
-            .enqueueTagOperation(ev.subscriberId, ev.openTag, "open", ev.campaignId)
-            .catch((err) => logger.error(`[TRACKING BUFFER] enqueue open tag failed: ${err?.message || err}`));
+        if (firsts.has(k)) {
+          if (ev.openTag) {
+            storage
+              .enqueueTagOperation(ev.subscriberId, ev.openTag, "open", ev.campaignId)
+              .catch((err) => logger.error(`[TRACKING BUFFER] enqueue open tag failed: ${err?.message || err}`));
+          }
+          checkAndEnrollForTrigger("subscriber_opened", ev.subscriberId, { campaignId: ev.campaignId })
+            .catch(() => {});
         }
       }
     }
@@ -822,12 +825,17 @@ async function processSideEffects(
     const firsts = precomputedFirsts ?? new Set<string>();
     if (firsts.size > 0) {
       const { storage } = await import("./storage");
+      const { checkAndEnrollForTrigger } = await import("./services/automation-engine");
       for (const ev of events) {
         const k = `${ev.campaignId}|${ev.subscriberId}`;
-        if (firsts.has(k) && ev.clickTag) {
-          storage
-            .enqueueTagOperation(ev.subscriberId, ev.clickTag, "click", ev.campaignId)
-            .catch((err) => logger.error(`[TRACKING BUFFER] enqueue click tag failed: ${err?.message || err}`));
+        if (firsts.has(k)) {
+          if (ev.clickTag) {
+            storage
+              .enqueueTagOperation(ev.subscriberId, ev.clickTag, "click", ev.campaignId)
+              .catch((err) => logger.error(`[TRACKING BUFFER] enqueue click tag failed: ${err?.message || err}`));
+          }
+          checkAndEnrollForTrigger("subscriber_clicked", ev.subscriberId, { campaignId: ev.campaignId })
+            .catch(() => {});
         }
       }
     }

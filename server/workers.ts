@@ -10,6 +10,7 @@ import { workerRestartsTotal, flushJobsTotal } from "./metrics";
 import { jobEvents, type JobProgressEvent } from "./job-events";
 import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
+import { processAutomationEnrollments, checkAndEnrollForTrigger } from "./services/automation-engine";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -23,6 +24,7 @@ let memoryCheckInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
 let scheduledCampaignInterval: NodeJS.Timeout | null = null;
 let workerHeartbeatInterval: NodeJS.Timeout | null = null;
+let automationPollingInterval: NodeJS.Timeout | null = null;
 
 // Redis key used by the web process's /api/health endpoint to discover
 // whether the (separate) worker process is alive and which sub-workers
@@ -60,6 +62,7 @@ export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boo
     flushProcessor: !!flushJobPollingInterval,
     maintenanceWorker: !!maintenanceInterval,
     scheduledCampaignPoller: !!scheduledCampaignInterval,
+    automationProcessor: !!automationPollingInterval,
   };
 }
 
@@ -102,6 +105,9 @@ async function processTagQueue() {
         await storage.bulkAddTagToSubscribers(subscriberIds, tagValue);
         for (const op of ops) {
           await storage.completeTagOperation(op.id);
+        }
+        for (const subId of subscriberIds) {
+          checkAndEnrollForTrigger("tag_added", subId, { tagName: tagValue }).catch(() => {});
         }
       } catch (error: any) {
         logger.error(`Failed to bulk process tag operations for tag ${tagValue}:`, error);
@@ -973,6 +979,41 @@ function stopFollowUpSpawner() {
   }
 }
 
+// ─── Automation workflow processor ────────────────────────────────────────
+const AUTOMATION_POLL_INTERVAL_MS = Number(process.env.AUTOMATION_POLL_INTERVAL_MS ?? 15_000);
+
+function startAutomationProcessor() {
+  if (automationPollingInterval) return;
+  logger.info(`[AUTOMATION] Starting automation processor (${AUTOMATION_POLL_INTERVAL_MS}ms interval)`);
+  automationPollingInterval = setInterval(pollAutomationEnrollments, AUTOMATION_POLL_INTERVAL_MS);
+  pollAutomationEnrollments();
+}
+
+function stopAutomationProcessor() {
+  if (automationPollingInterval) {
+    clearInterval(automationPollingInterval);
+    automationPollingInterval = null;
+    logger.info("[AUTOMATION] Automation processor stopped");
+  }
+}
+
+export async function triggerAutomationPoll(): Promise<void> {
+  return pollAutomationEnrollments();
+}
+
+async function pollAutomationEnrollments() {
+  if (isMemoryPressure) return;
+  if (!isPoolHealthy()) return;
+  try {
+    const processed = await processAutomationEnrollments();
+    if (processed > 0) {
+      logger.info(`[AUTOMATION] Processed ${processed} enrollment(s)`);
+    }
+  } catch (err: any) {
+    logger.error(`[AUTOMATION] Error in automation polling: ${err.message}`);
+  }
+}
+
 async function startJobProcessor() {
   if (jobPollingInterval) {
     return;
@@ -1714,6 +1755,7 @@ export async function startAllWorkers() {
   startMaintenanceWorker();
   startScheduledCampaignPoller();
   startFollowUpSpawner();
+  startAutomationProcessor();
   startWorkerHeartbeat();
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
@@ -1729,6 +1771,7 @@ export function stopAllBackgroundWorkers() {
   stopMaintenanceWorker();
   stopScheduledCampaignPoller();
   stopFollowUpSpawner();
+  stopAutomationProcessor();
   closeNullsinkTransporter();
   logger.info("[SHUTDOWN] All background workers stopped");
 }
