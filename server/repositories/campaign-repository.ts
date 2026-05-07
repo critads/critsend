@@ -392,7 +392,7 @@ export async function getLinkedFollowUp(campaignId: string): Promise<{ parent: C
   const linked = await db
     .select()
     .from(campaigns)
-    .where(sql`${campaigns.id} = ANY(${idsToFetch})`);
+    .where(sql`${campaigns.id} = ANY(${idsToFetch}::text[])`);
 
   const byId = new Map(linked.map(r => [r.id, r]));
   return {
