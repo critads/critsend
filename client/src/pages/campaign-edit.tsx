@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, useRoute, Link } from "wouter";
+import { useHtmlImageProcessor } from "@/hooks/use-html-image-processor";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,41 +107,15 @@ export default function CampaignEdit() {
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [processingImages, setProcessingImages] = useState(false);
   const { toast } = useToast();
 
-  const processHtmlImages = async (html: string, mtaId?: string): Promise<string> => {
-    if (!campaignId) return html;
-    
-    try {
-      setProcessingImages(true);
-      const res = await apiRequest("POST", `/api/campaigns/${campaignId}/process-html`, {
-        html,
-        ...(mtaId ? { mtaId } : {}),
-      });
-      const data = await res.json();
-      
-      if (data.downloaded > 0) {
-        toast({
-          title: "Images processed",
-          description: `Downloaded ${data.downloaded} image(s) to local storage.${data.failed > 0 ? ` ${data.failed} failed.` : ""}`,
-        });
-      }
-      
-      return data.html;
-    } catch (error) {
-      console.error("Error processing HTML images:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      toast({
-        title: "Image processing failed",
-        description: `Could not process images: ${errorMessage}. Using original HTML.`,
-        variant: "destructive",
-      });
-      return html;
-    } finally {
-      setProcessingImages(false);
-    }
-  };
+  const {
+    processing: processingImages,
+    processHtmlImages,
+    cancel: cancelImageProcessing,
+  } = useHtmlImageProcessor({
+    getCampaignId: useCallback(() => campaignId ?? null, [campaignId]),
+  });
 
   const { data: campaign, isLoading: loadingCampaign, error: campaignError } = useQuery<Campaign>({
     queryKey: ["/api/campaigns", campaignId],
@@ -740,6 +715,16 @@ export default function CampaignEdit() {
                       <p className="text-sm text-muted-foreground mb-4">
                         Downloading and saving images locally
                       </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={cancelImageProcessing}
+                        data-testid="button-cancel-image-processing"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Cancel
+                      </Button>
                     </>
                   ) : (
                     <>

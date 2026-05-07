@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, Link } from "wouter";
+import { useHtmlImageProcessor } from "@/hooks/use-html-image-processor";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -116,49 +117,19 @@ export default function CampaignNew() {
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
   const [assetSessionId, setAssetSessionId] = useState<string | null>(null);
-  const [processingImages, setProcessingImages] = useState(false);
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const { toast } = useToast();
 
-  const processHtmlImages = async (html: string, mtaId?: string): Promise<string> => {
-    try {
-      let sessionId = assetSessionId;
-      if (!sessionId) {
-        const sessionRes = await apiRequest("POST", "/api/campaign-assets/session");
-        const sessionData = await sessionRes.json();
-        sessionId = sessionData.sessionId;
-        setAssetSessionId(sessionId);
-      }
-
-      setProcessingImages(true);
-      const res = await apiRequest("POST", `/api/campaigns/${sessionId}/process-html`, {
-        html,
-        ...(mtaId ? { mtaId } : {}),
-      });
-      const data = await res.json();
-
-      if (data.downloaded > 0) {
-        toast({
-          title: "Images processed",
-          description: `Downloaded ${data.downloaded} image(s) to local storage.${data.failed > 0 ? ` ${data.failed} failed.` : ""}`,
-        });
-      }
-
-      return data.html;
-    } catch (error) {
-      console.error("Error processing HTML images:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      toast({
-        title: "Image processing failed",
-        description: `Could not process images: ${errorMessage}. Using original HTML.`,
-        variant: "destructive",
-      });
-      return html;
-    } finally {
-      setProcessingImages(false);
-    }
-  };
+  const {
+    processing: processingImages,
+    processHtmlImages,
+    cancel: cancelImageProcessing,
+  } = useHtmlImageProcessor({
+    getCampaignId: useCallback(() => campaignId, [campaignId]),
+    getSessionId: useCallback(() => assetSessionId, [assetSessionId]),
+    setSessionId: setAssetSessionId,
+  });
 
   const formatParisTime = (date: Date | null): string => {
     if (!date) return "";
@@ -635,6 +606,16 @@ export default function CampaignNew() {
                       <p className="text-sm text-muted-foreground mb-4">
                         Downloading and saving images locally
                       </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={cancelImageProcessing}
+                        data-testid="button-cancel-image-processing"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Cancel
+                      </Button>
                     </>
                   ) : (
                     <>

@@ -21,6 +21,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const headers: Record<string, string> = {};
   if (data) {
@@ -35,6 +36,7 @@ export async function apiRequest(
     headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
+    signal,
   });
 
   if (res.status === 403) {
@@ -47,6 +49,7 @@ export async function apiRequest(
         headers,
         body: data ? JSON.stringify(data) : undefined,
         credentials: "include",
+        signal,
       });
       await throwIfResNotOk(retryRes);
       return retryRes;
