@@ -366,7 +366,7 @@ export default function Campaigns() {
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search campaigns..."
+                placeholder="Search by campaign or segment name..."
                 value={searchInput}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 className="pl-9"
@@ -419,6 +419,7 @@ export default function Campaigns() {
                     </TableHead>
                     <TableHead>Campaign</TableHead>
                     <TableHead><span className="flex items-center gap-1"><Filter className="h-3.5 w-3.5" />Segment</span></TableHead>
+                    <TableHead>MTA</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Sent</TableHead>
                     <TableHead><span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />Opens</span></TableHead>
@@ -488,6 +489,11 @@ export default function Campaigns() {
                           <span className="text-sm text-muted-foreground">All subscribers</span>
                         )}
                       </TableCell>
+                      <TableCell data-testid={`text-mta-${campaign.id}`}>
+                        <span className="text-sm text-muted-foreground truncate max-w-[120px] inline-block align-bottom">
+                          {(campaign as unknown as { mtaName: string | null }).mtaName ?? "—"}
+                        </span>
+                      </TableCell>
                       <TableCell>
                         <CampaignStatusBadge
                           status={campaign.status}
@@ -543,8 +549,20 @@ export default function Campaigns() {
                         <div className="flex flex-col gap-1 text-sm">
                           {campaign.startedAt && (
                             <div className="flex items-center gap-1 text-muted-foreground">
-                              <span className="font-medium text-foreground/70">Sending</span>
+                              <span className="font-medium text-foreground/70">Started</span>
                               <span>{new Date(campaign.startedAt).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {campaign.completedAt && (
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <span className="font-medium text-foreground/70">Ended</span>
+                              <span>{new Date(campaign.completedAt).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {!campaign.startedAt && campaign.createdAt && (
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <span className="font-medium text-foreground/70">Created</span>
+                              <span>{new Date(campaign.createdAt).toLocaleString()}</span>
                             </div>
                           )}
                         </div>

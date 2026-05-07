@@ -431,7 +431,7 @@ export default function CampaignNew() {
       ...prev,
       mtaId,
       ...(selectedMta?.fromName ? { fromName: selectedMta.fromName } : {}),
-      ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail } : {}),
+      ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail, replyEmail: selectedMta.fromEmail } : {}),
       ...(selectedMta?.unsubscribeText ? { unsubscribeText: selectedMta.unsubscribeText } : {}),
       ...(selectedMta?.companyAddress ? { companyAddress: selectedMta.companyAddress } : {}),
     }));

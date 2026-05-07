@@ -6,6 +6,8 @@ import {
   nullsinkCaptures,
   errorLogs,
   importJobs,
+  mtas,
+  segments,
   type Campaign,
   type InsertCampaign,
   type CampaignStat,
@@ -37,14 +39,18 @@ export async function getCampaignsPaginated(opts: {
   limit: number;
   search?: string;
   originalsOnly?: boolean;
-}): Promise<{ campaigns: Campaign[]; total: number }> {
+}): Promise<{ campaigns: (Campaign & { mtaName: string | null })[]; total: number }> {
   const { page, limit, search, originalsOnly } = opts;
   const offset = (page - 1) * limit;
 
   const conditions = [];
   if (search) {
     const pattern = `%${search}%`;
-    conditions.push(or(ilike(campaigns.name, pattern), ilike(campaigns.subject, pattern)));
+    conditions.push(or(
+      ilike(campaigns.name, pattern),
+      ilike(campaigns.subject, pattern),
+      sql`EXISTS (SELECT 1 FROM ${segments} WHERE ${segments.id} = ${campaigns.segmentId} AND ${segments.name} ILIKE ${pattern})`,
+    ));
   }
   if (originalsOnly) {
     conditions.push(isNull(campaigns.parentCampaignId));
@@ -61,6 +67,7 @@ export async function getCampaignsPaginated(opts: {
       id: campaigns.id,
       name: campaigns.name,
       mtaId: campaigns.mtaId,
+      mtaName: sql<string | null>`(SELECT ${mtas.name} FROM ${mtas} WHERE ${mtas.id} = ${campaigns.mtaId})`.as("mta_name"),
       segmentId: campaigns.segmentId,
       fromName: campaigns.fromName,
       fromEmail: campaigns.fromEmail,
@@ -105,7 +112,7 @@ export async function getCampaignsPaginated(opts: {
     .limit(limit)
     .offset(offset);
 
-  return { campaigns: rows, total };
+  return { campaigns: rows as any, total };
 }
 
 export async function getCampaign(id: string): Promise<Campaign | undefined> {
