@@ -30,10 +30,15 @@ function formatFailedUrl(raw: string): string {
   }
 }
 
-function parseSSEEvents(chunk: string): Array<{ event: string; data: string }> {
+function parseSSEBuffer(buffer: string): { events: Array<{ event: string; data: string }>; remainder: string } {
   const events: Array<{ event: string; data: string }> = [];
-  const blocks = chunk.split("\n\n");
-  for (const block of blocks) {
+  const lastComplete = buffer.lastIndexOf("\n\n");
+  if (lastComplete < 0) return { events, remainder: buffer };
+
+  const complete = buffer.slice(0, lastComplete);
+  const remainder = buffer.slice(lastComplete + 2);
+
+  for (const block of complete.split("\n\n")) {
     if (!block.trim()) continue;
     let event = "";
     let data = "";
@@ -43,7 +48,7 @@ function parseSSEEvents(chunk: string): Array<{ event: string; data: string }> {
     }
     if (event && data) events.push({ event, data });
   }
-  return events;
+  return { events, remainder };
 }
 
 export function useHtmlImageProcessor(options: HtmlImageProcessorOptions) {
@@ -118,11 +123,10 @@ export function useHtmlImageProcessor(options: HtmlImageProcessorOptions) {
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
-          const events = parseSSEEvents(buffer);
-          const lastDoubleNewline = buffer.lastIndexOf("\n\n");
-          buffer = lastDoubleNewline >= 0 ? buffer.slice(lastDoubleNewline + 2) : buffer;
+          const parsed = parseSSEBuffer(buffer);
+          buffer = parsed.remainder;
 
-          for (const evt of events) {
+          for (const evt of parsed.events) {
             if (evt.event === "progress" && activeRequestRef.current === requestId) {
               const p: ImageProgress = JSON.parse(evt.data);
               setProgress(p);

@@ -413,6 +413,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const usedFilenames = new Set<string>();
 
       const useSSE = req.headers.accept === "text/event-stream";
+      let clientDisconnected = false;
       if (useSSE) {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -420,6 +421,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           Connection: "keep-alive",
           "X-Accel-Buffering": "no",
         });
+        req.on("close", () => { clientDisconnected = true; });
         if (imageTasks.length > 0) {
           res.write(`event: progress\ndata: ${JSON.stringify({ processed: 0, total: imageTasks.length })}\n\n`);
         }
@@ -428,6 +430,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       let processed = 0;
       const { mapWithConcurrency } = await import("../utils");
       await mapWithConcurrency(imageTasks, 5, async (task) => {
+        if (clientDisconnected) return;
         const ext = getExtensionFromUrl(task.src);
         let baseFilename = sanitizeImageFilename(task.src, task.currentIndex, ext);
         if (usedFilenames.has(baseFilename)) {
@@ -451,7 +454,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           failedImages.push(task.src);
         }
         processed++;
-        if (useSSE) {
+        if (useSSE && !clientDisconnected) {
           res.write(`event: progress\ndata: ${JSON.stringify({ processed, total: imageTasks.length })}\n\n`);
         }
       });
