@@ -111,6 +111,7 @@ export default function CampaignEdit() {
 
   const {
     processing: processingImages,
+    progress: imageProgress,
     processHtmlImages,
     cancel: cancelImageProcessing,
   } = useHtmlImageProcessor({
@@ -712,9 +713,25 @@ export default function CampaignEdit() {
                     <>
                       <Loader2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-spin" />
                       <p className="text-lg font-medium mb-2">Processing images...</p>
-                      <p className="text-sm text-muted-foreground mb-4">
-                        Downloading and saving images locally
-                      </p>
+                      {imageProgress ? (
+                        <div className="w-48 mx-auto mb-4">
+                          <div className="flex justify-between text-sm text-muted-foreground mb-1">
+                            <span data-testid="text-image-progress">{imageProgress.processed} of {imageProgress.total}</span>
+                            <span>{Math.round((imageProgress.processed / imageProgress.total) * 100)}%</span>
+                          </div>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all duration-300"
+                              style={{ width: `${(imageProgress.processed / imageProgress.total) * 100}%` }}
+                              data-testid="progress-bar-images"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground mb-4">
+                          Downloading and saving images locally
+                        </p>
+                      )}
                       <Button
                         type="button"
                         variant="outline"

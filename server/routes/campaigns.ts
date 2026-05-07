@@ -412,12 +412,24 @@ export function registerCampaignRoutes(app: Express, helpers: {
       // Track used filenames within this request to handle conflicts with a numeric suffix
       const usedFilenames = new Set<string>();
 
+      const useSSE = req.headers.accept === "text/event-stream";
+      if (useSSE) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        });
+        if (imageTasks.length > 0) {
+          res.write(`event: progress\ndata: ${JSON.stringify({ processed: 0, total: imageTasks.length })}\n\n`);
+        }
+      }
+
+      let processed = 0;
       const { mapWithConcurrency } = await import("../utils");
       await mapWithConcurrency(imageTasks, 5, async (task) => {
         const ext = getExtensionFromUrl(task.src);
-        // Derive clean filename from the source URL
         let baseFilename = sanitizeImageFilename(task.src, task.currentIndex, ext);
-        // Handle conflicts: append numeric suffix until unique
         if (usedFilenames.has(baseFilename)) {
           const base = baseFilename.replace(/\.[^.]+$/, '');
           let counter = 2;
@@ -438,11 +450,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
         } else {
           failedImages.push(task.src);
         }
+        processed++;
+        if (useSSE) {
+          res.write(`event: progress\ndata: ${JSON.stringify({ processed, total: imageTasks.length })}\n\n`);
+        }
       });
 
-      // Normalize any protocol-less image hosting domain URLs left in the HTML
-      // (e.g. from campaigns processed before the https:// fix was applied).
-      // These are already on disk — no re-download needed, just prepend https://.
       if (imageHostingDomain) {
         const rawDomain = imageHostingDomain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
         $("img").each((_, el) => {
@@ -454,13 +467,19 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
 
       const processedHtml = $.html();
-      
-      res.json({
+      const result = {
         html: processedHtml,
         downloaded: downloadedImages.length,
         failed: failedImages.length,
-        failedUrls: failedImages
-      });
+        failedUrls: failedImages,
+      };
+
+      if (useSSE) {
+        res.write(`event: result\ndata: ${JSON.stringify(result)}\n\n`);
+        res.end();
+      } else {
+        res.json(result);
+      }
     } catch (error) {
       logger.error("Error processing HTML:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
