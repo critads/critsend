@@ -16,22 +16,22 @@ import { messageQueue } from "../message-queue";
 import { classifyDbError, SenderRetriesExhaustedError } from "../db-errors";
 
 const MAX_AUTO_RETRIES = 3;
-const SENDER_MAX_FAST_RETRIES = 2;
+const SENDER_MAX_ATTEMPTS = 3;
 
-async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxRetries = SENDER_MAX_FAST_RETRIES): Promise<T> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxAttempts = SENDER_MAX_ATTEMPTS): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
       const classified = classifyDbError(err);
-      if (!classified.transient || attempt >= maxRetries) {
+      if (!classified.transient || attempt >= maxAttempts) {
         if (classified.transient) {
           throw new SenderRetriesExhaustedError(err, classified, attempt);
         }
         throw err;
       }
       const delay = Math.pow(2, attempt - 1) * 1000;
-      logger.warn(`${label} DB operation failed (attempt ${attempt}/${maxRetries}, kind=${classified.kind}, code=${classified.code ?? 'n/a'}), retrying in ${delay}ms: ${classified.message}`);
+      logger.warn(`${label} DB operation failed (attempt ${attempt}/${maxAttempts}, kind=${classified.kind}, code=${classified.code ?? 'n/a'}), retrying in ${delay}ms: ${classified.message}`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
