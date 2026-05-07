@@ -671,9 +671,11 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   ensureSegmentNameLowerIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create segment name lower index (non-fatal):', err?.message || err));
 
-  const { ensureCampaignNameTrigramIndex } = await import("./repositories/campaign-repository");
+  const { ensureCampaignNameTrigramIndex, ensureCampaignSubjectTrigramIndex } = await import("./repositories/campaign-repository");
   ensureCampaignNameTrigramIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign name trigram index (non-fatal):', err?.message || err));
+  ensureCampaignSubjectTrigramIndex()
+    .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign subject trigram index (non-fatal):', err?.message || err));
 
   const { ensureMtaNameTrigramIndex } = await import("./repositories/mta-repository");
   ensureMtaNameTrigramIndex()

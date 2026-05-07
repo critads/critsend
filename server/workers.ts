@@ -1086,6 +1086,8 @@ function startImportJobProcessor() {
 
   storage.ensureCampaignNameTrigramIndex()
     .catch((err: any) => logger.error('[IMPORT] Failed to create campaign name trigram index:', err.message));
+  storage.ensureCampaignSubjectTrigramIndex()
+    .catch((err: any) => logger.error('[IMPORT] Failed to create campaign subject trigram index:', err.message));
 
   storage.ensureMtaNameTrigramIndex()
     .catch((err: any) => logger.error('[IMPORT] Failed to create MTA name trigram index:', err.message));

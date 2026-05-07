@@ -207,6 +207,7 @@ export interface IStorage {
   ensureTrigramIndex(): Promise<void>;
   ensureSegmentNameTrigramIndex(): Promise<LockResult | "exists">;
   ensureCampaignNameTrigramIndex(): Promise<LockResult | "exists">;
+  ensureCampaignSubjectTrigramIndex(): Promise<LockResult | "exists">;
   ensureMtaNameTrigramIndex(): Promise<LockResult | "exists">;
   ensureSegmentNameLowerIndex(): Promise<LockResult | "exists">;
 
