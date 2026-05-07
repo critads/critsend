@@ -162,24 +162,35 @@ export default function Segments() {
     }
   }, [segmentPage, totalPages]);
 
-  // Counts for the visible page only — uses cached helper (5-minute TTL)
-  // on the server, falls back to live count on cache miss.
   const visibleIds = (segments ?? []).map((s) => s.id);
   const visibleIdsKey = visibleIds.join(",");
-  const { data: segmentCounts, refetch: refetchCounts, isFetching: isRefreshingCounts } = useQuery<
+
+  const uncachedIds = (segments ?? []).filter((s) => s.cachedCount == null).map((s) => s.id);
+  const uncachedIdsKey = uncachedIds.join(",");
+
+  const { data: fetchedCounts, refetch: refetchCounts, isFetching: isRefreshingCounts } = useQuery<
     Record<string, number>
   >({
-    queryKey: ["/api/segments/counts", visibleIdsKey],
+    queryKey: ["/api/segments/counts", uncachedIdsKey],
     queryFn: async () => {
-      if (!visibleIdsKey) return {};
-      const res = await fetch(`/api/segments/counts?ids=${encodeURIComponent(visibleIdsKey)}`, {
+      if (!uncachedIdsKey) return {};
+      const res = await fetch(`/api/segments/counts?ids=${encodeURIComponent(uncachedIdsKey)}`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch segment counts");
       return res.json();
     },
-    enabled: visibleIds.length > 0,
+    enabled: uncachedIds.length > 0,
   });
+
+  const segmentCounts: Record<string, number> = {};
+  for (const s of segments ?? []) {
+    if (fetchedCounts?.[s.id] != null) {
+      segmentCounts[s.id] = fetchedCounts[s.id];
+    } else if (s.cachedCount != null) {
+      segmentCounts[s.id] = s.cachedCount;
+    }
+  }
 
   const handleRefreshCounts = async () => {
     if (!visibleIdsKey) return;
@@ -189,8 +200,12 @@ export default function Segments() {
         { credentials: "include" }
       );
       if (!res.ok) throw new Error("Failed to refresh counts");
-      queryClient.invalidateQueries({ queryKey: ["/api/segments/counts", visibleIdsKey] });
-      await refetchCounts();
+      const freshCounts: Record<string, number> = await res.json();
+      queryClient.setQueryData<Record<string, number>>(
+        ["/api/segments/counts", uncachedIdsKey],
+        (prev) => ({ ...prev, ...freshCounts })
+      );
+      queryClient.invalidateQueries({ queryKey: ["/api/segments", "paginated"] });
       toast({ title: "Counts refreshed", description: "Subscriber counts are now up to date." });
     } catch {
       toast({
@@ -209,11 +224,12 @@ export default function Segments() {
         { credentials: "include" }
       );
       if (!res.ok) throw new Error("Failed to refresh count");
-      const freshCounts = await res.json();
+      const freshCounts: Record<string, number> = await res.json();
       queryClient.setQueryData<Record<string, number>>(
-        ["/api/segments/counts", visibleIdsKey],
+        ["/api/segments/counts", uncachedIdsKey],
         (prev) => ({ ...prev, ...freshCounts })
       );
+      queryClient.invalidateQueries({ queryKey: ["/api/segments", "paginated"] });
       toast({ title: "Count refreshed", description: "Subscriber count updated." });
     } catch {
       toast({
@@ -611,8 +627,8 @@ export default function Segments() {
                     <div className="flex items-center gap-2">
                       <Users className="h-4 w-4" />
                       <span data-testid={`text-segment-count-${segment.id}`}>
-                        {segmentCounts
-                          ? `${(segmentCounts[segment.id] ?? 0).toLocaleString()} subscribers`
+                        {segmentCounts[segment.id] != null
+                          ? `${segmentCounts[segment.id].toLocaleString()} subscribers`
                           : "Loading..."}
                       </span>
                     </div>

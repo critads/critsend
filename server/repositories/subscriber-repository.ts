@@ -445,16 +445,25 @@ export async function getSegmentSubscriberCountCached(segmentId: string): Promis
     if (fromRedis !== null) return fromRedis;
     const count = await countSubscribersForSegment(segmentId);
     await redisSetSegmentCount(segmentId, count);
+    await persistSegmentCachedCount(segmentId, count);
     return count;
   }
-  // In-memory fallback when Redis is not configured
   const cached = segmentCountCache.get(segmentId);
   if (cached && Date.now() - cached.timestamp < SEGMENT_COUNT_CACHE_TTL) {
     return cached.count;
   }
   const count = await countSubscribersForSegment(segmentId);
   segmentCountCache.set(segmentId, { count, timestamp: Date.now() });
+  await persistSegmentCachedCount(segmentId, count);
   return count;
+}
+
+async function persistSegmentCachedCount(segmentId: string, count: number): Promise<void> {
+  try {
+    await db.update(segments).set({ cachedCount: count }).where(eq(segments.id, segmentId));
+  } catch (err: any) {
+    logger.warn(`[SEGMENT] Failed to persist cachedCount for ${segmentId}: ${err.message}`);
+  }
 }
 
 export async function invalidateSegmentCountCache(segmentId?: string): Promise<void> {
@@ -463,11 +472,16 @@ export async function invalidateSegmentCountCache(segmentId?: string): Promise<v
   } else {
     segmentCountCache.clear();
   }
-  // Awaiting Redis deletion guarantees that any subsequent read on this or
-  // any other instance will miss the cache and recompute the count. This is
-  // required by callers like `?refresh=true` that immediately re-read the
-  // count right after invalidating.
   await redisDeleteSegmentCount(segmentId);
+  try {
+    if (segmentId) {
+      await db.update(segments).set({ cachedCount: null }).where(eq(segments.id, segmentId));
+    } else {
+      await db.update(segments).set({ cachedCount: null });
+    }
+  } catch (err: any) {
+    logger.warn(`[SEGMENT] Failed to clear cachedCount: ${err.message}`);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

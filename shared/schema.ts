@@ -30,6 +30,7 @@ export const segments = pgTable("segments", {
   name: text("name").notNull(),
   description: text("description"),
   rules: jsonb("rules").notNull().default(sql`'[]'::jsonb`),
+  cachedCount: integer("cached_count"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
