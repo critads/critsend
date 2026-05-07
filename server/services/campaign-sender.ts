@@ -570,10 +570,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     if (mta) closeTransporter(mta.id);
     closeNullsinkTransporter();
 
-    const fatalMsg = error.message || '';
-    const isTransientDb = /connection timeout|timeout exceeded when trying to connect|timeout exceeded|Connection terminated|connection refused|ECONNRESET|ETIMEDOUT|EPIPE|unexpected eof|Client has encountered a connection error|server closed the connection unexpectedly|terminating connection|connection reset by peer|Cannot use a pool after calling end|read ECONNRESET|getaddrinfo ENOTFOUND/i.test(fatalMsg);
-    if (isTransientDb) {
-      logger.warn(`${logPrefix} Transient DB error — re-throwing for job-level requeue (sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total})`);
+    const fatalClassified = (error as any)?.senderRetriesExhausted
+      ? (error as any).classification
+      : classifyDbError(error);
+    if (fatalClassified.transient) {
+      logger.warn(`${logPrefix} Transient DB error — re-throwing for job-level requeue (sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}) [kind=${fatalClassified.kind}, code=${fatalClassified.code ?? 'n/a'}]`);
     } else {
       await storage.updateCampaignStatusAtomic(campaignId, "failed", "sending").catch((err: any) => {
         logger.warn(`${logPrefix} Failed to mark campaign as failed: ${err.message}`);

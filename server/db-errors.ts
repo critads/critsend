@@ -123,10 +123,12 @@ export function isTransientDbError(err: unknown): boolean {
 export class SenderRetriesExhaustedError extends Error {
   public readonly senderRetriesExhausted = true;
   public readonly classification: ClassifiedDbError;
+  public readonly code?: string;
   constructor(cause: unknown, classification: ClassifiedDbError, senderAttempts: number) {
     super(`Sender retries exhausted (${senderAttempts} attempts): ${classification.message}`);
     this.name = "SenderRetriesExhaustedError";
     this.classification = classification;
+    this.code = classification.code;
     if (cause instanceof Error) this.cause = cause;
   }
 }

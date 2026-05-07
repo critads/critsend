@@ -517,8 +517,10 @@ async function handleJobError(job: CampaignJob, error: any) {
   const jobRetryCount = (job as any).retryCount || 0;
   const errMsg = (error?.message || String(error || '')).toString();
 
-  const classified = classifyDbError(error);
   const senderAlreadyRetried = !!(error as any)?.senderRetriesExhausted;
+  const classified = senderAlreadyRetried
+    ? (error as any).classification
+    : classifyDbError(error);
   const isTransientDb = classified.transient;
   const errMeta = `kind=${classified.kind}, code=${classified.code ?? 'n/a'}, transient=${isTransientDb}, senderRetried=${senderAlreadyRetried}`;
 
