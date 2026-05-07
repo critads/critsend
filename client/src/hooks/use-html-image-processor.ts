@@ -128,6 +128,9 @@ export function useHtmlImageProcessor(options: HtmlImageProcessorOptions) {
               setProgress(p);
             } else if (evt.event === "result") {
               result = JSON.parse(evt.data);
+            } else if (evt.event === "error") {
+              const errData = JSON.parse(evt.data);
+              throw new Error(errData.error || "Server error during image processing");
             }
           }
         }

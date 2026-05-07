@@ -483,7 +483,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error processing HTML:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: `Failed to process HTML content: ${errorMessage}` });
+      if (res.headersSent) {
+        res.write(`event: error\ndata: ${JSON.stringify({ error: errorMessage })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ error: `Failed to process HTML content: ${errorMessage}` });
+      }
     }
   });
 
