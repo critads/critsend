@@ -79,9 +79,33 @@ export function registerSubscriberRoutes(app: Express, helpers: {
         ipAddress: z.string().max(45).nullable().optional(),
       }).strict();
       const data = updateSchema.parse(req.body);
+      // Capture pre-update tags so we can diff and emit per-tag triggers
+      // (only when tags is in the patch payload — avoids an extra read on
+      // email-only or ip-only updates).
+      const prevTags: string[] | null = data.tags !== undefined
+        ? ((await storage.getSubscriber(req.params.id))?.tags ?? [])
+        : null;
       const subscriber = await storage.updateSubscriber(req.params.id, data);
       if (!subscriber) {
         return res.status(404).json({ error: "Subscriber not found" });
+      }
+      if (prevTags !== null) {
+        const before = new Set(prevTags);
+        const after = new Set(subscriber.tags || []);
+        const added = [...after].filter(t => !before.has(t));
+        const removed = [...before].filter(t => !after.has(t));
+        if (added.length > 0 || removed.length > 0) {
+          // Fire-and-forget so the API response isn't blocked on automation
+          // enrollment work; per-call errors are logged inside the trigger.
+          import("../services/automation-engine").then(({ checkAndEnrollForTrigger }) => {
+            for (const tagName of added) {
+              checkAndEnrollForTrigger("tag_added", subscriber.id, { tagName }).catch(() => {});
+            }
+            for (const tagName of removed) {
+              checkAndEnrollForTrigger("tag_removed", subscriber.id, { tagName }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
       }
       res.json(subscriber);
     } catch (error) {

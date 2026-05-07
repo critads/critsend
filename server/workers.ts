@@ -10,7 +10,7 @@ import { workerRestartsTotal, flushJobsTotal } from "./metrics";
 import { jobEvents, type JobProgressEvent } from "./job-events";
 import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
-import { processAutomationEnrollments, checkAndEnrollForTrigger } from "./services/automation-engine";
+import { processAutomationEnrollments, checkAndEnrollForTrigger, runAutomationBootstrapMigrations } from "./services/automation-engine";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -985,8 +985,14 @@ const AUTOMATION_POLL_INTERVAL_MS = Number(process.env.AUTOMATION_POLL_INTERVAL_
 function startAutomationProcessor() {
   if (automationPollingInterval) return;
   logger.info(`[AUTOMATION] Starting automation processor (${AUTOMATION_POLL_INTERVAL_MS}ms interval)`);
-  automationPollingInterval = setInterval(pollAutomationEnrollments, AUTOMATION_POLL_INTERVAL_MS);
-  pollAutomationEnrollments();
+  // Wait for the automation bootstrap (mta_id column) to complete before the
+  // first poll touches automation_workflows. Mirrors the import bootstrap call.
+  runAutomationBootstrapMigrations()
+    .catch((err: any) => logger.error(`[AUTOMATION] Bootstrap (worker) failed (non-fatal): ${err?.message || err}`))
+    .finally(() => {
+      automationPollingInterval = setInterval(pollAutomationEnrollments, AUTOMATION_POLL_INTERVAL_MS);
+      pollAutomationEnrollments();
+    });
 }
 
 function stopAutomationProcessor() {

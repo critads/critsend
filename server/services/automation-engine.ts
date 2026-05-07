@@ -34,17 +34,30 @@ interface WorkflowRow {
 const AUTOMATION_BATCH_SIZE = 50;
 const AUTOMATION_LEASE_MINUTES = 5;
 
-// Bootstrap migration: ALTER TABLE ... ADD COLUMN IF NOT EXISTS is idempotent
-// and concurrent-safe at the PostgreSQL level. Runs once per process at module
-// load (web + worker) before the engine begins polling.
-(async () => {
-  try {
-    await db.execute(sql`ALTER TABLE automation_workflows ADD COLUMN IF NOT EXISTS mta_id varchar`);
-    logger.info("[AUTOMATION] Bootstrap migration: mta_id column ready");
-  } catch (err: any) {
-    logger.error(`[AUTOMATION] Bootstrap migration FAILED (mta_id): ${err?.message || err}`);
-  }
-})();
+/**
+ * Bootstrap migration: ALTER TABLE ... ADD COLUMN IF NOT EXISTS is idempotent
+ * and concurrent-safe at the PostgreSQL level. Called explicitly from web
+ * (server/index.ts) and worker (server/workers.ts) startup, mirroring the
+ * pattern used by runImportBootstrapMigrations, so the migration runs before
+ * any route handler or worker poll touches automation tables and there's no
+ * implicit module-load ordering to depend on.
+ */
+let _automationBootstrapPromise: Promise<void> | null = null;
+export function runAutomationBootstrapMigrations(): Promise<void> {
+  if (_automationBootstrapPromise) return _automationBootstrapPromise;
+  _automationBootstrapPromise = (async () => {
+    try {
+      await db.execute(sql`ALTER TABLE automation_workflows ADD COLUMN IF NOT EXISTS mta_id varchar`);
+      logger.info("[AUTOMATION] Bootstrap migration: mta_id column ready");
+    } catch (err: any) {
+      logger.error(`[AUTOMATION] Bootstrap migration FAILED (mta_id): ${err?.message || err}`);
+    }
+  })();
+  return _automationBootstrapPromise;
+}
+// Kick off in the background so module import is non-blocking, but the
+// explicit calls in startup paths await completion before serving traffic.
+runAutomationBootstrapMigrations().catch(() => {});
 
 /**
  * Notify the automation BullMQ worker (if Redis is configured) to immediately
@@ -380,6 +393,10 @@ async function executeAddTagStep(
 
   await storage.addTagToSubscriber(enrollment.subscriberId, tagName);
   logger.info(`${logPrefix} Added tag '${tagName}' to subscriber ${enrollment.subscriberId.substring(0, 8)}`);
+
+  // Emit tag_added trigger so chained workflows can auto-enroll on tags
+  // applied by the automation engine itself (not just the tracking-side path).
+  checkAndEnrollForTrigger("tag_added", enrollment.subscriberId, { tagName }).catch(() => {});
 }
 
 async function executeRemoveTagStep(

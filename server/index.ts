@@ -662,6 +662,11 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     logger.error(`[BOOTSTRAP] Import bootstrap failed (non-fatal): ${err?.message || err}`);
   });
 
+  const { runAutomationBootstrapMigrations } = await import("./services/automation-engine");
+  runAutomationBootstrapMigrations().catch((err) => {
+    logger.error(`[BOOTSTRAP] Automation bootstrap failed (non-fatal): ${err?.message || err}`);
+  });
+
   const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
   runAnalyticsBootstrapMigrations();
 
