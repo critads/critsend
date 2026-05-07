@@ -259,7 +259,7 @@ if (process.env.NODE_ENV === "production") {
 app.use((req: Request, res: Response, next: NextFunction) => {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
   res.setHeader('x-request-id', requestId);
-  (req as any).requestId = requestId;
+  req.requestId = requestId;
   next();
 });
 
@@ -291,6 +291,12 @@ const PostgresSessionStore = connectPg(session);
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+declare module "express-serve-static-core" {
+  interface Request {
+    requestId?: string;
   }
 }
 
@@ -605,7 +611,7 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
-      const reqId = (req as any).requestId || '-';
+      const reqId = req.requestId || '-';
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms [${ip}] rid=${reqId}`;
       const sensitivePatterns = ['subscribers', 'mtas', 'auth'];
       const isSensitive = sensitivePatterns.some(p => path.includes(p));
@@ -689,7 +695,7 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     } else if (err.code === 'ENOMEM' || (err.message && err.message.includes('memory'))) {
       message = "Server is temporarily overloaded. Please try again shortly.";
     }
-    const reqId = (req as any).requestId || '-';
+    const reqId = req.requestId || '-';
     logger.error('Unhandled route error', { status, error: err.message, stack: err.stack, path: req.path, method: req.method, requestId: reqId });
     if (status >= 500) {
       tryLogSystemError(`HTTP ${status} — ${req.method} ${req.path} rid=${reqId}`, {
