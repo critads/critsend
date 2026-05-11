@@ -35,6 +35,12 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Search,
   Plus,
   MoreVertical,
@@ -57,6 +63,7 @@ import {
   Filter,
   Edit,
   X,
+  Clipboard,
 } from "lucide-react";
 import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
 
@@ -432,6 +439,7 @@ export default function Campaigns() {
                         aria-label="Select all campaigns"
                       />
                     </TableHead>
+                    <TableHead>ID</TableHead>
                     <TableHead>Campaign</TableHead>
                     <TableHead><span className="flex items-center gap-1"><Filter className="h-3.5 w-3.5" />Segment</span></TableHead>
                     <TableHead>MTA</TableHead>
@@ -459,6 +467,48 @@ export default function Campaigns() {
                           data-testid={`checkbox-campaign-${campaign.id}`}
                           aria-label={`Select ${campaign.name}`}
                         />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <code
+                                  tabIndex={0}
+                                  className="text-xs font-mono text-muted-foreground rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  data-testid={`text-campaign-id-${campaign.id}`}
+                                >
+                                  {campaign.id.slice(0, 8)}
+                                </code>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <span className="font-mono text-xs">{campaign.id}</span>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                await navigator.clipboard.writeText(campaign.id);
+                                toast({ title: "Campaign ID copied" });
+                              } catch {
+                                toast({
+                                  title: "Copy failed",
+                                  description: "Could not access clipboard.",
+                                  variant: "destructive",
+                                });
+                              }
+                            }}
+                            aria-label="Copy campaign ID"
+                            data-testid={`button-copy-campaign-id-${campaign.id}`}
+                          >
+                            <Clipboard className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">

@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign } from "@shared/schema";
 import DateTimePicker from "@/components/date-time-picker";
+import { SegmentCombobox } from "@/components/segment-combobox";
 
 /** Inject a <base href> into preview HTML so relative image URLs (/campaigns/...)
  *  resolve against the current server instead of about:srcdoc. */
@@ -518,21 +519,11 @@ export default function CampaignNew() {
               {loadingSegments ? (
                 <Skeleton className="h-10 w-full" />
               ) : segments && segments.length > 0 ? (
-                <Select
+                <SegmentCombobox
+                  segments={segments}
                   value={formData.segmentId || ""}
-                  onValueChange={(v) => updateField("segmentId", v)}
-                >
-                  <SelectTrigger data-testid="select-segment">
-                    <SelectValue placeholder="Choose a segment" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {segments.map((segment) => (
-                      <SelectItem key={segment.id} value={segment.id}>
-                        {segment.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(v) => updateField("segmentId", v)}
+                />
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
