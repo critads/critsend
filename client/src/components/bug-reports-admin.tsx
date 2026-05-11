@@ -143,7 +143,14 @@ export function BugReportsAdmin() {
                         {r.description}
                       </TableCell>
                       <TableCell className="text-xs max-w-[180px] truncate" title={r.pageUrl ?? ""}>
-                        {r.pageUrl ? new URL(r.pageUrl, window.location.origin).pathname : "—"}
+                        {(() => {
+                          if (!r.pageUrl) return "—";
+                          try {
+                            return new URL(r.pageUrl, window.location.origin).pathname;
+                          } catch {
+                            return r.pageUrl.slice(0, 60);
+                          }
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Select

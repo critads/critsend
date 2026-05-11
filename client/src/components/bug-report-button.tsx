@@ -156,7 +156,7 @@ export function BugReportButton() {
             type="button"
             size="icon"
             onClick={handleOpen}
-            className="fixed bottom-6 left-6 z-40 h-12 w-12 rounded-full shadow-lg"
+            className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full shadow-lg"
             aria-label="Report a bug"
             data-testid="button-bug-report-open"
           >
