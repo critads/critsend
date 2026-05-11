@@ -18,6 +18,7 @@ interface SegmentComboboxProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  loading?: boolean;
   placeholder?: string;
 }
 
@@ -26,8 +27,10 @@ export function SegmentCombobox({
   value,
   onChange,
   disabled,
+  loading,
   placeholder = "Choose a segment",
 }: SegmentComboboxProps) {
+  const isDisabled = disabled || loading;
   const [open, setOpen] = useState(false);
   const selected = segments.find((s) => s.id === value);
 
@@ -38,12 +41,12 @@ export function SegmentCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          disabled={disabled}
+          disabled={isDisabled}
           className="w-full justify-between font-normal"
           data-testid="combobox-segment"
         >
           <span className={cn("truncate", !selected && "text-muted-foreground")}>
-            {selected ? selected.name : placeholder}
+            {loading ? "Loading segments..." : selected ? selected.name : placeholder}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

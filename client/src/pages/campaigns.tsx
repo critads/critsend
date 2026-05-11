@@ -428,6 +428,7 @@ export default function Campaigns() {
           ) : campaigns && campaigns.length > 0 ? (
             <div className="space-y-4">
             <div className="rounded-md border overflow-x-auto">
+              <TooltipProvider delayDuration={200}>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -470,22 +471,20 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          <TooltipProvider delayDuration={200}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <code
-                                  tabIndex={0}
-                                  className="text-xs font-mono text-muted-foreground rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  data-testid={`text-campaign-id-${campaign.id}`}
-                                >
-                                  {campaign.id.slice(0, 8)}
-                                </code>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <span className="font-mono text-xs">{campaign.id}</span>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <code
+                                tabIndex={0}
+                                className="text-xs font-mono text-muted-foreground rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                data-testid={`text-campaign-id-${campaign.id}`}
+                              >
+                                {campaign.id.slice(0, 8)}
+                              </code>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <span className="font-mono text-xs">{campaign.id}</span>
+                            </TooltipContent>
+                          </Tooltip>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -735,6 +734,7 @@ export default function Campaigns() {
                   ))}
                 </TableBody>
               </Table>
+              </TooltipProvider>
             </div>
             {totalPages > 1 && (
               <div className="flex items-center justify-between" data-testid="campaigns-pagination">
