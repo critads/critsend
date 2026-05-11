@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { BugReportButton } from "@/components/bug-report-button";
 import AuthPage from "@/pages/auth";
 import ResetPasswordPage from "@/pages/reset-password";
 import { useAuth } from "@/hooks/use-auth";
@@ -121,6 +122,7 @@ function AuthenticatedApp() {
             <Router />
           </main>
         </div>
+        <BugReportButton />
       </div>
     </SidebarProvider>
   );

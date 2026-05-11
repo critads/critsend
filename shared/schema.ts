@@ -863,6 +863,45 @@ export type SendingSpeed = keyof typeof sendingSpeedConfig;
 // Campaign status types
 export type CampaignStatus = "draft" | "scheduled" | "sending" | "paused" | "completed" | "failed";
 
+// Bug Reports — global feedback widget on every authenticated page
+export const bugReports = pgTable("bug_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"),
+  userEmail: text("user_email"),
+  description: text("description").notNull(),
+  screenshotPath: text("screenshot_path"),
+  pageUrl: text("page_url"),
+  userAgent: text("user_agent"),
+  viewportWidth: integer("viewport_width"),
+  viewportHeight: integer("viewport_height"),
+  status: text("status").notNull().default("new"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  statusIdx: index("bug_reports_status_idx").on(table.status),
+  createdAtIdx: index("bug_reports_created_at_idx").on(table.createdAt),
+}));
+
+export const insertBugReportSchema = createInsertSchema(bugReports).omit({
+  id: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  description: z.string().min(1, "Description required").max(5000, "Description too long"),
+  screenshotPath: z.string().nullable().optional(),
+  pageUrl: z.string().max(2000).nullable().optional(),
+  userAgent: z.string().max(1000).nullable().optional(),
+  viewportWidth: z.number().int().nullable().optional(),
+  viewportHeight: z.number().int().nullable().optional(),
+  userEmail: z.string().nullable().optional(),
+  userId: z.string().nullable().optional(),
+});
+
+export type BugReport = typeof bugReports.$inferSelect;
+export type InsertBugReport = z.infer<typeof insertBugReportSchema>;
+export type BugReportStatus = "new" | "in_progress" | "completed";
+
 // Keep users for future auth
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
