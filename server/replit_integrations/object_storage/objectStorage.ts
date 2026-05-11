@@ -133,6 +133,12 @@ export class ObjectStorageService {
 
   // Gets the upload URL for an object entity.
   async getObjectEntityUploadURL(): Promise<string> {
+    return this.getNamespacedUploadURL("uploads");
+  }
+
+  // Gets a presigned PUT URL for an object placed under a custom namespace
+  // (e.g. "bug-reports", "uploads"). Returned URL is for a fresh UUID object.
+  async getNamespacedUploadURL(namespace: string): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
       throw new Error(
@@ -141,8 +147,13 @@ export class ObjectStorageService {
       );
     }
 
+    const safeNamespace = namespace.replace(/[^A-Za-z0-9_-]/g, "");
+    if (!safeNamespace) {
+      throw new Error("Invalid namespace for upload URL");
+    }
+
     const objectId = randomUUID();
-    const fullPath = `${privateObjectDir}/uploads/${objectId}`;
+    const fullPath = `${privateObjectDir}/${safeNamespace}/${objectId}`;
 
     const { bucketName, objectName } = parseObjectPath(fullPath);
 

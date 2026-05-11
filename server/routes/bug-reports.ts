@@ -1,27 +1,32 @@
 import { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { bugReports, insertBugReportSchema, type BugReport } from "@shared/schema";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { bugReports, insertBugReportSchema } from "@shared/schema";
+import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../replit_integrations/object_storage/objectStorage";
 import { logger } from "../logger";
 
 const VALID_STATUSES = ["new", "in_progress", "completed"] as const;
+type BugReportStatus = (typeof VALID_STATUSES)[number];
 
 const updateStatusSchema = z.object({
   status: z.enum(VALID_STATUSES),
 });
 
+// Screenshots are stored under a dedicated `bug-reports/` namespace in the
+// private bucket so they're easy to identify, audit, and bulk-purge.
+const SCREENSHOT_PATH_RE = /^\/objects\/bug-reports\/[A-Za-z0-9_-]{8,}$/;
+
 export function registerBugReportRoutes(app: Express) {
   const objectStorage = new ObjectStorageService();
 
-  // Get presigned upload URL for screenshot
+  // Get presigned upload URL for a bug-report screenshot.
   app.post("/api/bug-reports/upload-url", async (_req: Request, res: Response) => {
     try {
-      const uploadURL = await objectStorage.getObjectEntityUploadURL();
+      const uploadURL = await objectStorage.getNamespacedUploadURL("bug-reports");
       const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
       res.json({ uploadURL, objectPath });
-    } catch (error: any) {
+    } catch (error) {
       logger.error("bug-report upload-url error", { error: String(error) });
       res.status(500).json({ error: "Failed to generate upload URL" });
     }
@@ -38,14 +43,13 @@ export function registerBugReportRoutes(app: Express) {
         return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten().fieldErrors });
       }
 
-      let screenshotPath = parsed.data.screenshotPath ?? null;
+      let screenshotPath: string | null = parsed.data.screenshotPath ?? null;
       if (screenshotPath) {
-        // Only accept paths produced by our presigned upload flow:
-        // `/objects/uploads/<uuid>` — reject arbitrary object references
-        // to prevent attaching unrelated files. Drop the screenshot if ACL
-        // hardening fails so we never persist a path that isn't private.
-        const validPath = /^\/objects\/uploads\/[A-Za-z0-9_-]{8,}$/.test(screenshotPath);
-        if (!validPath) {
+        // Only accept paths produced by our presigned upload flow under the
+        // `bug-reports/` namespace. Reject arbitrary object references and
+        // drop the screenshot if ACL hardening fails so we never persist a
+        // path that isn't private.
+        if (!SCREENSHOT_PATH_RE.test(screenshotPath)) {
           screenshotPath = null;
         } else {
           try {
@@ -72,42 +76,50 @@ export function registerBugReportRoutes(app: Express) {
       }).returning();
 
       res.status(201).json(report);
-    } catch (error: any) {
-      logger.error("bug-report create error", { error: error.message });
+    } catch (error) {
+      logger.error("bug-report create error", { error: String(error) });
       res.status(500).json({ error: "Failed to create bug report" });
     }
   });
 
-  // List bug reports (admin)
+  // List bug reports (admin) — paginated, with optional status + free-text search.
   app.get("/api/bug-reports", async (req: Request, res: Response) => {
     try {
-      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const statusParam = typeof req.query.status === "string" ? req.query.status : undefined;
       const search = typeof req.query.q === "string" ? req.query.q.trim() : "";
-      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "100"), 10) || 100, 1), 500);
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "50"), 10) || 50, 1), 200);
       const offset = Math.max(parseInt(String(req.query.offset ?? "0"), 10) || 0, 0);
 
-      const conds: any[] = [];
-      if (status && (VALID_STATUSES as readonly string[]).includes(status)) {
-        conds.push(eq(bugReports.status, status));
+      const conds: SQL[] = [];
+      if (statusParam && (VALID_STATUSES as readonly string[]).includes(statusParam)) {
+        conds.push(eq(bugReports.status, statusParam as BugReportStatus));
       }
       if (search) {
         const like = `%${search}%`;
-        conds.push(or(ilike(bugReports.description, like), ilike(bugReports.userEmail, like), ilike(bugReports.pageUrl, like)));
+        const orClause = or(
+          ilike(bugReports.description, like),
+          ilike(bugReports.userEmail, like),
+          ilike(bugReports.pageUrl, like),
+        );
+        if (orClause) conds.push(orClause);
       }
-      const where = conds.length ? and(...conds) : undefined;
+      const where: SQL | undefined = conds.length ? and(...conds) : undefined;
 
       const rows = await db.select().from(bugReports)
-        .where(where as any)
+        .where(where)
         .orderBy(desc(bugReports.createdAt))
         .limit(limit)
         .offset(offset);
 
-      const totalRow = await db.execute(sql`SELECT COUNT(*)::int AS c FROM bug_reports ${where ? sql`WHERE ${where}` : sql``}`);
-      const total = Number((totalRow.rows[0] as any)?.c ?? 0);
+      const [countRow] = await db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(bugReports)
+        .where(where);
+      const total = countRow?.total ?? 0;
 
-      res.json({ reports: rows, total });
-    } catch (error: any) {
-      logger.error("bug-report list error", { error: error.message });
+      res.json({ reports: rows, total, limit, offset });
+    } catch (error) {
+      logger.error("bug-report list error", { error: String(error) });
       res.status(500).json({ error: "Failed to list bug reports" });
     }
   });
@@ -118,7 +130,8 @@ export function registerBugReportRoutes(app: Express) {
       const [report] = await db.select().from(bugReports).where(eq(bugReports.id, req.params.id)).limit(1);
       if (!report) return res.status(404).json({ error: "Bug report not found" });
       res.json(report);
-    } catch (error: any) {
+    } catch (error) {
+      logger.error("bug-report fetch error", { error: String(error) });
       res.status(500).json({ error: "Failed to fetch bug report" });
     }
   });
@@ -136,8 +149,8 @@ export function registerBugReportRoutes(app: Express) {
         .returning();
       if (!report) return res.status(404).json({ error: "Bug report not found" });
       res.json(report);
-    } catch (error: any) {
-      logger.error("bug-report update error", { error: error.message });
+    } catch (error) {
+      logger.error("bug-report update error", { error: String(error) });
       res.status(500).json({ error: "Failed to update bug report" });
     }
   });
@@ -151,11 +164,11 @@ export function registerBugReportRoutes(app: Express) {
       }
       const file = await objectStorage.getObjectEntityFile(report.screenshotPath);
       await objectStorage.downloadObject(file, res, 60);
-    } catch (error: any) {
+    } catch (error) {
       if (error instanceof ObjectNotFoundError) {
         return res.status(404).json({ error: "Screenshot not found" });
       }
-      logger.error("bug-report screenshot error", { error: error.message });
+      logger.error("bug-report screenshot error", { error: String(error) });
       res.status(500).json({ error: "Failed to fetch screenshot" });
     }
   });

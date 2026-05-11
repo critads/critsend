@@ -8,6 +8,13 @@
       "when": 1770483826795,
       "tag": "0000_aspiring_cerebro",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778495119838,
+      "tag": "0001_bug_reports",
+      "breakpoints": true
     }
   ]
 }

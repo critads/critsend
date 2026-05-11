@@ -4,6 +4,7 @@ import html2canvas from "html2canvas";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -128,16 +129,21 @@ export function BugReportButton() {
 
   return (
     <>
-      <Button
-        type="button"
-        size="icon"
-        onClick={handleOpen}
-        className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full shadow-lg"
-        title="Report a bug"
-        data-testid="button-bug-report-open"
-      >
-        <Bug className="h-5 w-5" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            onClick={handleOpen}
+            className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full shadow-lg"
+            aria-label="Report a bug"
+            data-testid="button-bug-report-open"
+          >
+            <Bug className="h-5 w-5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left">Report a bug</TooltipContent>
+      </Tooltip>
 
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="max-w-lg" data-testid="dialog-bug-report">
