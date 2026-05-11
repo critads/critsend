@@ -7,7 +7,26 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useAuth } from "@/hooks/use-auth";
+
+const MAX_SCREENSHOT_WIDTH = 1600;
+const SCREENSHOT_QUALITY = 0.82;
+
+// Downscale large captures to keep upload payloads bounded and snappy on
+// long/wide pages, then encode as JPEG (better compression than PNG for
+// page screenshots).
+function downscale(source: HTMLCanvasElement, maxWidth: number): HTMLCanvasElement {
+  if (source.width <= maxWidth) return source;
+  const ratio = maxWidth / source.width;
+  const out = document.createElement("canvas");
+  out.width = maxWidth;
+  out.height = Math.round(source.height * ratio);
+  const ctx = out.getContext("2d");
+  if (!ctx) return source;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, 0, 0, out.width, out.height);
+  return out;
+}
 
 async function captureScreenshot(): Promise<Blob | null> {
   try {
@@ -19,7 +38,10 @@ async function captureScreenshot(): Promise<Blob | null> {
       windowHeight: document.documentElement.clientHeight,
       scale: Math.min(window.devicePixelRatio || 1, 1.5),
     });
-    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/png", 0.85));
+    const resized = downscale(canvas, MAX_SCREENSHOT_WIDTH);
+    return await new Promise<Blob | null>((resolve) =>
+      resized.toBlob((b) => resolve(b), "image/jpeg", SCREENSHOT_QUALITY),
+    );
   } catch (e) {
     console.error("html2canvas failed", e);
     return null;
@@ -28,7 +50,6 @@ async function captureScreenshot(): Promise<Blob | null> {
 
 export function BugReportButton() {
   const { toast } = useToast();
-  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [screenshot, setScreenshot] = useState<Blob | null>(null);
@@ -95,7 +116,7 @@ export function BugReportButton() {
           const { uploadURL, objectPath } = await r.json();
           const putRes = await fetch(uploadURL, {
             method: "PUT",
-            headers: { "Content-Type": "image/png" },
+            headers: { "Content-Type": screenshot.type || "image/jpeg" },
             body: screenshot,
           });
           if (putRes.ok) {
@@ -108,6 +129,7 @@ export function BugReportButton() {
         }
       }
 
+      // userEmail and userId are derived server-side from the session.
       await apiRequest("POST", "/api/bug-reports", {
         description: description.trim(),
         screenshotPath,
@@ -115,7 +137,6 @@ export function BugReportButton() {
         userAgent: navigator.userAgent.slice(0, 1000),
         viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight,
-        userEmail: user?.username ?? null,
       });
 
       toast({ title: "Bug report submitted", description: "Thanks — your report was sent to the team." });
@@ -135,7 +156,7 @@ export function BugReportButton() {
             type="button"
             size="icon"
             onClick={handleOpen}
-            className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full shadow-lg"
+            className="fixed bottom-6 left-6 z-40 h-12 w-12 rounded-full shadow-lg"
             aria-label="Report a bug"
             data-testid="button-bug-report-open"
           >

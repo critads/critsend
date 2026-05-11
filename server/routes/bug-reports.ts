@@ -4,6 +4,7 @@ import { db } from "../db";
 import { bugReports, insertBugReportSchema } from "@shared/schema";
 import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../replit_integrations/object_storage/objectStorage";
+import { getUserById } from "../repositories/system-repository";
 import { logger } from "../logger";
 
 const VALID_STATUSES = ["new", "in_progress", "completed"] as const;
@@ -35,9 +36,24 @@ export function registerBugReportRoutes(app: Express) {
   // Create a bug report
   app.post("/api/bug-reports", async (req: Request, res: Response) => {
     try {
+      // userId and userEmail are server-derived from the session — never trust
+      // the client to attribute reports to another user.
+      const sessionUserId = req.session.userId ?? null;
+      let resolvedEmail: string | null = null;
+      if (sessionUserId) {
+        try {
+          const user = await getUserById(sessionUserId);
+          // In this app `users.username` stores the email address.
+          resolvedEmail = user?.username ?? null;
+        } catch (e) {
+          logger.warn("bug-report user lookup failed", { error: String(e) });
+        }
+      }
+
       const parsed = insertBugReportSchema.safeParse({
         ...req.body,
-        userId: req.session.userId ?? null,
+        userId: sessionUserId,
+        userEmail: resolvedEmail,
       });
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid input", details: parsed.error.flatten().fieldErrors });
@@ -65,8 +81,8 @@ export function registerBugReportRoutes(app: Express) {
       }
 
       const [report] = await db.insert(bugReports).values({
-        userId: parsed.data.userId ?? req.session.userId ?? null,
-        userEmail: parsed.data.userEmail ?? null,
+        userId: sessionUserId,
+        userEmail: resolvedEmail,
         description: parsed.data.description,
         screenshotPath,
         pageUrl: parsed.data.pageUrl ?? null,
