@@ -77,10 +77,24 @@ else
 fi
 
 # ─── Step 5: Ensure directories exist with correct permissions ───────────────
+# NOTE: import upload directories are NOT created here on purpose — they live
+# OUTSIDE the app dir (see IMPORT_UPLOAD_DIR in deploy/ecosystem.config.cjs)
+# and are provisioned once by deploy/setup.sh. Creating them inside the repo
+# would re-introduce the bug where deploys wipe queued CSV imports.
 step "Ensuring required directories exist..."
-mkdir -p images uploads/imports
-chmod 755 images uploads/imports
-ok "Directories ready (images, uploads/imports)"
+mkdir -p images
+chmod 755 images
+ok "Directories ready (images)"
+
+# Surface the resolved import upload dir so operators can spot misconfig at a glance.
+_import_upload_dir=$(grep -E "^IMPORT_UPLOAD_DIR=" .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+_import_upload_dir="${_import_upload_dir:-/var/lib/critsend/uploads/imports}"
+if [[ -d "$_import_upload_dir" ]]; then
+    ok "Import upload dir present: $_import_upload_dir"
+else
+    echo "[deploy] ⚠ Import upload dir missing: $_import_upload_dir"
+    echo "[deploy]   Run: sudo bash deploy/setup.sh   (provisions /var/lib/critsend/uploads/{imports,chunks})"
+fi
 
 # ─── Step 6: Update Nginx config (safe — rolls back on failure) ───────────────
 step "Updating Nginx configuration..."

@@ -478,6 +478,24 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
     }
   };
 
+  const markFailedMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/import/${job.id}/mark-failed`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/import-jobs"] });
+      toast({ title: "Import marked as failed" });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Could not mark the import as failed.";
+      toast({ title: "Mark failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  const handleMarkFailed = () => {
+    if (window.confirm("Mark this import as failed? Use this when the original CSV is no longer on the server and you don't intend to re-upload it.")) {
+      markFailedMutation.mutate();
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "completed": return <CheckCircle2 className="h-5 w-5 text-green-600" />;
@@ -566,15 +584,29 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
             const fileMissing = errMsg.includes("csv file not found") || errMsg.includes("no longer on the server");
             if (fileMissing) {
               return (
-                <Badge
-                  variant="outline"
-                  className="text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-300"
-                  data-testid={`badge-reupload-required-${job.id}`}
-                  title="The original CSV file is no longer on the server. Please re-upload it from the Upload tab."
-                >
-                  <Upload className="h-3 w-3 mr-1" />
-                  Re-upload required
-                </Badge>
+                <>
+                  <Badge
+                    variant="outline"
+                    className="text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-300"
+                    data-testid={`badge-reupload-required-${job.id}`}
+                    title="The original CSV file is no longer on the server. Please re-upload it from the Upload tab."
+                  >
+                    <Upload className="h-3 w-3 mr-1" />
+                    Re-upload required
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMarkFailed}
+                    disabled={markFailedMutation.isPending}
+                    data-testid={`button-mark-failed-${job.id}`}
+                    className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-950"
+                    title="Don't intend to re-upload — mark this row as permanently failed."
+                  >
+                    <XCircle className="h-4 w-4 mr-1" />
+                    Mark Failed
+                  </Button>
+                </>
               );
             }
             return (

@@ -724,6 +724,37 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   startupComplete = true;
   log(`serving on port ${port} — routes and static files ready`);
 
+  // ── Persistent import-upload directory safety check ─────────────────
+  // In production the import upload dir MUST live outside process.cwd()
+  // (the app directory) — otherwise `git pull` / atomic deploys / PM2
+  // reloads can wipe queued CSVs and silently break in-flight imports.
+  try {
+    const { UPLOADS_DIR_BASE, CHUNKS_DIR_BASE } = await import("./upload");
+    const cwd = path.resolve(process.cwd());
+    const insideCwd = (p: string) => {
+      const rel = path.relative(cwd, p);
+      return !rel.startsWith("..") && !path.isAbsolute(rel);
+    };
+    const uploadInsideCwd = insideCwd(UPLOADS_DIR_BASE);
+    const chunksInsideCwd = insideCwd(CHUNKS_DIR_BASE);
+    logger.info(`[IMPORT] Upload dir: ${UPLOADS_DIR_BASE} (chunks: ${CHUNKS_DIR_BASE})`);
+    if (process.env.NODE_ENV === "production" && (uploadInsideCwd || chunksInsideCwd)) {
+      logger.error(
+        `[IMPORT] CRITICAL: import upload dir is inside the app directory (${cwd}). ` +
+        `Set IMPORT_UPLOAD_DIR (and optionally IMPORT_CHUNKS_DIR) to a path on a ` +
+        `persistent volume — e.g. /var/lib/critsend/uploads/imports — or queued ` +
+        `CSV imports will be wiped by every deploy / PM2 restart.`
+      );
+      tryLogSystemError("Import upload dir inside app directory in production", {
+        uploadDir: UPLOADS_DIR_BASE,
+        chunksDir: CHUNKS_DIR_BASE,
+        cwd,
+      });
+    }
+  } catch (err: any) {
+    logger.warn(`[IMPORT] Upload dir safety check failed: ${err?.message || err}`);
+  }
+
   // ── Background initialization (non-blocking) ─────────────────────────
   // Everything below runs AFTER the server is fully serving requests.
 

@@ -17,6 +17,7 @@ NODE_VERSION="20"
 NVM_VERSION="v0.40.1"
 APP_USER="${SUDO_USER:-$(logname 2>/dev/null || echo ubuntu)}"
 APP_DIR="/var/log/critsend"
+DATA_DIR="/var/lib/critsend"
 
 info()    { echo "[setup] INFO  : $*"; }
 success() { echo "[setup] OK    : $*"; }
@@ -111,6 +112,26 @@ if [[ ! -d "$APP_DIR" ]]; then
 else
     success "Log directory already exists: $APP_DIR"
 fi
+
+# ─── Persistent data directory (uploads survive deploys/restarts) ────────────
+# Critsend stores queued import CSVs on disk between upload and worker pickup.
+# These must live OUTSIDE the app directory so `git pull` / PM2 reload don't
+# wipe in-flight imports. The app reads IMPORT_UPLOAD_DIR / IMPORT_CHUNKS_DIR
+# from the environment (set in deploy/ecosystem.config.cjs).
+for sub in uploads/imports uploads/chunks; do
+    target="$DATA_DIR/$sub"
+    if [[ ! -d "$target" ]]; then
+        mkdir -p "$target"
+        chown "$APP_USER:$APP_USER" "$target"
+        chmod 750 "$target"
+        success "Created persistent data directory: $target"
+    else
+        # Ensure ownership/perms even if pre-existing
+        chown "$APP_USER:$APP_USER" "$target"
+        chmod 750 "$target"
+        success "Persistent data directory already exists: $target"
+    fi
+done
 
 # ─── Nginx ────────────────────────────────────────────────────────────────────
 if systemctl is-active --quiet nginx; then

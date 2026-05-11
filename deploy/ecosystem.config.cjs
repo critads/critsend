@@ -62,6 +62,11 @@ module.exports = {
         NODE_ENV: "production",
         PROCESS_TYPE: "web",
         NODE_OPTIONS: "--max-old-space-size=4096 --expose-gc",
+        // Persistent upload directories — MUST live outside the app dir so
+        // `git pull` / PM2 reload don't wipe queued import CSVs. Provisioned
+        // by deploy/setup.sh. Override in .env if needed.
+        IMPORT_UPLOAD_DIR: dotenvVars.IMPORT_UPLOAD_DIR || "/var/lib/critsend/uploads/imports",
+        IMPORT_CHUNKS_DIR: dotenvVars.IMPORT_CHUNKS_DIR || "/var/lib/critsend/uploads/chunks",
       },
 
       max_restarts: 10,
@@ -91,6 +96,11 @@ module.exports = {
         WORKER_PG_POOL_MAX: "18",
         MAX_CONCURRENT_CAMPAIGNS: "12",
         MAX_CONNECTIONS_PER_REQUEST: "2",
+        // Worker reads CSVs by absolute path stored in import_job_queue, but
+        // we set the same env vars here for consistency and so any future
+        // worker-side temp writes land on the persistent volume.
+        IMPORT_UPLOAD_DIR: dotenvVars.IMPORT_UPLOAD_DIR || "/var/lib/critsend/uploads/imports",
+        IMPORT_CHUNKS_DIR: dotenvVars.IMPORT_CHUNKS_DIR || "/var/lib/critsend/uploads/chunks",
       },
 
       max_restarts: 50,

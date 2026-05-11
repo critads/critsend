@@ -6,7 +6,7 @@ import { sql, eq } from "drizzle-orm";
 import { importJobs, importJobQueue } from "@shared/schema";
 import * as fs from "fs";
 import * as path from "path";
-import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE } from "../upload";
+import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE, CHUNKS_DIR_BASE } from "../upload";
 import { sanitizeCsvValue } from "../utils";
 import { isMemoryPressure } from "../workers";
 import { jobEvents, type JobProgressEvent } from "../job-events";
@@ -66,7 +66,10 @@ export function registerImportExportRoutes(app: Express, helpers: {
 }) {
   const { validateId } = helpers;
 
-  const CHUNKS_DIR = path.join(process.cwd(), "uploads", "chunks");
+  // Resolved at module load via IMPORT_CHUNKS_DIR (or derived from
+  // IMPORT_UPLOAD_DIR) so chunked uploads survive deploys/PM2 restarts when
+  // pointed at a persistent volume in production. See server/upload.ts.
+  const CHUNKS_DIR = CHUNKS_DIR_BASE;
   if (!fs.existsSync(CHUNKS_DIR)) {
     fs.mkdirSync(CHUNKS_DIR, { recursive: true });
   }
@@ -319,6 +322,60 @@ export function registerImportExportRoutes(app: Express, helpers: {
     }
   });
 
+  // Mark a queued/failed import as permanently failed. Used by the UI when
+  // the source CSV has been wiped (typically after a deploy/PM2 restart on a
+  // server that stored uploads inside the app directory) and the user wants
+  // to clear the row from the active list without re-uploading.
+  app.post("/api/import/:id/mark-failed", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const { id } = req.params;
+
+      const [existingJob] = await db
+        .select({ status: importJobs.status })
+        .from(importJobs)
+        .where(eq(importJobs.id, id))
+        .limit(1);
+
+      if (!existingJob) {
+        return res.status(404).json({ error: "Import job not found" });
+      }
+      if (!["queued", "pending", "failed", "cancelled", "awaiting_confirmation"].includes(existingJob.status)) {
+        return res.status(400).json({ error: `Import cannot be marked failed from status '${existingJob.status}'` });
+      }
+
+      const reason = typeof req.body?.reason === "string" && req.body.reason.trim()
+        ? req.body.reason.trim().slice(0, 500)
+        : "Marked failed by user (CSV file no longer available on server)";
+
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`
+          UPDATE import_job_queue
+          SET status = 'failed',
+              completed_at = NOW(),
+              error_message = ${reason}
+          WHERE import_job_id = ${id}
+            AND status IN ('pending', 'processing', 'queued')
+        `);
+        await tx.execute(sql`
+          UPDATE import_jobs
+          SET status = 'failed',
+              completed_at = COALESCE(completed_at, NOW()),
+              error_message = ${reason}
+          WHERE id = ${id}
+        `);
+      });
+
+      logger.info(`[IMPORT] Import job ${id} marked failed by user (was: ${existingJob.status}) — reason: ${reason}`);
+      res.json({ success: true, message: "Import marked as failed" });
+    } catch (error) {
+      logger.error("Error marking import failed:", error);
+      res.status(500).json({ error: "Failed to mark import as failed" });
+    }
+  });
+
   app.post("/api/import/:id/force-complete", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {
@@ -534,7 +591,20 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
       
       const chunkPath = path.join(CHUNKS_DIR, `${uploadId}_${index}`);
-      fs.renameSync(req.file.path, chunkPath);
+      // EXDEV-safe move: rename across filesystems throws EXDEV. Fall back
+      // to copy+unlink so the chunk endpoint keeps working even when the
+      // multer temp dir and CHUNKS_DIR end up on different mounts (defense
+      // in depth — both should resolve to CHUNKS_DIR_BASE today).
+      try {
+        fs.renameSync(req.file.path, chunkPath);
+      } catch (err: any) {
+        if (err?.code === "EXDEV") {
+          fs.copyFileSync(req.file.path, chunkPath);
+          try { fs.unlinkSync(req.file.path); } catch {}
+        } else {
+          throw err;
+        }
+      }
       
       upload.receivedChunks.add(index);
       
