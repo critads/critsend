@@ -88,6 +88,10 @@ function normalizeForApi(data: Partial<InsertCampaign>) {
 export default function CampaignNew() {
   const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
+  // Task #138: tracks whether the exclusion combobox is revealed.
+  // Independent of `excludeSegmentId` so the "+ Add" button only opens
+  // an empty selector instead of silently picking the first option.
+  const [showExclusion, setShowExclusion] = useState(false);
   const [formData, setFormData] = useState<Partial<InsertCampaign>>({
     name: "",
     mtaId: "",
@@ -523,11 +527,13 @@ export default function CampaignNew() {
 
       case 2: {
         // Task #138: optional exclusion segment. The "+ Add exclusion segment"
-        // button reveals a second combobox; subscribers in the exclusion
-        // segment are SUBTRACTED at send time. The exclusion list filters
-        // out the include id so the user can't pick the same segment on
-        // both sides (also enforced server-side with a 400).
-        const excludeOpen = !!formData.excludeSegmentId;
+        // button only REVEALS the second combobox — it must NOT pre-select
+        // a segment, otherwise we'd silently apply an exclusion the user
+        // never chose. `showExclusion` tracks visibility; `excludeSegmentId`
+        // tracks the actual selection. The exclusion list filters out the
+        // include id so the user can't pick the same segment on both sides
+        // (also enforced server-side with a 400).
+        const excludeOpen = showExclusion || !!formData.excludeSegmentId;
         const excludeChoices = (segments ?? []).filter((s) => s.id !== formData.segmentId);
         return (
           <div className="space-y-6">
@@ -566,10 +572,7 @@ export default function CampaignNew() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const firstAvailable = excludeChoices[0]?.id;
-                      if (firstAvailable) updateField("excludeSegmentId", firstAvailable);
-                    }}
+                    onClick={() => setShowExclusion(true)}
                     data-testid="button-add-exclusion"
                   >
                     + Add exclusion segment
@@ -582,7 +585,10 @@ export default function CampaignNew() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => updateField("excludeSegmentId", "")}
+                        onClick={() => {
+                          setShowExclusion(false);
+                          updateField("excludeSegmentId", "");
+                        }}
                         data-testid="button-remove-exclusion"
                       >
                         <X className="h-4 w-4 mr-1" />

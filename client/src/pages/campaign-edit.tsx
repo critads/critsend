@@ -109,6 +109,10 @@ export default function CampaignEdit() {
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  // Task #138: tracks whether the exclusion combobox is revealed.
+  // Initialised to true once the loaded campaign already has an
+  // exclusion set; otherwise false (the user must click "+ Add").
+  const [showExclusion, setShowExclusion] = useState(false);
   const { toast } = useToast();
 
   const {
@@ -155,6 +159,10 @@ export default function CampaignEdit() {
       });
       if (campaign.htmlContent) {
         setHtmlLoaded(true);
+      }
+      // Reveal the exclusion selector if this campaign already has one.
+      if (campaign.excludeSegmentId) {
+        setShowExclusion(true);
       }
       setDataLoaded(true);
     }
@@ -632,7 +640,9 @@ export default function CampaignEdit() {
 
       case 2: {
         // Task #138: optional exclusion segment, mirrors campaign-new.tsx.
-        const excludeOpen = !!formData.excludeSegmentId;
+        // Reveal flag is independent of value: the "+ Add" button only
+        // opens an empty selector — selection must be explicit.
+        const excludeOpen = showExclusion || !!formData.excludeSegmentId;
         const excludeChoices = (segments ?? []).filter((s) => s.id !== formData.segmentId);
         return (
           <div className="space-y-6">
@@ -669,10 +679,7 @@ export default function CampaignEdit() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const firstAvailable = excludeChoices[0]?.id;
-                      if (firstAvailable) updateField("excludeSegmentId", firstAvailable);
-                    }}
+                    onClick={() => setShowExclusion(true)}
                     data-testid="button-add-exclusion"
                   >
                     + Add exclusion segment
@@ -685,7 +692,10 @@ export default function CampaignEdit() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => updateField("excludeSegmentId", "")}
+                        onClick={() => {
+                          setShowExclusion(false);
+                          updateField("excludeSegmentId", "");
+                        }}
                         data-testid="button-remove-exclusion"
                       >
                         <X className="h-4 w-4 mr-1" />
