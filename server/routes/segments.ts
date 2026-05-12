@@ -179,6 +179,12 @@ export function registerSegmentRoutes(app: Express, helpers: {
         if (excludeRaw === req.params.id) {
           return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
         }
+        // Mirror create/PATCH: reject a non-existent exclusion segment
+        // explicitly instead of silently ignoring it in the repo layer.
+        const excludeSeg = await storage.getSegment(excludeRaw);
+        if (!excludeSeg) {
+          return res.status(400).json({ error: "Exclusion segment does not exist" });
+        }
         const count = await storage.countSubscribersForSegment(req.params.id, excludeRaw);
         return res.json({ count });
       }
