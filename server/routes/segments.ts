@@ -74,8 +74,14 @@ export function registerSegmentRoutes(app: Express, helpers: {
           .filter((s) => validateId(s))
           .slice(0, 100); // hard cap to prevent abuse
       } else {
-        const segmentsList = await storage.getSegments();
-        targetIds = segmentsList.map((s) => s.id);
+        // Fallback path: caller did not specify which segments. Cap the
+        // fan-out at the same 100-item ceiling as the explicit-ids branch
+        // so a workspace with thousands of segments cannot turn a single
+        // request into an O(N) burst of cache-miss count queries. Use the
+        // paginated reader so we only fetch the first page from the DB
+        // instead of loading the entire segments table into memory.
+        const { segments: firstPage } = await storage.getSegmentsPaginated({ page: 1, limit: 100 });
+        targetIds = firstPage.map((s) => s.id);
       }
 
       // When refresh=true, drop the cached entries for the requested ids so
@@ -87,7 +93,12 @@ export function registerSegmentRoutes(app: Express, helpers: {
 
       const counts: Record<string, number> = {};
       const { mapWithConcurrency } = await import("../utils");
-      await mapWithConcurrency(targetIds, 5, async (id) => {
+      // Concurrency must not exceed MAX_CONNECTIONS_PER_REQUEST (default 2);
+      // otherwise cache misses fan out past the per-request lease cap and
+      // get rejected with 503 by the request-lease tracker. Most calls are
+      // cache hits and don't touch the pool, so this only constrains the
+      // miss tail — exactly when the pool is most likely to be hot.
+      await mapWithConcurrency(targetIds, 2, async (id) => {
         // Use the cached helper (5-minute TTL). The cache is invalidated
         // on subscriber imports / flush jobs, and can be force-refreshed
         // via ?refresh=true above.

@@ -117,6 +117,43 @@ export async function getCampaignsPaginated(opts: {
   return { campaigns: rows as CampaignListItem[], total };
 }
 
+/**
+ * Partial covering index for the hot `/api/campaigns?originalsOnly=true`
+ * list path (the default Campaigns screen view). Without it, Postgres falls
+ * back to a sequential scan + sort for every page render, which under load
+ * holds a main-pool connection long enough to push the pool over 90%
+ * saturation and trip the load-shed middleware.
+ *
+ * Filtered on `parent_campaign_id IS NULL` (A/B variant children excluded)
+ * so the index only carries the rows users actually browse, and ordered by
+ * `created_at DESC` to satisfy the ORDER BY without a sort step.
+ */
+export async function ensureCampaignOriginalsListIndex(): Promise<LockResult | "exists"> {
+  if (await indexExistsAndValid("campaigns_originals_created_at_idx")) {
+    logger.info("[INDEX] campaigns_originals_created_at_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGN_ORIGINALS_LIST,
+    "CAMPAIGN_ORIGINALS_LIST",
+    async (_lockClient) => {
+      await pool.query(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaigns_originals_created_at_idx
+           ON campaigns (created_at DESC)
+           WHERE parent_campaign_id IS NULL`,
+      );
+    },
+  );
+  if (result === "ran") {
+    logger.info("[INDEX] campaigns_originals_created_at_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[INDEX] campaigns_originals_created_at_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[INDEX] campaigns_originals_created_at_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
 export async function ensureCampaignNameTrigramIndex(): Promise<LockResult | "exists"> {
   if (await indexExistsAndValid("campaign_name_trgm_idx")) {
     logger.info("[TRIGRAM] campaign_name_trgm_idx already exists — skipping");
