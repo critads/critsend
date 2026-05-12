@@ -66,6 +66,11 @@ export function registerSegmentRoutes(app: Express, helpers: {
       const idsParam = typeof req.query.ids === "string" ? req.query.ids : "";
       const refresh = req.query.refresh === "true";
 
+      // Both branches return at most 100 segment ids. The explicit-`ids`
+      // branch trims a caller-supplied list; the fallback branch loads
+      // the first page of segments. The 100-item ceiling protects the
+      // pool from a workspace with thousands of segments turning a
+      // single request into a stampede of cache-miss count queries.
       let targetIds: string[];
       if (idsParam) {
         targetIds = idsParam

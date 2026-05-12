@@ -100,3 +100,59 @@ If load-shed counts are still elevated after the next 24 h window, the
 now-de-bucketed `/api/other` labels will name the next offender to
 attack — repeat the same diagnose-then-fix loop on whatever bucket leads
 the table.
+
+## Prometheus queries to run (incident window + post-deploy)
+
+The diagnosis above is from static code review; the production metric
+correlation has to be filled in against live data because this
+investigation was conducted without direct Prometheus access. Run the
+following queries against the prod scrape and paste the results into
+the table below as part of the verification step.
+
+```promql
+# Per-bucket load-shed totals over an arbitrary window
+sum by (route, reason) (
+  increase(critsend_db_pool_load_shed_total[24h])
+)
+
+# Per-bucket lease-exceeded 503s (independent counter for the
+# segments/counts self-inflict path the fix targets)
+sum by (route) (
+  increase(critsend_db_pool_request_lease_exceeded_total[24h])
+)
+
+# p99 latency for the campaign list hot path (should drop after the
+# partial index goes live)
+histogram_quantile(0.99,
+  sum by (le) (
+    rate(critsend_http_request_duration_seconds_bucket{route="/api/campaigns",method="GET"}[15m])
+  )
+)
+
+# Pool saturation – running max over the same windows to confirm we
+# stop pegging the threshold
+max_over_time(critsend_db_pool_saturation_ratio[24h])
+
+# Confirm the new index is being used (run from a psql session, not
+# Prometheus):
+SELECT relname, idx_scan, idx_tup_read, idx_tup_fetch
+FROM pg_stat_user_indexes
+WHERE indexrelname = 'campaigns_originals_created_at_idx';
+```
+
+| Window                          | Total sheds | /api/campaigns | /api/segments | /api/other | non-api | Other named buckets | Notes |
+|---------------------------------|-----------:|---------------:|--------------:|-----------:|--------:|---------------------|-------|
+| 24 h before incident (baseline) |          ? |              ? |             ? |          ? |       ? | ?                   | fill from prod |
+| Incident window (2026-05-11)    |         93 |             37 |             4 |         48 |       4 | n/a (was black hole)| from task brief |
+| 24 h post-deploy                |          ? |              ? |             ? |          ? |       ? | ?                   | target: total < 10, /api/other near 0 |
+| 72 h post-deploy                |          ? |              ? |             ? |          ? |       ? | ?                   | target: ≥80% drop sustained |
+
+| Endpoint            | p99 latency before | p99 latency after | Notes |
+|---------------------|-------------------:|------------------:|-------|
+| `/api/campaigns`    |                  ? |                 ? | expect drop once partial index hot |
+| `/api/segments/counts` |               ? |                 ? | expect drop on cache-miss tail |
+
+If the post-deploy total is **not** below 10/day or **not** ≥80% lower
+than the 93 baseline, use the now-attributable bucket counts to pick
+the next offender and open a new diagnosis cycle on it (follow-up
+Task #134 is queued for exactly this).
