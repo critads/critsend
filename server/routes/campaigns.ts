@@ -9,6 +9,7 @@ import { isMemoryPressure } from "../workers";
 import { logger } from "../logger";
 import { classifyDbError, userFacingMessageFor } from "../db-errors";
 import { messageQueue } from "../message-queue";
+import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
 import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62 } from "../utils";
 import * as cheerio from "cheerio";
 import * as fs from "fs";
@@ -17,6 +18,52 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
 
 
 // Bootstrap: add auto_retry_count column to campaigns if upgrading from older schema.
+/**
+ * Task #138 — install the FK on campaigns.exclude_segment_id under an
+ * advisory lock so concurrent web/worker boots don't race on
+ * ALTER TABLE ... ADD CONSTRAINT (which takes a brief AccessExclusive
+ * lock on campaigns). Idempotent: skips if the constraint already exists.
+ */
+async function ensureCampaignExcludeSegmentForeignKey(): Promise<void> {
+  try {
+    const existing = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_constraint
+         WHERE conname = 'campaigns_exclude_segment_id_fkey'
+       ) AS exists`,
+    );
+    if (existing.rows[0]?.exists) return;
+  } catch (err: any) {
+    logger.warn(`[CAMPAIGN_EXCLUDE_SEGMENT] FK existence probe failed: ${err?.message || err}`);
+    return;
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGN_EXCLUDE_SEGMENT,
+    "CAMPAIGN_EXCLUDE_SEGMENT",
+    async (lockClient) => {
+      // Re-check under lock to keep the operation strictly idempotent.
+      const recheck = await lockClient.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM pg_constraint
+           WHERE conname = 'campaigns_exclude_segment_id_fkey'
+         ) AS exists`,
+      );
+      if (recheck.rows[0]?.exists) return;
+      await lockClient.query(
+        `ALTER TABLE campaigns
+           ADD CONSTRAINT campaigns_exclude_segment_id_fkey
+           FOREIGN KEY (exclude_segment_id) REFERENCES segments(id)
+           ON DELETE SET NULL`,
+      );
+    },
+  );
+  if (result === "ran") {
+    logger.info("[CAMPAIGN_EXCLUDE_SEGMENT] FK installed (ON DELETE SET NULL)");
+  } else if (result === "skipped") {
+    logger.info("[CAMPAIGN_EXCLUDE_SEGMENT] FK install skipped — another process is handling it");
+  }
+}
+
 (async () => {
   try {
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS auto_retry_count integer NOT NULL DEFAULT 0`);
@@ -40,11 +87,13 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_scheduled_at timestamp`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_campaign_id  varchar`);
     // Exclusion segment (Task #138). Nullable; existing campaigns become
-    // "no exclusion" without any backfill. ON DELETE SET NULL is enforced
-    // at the schema level via Drizzle .references(...) and applied via
-    // `npm run db:push`; we don't add the FK here at runtime to avoid
-    // taking an AccessExclusive lock on campaigns at boot.
+    // "no exclusion" without any backfill. The FK + ON DELETE SET NULL is
+    // installed below under an advisory lock so that only one process
+    // attempts the ALTER TABLE ... ADD CONSTRAINT (which takes a brief
+    // AccessExclusive on campaigns) and so re-runs on existing
+    // deployments are idempotent.
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS exclude_segment_id varchar`);
+    await ensureCampaignExcludeSegmentForeignKey();
     await db.execute(sql`
       CREATE UNIQUE INDEX IF NOT EXISTS campaigns_parent_campaign_unique_idx
       ON campaigns (parent_campaign_id)
@@ -525,6 +574,17 @@ export function registerCampaignRoutes(app: Express, helpers: {
       ) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
+      // Task #138: explicit existence check on both segment refs. The FK
+      // catches dangling IDs at INSERT time but produces an opaque DB
+      // error; checking here returns a clear 400 to the client.
+      if (normalizedBody.segmentId) {
+        const seg = await storage.getSegment(normalizedBody.segmentId);
+        if (!seg) return res.status(400).json({ error: "Audience segment does not exist" });
+      }
+      if (normalizedBody.excludeSegmentId) {
+        const seg = await storage.getSegment(normalizedBody.excludeSegmentId);
+        if (!seg) return res.status(400).json({ error: "Exclusion segment does not exist" });
+      }
 
       let data: any;
       if (isDraft) {
@@ -635,6 +695,17 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const effectiveExcludeId = ('excludeSegmentId' in normalizedBody ? normalizedBody.excludeSegmentId : existingCampaign.excludeSegmentId) ?? null;
       if (effectiveSegmentId && effectiveExcludeId && effectiveSegmentId === effectiveExcludeId) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
+      }
+      // Task #138: existence check on whichever segment refs are being
+      // changed in this PATCH. We only probe the fields the client sent
+      // to avoid an extra DB round-trip on unrelated edits.
+      if ('segmentId' in normalizedBody && normalizedBody.segmentId) {
+        const seg = await storage.getSegment(normalizedBody.segmentId);
+        if (!seg) return res.status(400).json({ error: "Audience segment does not exist" });
+      }
+      if ('excludeSegmentId' in normalizedBody && normalizedBody.excludeSegmentId) {
+        const seg = await storage.getSegment(normalizedBody.excludeSegmentId);
+        if (!seg) return res.status(400).json({ error: "Exclusion segment does not exist" });
       }
 
       const campaign = await db.transaction(async (tx) => {
