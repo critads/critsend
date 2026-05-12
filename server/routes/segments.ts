@@ -163,6 +163,25 @@ export function registerSegmentRoutes(app: Express, helpers: {
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
+      // Optional `exclude` query param (Task #138): when provided, returns
+      // the NET count of subscribers in `:id` minus those in `:exclude`.
+      // Bypasses the per-segment cache because the combined count is
+      // derived from two segments and isn't something we can safely cache
+      // under a single key. Self-exclusion returns 0 (also enforced at
+      // create/PATCH).
+      const excludeRaw = typeof req.query.exclude === "string" ? req.query.exclude.trim() : "";
+      if (excludeRaw) {
+        // Reject malformed exclude IDs explicitly (don't silently fall back
+        // to the non-exclusion count — that would mislead the UI).
+        if (!validateId(excludeRaw)) {
+          return res.status(400).json({ error: "Invalid exclude segment ID format" });
+        }
+        if (excludeRaw === req.params.id) {
+          return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
+        }
+        const count = await storage.countSubscribersForSegment(req.params.id, excludeRaw);
+        return res.json({ count });
+      }
       const count = await storage.getSegmentSubscriberCountCached(req.params.id);
       res.json({ count });
     } catch (error) {

@@ -39,6 +39,12 @@ import type { RateLimitRequestHandler } from "express-rate-limit";
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_subject      text`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_scheduled_at timestamp`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS follow_up_campaign_id  varchar`);
+    // Exclusion segment (Task #138). Nullable; existing campaigns become
+    // "no exclusion" without any backfill. ON DELETE SET NULL is enforced
+    // at the schema level via Drizzle .references(...) and applied via
+    // `npm run db:push`; we don't add the FK here at runtime to avoid
+    // taking an AccessExclusive lock on campaigns at boot.
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS exclude_segment_id varchar`);
     await db.execute(sql`
       CREATE UNIQUE INDEX IF NOT EXISTS campaigns_parent_campaign_unique_idx
       ON campaigns (parent_campaign_id)
@@ -505,8 +511,20 @@ export function registerCampaignRoutes(app: Express, helpers: {
         ...req.body,
         mtaId: req.body.mtaId || null,
         segmentId: req.body.segmentId || null,
+        excludeSegmentId: req.body.excludeSegmentId || null,
         replyEmail: req.body.replyEmail || null,
       };
+
+      // Task #138: an exclusion segment that matches the include segment
+      // would yield an always-empty audience. Reject up front so the user
+      // gets a clear error instead of a silent 0-recipient send.
+      if (
+        normalizedBody.excludeSegmentId &&
+        normalizedBody.segmentId &&
+        normalizedBody.excludeSegmentId === normalizedBody.segmentId
+      ) {
+        return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
+      }
 
       let data: any;
       if (isDraft) {
@@ -574,6 +592,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
         if ('segmentId' in normalizedBody && !normalizedBody.segmentId) {
           normalizedBody.segmentId = null;
         }
+        if ('excludeSegmentId' in normalizedBody && !normalizedBody.excludeSegmentId) {
+          normalizedBody.excludeSegmentId = null;
+        }
         if ('replyEmail' in normalizedBody && !normalizedBody.replyEmail) {
           normalizedBody.replyEmail = null;
         }
@@ -604,6 +625,16 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
       if (normalizedBody.htmlContent && normalizedBody.htmlContent !== "") {
         normalizedBody.htmlContent = sanitizeCampaignHtml(normalizedBody.htmlContent);
+      }
+
+      // Task #138: enforce self-exclusion against the EFFECTIVE values
+      // (incoming PATCH merged onto the existing row). Without merging we'd
+      // miss the case where the include id is updated and the existing
+      // exclude id silently becomes invalid.
+      const effectiveSegmentId = ('segmentId' in normalizedBody ? normalizedBody.segmentId : existingCampaign.segmentId) ?? null;
+      const effectiveExcludeId = ('excludeSegmentId' in normalizedBody ? normalizedBody.excludeSegmentId : existingCampaign.excludeSegmentId) ?? null;
+      if (effectiveSegmentId && effectiveExcludeId && effectiveSegmentId === effectiveExcludeId) {
+        return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
 
       const campaign = await db.transaction(async (tx) => {

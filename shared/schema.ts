@@ -91,6 +91,12 @@ export const campaigns = pgTable("campaigns", {
   name: text("name").notNull(),
   mtaId: varchar("mta_id").references(() => mtas.id),
   segmentId: varchar("segment_id").references(() => segments.id),
+  // Optional second segment whose subscribers are SUBTRACTED from the main
+  // audience at send time (Task #138). Composition is pure SQL: the sender
+  // ANDs `NOT (excludeSegment WHERE)` onto the include segment's WHERE
+  // clause — no temp tables, no snapshots. Self-exclusion (same id on both
+  // sides) is rejected at the API and short-circuits to 0 in the repo.
+  excludeSegmentId: varchar("exclude_segment_id").references(() => segments.id, { onDelete: "set null" }),
   fromName: text("from_name").notNull(),
   fromEmail: text("from_email").notNull(),
   replyEmail: text("reply_email"),
@@ -542,6 +548,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   htmlContent: z.string().max(5000000, "Content too large").optional().default(""),
   mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  excludeSegmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   status: z.string().optional().default("draft"),
 });
@@ -562,6 +569,7 @@ export const updateCampaignDraftSchema = z.object({
   htmlContent: z.string().max(5000000).optional(),
   mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  excludeSegmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   trackClicks: z.boolean().optional(),
   trackOpens: z.boolean().optional(),
   unsubscribeText: z.string().optional(),

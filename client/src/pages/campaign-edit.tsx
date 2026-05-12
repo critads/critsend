@@ -81,6 +81,7 @@ export default function CampaignEdit() {
     name: "",
     mtaId: "",
     segmentId: "",
+    excludeSegmentId: "",
     fromName: "",
     fromEmail: "",
     replyEmail: "",
@@ -132,6 +133,7 @@ export default function CampaignEdit() {
         name: campaign.name || "",
         mtaId: campaign.mtaId || "",
         segmentId: campaign.segmentId || "",
+        excludeSegmentId: campaign.excludeSegmentId || "",
         fromName: campaign.fromName || "",
         fromEmail: campaign.fromEmail || "",
         replyEmail: campaign.replyEmail || "",
@@ -230,8 +232,11 @@ export default function CampaignEdit() {
   });
 
   const countMutation = useMutation({
-    mutationFn: async (segmentId: string) => {
-      const res = await apiRequest("GET", `/api/segments/${segmentId}/count`);
+    mutationFn: async (params: { segmentId: string; excludeSegmentId?: string | null }) => {
+      const url = params.excludeSegmentId
+        ? `/api/segments/${params.segmentId}/count?exclude=${encodeURIComponent(params.excludeSegmentId)}`
+        : `/api/segments/${params.segmentId}/count`;
+      const res = await apiRequest("GET", url);
       return res.json();
     },
     onSuccess: (data: { count: number }) => {
@@ -241,9 +246,14 @@ export default function CampaignEdit() {
 
   useEffect(() => {
     if (formData.segmentId) {
-      countMutation.mutate(formData.segmentId);
+      countMutation.mutate({
+        segmentId: formData.segmentId,
+        excludeSegmentId: formData.excludeSegmentId || null,
+      });
+    } else {
+      setSubscriberCount(null);
     }
-  }, [formData.segmentId]);
+  }, [formData.segmentId, formData.excludeSegmentId]);
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<InsertCampaign>) =>
@@ -620,7 +630,10 @@ export default function CampaignEdit() {
           </div>
         );
 
-      case 2:
+      case 2: {
+        // Task #138: optional exclusion segment, mirrors campaign-new.tsx.
+        const excludeOpen = !!formData.excludeSegmentId;
+        const excludeChoices = (segments ?? []).filter((s) => s.id !== formData.segmentId);
         return (
           <div className="space-y-6">
             <div className="space-y-2">
@@ -631,7 +644,12 @@ export default function CampaignEdit() {
                 <SegmentCombobox
                   segments={segments}
                   value={formData.segmentId || ""}
-                  onChange={(v) => updateField("segmentId", v)}
+                  onChange={(v) => {
+                    updateField("segmentId", v);
+                    if (v && formData.excludeSegmentId === v) {
+                      updateField("excludeSegmentId", "");
+                    }
+                  }}
                 />
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
@@ -643,19 +661,67 @@ export default function CampaignEdit() {
                 </div>
               )}
             </div>
+
+            {segments && segments.length > 1 && formData.segmentId && (
+              <div className="space-y-2">
+                {!excludeOpen ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const firstAvailable = excludeChoices[0]?.id;
+                      if (firstAvailable) updateField("excludeSegmentId", firstAvailable);
+                    }}
+                    data-testid="button-add-exclusion"
+                  >
+                    + Add exclusion segment
+                  </Button>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <Label>Exclude subscribers in</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => updateField("excludeSegmentId", "")}
+                        data-testid="button-remove-exclusion"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                    <SegmentCombobox
+                      segments={excludeChoices}
+                      value={formData.excludeSegmentId || ""}
+                      onChange={(v) => updateField("excludeSegmentId", v)}
+                      placeholder="Select exclusion segment..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Subscribers in this segment will be subtracted from the audience at send time.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
             {subscriberCount !== null && (
               <Card>
                 <CardContent className="flex items-center gap-4 p-4">
                   <Users className="h-8 w-8 text-primary" />
                   <div>
                     <p className="text-2xl font-bold">{subscriberCount.toLocaleString()}</p>
-                    <p className="text-sm text-muted-foreground">subscribers in this segment</p>
+                    <p className="text-sm text-muted-foreground">
+                      {excludeOpen ? "subscribers after exclusion" : "subscribers in this segment"}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
             )}
           </div>
         );
+      }
 
       case 3:
         return (

@@ -270,19 +270,40 @@ export async function getSubscribersForSegment(segmentId: string, limit?: number
   return query;
 }
 
-export async function getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string): Promise<Subscriber[]> {
+// Compile the segment's WHERE clause (or null if the segment is missing /
+// has no rules). Extracted so include + exclude paths share one code-path.
+async function compileSegmentWhere(segmentId: string) {
   const segment = await getSegment(segmentId);
-  if (!segment) return [];
-
+  if (!segment) return null;
   const normalized = normalizeRules(segment.rules);
-  if (!normalized) return [];
+  if (!normalized) return null;
+  return compileSegmentRules(normalized);
+}
 
-  const segmentCondition = compileSegmentRules(normalized);
-  const baseCondition = and(
+export async function getSubscribersForSegmentCursor(
+  segmentId: string,
+  limit: number,
+  afterId?: string,
+  excludeSegmentId?: string,
+): Promise<Subscriber[]> {
+  // Self-exclusion → empty audience. The API rejects this with 400 on
+  // create/PATCH, but we also short-circuit here so a stale draft can
+  // never produce a "include == exclude" send loop.
+  if (excludeSegmentId && excludeSegmentId === segmentId) return [];
+
+  const includeWhere = await compileSegmentWhere(segmentId);
+  if (!includeWhere) return [];
+
+  const conditions = [
     not(sql`'BCK' = ANY(${subscribers.tags})`),
     sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
-    segmentCondition,
-  );
+    includeWhere,
+  ];
+  if (excludeSegmentId) {
+    const excludeWhere = await compileSegmentWhere(excludeSegmentId);
+    if (excludeWhere) conditions.push(not(excludeWhere));
+  }
+  const baseCondition = and(...conditions);
 
   if (afterId) {
     return db.select().from(subscribers).where(
@@ -347,21 +368,28 @@ export async function countOpenersForParentCampaign(parentCampaignId: string): P
   return Number((result.rows[0] as any)?.count ?? 0);
 }
 
-export async function countSubscribersForSegment(segmentId: string): Promise<number> {
-  const segment = await getSegment(segmentId);
-  if (!segment) return 0;
+export async function countSubscribersForSegment(
+  segmentId: string,
+  excludeSegmentId?: string,
+): Promise<number> {
+  if (excludeSegmentId && excludeSegmentId === segmentId) return 0;
 
-  const normalized = normalizeRules(segment.rules);
-  if (!normalized) return 0;
+  const includeWhere = await compileSegmentWhere(segmentId);
+  if (!includeWhere) return 0;
 
-  const whereCondition = compileSegmentRules(normalized);
+  const conditions = [
+    not(sql`'BCK' = ANY(${subscribers.tags})`),
+    sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+    includeWhere,
+  ];
+  if (excludeSegmentId) {
+    const excludeWhere = await compileSegmentWhere(excludeSegmentId);
+    if (excludeWhere) conditions.push(not(excludeWhere));
+  }
+
   const [{ count }] = await db.select({ count: sql<number>`count(*)` })
     .from(subscribers)
-    .where(and(
-      not(sql`'BCK' = ANY(${subscribers.tags})`),
-      sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
-      whereCondition,
-    ));
+    .where(and(...conditions));
 
   return Number(count);
 }
