@@ -368,7 +368,11 @@ export function registerTrackingRoutes(app: Express) {
       const tags = await getCampaignTagsCached(campaignId).catch(() => null);
 
       if (isComplaintBot) {
-        // Buffer handles setSuppressedUntil + STOP-tag inside processSideEffects.
+        // Buffer enqueues the campaign's plain unsubscribeTag inside
+        // processSideEffects (same path as a real unsubscribe — no STOP-
+        // prefix, no suppression window). The campaign-level complaints_count
+        // and the campaign_stats(type='complaint') analytics row still get
+        // written so deliverability dashboards keep working.
         // unsubscribeTag comes from the same cached lookup — no second DB roundtrip.
         // skipDedupe so a complaint is never silently dropped because a normal
         // open with the same (campaign, subscriber) was just enqueued.

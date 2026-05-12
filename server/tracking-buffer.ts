@@ -785,7 +785,15 @@ async function insertBatchOnClient(
  *                returned (campaign,subscriber) fire openTag if present.
  *   click      → same as open with recordFirstClick + clickTag.
  *   unsubscribe → bulk setSuppressedUntil + per-event unsubscribeTag.
- *   complaint   → bulk setSuppressedUntil + per-event STOP-tag.
+ *   complaint   → per-event unsubscribeTag ONLY (no suppression window, no
+ *                 STOP- prefix). A spam complaint is treated identically to
+ *                 a self-unsubscribe on the subscriber side: the campaign's
+ *                 plain unsubscribeTag is added so segments that exclude
+ *                 unsubscribers also exclude complainers. The campaign-level
+ *                 complaints_count and the campaign_stats(type='complaint')
+ *                 row are unaffected — analytics and deliverability dashboards
+ *                 still distinguish complaints from unsubscribes. Pre-existing
+ *                 STOP-* tags on subscribers are preserved (no migration).
  *
  * Tag operations are enqueued via storage.enqueueTagOperation. That call
  * itself writes to the DB, but the volume is at most one per first-open or
@@ -843,27 +851,34 @@ async function processSideEffects(
   }
 
   if (type === "unsubscribe" || type === "complaint") {
-    // Bulk-suppress: deduped by subscriber.
-    const subscriberIds = [...new Set(events.map((e) => e.subscriberId))];
-    if (subscriberIds.length > 0) {
-      try {
-        await flushPool.query(
-          `UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '30 days'
-           WHERE id = ANY($1::varchar[])
-             AND (suppressed_until IS NULL OR suppressed_until < NOW() + INTERVAL '30 days')`,
-          [subscriberIds],
-        );
-      } catch (err: any) {
-        logger.error(`[TRACKING BUFFER] bulk setSuppressedUntil failed: ${err?.message || err}`);
+    // Only real unsubscribes get the 30-day suppression window. Complaints
+    // skip suppression entirely — they instead get the campaign's plain
+    // unsubscribeTag below, which existing segments already exclude via
+    // NOT has_tag(...). See processSideEffects header comment.
+    if (type === "unsubscribe") {
+      const subscriberIds = [...new Set(events.map((e) => e.subscriberId))];
+      if (subscriberIds.length > 0) {
+        try {
+          await flushPool.query(
+            `UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '30 days'
+             WHERE id = ANY($1::varchar[])
+               AND (suppressed_until IS NULL OR suppressed_until < NOW() + INTERVAL '30 days')`,
+            [subscriberIds],
+          );
+        } catch (err: any) {
+          logger.error(`[TRACKING BUFFER] bulk setSuppressedUntil failed: ${err?.message || err}`);
+        }
       }
     }
 
+    // Both unsubscribe and complaint enqueue the campaign's PLAIN
+    // unsubscribeTag (no STOP- prefix). Reason is labelled "unsubscribe"
+    // so the tag-queue worker treats both identically.
     const { storage } = await import("./storage");
     for (const ev of events) {
       if (!ev.unsubscribeTag) continue;
-      const tagValue = type === "complaint" ? `STOP-${ev.unsubscribeTag}` : ev.unsubscribeTag;
       storage
-        .enqueueTagOperation(ev.subscriberId, tagValue, "unsubscribe", ev.campaignId)
+        .enqueueTagOperation(ev.subscriberId, ev.unsubscribeTag, "unsubscribe", ev.campaignId)
         .catch((err) => logger.error(`[TRACKING BUFFER] enqueue ${type} tag failed: ${err?.message || err}`));
     }
   }
