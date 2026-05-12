@@ -1,0 +1,131 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && git pull && bash deploy/deploy.sh
+remote: Enumerating objects: 158, done.
+remote: Counting objects: 100% (158/158), done.
+remote: Compressing objects: 100% (20/20), done.
+remote: Total 117 (delta 95), reused 117 (delta 95), pack-reused 0 (from 0)
+Receiving objects: 100% (117/117), 190.50 KiB | 2.98 MiB/s, done.
+Resolving deltas: 100% (95/95), completed with 35 local objects.
+From https://github.com/critads/critsend
+   e4bc4ee..0697083  main       -> origin/main
+Updating e4bc4ee..0697083
+Fast-forward
+ attached_assets/Screenshot_2026-05-11_at_1.40.34_PM_1778492445021.png |  Bin 0 -> 115014 bytes
+ attached_assets/Screenshot_2026-05-12_at_8.20.26_AM_1778559628875.png |  Bin 0 -> 10738 bytes
+ attached_assets/Screenshot_2026-05-12_at_8.20.41_AM_1778559643265.png |  Bin 0 -> 35194 bytes
+ client/src/App.tsx                                                    |    2 +
+ client/src/components/bug-report-button.tsx                           |  248 ++++
+ client/src/components/bug-reports-admin.tsx                           |  345 +++++
+ client/src/components/segment-combobox.tsx                            |   95 ++
+ client/src/components/ui/toast.tsx                                    |    2 +-
+ client/src/pages/campaign-edit.tsx                                    |   19 +-
+ client/src/pages/campaign-new.tsx                                     |   19 +-
+ client/src/pages/campaigns.tsx                                        |   50 +
+ client/src/pages/import.tsx                                           |   50 +-
+ client/src/pages/system-metrics.tsx                                   |    3 +
+ deploy/deploy.sh                                                      |   20 +-
+ deploy/ecosystem.config.cjs                                           |   10 +
+ deploy/setup.sh                                                       |   21 +
+ docs/load-shed-saturation-diagnosis.md                                |  158 +++
+ migrations/0001_bug_reports.sql                                       |   20 +
+ migrations/meta/0001_snapshot.json                                    | 3832 +++++++++++++++++++++++++++++++++++++++++++++++++++++
+ migrations/meta/_journal.json                                         |    7 +
+ package-lock.json                                                     |   50 +
+ package.json                                                          |    1 +
+ server/bootstrap-lock.ts                                              |    2 +
+ server/index.ts                                                       |   35 +-
+ server/middleware/route-bucket.ts                                     |   33 +
+ server/replit_integrations/object_storage/objectStorage.ts            |   13 +-
+ server/repositories/campaign-repository.ts                            |   37 +
+ server/routes.ts                                                      |    2 +
+ server/routes/bug-reports.ts                                          |  191 +++
+ server/routes/import-export.ts                                        |   76 +-
+ server/routes/segments.ts                                             |   22 +-
+ server/upload.ts                                                      |   53 +-
+ shared/schema.ts                                                      |   39 +
+ 33 files changed, 5401 insertions(+), 54 deletions(-)
+ create mode 100644 attached_assets/Screenshot_2026-05-11_at_1.40.34_PM_1778492445021.png
+ create mode 100644 attached_assets/Screenshot_2026-05-12_at_8.20.26_AM_1778559628875.png
+ create mode 100644 attached_assets/Screenshot_2026-05-12_at_8.20.41_AM_1778559643265.png
+ create mode 100644 client/src/components/bug-report-button.tsx
+ create mode 100644 client/src/components/bug-reports-admin.tsx
+ create mode 100644 client/src/components/segment-combobox.tsx
+ create mode 100644 docs/load-shed-saturation-diagnosis.md
+ create mode 100644 migrations/0001_bug_reports.sql
+ create mode 100644 migrations/meta/0001_snapshot.json
+ create mode 100644 server/routes/bug-reports.ts
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: 0697083 Improve system diagnostics and performance for email platform
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+47 vulnerabilities (6 low, 28 moderate, 12 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (26) src/pages/export.tsx
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2508 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-dWUzaJj6.css     89.48 kB │ gzip:  14.55 kB
+../dist/public/assets/index-B3GMoUAN.js   1,542.02 kB │ gzip: 404.18 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.34s
+building server...
+
+  dist/index.cjs  1.8mb ⚠️
+
+⚡ Done in 101ms
+building import worker...
+
+  dist/import-worker.cjs  623.6kb
+
+⚡ Done in 59ms
+building background worker...
+
+  dist/worker-main.cjs  967.6kb
+
+⚡ Done in 73ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Pushing database schema changes (drizzle-kit push)...
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/home/ubuntu/critsend/drizzle.config.ts'
+Using 'pg' driver for database querying
+[✓] Pulling schema from database...
+[✓] Changes applied
+[deploy] ✓ Database schema up to date
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
