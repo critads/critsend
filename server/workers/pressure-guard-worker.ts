@@ -53,9 +53,10 @@ const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_00
 // expensive VACUUM (ANALYZE) + REINDEX policy once per day during the
 // configured off-peak hour (default 03:00 server-local). Min 60s
 // prevents tight-loop storms; max 7d caps gauge staleness.
+// Cluster-wide once/day is enforced by a CAS UPDATE on
+// pressure_maintenance_state.last_heavy_run_date (see runMaintenanceTick).
 const MAINTENANCE_INTERVAL_MS = envInt("PRESSURE_MAINTENANCE_INTERVAL_MS", 60 * 60_000, 60_000, 7 * 24 * 60 * 60_000);
 const MAINTENANCE_OFFPEAK_HOUR = envInt("PRESSURE_MAINTENANCE_OFFPEAK_HOUR", 3, 0, 23);
-let lastHeavyMaintenanceDay: string | null = null;
 // Task #145 R15: audit TTL — drop pressure_flush_audit rows older than
 // PRESSURE_FLUSH_AUDIT_RETENTION_DAYS (default 365).
 const AUDIT_TTL_INTERVAL_MS = envInt("PRESSURE_AUDIT_TTL_INTERVAL_MS", 24 * 60 * 60_000, 60 * 60_000, 7 * 24 * 60 * 60_000);
@@ -203,40 +204,38 @@ async function runMaintenanceTick() {
 
       // R3 maintenance policy:
       //   • The 1-hour gauge tick only updates pressureGuardDeferredIndexSizeBytes.
-      //   • Once per day, during MAINTENANCE_OFFPEAK_HOUR (default 03:00):
-      //       - VACUUM (ANALYZE) campaign_sends      ← UNCONDITIONAL daily run
-      //       - REINDEX CONCURRENTLY <deferred idx>  ← CONDITIONAL: only when
-      //         the index size has grown past PRESSURE_REINDEX_BLOAT_BYTES
-      //         (default 256MB), since REINDEX is expensive and unnecessary
-      //         on healthy indexes.
-      // This split keeps planner stats fresh every day while avoiding
-      // routine REINDEX storms on small/healthy installs.
+      //   • Once per day cluster-wide, during MAINTENANCE_OFFPEAK_HOUR
+      //     (default 03:00), as enforced by a CAS UPDATE on
+      //     pressure_maintenance_state.last_heavy_run_date:
+      //       - VACUUM (ANALYZE) campaign_sends            (unconditional)
+      //       - REINDEX INDEX CONCURRENTLY <deferred idx>  (unconditional)
+      //   The CAS guarantees only ONE worker process across the cluster
+      //   runs heavy ops on a given calendar day, even if every worker
+      //   ticks during the off-peak hour. A separate process-local
+      //   advisory lock prevents intra-process re-entry.
       const now = new Date();
-      const today = now.toISOString().slice(0, 10);
       const inOffPeakWindow = now.getHours() === MAINTENANCE_OFFPEAK_HOUR;
-      const alreadyRanToday = lastHeavyMaintenanceDay === today;
-      if (inOffPeakWindow && !alreadyRanToday) {
-        lastHeavyMaintenanceDay = today;
-        const bloatThreshold = Number(process.env.PRESSURE_REINDEX_BLOAT_BYTES ?? 256 * 1024 * 1024);
-        if (sizeBytes >= bloatThreshold) {
-          logger.warn(
-            `[PRESSURE_MAINTENANCE] off-peak: deferred index size ${sizeBytes}B >= threshold ${bloatThreshold}B — running REINDEX CONCURRENTLY`,
-          );
+      if (inOffPeakWindow) {
+        const cas = await pool.query(
+          `UPDATE pressure_maintenance_state
+           SET last_heavy_run_date = CURRENT_DATE
+           WHERE id = true AND (last_heavy_run_date IS NULL OR last_heavy_run_date < CURRENT_DATE)
+           RETURNING last_heavy_run_date`,
+        );
+        if ((cas.rowCount ?? 0) > 0) {
+          logger.info(`[PRESSURE_MAINTENANCE] off-peak: claimed daily heavy slot, running VACUUM + REINDEX`);
+          try {
+            await pool.query(`VACUUM (ANALYZE) campaign_sends`);
+            logger.info(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) campaign_sends completed`);
+          } catch (err: any) {
+            logger.warn(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) failed (non-fatal): ${err?.message || err}`);
+          }
           try {
             await pool.query(`REINDEX INDEX CONCURRENTLY campaign_sends_pressure_deferred_idx`);
             logger.info(`[PRESSURE_MAINTENANCE] REINDEX CONCURRENTLY completed`);
           } catch (err: any) {
             logger.warn(`[PRESSURE_MAINTENANCE] REINDEX failed (non-fatal): ${err?.message || err}`);
           }
-        }
-        // Daily VACUUM (ANALYZE) keeps planner stats fresh so the partial
-        // indexes added in R6/R7/R8 stay selective. VACUUM (no FULL) is
-        // online and never blocks readers/writers.
-        try {
-          await pool.query(`VACUUM (ANALYZE) campaign_sends`);
-          logger.info(`[PRESSURE_MAINTENANCE] off-peak VACUUM (ANALYZE) campaign_sends completed`);
-        } catch (err: any) {
-          logger.warn(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) failed (non-fatal): ${err?.message || err}`);
         }
       }
     } catch (err: any) {

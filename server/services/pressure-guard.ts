@@ -97,6 +97,16 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
       try {
         await client.query(`ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_sent_at timestamp`);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS deferred_count integer NOT NULL DEFAULT 0`);
+        // R3: tiny single-row state table so cluster-wide once/day
+        // maintenance is idempotent across multiple worker processes.
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS pressure_maintenance_state (
+            id boolean PRIMARY KEY DEFAULT true,
+            last_heavy_run_date date,
+            CONSTRAINT pressure_maintenance_state_singleton CHECK (id = true)
+          )
+        `);
+        await client.query(`INSERT INTO pressure_maintenance_state (id) VALUES (true) ON CONFLICT (id) DO NOTHING`);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
         // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
