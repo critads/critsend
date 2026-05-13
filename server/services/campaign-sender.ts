@@ -217,6 +217,20 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     return;
   }
 
+  // Marketing Pressure Guard (Task #144): assert bootstrap readiness before
+  // we issue the first reserve. If bootstrap is still pending or has
+  // deferred (DDL failed / advisory lock contention), we re-throw so the
+  // job-level handler requeues with backoff — the campaign stays in
+  // 'sending' status, no rows are dispatched, and the 6h guard invariant
+  // cannot be silently bypassed during a fragile startup window.
+  const { getPressureGuardBootstrapState } = await import("./pressure-guard");
+  const pgState = getPressureGuardBootstrapState();
+  if (pgState !== "ready") {
+    const msg = `Pressure-guard bootstrap not ready (state=${pgState}); requeuing campaign ${campaignId}`;
+    logger.warn(`${logPrefix} ${msg}`);
+    throw new Error(msg);
+  }
+
   const recovered = await storage.recoverOrphanedPendingSends(campaignId, 2);
   if (recovered > 0) {
     logger.info(`${logPrefix} Recovered ${recovered} orphaned pending sends`);
@@ -473,24 +487,21 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       startPrefetch(cursorId);
 
       const subscriberIds = batch.map(s => s.id);
-      let reservedIds: string[];
-      try {
-        // Marketing Pressure Guard (Task #144): atomic CAS on
-        // subscribers.last_sent_at filters contacts who received an email
-        // from any other campaign within the past 6h. Losers are inserted
-        // as deferred pending rows for the pressure-guard-worker to drain.
-        reservedIds = await retryDbOp(
-          () => storage.pressureGuardReserveSendSlots(campaignId, subscriberIds),
-          `${logPrefix} pressureGuardReserve`,
-        );
-      } catch (err: any) {
-        logger.error(`${logPrefix} Pressure-guard reserve failed, falling back: ${err.message}`);
-        reservedIds = [];
-        for (const sub of batch) {
-          const ok = await storage.reserveSendSlot(campaignId, sub.id);
-          if (ok) reservedIds.push(sub.id);
-        }
-      }
+      // Marketing Pressure Guard (Task #144): atomic CAS on
+      // subscribers.last_sent_at filters contacts who received an email
+      // from any other campaign within the past 6h. Losers are inserted
+      // as deferred pending rows for the pressure-guard-worker to drain.
+      //
+      // No bypass: if the reserve query fails we re-throw so the
+      // job-level handler requeues with exponential backoff. We will NOT
+      // fall back to the legacy reserveSendSlot path — that would let
+      // sends slip past the 6h guard exactly when the system is fragile.
+      // Bootstrap readiness is asserted before the first batch (see the
+      // call site at the top of sendCampaignWithJob).
+      const reservedIds: string[] = await retryDbOp(
+        () => storage.pressureGuardReserveSendSlots(campaignId, subscriberIds),
+        `${logPrefix} pressureGuardReserve`,
+      );
 
       const reservedSet = new Set(reservedIds);
       const subscribersToSend = batch.filter(s => reservedSet.has(s.id));
