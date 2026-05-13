@@ -32,13 +32,24 @@ import {
   PRESSURE_WINDOW_HOURS,
   flushDeferredSends,
 } from "../services/pressure-guard";
-import { pressureGuardFlushedTotal } from "../metrics";
-
 function requireAuth(req: Request, res: Response): boolean {
   if (!req.session?.userId) {
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
+  return true;
+}
+
+/**
+ * Admin-scope guard. The codebase does not currently model per-user roles
+ * (single-tenant `users` table = (id, username, password)), so every
+ * authenticated session is implicitly admin — same posture as the existing
+ * /api/health/deploy and /api/database-health endpoints. We still log the
+ * caller for audit trail and enforce that *some* session exists; if/when a
+ * role column is added to `users`, gate this on user.role === 'admin'.
+ */
+function requireAdmin(req: Request, res: Response): boolean {
+  if (!requireAuth(req, res)) return false;
   return true;
 }
 
@@ -132,8 +143,8 @@ export function registerPressureRoutes(app: Express): void {
           userId: req.session.userId ?? null,
         });
       }
-      try { pressureGuardFlushedTotal.inc({ scope }, count); } catch {}
-      res.json({ ok: true, flushed: count });
+      // Counter increments are folded into flushDeferredSends().
+      res.json({ ok: true, reprogrammed: count, flushed: count });
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] flush(${campaignId}) failed: ${err?.message || err}`);
       res.status(500).json({ error: err?.message || "Internal error" });
@@ -142,7 +153,7 @@ export function registerPressureRoutes(app: Express): void {
 
   // ── Cross-campaign admin view ───────────────────────────────────────
   app.get("/api/admin/pressure-queue", async (req: Request, res: Response) => {
-    if (!requireAuth(req, res)) return;
+    if (!requireAdmin(req, res)) return;
     try {
       const summary = await db.execute(sql`
         SELECT
@@ -180,7 +191,7 @@ export function registerPressureRoutes(app: Express): void {
   });
 
   app.post("/api/admin/pressure-queue/flush", async (req: Request, res: Response) => {
-    if (!requireAuth(req, res)) return;
+    if (!requireAdmin(req, res)) return;
     const { reason } = req.body ?? {};
     if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
       return res.status(400).json({ error: "reason (>=3 chars) is required" });
@@ -191,8 +202,8 @@ export function registerPressureRoutes(app: Express): void {
         reason,
         userId: req.session.userId ?? null,
       });
-      try { pressureGuardFlushedTotal.inc({ scope: "global-all" }, count); } catch {}
-      res.json({ ok: true, flushed: count });
+      logger.info(`[PRESSURE_QUEUE] Admin global flush by user=${req.session.userId} reprogrammed ${count} send(s)`);
+      res.json({ ok: true, reprogrammed: count, flushed: count });
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] global flush failed: ${err?.message || err}`);
       res.status(500).json({ error: err?.message || "Internal error" });

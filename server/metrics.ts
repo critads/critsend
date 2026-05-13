@@ -58,30 +58,33 @@ export const campaignSendRate = new client.Gauge({
 });
 
 // ── Marketing Pressure Guard (Task #144) ─────────────────────────────
+// Metric names + label sets pinned by the task contract — do not rename
+// without coordinating with deliverability dashboards.
 export const pressureGuardDeferredTotal = new client.Counter({
-  name: 'critsend_pressure_guard_deferred_total',
+  name: 'critsend_pressure_deferred_total',
   help: 'Total send attempts deferred by the 6h pressure guard',
   labelNames: ['campaign_id'] as const,
   registers: [register],
 });
 
 export const pressureGuardSentAfterDeferTotal = new client.Counter({
-  name: 'critsend_pressure_guard_sent_after_defer_total',
+  name: 'critsend_pressure_sent_after_defer_total',
   help: 'Total deferred sends successfully drained by the pressure-guard worker',
   labelNames: ['campaign_id'] as const,
   registers: [register],
 });
 
 export const pressureGuardPendingDeferred = new client.Gauge({
-  name: 'critsend_pressure_guard_pending_deferred',
-  help: 'Currently-pending deferred campaign_sends rows (status=pending AND eligible_at IS NOT NULL)',
+  name: 'critsend_pressure_currently_deferred',
+  help: 'Currently-pending deferred campaign_sends rows (status=pending AND eligible_at IS NOT NULL), per campaign',
+  labelNames: ['campaign_id'] as const,
   registers: [register],
 });
 
 export const pressureGuardFlushedTotal = new client.Counter({
-  name: 'critsend_pressure_guard_flushed_total',
-  help: 'Total deferred sends force-failed via the queue UI',
-  labelNames: ['scope'] as const,
+  name: 'critsend_pressure_flushed_total',
+  help: 'Total deferred sends manually reprogrammed via the queue UI (eligible_at advanced to NOW())',
+  labelNames: ['campaign_id'] as const,
   registers: [register],
 });
 

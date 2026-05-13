@@ -35,7 +35,7 @@ export default function AdminPressureQueue() {
     mutationFn: async () => apiRequest("POST", "/api/admin/pressure-queue/flush", { reason }),
     onSuccess: async (res: any) => {
       const json = await res.json();
-      toast({ title: "Global flush done", description: `${json.flushed} deferred send(s) failed.` });
+      toast({ title: "Global reprogram done", description: `${json.reprogrammed ?? json.flushed} deferred send(s) advanced to NOW().` });
       setReason("");
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pressure-queue"] });
     },
@@ -75,7 +75,7 @@ export default function AdminPressureQueue() {
               onClick={() => flushAll.mutate()}
               data-testid="button-admin-flush-all"
             >
-              Flush ALL deferred (everywhere)
+              Reprogram ALL deferred (everywhere)
             </Button>
           </div>
         </CardHeader>

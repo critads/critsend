@@ -54,7 +54,7 @@ export default function CampaignQueue() {
       apiRequest("POST", `/api/campaigns/${id}/queue/flush`, body),
     onSuccess: async (res: any) => {
       const json = await res.json();
-      toast({ title: "Flushed", description: `${json.flushed} deferred send(s) marked as failed.` });
+      toast({ title: "Reprogrammed", description: `${json.reprogrammed ?? json.flushed} deferred send(s) advanced to NOW(). The 6h gap is still re-checked at dispatch.` });
       setSelected(new Set());
       setReason("");
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", id, "queue"] });
@@ -121,7 +121,7 @@ export default function CampaignQueue() {
               onClick={() => flush.mutate({ scope: "selected", subscriberIds: Array.from(selected), reason })}
               data-testid="button-flush-selected"
             >
-              <Send className="h-3 w-3 mr-1" /> Flush selected ({selected.size})
+              <Send className="h-3 w-3 mr-1" /> Reprogram selected ({selected.size})
             </Button>
             <Button
               variant="outline"
@@ -130,7 +130,7 @@ export default function CampaignQueue() {
               onClick={() => flush.mutate({ scope: "all", reason })}
               data-testid="button-flush-all"
             >
-              Flush all deferred
+              Reprogram all deferred
             </Button>
           </div>
         </CardHeader>

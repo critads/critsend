@@ -202,11 +202,16 @@ export async function pressureGuardReserveSendSlots(
 }
 
 /**
- * Force-fail a set of deferred (status='pending', eligible_at IS NOT NULL)
- * sends. Used by the /campaigns/:id/queue/flush endpoint and the
- * /admin/pressure-queue bulk flush. Returns the number of rows actually
- * transitioned to 'failed'. Counter mutations (failed_count++,
- * pending_count--) are folded into the same UPDATE for atomicity.
+ * Reprogram a set of deferred (status='pending', eligible_at IS NOT NULL)
+ * sends so the drain worker picks them up on its next tick. Per the task
+ * contract the action is "reprogrammed, NOT skipped": rows stay
+ * status='pending' and we simply pull `eligible_at` forward to NOW(). The
+ * subscriber's `last_sent_at` 6h gap is still re-checked at dispatch time,
+ * so this is safe to call without weakening the guard.
+ *
+ * Returns the number of rows whose eligible_at was advanced. Per-campaign
+ * affected counts are recorded into pressure_flush_audit (one row per
+ * campaign) and the Prometheus counter is incremented.
  */
 export async function flushDeferredSends(opts: {
   campaignId?: string;
@@ -217,49 +222,55 @@ export async function flushDeferredSends(opts: {
 }): Promise<number> {
   const { campaignId, subscriberIds, scope, reason, userId } = opts;
 
-  let conditions = sql`status = 'pending' AND eligible_at IS NOT NULL`;
+  let conditions = sql`status = 'pending' AND eligible_at IS NOT NULL AND eligible_at > NOW()`;
   if (campaignId) conditions = sql`${conditions} AND campaign_id = ${campaignId}`;
   if (subscriberIds && subscriberIds.length > 0) {
     conditions = sql`${conditions} AND subscriber_id = ANY(${subscriberIds}::text[])`;
   } else if (scope === "selected") {
-    return 0; // No selection → nothing to do
+    return 0;
   }
 
-  // Per-campaign counter rollups must run in the same txn so totals stay
-  // consistent. We capture the affected campaigns from the UPDATE result and
-  // then issue one counter bump per campaign.
-  let totalFailed = 0;
+  // Soft per-call cap so a runaway flush from the UI cannot rewrite millions
+  // of rows in a single statement; pages > 10k must be issued explicitly.
+  const FLUSH_CAP = Number(process.env.PRESSURE_FLUSH_CAP ?? 10_000);
+
+  let totalFlushed = 0;
+  const perCampaign = new Map<string, number>();
   await db.transaction(async (tx) => {
     const updated = await tx.execute(sql`
       UPDATE campaign_sends
-      SET status = 'failed',
-          eligible_at = NULL
-      WHERE ${conditions}
+      SET eligible_at = NOW()
+      WHERE id IN (
+        SELECT id FROM campaign_sends
+        WHERE ${conditions}
+        ORDER BY eligible_at ASC
+        LIMIT ${FLUSH_CAP}
+        FOR UPDATE SKIP LOCKED
+      )
       RETURNING campaign_id
     `);
-    totalFailed = updated.rows.length;
-    if (totalFailed === 0) return;
-
-    const perCampaign = new Map<string, number>();
+    totalFlushed = updated.rows.length;
+    if (totalFlushed === 0) return;
     for (const r of updated.rows) {
       const cid = (r as any).campaign_id as string;
       perCampaign.set(cid, (perCampaign.get(cid) ?? 0) + 1);
     }
     for (const [cid, n] of perCampaign) {
       await tx.execute(sql`
-        UPDATE campaigns
-        SET failed_count = failed_count + ${n},
-            pending_count = GREATEST(pending_count - ${n}, 0)
-        WHERE id = ${cid}
+        INSERT INTO pressure_flush_audit (campaign_id, user_id, scope, count, reason)
+        VALUES (${cid}, ${userId ?? null}, ${scope}, ${n}, ${reason ?? ""})
       `);
     }
-
-    await tx.execute(sql`
-      INSERT INTO pressure_flush_audit (campaign_id, user_id, scope, count, reason)
-      VALUES (${campaignId ?? null}, ${userId ?? null}, ${scope}, ${totalFailed}, ${reason ?? ""})
-    `);
   });
 
-  logger.info(`[PRESSURE_GUARD] Flushed ${totalFailed} deferred send(s) (scope=${scope}, campaign=${campaignId ?? "ALL"})`);
-  return totalFailed;
+  // Prometheus per-campaign counter bump (outside the txn).
+  try {
+    const { pressureGuardFlushedTotal } = await import("../metrics");
+    for (const [cid, n] of perCampaign) {
+      pressureGuardFlushedTotal.inc({ campaign_id: cid }, n);
+    }
+  } catch {}
+
+  logger.info(`[PRESSURE_GUARD] Reprogrammed ${totalFlushed} deferred send(s) (scope=${scope}, campaign=${campaignId ?? "ALL"}, capped=${FLUSH_CAP})`);
+  return totalFlushed;
 }

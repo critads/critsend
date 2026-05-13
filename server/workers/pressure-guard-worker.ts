@@ -56,13 +56,21 @@ async function pollDeferredQueue() {
   if (getPressureGuardBootstrapState() !== "ready") return;
   isPolling = true;
   try {
-    // Refresh the gauge regardless of whether we have work to do.
+    // Refresh the per-campaign gauge regardless of whether we have work.
     try {
       const g = await db.execute(sql`
-        SELECT COUNT(*)::int AS n FROM campaign_sends
+        SELECT campaign_id, COUNT(*)::int AS n
+        FROM campaign_sends
         WHERE status = 'pending' AND eligible_at IS NOT NULL
+        GROUP BY campaign_id
       `);
-      pressureGuardPendingDeferred.set(Number((g.rows[0] as any)?.n ?? 0));
+      pressureGuardPendingDeferred.reset();
+      for (const row of g.rows) {
+        pressureGuardPendingDeferred.set(
+          { campaign_id: (row as any).campaign_id as string },
+          Number((row as any).n ?? 0),
+        );
+      }
     } catch {}
 
     // Pick the next N campaigns that have eligible deferred rows, ordered FIFO.
