@@ -142,6 +142,13 @@ export const campaigns = pgTable("campaigns", {
   // window. Each defer event increments by 1, so a contact deferred twice
   // counts as 2. Live count of currently-pending deferred rows is computed
   // ad-hoc via campaign_sends WHERE status='pending' AND eligible_at IS NOT NULL.
+  // Lifetime tally of defer events for this campaign (each time a CAS
+  // loser was scheduled into the deferred queue, this counter increments
+  // by 1; it is NOT decremented when the deferred row eventually
+  // dispatches). To get the live deferred-queue size, query
+  // `SELECT COUNT(*) FROM campaign_sends WHERE campaign_id=:id AND
+  //  status='pending' AND eligible_at IS NOT NULL`. The admin/per-campaign
+  // queue endpoints expose both numbers (lifetime_defers + live size).
   deferredCount: integer("deferred_count").notNull().default(0),
   // Pressure-guard contract column. We do NOT skip pressure-blocked sends
   // (they are deferred and drained later), so this counter remains 0 in

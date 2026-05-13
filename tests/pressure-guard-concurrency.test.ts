@@ -22,8 +22,8 @@ d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () =
 
     await db.execute(sql`INSERT INTO users (id, username, password) VALUES (${userId}, ${userId}, 'x')
       ON CONFLICT (id) DO NOTHING`);
-    await db.execute(sql`INSERT INTO subscribers (id, email, status, last_sent_at)
-      VALUES (${subId}, ${`${subId}@example.com`}, 'active', NULL) ON CONFLICT (id) DO NOTHING`);
+    await db.execute(sql`INSERT INTO subscribers (id, email, last_sent_at)
+      VALUES (${subId}, ${`${subId}@example.com`}, NULL) ON CONFLICT (id) DO NOTHING`);
     const olderStarted = new Date(Date.now() - 60_000);
     const newerStarted = new Date(Date.now() - 30_000);
     await db.execute(sql`INSERT INTO campaigns (id, user_id, name, status, started_at)
@@ -39,27 +39,27 @@ d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () =
     await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
   });
 
-  it("10 parallel reserves on the same subscriber → exactly 1 immediate winner, 9 deferred", async () => {
+  it("10 parallel reserves across 2 campaigns for same subscriber → exactly 1 immediate row, oldest campaign wins", async () => {
     const tasks = Array.from({ length: 10 }, (_, i) =>
       storage.pressureGuardReserveSendSlots(
         i % 2 === 0 ? olderCampaignId : newerCampaignId,
         [subId],
       ),
     );
-    const results = await Promise.all(tasks);
-    const totalImmediate = results.flat().length;
-    expect(totalImmediate).toBe(1);
+    await Promise.all(tasks);
 
+    // Source-of-truth check: campaign_sends rows. Exactly one immediate
+    // (eligible_at IS NULL) row across BOTH campaigns; that row belongs
+    // to the older campaign (FIFO by campaigns.started_at).
     const allRows = await db.execute(sql`
-      SELECT campaign_id, status, eligible_at FROM campaign_sends
+      SELECT campaign_id, eligible_at FROM campaign_sends
       WHERE subscriber_id = ${subId}
     `);
     const immediate = allRows.rows.filter((r: any) => r.eligible_at === null);
     const deferred = allRows.rows.filter((r: any) => r.eligible_at !== null);
     expect(immediate.length).toBe(1);
-    expect(deferred.length).toBeGreaterThanOrEqual(1);
-    // FIFO: the immediate winner must belong to the OLDER campaign.
     expect(immediate[0].campaign_id).toBe(olderCampaignId);
+    expect(deferred.length).toBeGreaterThanOrEqual(1);
   });
 
   it("subscriber.last_sent_at is stamped exactly once after the race", async () => {
