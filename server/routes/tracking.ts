@@ -30,7 +30,7 @@ import {
         if (!alreadyBackfilled) {
           await db.execute(sql`
             UPDATE subscribers s
-            SET suppressed_until = cs.last_unsub + INTERVAL '30 days'
+            SET suppressed_until = cs.last_unsub + INTERVAL '7 days'
             FROM (
               SELECT subscriber_id, MAX(timestamp) AS last_unsub
               FROM campaign_stats
@@ -39,7 +39,7 @@ import {
               GROUP BY subscriber_id
             ) cs
             WHERE s.id = cs.subscriber_id
-              AND (s.suppressed_until IS NULL OR s.suppressed_until < cs.last_unsub + INTERVAL '30 days')
+              AND (s.suppressed_until IS NULL OR s.suppressed_until < cs.last_unsub + INTERVAL '7 days')
           `);
           logger.info("[TRACKING] Bootstrap migration: suppressed_until column ready, recent unsubscribers backfilled");
         } else {

@@ -176,7 +176,7 @@ export async function updateSubscriber(id: string, data: Partial<InsertSubscribe
 
 export async function setSuppressedUntil(subscriberId: string): Promise<void> {
   await db.execute(
-    sql`UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '30 days' WHERE id = ${subscriberId}`
+    sql`UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '7 days' WHERE id = ${subscriberId}`
   );
 }
 

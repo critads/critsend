@@ -851,7 +851,7 @@ async function processSideEffects(
   }
 
   if (type === "unsubscribe" || type === "complaint") {
-    // Only real unsubscribes get the 30-day suppression window. Complaints
+    // Only real unsubscribes get the 7-day suppression window. Complaints
     // skip suppression entirely — they instead get the campaign's plain
     // unsubscribeTag below, which existing segments already exclude via
     // NOT has_tag(...). See processSideEffects header comment.
@@ -860,9 +860,9 @@ async function processSideEffects(
       if (subscriberIds.length > 0) {
         try {
           await flushPool.query(
-            `UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '30 days'
+            `UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '7 days'
              WHERE id = ANY($1::varchar[])
-               AND (suppressed_until IS NULL OR suppressed_until < NOW() + INTERVAL '30 days')`,
+               AND (suppressed_until IS NULL OR suppressed_until < NOW() + INTERVAL '7 days')`,
             [subscriberIds],
           );
         } catch (err: any) {
