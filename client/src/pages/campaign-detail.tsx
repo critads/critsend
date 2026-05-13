@@ -290,6 +290,12 @@ export default function CampaignDetail() {
               </Button>
             </Link>
           )}
+          <Link href={`/campaigns/${campaign.id}/queue`}>
+            <Button variant="outline" data-testid="button-view-queue">
+              <Clock className="h-4 w-4 mr-2" />
+              Send Queue
+            </Button>
+          </Link>
           <Link href={`/analytics/${campaign.id}`}>
             <Button data-testid="button-view-analytics">
               <BarChart3 className="h-4 w-4 mr-2" />

@@ -473,9 +473,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const subscriberIds = batch.map(s => s.id);
       let reservedIds: string[];
       try {
-        reservedIds = await retryDbOp(() => storage.bulkReserveSendSlots(campaignId, subscriberIds), `${logPrefix} bulkReserve`);
+        // Marketing Pressure Guard (Task #144): atomic CAS on
+        // subscribers.last_sent_at filters contacts who received an email
+        // from any other campaign within the past 6h. Losers are inserted
+        // as deferred pending rows for the pressure-guard-worker to drain.
+        reservedIds = await retryDbOp(
+          () => storage.pressureGuardReserveSendSlots(campaignId, subscriberIds),
+          `${logPrefix} pressureGuardReserve`,
+        );
       } catch (err: any) {
-        logger.error(`${logPrefix} Bulk reserve failed, falling back: ${err.message}`);
+        logger.error(`${logPrefix} Pressure-guard reserve failed, falling back: ${err.message}`);
         reservedIds = [];
         for (const sub of batch) {
           const ok = await storage.reserveSendSlot(campaignId, sub.id);

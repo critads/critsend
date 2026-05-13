@@ -19,6 +19,7 @@ import {
   LogOut,
   Database,
   Activity,
+  Clock,
 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -103,6 +104,11 @@ const settingsNavItems = [
     title: "System Metrics",
     url: "/system-metrics",
     icon: Activity,
+  },
+  {
+    title: "Pressure Queue",
+    url: "/admin/pressure-queue",
+    icon: Clock,
   },
 ];
 

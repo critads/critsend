@@ -552,11 +552,14 @@ export async function recordSendAndUpdateCounters(campaignId: string, subscriber
 }
 
 export async function recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes: number = 5): Promise<number> {
+  // Pressure-guard rows (eligible_at IS NOT NULL AND eligible_at > NOW())
+  // are intentionally pending until their gap window expires; never fail them.
   const result = await db.execute(sql`
     WITH orphaned AS (
       UPDATE campaign_sends SET status = 'failed'
       WHERE campaign_id = ${campaignId} AND status = 'pending'
         AND sent_at < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes}
+        AND (eligible_at IS NULL OR eligible_at <= NOW())
       RETURNING id
     ),
     counter_update AS (

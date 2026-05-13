@@ -11,8 +11,11 @@ import * as importRepo from "./repositories/import-repository";
 import * as mtaRepo from "./repositories/mta-repository";
 import * as jobRepo from "./repositories/job-repository";
 import * as systemRepo from "./repositories/system-repository";
+import { pressureGuardReserveSendSlots } from "./services/pressure-guard";
 
 export const storage: IStorage = {
+  pressureGuardReserveSendSlots,
+
   // ── Subscribers ───────────────────────────────────────────────
   ...subscriberRepo,
 

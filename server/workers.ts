@@ -12,6 +12,8 @@ import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
 import { classifyDbError } from "./db-errors";
 import { processAutomationEnrollments, checkAndEnrollForTrigger, runAutomationBootstrapMigrations } from "./services/automation-engine";
+import { startPressureGuardWorker, stopPressureGuardWorker } from "./workers/pressure-guard-worker";
+import { runPressureGuardBootstrap } from "./services/pressure-guard";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -1769,6 +1771,12 @@ export async function startAllWorkers() {
   startScheduledCampaignPoller();
   startFollowUpSpawner();
   startAutomationProcessor();
+  // Marketing Pressure Guard (Task #144) — bootstrap (idempotent, advisory-locked)
+  // then start the deferred-drain poller. Bootstrap can also run from the web
+  // process; the lock prevents double DDL.
+  runPressureGuardBootstrap()
+    .catch((err: any) => logger.error(`[PRESSURE_GUARD] Bootstrap (worker) failed (non-fatal): ${err?.message || err}`))
+    .finally(() => startPressureGuardWorker());
   startWorkerHeartbeat();
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
@@ -1785,6 +1793,7 @@ export function stopAllBackgroundWorkers() {
   stopScheduledCampaignPoller();
   stopFollowUpSpawner();
   stopAutomationProcessor();
+  stopPressureGuardWorker();
   closeNullsinkTransporter();
   logger.info("[SHUTDOWN] All background workers stopped");
 }

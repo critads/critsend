@@ -803,6 +803,14 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     logger.error(`[BOOTSTRAP] Automation bootstrap failed (non-fatal): ${err?.message || err}`);
   });
 
+  // Marketing Pressure Guard (Task #144) — adds last_sent_at, deferred_count,
+  // eligible_at columns + partial index + audit table. Idempotent + advisory-
+  // locked so the worker process can also call it safely.
+  const { runPressureGuardBootstrap } = await import("./services/pressure-guard");
+  runPressureGuardBootstrap().catch((err) => {
+    logger.error(`[BOOTSTRAP] Pressure-guard bootstrap failed (non-fatal): ${err?.message || err}`);
+  });
+
   const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
   runAnalyticsBootstrapMigrations();
 

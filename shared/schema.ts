@@ -13,6 +13,12 @@ export const subscribers = pgTable("subscribers", {
   importDate: timestamp("import_date").notNull().defaultNow(),
   suppressedUntil: timestamp("suppressed_until"),
   lastEngagedAt: timestamp("last_engaged_at"),
+  // Marketing Pressure Guard (Task #144). Stamped (NOW()) by the atomic CAS
+  // in pressureGuardReserveSendSlots whenever a contact is reserved for a
+  // send. Used to enforce a hard 6h gap between any two emails to the same
+  // contact across ALL campaigns. NULL = no record (treated as eligible).
+  // No backfill on bootstrap — pre-#144 sends are not retro-protected.
+  lastSentAt: timestamp("last_sent_at"),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
   emailLowerIdx: index("subscribers_email_lower_idx").on(sql`lower(email)`),
@@ -130,6 +136,13 @@ export const campaigns = pgTable("campaigns", {
   totalClicksCount: integer("total_clicks_count").notNull().default(0),
   unsubscribesCount: integer("unsubscribes_count").notNull().default(0),
   complaintsCount: integer("complaints_count").notNull().default(0),
+  // Marketing Pressure Guard (Task #144). Cumulative count of send attempts
+  // that were *deferred* (rescheduled to a later time) because the recipient
+  // had received an email from another campaign within the 6h pressure
+  // window. Each defer event increments by 1, so a contact deferred twice
+  // counts as 2. Live count of currently-pending deferred rows is computed
+  // ad-hoc via campaign_sends WHERE status='pending' AND eligible_at IS NOT NULL.
+  deferredCount: integer("deferred_count").notNull().default(0),
   // ── Auto-resend to openers (36h follow-up) ──────────────────────────
   // parentCampaignId: when set, this campaign is a follow-up child sent only
   //   to subscribers who opened the parent. Audience iteration in
@@ -229,12 +242,22 @@ export const campaignSends = pgTable("campaign_sends", {
   lastRetryAt: timestamp("last_retry_at"),
   firstOpenAt: timestamp("first_open_at"),
   firstClickAt: timestamp("first_click_at"),
+  // Marketing Pressure Guard (Task #144). Set when the row is queued because
+  // the recipient was within the 6h pressure window of another campaign.
+  // The deferred-drain worker polls rows where status='pending' AND
+  // eligible_at <= NOW(), ordered by campaigns.started_at ASC (FIFO).
+  // NULL = not deferred (winners of the CAS race or pre-#144 rows).
+  eligibleAt: timestamp("eligible_at"),
 }, (table) => ({
   // UNIQUE constraint ensures no email is sent twice per campaign per subscriber
   uniqueSend: uniqueIndex("campaign_sends_unique_idx").on(table.campaignId, table.subscriberId),
   campaignIdx: index("campaign_sends_campaign_idx").on(table.campaignId),
   // Composite index replaces status-only index — covers (campaign_id, status) lookup pattern
   campaignStatusIdx: index("campaign_sends_campaign_status_idx").on(table.campaignId, table.status),
+  // Pressure-guard deferred-drain poll: WHERE status='pending' AND eligible_at <= NOW()
+  pressureDeferredIdx: index("campaign_sends_pressure_deferred_idx")
+    .on(table.eligibleAt)
+    .where(sql`status = 'pending' AND eligible_at IS NOT NULL`),
 }));
 
 export const campaignSendsRelations = relations(campaignSends, ({ one }) => ({
@@ -506,6 +529,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   sentCount: true, 
   pendingCount: true, 
   failedCount: true,
+  deferredCount: true,
   autoRetryCount: true,
   createdAt: true,
   startedAt: true,
@@ -531,6 +555,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   sentCount: true,
   pendingCount: true,
   failedCount: true,
+  deferredCount: true,
   autoRetryCount: true,
   createdAt: true,
   startedAt: true,
@@ -1156,3 +1181,24 @@ export type EnrollmentStatus = "active" | "completed" | "failed" | "cancelled";
 export type DbMaintenanceRule = typeof dbMaintenanceRules.$inferSelect;
 export type InsertDbMaintenanceRule = z.infer<typeof insertDbMaintenanceRuleSchema>;
 export type DbMaintenanceLog = typeof dbMaintenanceLogs.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════
+// MARKETING PRESSURE GUARD (Task #144) — flush audit log
+// ═══════════════════════════════════════════════════════════════
+// Records every "flush" (manual fail-now) action against deferred sends in
+// /campaigns/:id/queue. One row per flush invocation; `count` is the number
+// of campaign_sends rows force-failed. Append-only — never updated/deleted.
+export const pressureFlushAudit = pgTable("pressure_flush_audit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id"),
+  userId: varchar("user_id"),
+  scope: text("scope").notNull(),
+  count: integer("count").notNull().default(0),
+  reason: text("reason").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  campaignIdx: index("pressure_flush_audit_campaign_idx").on(table.campaignId),
+  createdAtIdx: index("pressure_flush_audit_created_idx").on(table.createdAt),
+}));
+
+export type PressureFlushAudit = typeof pressureFlushAudit.$inferSelect;

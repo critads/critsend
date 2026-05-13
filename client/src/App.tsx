@@ -38,6 +38,8 @@ import Automation from "@/pages/automation";
 import AdvancedAnalytics from "@/pages/advanced-analytics";
 import DatabaseHealth from "@/pages/database-health";
 import SystemMetrics from "@/pages/system-metrics";
+import CampaignQueue from "@/pages/campaign-queue";
+import AdminPressureQueue from "@/pages/admin-pressure-queue";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -54,7 +56,9 @@ function Router() {
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/campaigns/new" component={CampaignNew} />
       <Route path="/campaigns/:id/edit" component={CampaignEdit} />
+      <Route path="/campaigns/:id/queue" component={CampaignQueue} />
       <Route path="/campaigns/:id" component={CampaignDetail} />
+      <Route path="/admin/pressure-queue" component={AdminPressureQueue} />
       <Route path="/import" component={Import} />
       <Route path="/export" component={Export} />
       <Route path="/analytics" component={Analytics} />

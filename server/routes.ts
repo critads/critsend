@@ -25,6 +25,7 @@ import { registerHealthRoutes } from "./routes/health";
 import { registerNullsinkRoutes } from "./routes/nullsink";
 import { registerDatabaseHealthRoutes } from "./routes/database-health";
 import { registerBugReportRoutes } from "./routes/bug-reports";
+import { registerPressureRoutes } from "./routes/pressure";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -119,6 +120,7 @@ export async function registerRoutes(
   registerImportExportRoutes(app, helpers);
   registerDatabaseHealthRoutes(app);
   registerBugReportRoutes(app);
+  registerPressureRoutes(app);
 
   return httpServer;
 }

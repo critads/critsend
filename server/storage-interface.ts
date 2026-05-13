@@ -130,6 +130,7 @@ export interface IStorage {
   autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean>;
   forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
   bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]>;
+  pressureGuardReserveSendSlots(campaignId: string, subscriberIds: string[], windowHours?: number): Promise<string[]>;
   bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void>;
   heartbeatJob(jobId: string): Promise<void>;
   recordFirstOpen(campaignId: string, subscriberId: string): Promise<boolean>;
