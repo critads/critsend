@@ -201,8 +201,16 @@ async function runMaintenanceTick() {
       const sizeBytes = Number(r.rows[0]?.size_bytes ?? 0);
       pressureGuardDeferredIndexSizeBytes.set(sizeBytes);
 
-      // Heavy ops (VACUUM/REINDEX) only run once per day during the
-      // configured off-peak hour, and only when bloat actually warrants it.
+      // R3 maintenance policy:
+      //   • The 1-hour gauge tick only updates pressureGuardDeferredIndexSizeBytes.
+      //   • Once per day, during MAINTENANCE_OFFPEAK_HOUR (default 03:00):
+      //       - VACUUM (ANALYZE) campaign_sends      ← UNCONDITIONAL daily run
+      //       - REINDEX CONCURRENTLY <deferred idx>  ← CONDITIONAL: only when
+      //         the index size has grown past PRESSURE_REINDEX_BLOAT_BYTES
+      //         (default 256MB), since REINDEX is expensive and unnecessary
+      //         on healthy indexes.
+      // This split keeps planner stats fresh every day while avoiding
+      // routine REINDEX storms on small/healthy installs.
       const now = new Date();
       const today = now.toISOString().slice(0, 10);
       const inOffPeakWindow = now.getHours() === MAINTENANCE_OFFPEAK_HOUR;

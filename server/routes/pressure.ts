@@ -35,25 +35,38 @@ import {
 } from "../services/pressure-guard";
 
 // Task #145 R11: discriminated union for the per-campaign flush body.
-// Three valid shapes: {campaignSendIds:"all"}, {campaignSendIds:string[]},
-// or the legacy {scope, subscriberIds} for the in-app UI. Reason is
-// always required (≥3 chars).
+// Discriminator is the `kind` field on each shape (mapped from the
+// presence of `campaignSendIds` vs. `scope` in the raw body via a
+// pre-transform). Three valid shapes:
+//   { kind: "all" }          — flush every deferred row on the campaign
+//   { kind: "selected", campaignSendIds: string[] }
+//   { kind: "legacy",  scope, subscriberIds? }   (deprecated)
 const flushReason = z.string().trim().min(3, "reason (>=3 chars) is required");
-const campaignFlushBodySchema = z.union([
-  z.object({
-    campaignSendIds: z.literal("all"),
-    reason: flushReason,
-  }),
-  z.object({
-    campaignSendIds: z.array(z.string().min(1)).min(1),
-    reason: flushReason,
-  }),
-  z.object({
-    scope: z.enum(["selected", "all", "campaign-all"]),
-    subscriberIds: z.array(z.string().min(1)).optional(),
-    reason: flushReason,
-  }),
-]);
+const flushAllShape = z.object({
+  kind: z.literal("all"),
+  reason: flushReason,
+});
+const flushSelectedShape = z.object({
+  kind: z.literal("selected"),
+  campaignSendIds: z.array(z.string().min(1)).min(1),
+  reason: flushReason,
+});
+const flushLegacyShape = z.object({
+  kind: z.literal("legacy"),
+  scope: z.enum(["selected", "all", "campaign-all"]),
+  subscriberIds: z.array(z.string().min(1)).optional(),
+  reason: flushReason,
+});
+const campaignFlushBodySchema = z.preprocess(
+  (raw) => {
+    const v = (raw ?? {}) as Record<string, unknown>;
+    if (v.campaignSendIds === "all") return { kind: "all", reason: v.reason };
+    if (Array.isArray(v.campaignSendIds)) return { kind: "selected", campaignSendIds: v.campaignSendIds, reason: v.reason };
+    if (typeof v.scope === "string") return { kind: "legacy", scope: v.scope, subscriberIds: v.subscriberIds, reason: v.reason };
+    return v;
+  },
+  z.discriminatedUnion("kind", [flushAllShape, flushSelectedShape, flushLegacyShape]),
+);
 const adminFlushBodySchema = z.object({ reason: flushReason });
 
 // Tiny in-memory TTL cache for the admin /curve and /top-contacts
@@ -281,17 +294,17 @@ export function registerPressureRoutes(app: Express): void {
 
     try {
       let count = 0;
-      if ("campaignSendIds" in body && body.campaignSendIds === "all") {
+      if (body.kind === "all") {
         count = await flushDeferredSends({
           campaignId, campaignSendIds: "all", scope: "campaign-all", reason, userId,
         });
-      } else if ("campaignSendIds" in body && Array.isArray(body.campaignSendIds)) {
+      } else if (body.kind === "selected") {
         count = await flushDeferredSends({
           campaignId, campaignSendIds: body.campaignSendIds, scope: "selected", reason, userId,
         });
-      } else if ("scope" in body) {
-        // R11: legacy {scope, subscriberIds} body still works but is deprecated;
-        // emit a one-line warning so callers can migrate to {campaignSendIds, reason}.
+      } else {
+        // R11: legacy {scope, subscriberIds} still works but is deprecated;
+        // emit a one-line warning so callers can migrate to the new shape.
         logger.warn(
           `[PRESSURE_QUEUE] DEPRECATED legacy flush body shape ({scope, subscriberIds}) used by user=${userId} campaign=${campaignId}; migrate to {campaignSendIds, reason}`,
         );
