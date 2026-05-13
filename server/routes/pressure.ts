@@ -41,6 +41,38 @@ function requireAuth(req: Request, res: Response): boolean {
 }
 
 /**
+ * Per-campaign ownership guard. Confirms the authenticated user owns the
+ * campaign before exposing/allowing mutation of its pressure queue. Without
+ * this check, any authenticated user could read or flush another tenant's
+ * deferred queue (IDOR). Admins (per ADMIN_USER_IDS) bypass the check so
+ * support can intervene cross-tenant.
+ */
+async function requireCampaignOwnership(req: Request, res: Response, campaignId: string): Promise<boolean> {
+  if (!requireAuth(req, res)) return false;
+  const uid = req.session.userId as string;
+  const adminAllow = (process.env.ADMIN_USER_IDS ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  if (adminAllow.includes(uid)) return true;
+  try {
+    const r = await db.execute(sql`SELECT user_id FROM campaigns WHERE id = ${campaignId}`);
+    if (r.rows.length === 0) {
+      res.status(404).json({ error: "Campaign not found" });
+      return false;
+    }
+    const ownerId = (r.rows[0] as any).user_id as string | null;
+    if (ownerId && ownerId !== uid) {
+      res.status(403).json({ error: "Forbidden" });
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    logger.error(`[PRESSURE_QUEUE] ownership check failed for ${campaignId}: ${err?.message || err}`);
+    res.status(500).json({ error: "Internal error" });
+    return false;
+  }
+}
+
+/**
  * Admin-scope guard. The `users` table in this codebase has no `role`
  * column, so admin status is granted via the `ADMIN_USER_IDS` env var
  * (comma-separated user IDs). When the env var is unset OR empty we
@@ -72,8 +104,8 @@ function requireAdmin(req: Request, res: Response): boolean {
 export function registerPressureRoutes(app: Express): void {
   // ── Per-campaign queue view ─────────────────────────────────────────
   app.get("/api/campaigns/:id/queue", async (req: Request, res: Response) => {
-    if (!requireAuth(req, res)) return;
     const campaignId = req.params.id;
+    if (!(await requireCampaignOwnership(req, res, campaignId))) return;
     const page = Math.max(1, parseInt((req.query.page as string) ?? "1", 10) || 1);
     const limit = Math.min(200, Math.max(1, parseInt((req.query.limit as string) ?? "50", 10) || 50));
     const offset = (page - 1) * limit;
@@ -129,8 +161,8 @@ export function registerPressureRoutes(app: Express): void {
 
   // ── Per-campaign flush ──────────────────────────────────────────────
   app.post("/api/campaigns/:id/queue/flush", async (req: Request, res: Response) => {
-    if (!requireAuth(req, res)) return;
     const campaignId = req.params.id;
+    if (!(await requireCampaignOwnership(req, res, campaignId))) return;
     const { subscriberIds, reason } = req.body ?? {};
     const csIdsRaw = (req.body as any)?.campaignSendIds;
     // Spec contract: body = { campaignSendIds: string[] | "all", reason }.
