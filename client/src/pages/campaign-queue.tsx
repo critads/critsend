@@ -6,11 +6,11 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Clock, Filter, Send } from "lucide-react";
+import { ArrowLeft, Clock, Filter, Send, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 interface QueueResponse {
   campaign: { id: string; name: string; deferred_count: number; sent_count: number; pending_count: number; failed_count: number };
@@ -26,7 +26,10 @@ interface QueueResponse {
     sent_at: string | null;
     eligible_at: string | null;
     last_sent_at: string | null;
+    blocked_by_campaign_id: string | null;
+    blocked_by_campaign_name: string | null;
   }>;
+  bucket?: Array<{ bucket_at: string; n: string }>;
 }
 
 export default function CampaignQueue() {
@@ -41,7 +44,7 @@ export default function CampaignQueue() {
   const { data, isLoading } = useQuery<QueueResponse>({
     queryKey: ["/api/campaigns", id, "queue", page, status],
     queryFn: async () => {
-      const r = await fetch(`/api/campaigns/${id}/queue?page=${page}&limit=50&status=${status}`, { credentials: "include" });
+      const r = await fetch(`/api/campaigns/${id}/queue?page=${page}&limit=50&status=${status}&bucket=true`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
@@ -63,6 +66,10 @@ export default function CampaignQueue() {
   });
 
   const counts = data?.counts;
+  const bucketData = (data?.bucket ?? []).map((b) => ({
+    label: new Date(b.bucket_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" }),
+    count: Number(b.n),
+  }));
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -86,6 +93,32 @@ export default function CampaignQueue() {
           <Stat label="Deferred" value={counts?.deferred ?? "0"} testId="stat-deferred" />
           <Stat label="Due now" value={counts?.deferred_due ?? "0"} testId="stat-due" />
           <Stat label="Attempting" value={counts?.attempting ?? "0"} testId="stat-attempting" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Upcoming deferred load (next 72h, by hour)</CardTitle>
+          <CardDescription>Each bar = number of contacts becoming eligible in that hour bucket.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : bucketData.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-8 text-center" data-testid="text-empty-histogram">No upcoming deferred load.</div>
+          ) : (
+            <div style={{ width: "100%", height: 200 }} data-testid="chart-histogram">
+              <ResponsiveContainer>
+                <BarChart data={bucketData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="hsl(var(--primary))" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -146,6 +179,7 @@ export default function CampaignQueue() {
                     <th className="p-2">Email</th>
                     <th className="p-2">Status</th>
                     <th className="p-2">Eligible at</th>
+                    <th className="p-2">Blocked by</th>
                     <th className="p-2">Last sent (any campaign)</th>
                   </tr>
                 </thead>
@@ -175,11 +209,21 @@ export default function CampaignQueue() {
                           </span>
                         ) : "—"}
                       </td>
+                      <td className="p-2 text-xs">
+                        {r.blocked_by_campaign_id ? (
+                          <Link href={`/campaigns/${r.blocked_by_campaign_id}/queue`}>
+                            <span className="inline-flex items-center gap-1 underline-offset-2 hover:underline" data-testid={`link-blocker-${r.subscriber_id}`}>
+                              <ShieldAlert className="h-3 w-3" />
+                              {r.blocked_by_campaign_name ?? r.blocked_by_campaign_id.slice(0, 8)}
+                            </span>
+                          </Link>
+                        ) : "—"}
+                      </td>
                       <td className="p-2 text-xs">{r.last_sent_at ? new Date(r.last_sent_at).toLocaleString() : "—"}</td>
                     </tr>
                   ))}
                   {(data?.rows ?? []).length === 0 && (
-                    <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No rows</td></tr>
+                    <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">No rows</td></tr>
                   )}
                 </tbody>
               </table>

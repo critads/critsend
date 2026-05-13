@@ -132,18 +132,58 @@ export function registerPressureRoutes(app: Express): void {
       }
 
       let whereStatus = sql`TRUE`;
-      if (status === "deferred") whereStatus = sql`status = 'pending' AND eligible_at IS NOT NULL`;
-      else if (status === "pending") whereStatus = sql`status = 'pending' AND eligible_at IS NULL`;
-      else if (status !== "all") whereStatus = sql`status = ${status}`;
+      if (status === "deferred") whereStatus = sql`cs.status = 'pending' AND cs.eligible_at IS NOT NULL`;
+      else if (status === "pending") whereStatus = sql`cs.status = 'pending' AND cs.eligible_at IS NULL`;
+      else if (status !== "all") whereStatus = sql`cs.status = ${status}`;
 
+      // Per-row "blocked_by_campaign": for each deferred row, the campaign
+      // currently holding the slot is the campaign whose campaign_send for
+      // the same subscriber has the most recent sent_at AND eligible_at IS NULL
+      // (the immediate winner). LEFT JOIN keeps non-deferred rows working.
       const rows = await db.execute(sql`
-        SELECT cs.id, cs.subscriber_id, s.email, cs.status, cs.sent_at, cs.eligible_at, s.last_sent_at
+        SELECT
+          cs.id, cs.subscriber_id, s.email, cs.status, cs.sent_at, cs.eligible_at, s.last_sent_at,
+          blocker.campaign_id AS blocked_by_campaign_id,
+          bc.name AS blocked_by_campaign_name
         FROM campaign_sends cs
         LEFT JOIN subscribers s ON s.id = cs.subscriber_id
+        LEFT JOIN LATERAL (
+          SELECT cs2.campaign_id
+          FROM campaign_sends cs2
+          WHERE cs2.subscriber_id = cs.subscriber_id
+            AND cs2.eligible_at IS NULL
+            AND cs2.campaign_id <> cs.campaign_id
+            AND cs2.status IN ('sent','attempting','pending')
+          ORDER BY cs2.sent_at DESC
+          LIMIT 1
+        ) blocker ON cs.eligible_at IS NOT NULL
+        LEFT JOIN campaigns bc ON bc.id = blocker.campaign_id
         WHERE cs.campaign_id = ${campaignId} AND ${whereStatus}
         ORDER BY cs.eligible_at ASC NULLS LAST, cs.sent_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `);
+
+      // Optional histogram of upcoming deferred load, bucketed by hour.
+      // Triggered with ?bucket=true. We bucket the next 72h of deferred
+      // eligible_at; anything older than NOW() is folded into the "0h" bin
+      // (= overdue / drainable on next worker tick).
+      let bucket: any[] | undefined;
+      if (req.query.bucket === "true" || req.query.bucket === "1") {
+        const b = await db.execute(sql`
+          SELECT
+            date_trunc('hour', GREATEST(eligible_at, NOW())) AS bucket_at,
+            COUNT(*) AS n
+          FROM campaign_sends
+          WHERE campaign_id = ${campaignId}
+            AND status = 'pending'
+            AND eligible_at IS NOT NULL
+            AND eligible_at < NOW() + interval '72 hours'
+          GROUP BY 1
+          ORDER BY 1 ASC
+          LIMIT 96
+        `);
+        bucket = b.rows as any[];
+      }
 
       res.json({
         campaign: campaignRow.rows[0],
@@ -152,6 +192,7 @@ export function registerPressureRoutes(app: Express): void {
         page,
         limit,
         rows: rows.rows,
+        bucket,
       });
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] GET /campaigns/${campaignId}/queue failed: ${err?.message || err}`);
@@ -260,6 +301,82 @@ export function registerPressureRoutes(app: Express): void {
       });
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
+      res.status(500).json({ error: err?.message || "Internal error" });
+    }
+  });
+
+  // ── Cross-campaign 7-day deferred / flush curve ─────────────────────
+  // Returns daily series of: (a) defer events approximated by sent_at on
+  // currently-deferred or recently-sent rows whose eligible_at IS NOT NULL,
+  // and (b) flush events from pressure_flush_audit. Useful for the
+  // admin "deferred over time" sparkline.
+  app.get("/api/admin/pressure-queue/curve", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const defers = await db.execute(sql`
+        SELECT date_trunc('day', sent_at) AS day, COUNT(*) AS n
+        FROM campaign_sends
+        WHERE eligible_at IS NOT NULL
+          AND sent_at >= NOW() - interval '7 days'
+        GROUP BY 1 ORDER BY 1 ASC
+      `);
+      const flushes = await db.execute(sql`
+        SELECT date_trunc('day', created_at) AS day, COALESCE(SUM(count),0) AS n
+        FROM pressure_flush_audit
+        WHERE created_at >= NOW() - interval '7 days'
+        GROUP BY 1 ORDER BY 1 ASC
+      `);
+      res.json({
+        windowHours: PRESSURE_WINDOW_HOURS,
+        defers: defers.rows,
+        flushes: flushes.rows,
+      });
+    } catch (err: any) {
+      logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/curve failed: ${err?.message || err}`);
+      res.status(500).json({ error: err?.message || "Internal error" });
+    }
+  });
+
+  // ── Top-20 most-deferred contacts (cross-campaign, currently pending) ─
+  app.get("/api/admin/pressure-queue/top-contacts", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const rows = await db.execute(sql`
+        SELECT cs.subscriber_id, s.email, s.last_sent_at,
+               COUNT(*) AS deferred_rows,
+               MIN(cs.eligible_at) AS next_eligible_at
+        FROM campaign_sends cs
+        JOIN subscribers s ON s.id = cs.subscriber_id
+        WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
+        GROUP BY cs.subscriber_id, s.email, s.last_sent_at
+        ORDER BY deferred_rows DESC, next_eligible_at ASC
+        LIMIT 20
+      `);
+      res.json({ rows: rows.rows });
+    } catch (err: any) {
+      logger.error(`[PRESSURE_QUEUE] /top-contacts failed: ${err?.message || err}`);
+      res.status(500).json({ error: err?.message || "Internal error" });
+    }
+  });
+
+  // ── Flush audit history ─────────────────────────────────────────────
+  app.get("/api/admin/pressure-queue/history", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const limit = Math.min(200, Math.max(1, parseInt((req.query.limit as string) ?? "50", 10) || 50));
+    try {
+      const rows = await db.execute(sql`
+        SELECT a.id, a.created_at, a.scope, a.count, a.reason,
+               a.user_id, u.username AS user_name,
+               a.campaign_id, c.name AS campaign_name
+        FROM pressure_flush_audit a
+        LEFT JOIN users u ON u.id = a.user_id
+        LEFT JOIN campaigns c ON c.id = a.campaign_id
+        ORDER BY a.created_at DESC
+        LIMIT ${limit}
+      `);
+      res.json({ rows: rows.rows });
+    } catch (err: any) {
+      logger.error(`[PRESSURE_QUEUE] /history failed: ${err?.message || err}`);
       res.status(500).json({ error: err?.message || "Internal error" });
     }
   });

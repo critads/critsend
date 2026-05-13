@@ -62,6 +62,7 @@ import {
   Upload,
   Loader2,
   UserMinus,
+  Clock,
 } from "lucide-react";
 import type { Subscriber } from "@shared/schema";
 
@@ -78,6 +79,7 @@ export default function Subscribers() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [editingSubscriber, setEditingSubscriber] = useState<Subscriber | null>(null);
+  const [pressureSubscriber, setPressureSubscriber] = useState<Subscriber | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Subscriber | null>(null);
   const [newTag, setNewTag] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -640,6 +642,13 @@ export default function Subscribers() {
                                 Edit Tags
                               </DropdownMenuItem>
                               <DropdownMenuItem
+                                onClick={() => setPressureSubscriber(subscriber)}
+                                data-testid={`menu-pressure-${subscriber.id}`}
+                              >
+                                <Clock className="h-4 w-4 mr-2" />
+                                Pressure status
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
                                 className="text-destructive"
                                 onClick={() => setDeleteConfirm(subscriber)}
                                 data-testid={`menu-delete-${subscriber.id}`}
@@ -1196,6 +1205,83 @@ export default function Subscribers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PressureDialog subscriber={pressureSubscriber} onClose={() => setPressureSubscriber(null)} />
     </div>
+  );
+}
+
+function PressureDialog({ subscriber, onClose }: { subscriber: Subscriber | null; onClose: () => void }) {
+  const open = !!subscriber;
+  const { data, isLoading } = useQuery<{
+    email: string;
+    lastSentAt: string | null;
+    nextEligibleAt: string;
+    hoursUntilEligible: number;
+    windowHours: number;
+    upcomingDeferred: Array<{ campaign_id: string; campaign_name: string; eligible_at: string; status: string }>;
+  }>({
+    queryKey: ["/api/subscribers", subscriber?.id, "pressure"],
+    queryFn: async () => {
+      const r = await fetch(`/api/subscribers/${subscriber!.id}/pressure`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+    enabled: open,
+  });
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg" data-testid="dialog-pressure">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Clock className="h-4 w-4" /> Pressure status</DialogTitle>
+          <DialogDescription>Marketing pressure window enforcement for this contact.</DialogDescription>
+        </DialogHeader>
+        {isLoading || !data ? (
+          <div className="space-y-2"><Skeleton className="h-6 w-full" /><Skeleton className="h-6 w-full" /></div>
+        ) : (
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Window</div>
+                <div className="font-semibold tabular-nums" data-testid="text-pressure-window">{data.windowHours}h</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Hours until eligible</div>
+                <div className="font-semibold tabular-nums" data-testid="text-pressure-hours">{data.hoursUntilEligible}</div>
+              </div>
+              <div className="rounded-md border p-3 col-span-2">
+                <div className="text-xs text-muted-foreground">Last sent (any campaign)</div>
+                <div className="font-mono text-xs" data-testid="text-pressure-last-sent">{data.lastSentAt ? new Date(data.lastSentAt).toLocaleString() : "Never"}</div>
+              </div>
+              <div className="rounded-md border p-3 col-span-2">
+                <div className="text-xs text-muted-foreground">Next eligible at</div>
+                <div className="font-mono text-xs" data-testid="text-pressure-next">{new Date(data.nextEligibleAt).toLocaleString()}</div>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Upcoming deferred sends ({data.upcomingDeferred?.length ?? 0})</div>
+              <div className="max-h-48 overflow-auto rounded-md border">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {(data.upcomingDeferred ?? []).map((u) => (
+                      <tr key={u.campaign_id + u.eligible_at} className="border-b" data-testid={`row-upcoming-${u.campaign_id}`}>
+                        <td className="p-2">{u.campaign_name}</td>
+                        <td className="p-2 text-muted-foreground">{new Date(u.eligible_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                    {(data.upcomingDeferred ?? []).length === 0 && (
+                      <tr><td className="p-3 text-center text-muted-foreground" colSpan={2}>No deferred sends</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} data-testid="button-close-pressure">Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

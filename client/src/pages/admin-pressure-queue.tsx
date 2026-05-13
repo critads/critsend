@@ -6,12 +6,14 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Clock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Clock, History, Users, TrendingUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 
 interface AdminQueueResponse {
   windowHours: number;
-  totals: { pending_deferred: string; due_now: string };
+  totals: { pending_deferred: string; due_now: string; distinct_contacts_in_cooldown?: string };
   campaigns: Array<{
     campaign_id: string;
     campaign_name: string;
@@ -22,6 +24,32 @@ interface AdminQueueResponse {
     next_eligible_at: string | null;
   }>;
 }
+interface CurveResponse {
+  defers: Array<{ day: string; n: string }>;
+  flushes: Array<{ day: string; n: string }>;
+}
+interface TopContactsResponse {
+  rows: Array<{
+    subscriber_id: string;
+    email: string;
+    last_sent_at: string | null;
+    deferred_rows: string;
+    next_eligible_at: string | null;
+  }>;
+}
+interface HistoryResponse {
+  rows: Array<{
+    id: string;
+    created_at: string;
+    scope: string;
+    count: number;
+    reason: string;
+    user_id: string | null;
+    user_name: string | null;
+    campaign_id: string | null;
+    campaign_name: string | null;
+  }>;
+}
 
 export default function AdminPressureQueue() {
   const [reason, setReason] = useState("");
@@ -29,6 +57,18 @@ export default function AdminPressureQueue() {
   const { data, isLoading } = useQuery<AdminQueueResponse>({
     queryKey: ["/api/admin/pressure-queue"],
     refetchInterval: 15_000,
+  });
+  const { data: curve } = useQuery<CurveResponse>({
+    queryKey: ["/api/admin/pressure-queue/curve"],
+    refetchInterval: 60_000,
+  });
+  const { data: top } = useQuery<TopContactsResponse>({
+    queryKey: ["/api/admin/pressure-queue/top-contacts"],
+    refetchInterval: 30_000,
+  });
+  const { data: history } = useQuery<HistoryResponse>({
+    queryKey: ["/api/admin/pressure-queue/history"],
+    refetchInterval: 30_000,
   });
 
   const flushAll = useMutation({
@@ -38,9 +78,22 @@ export default function AdminPressureQueue() {
       toast({ title: "Global reprogram done", description: `${json.reprogrammed ?? json.flushed} deferred send(s) advanced to NOW().` });
       setReason("");
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pressure-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pressure-queue/history"] });
     },
     onError: (e: any) => toast({ title: "Flush failed", description: e?.message ?? "Error", variant: "destructive" }),
   });
+
+  // Merge defers + flushes by day for the line chart
+  const days = new Map<string, { day: string; defers: number; flushes: number }>();
+  (curve?.defers ?? []).forEach((d) => {
+    const k = new Date(d.day).toISOString().slice(0, 10);
+    days.set(k, { day: k, defers: Number(d.n), flushes: days.get(k)?.flushes ?? 0 });
+  });
+  (curve?.flushes ?? []).forEach((d) => {
+    const k = new Date(d.day).toISOString().slice(0, 10);
+    days.set(k, { day: k, defers: days.get(k)?.defers ?? 0, flushes: Number(d.n) });
+  });
+  const series = Array.from(days.values()).sort((a, b) => a.day.localeCompare(b.day));
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -51,9 +104,38 @@ export default function AdminPressureQueue() {
             FIFO drain order: oldest started_at first. Window: {data?.windowHours ?? 6}h.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3">
+        <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <Stat label="Pending deferred (total)" value={data?.totals?.pending_deferred ?? "0"} testId="stat-total-pending" />
           <Stat label="Due now (drainable)" value={data?.totals?.due_now ?? "0"} testId="stat-total-due" />
+          <Stat label="Distinct contacts in cooldown" value={data?.totals?.distinct_contacts_in_cooldown ?? "0"} testId="stat-distinct-contacts" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><TrendingUp className="h-4 w-4" /> 7-day curve</CardTitle>
+          <CardDescription>Daily defer events vs flush events.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!curve ? (
+            <Skeleton className="h-48 w-full" />
+          ) : series.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-8 text-center" data-testid="text-empty-curve">No activity in the last 7 days.</div>
+          ) : (
+            <div style={{ width: "100%", height: 220 }} data-testid="chart-curve">
+              <ResponsiveContainer>
+                <LineChart data={series} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Line type="monotone" dataKey="defers" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="flushes" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -118,6 +200,88 @@ export default function AdminPressureQueue() {
                   ))}
                   {(data?.campaigns ?? []).length === 0 && (
                     <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">No deferred sends pending</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4" /> Top 20 most-deferred contacts</CardTitle>
+          <CardDescription>Across all campaigns, currently pending.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!top ? (
+            <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="p-2">Contact</th>
+                    <th className="p-2 text-right">Deferred rows</th>
+                    <th className="p-2">Next eligible</th>
+                    <th className="p-2">Last sent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(top.rows ?? []).map((r) => (
+                    <tr key={r.subscriber_id} className="border-b hover-elevate" data-testid={`row-top-${r.subscriber_id}`}>
+                      <td className="p-2 font-mono text-xs" data-testid={`text-top-email-${r.subscriber_id}`}>{r.email}</td>
+                      <td className="p-2 text-right tabular-nums">
+                        <Badge variant="secondary">{r.deferred_rows}</Badge>
+                      </td>
+                      <td className="p-2 text-xs">{r.next_eligible_at ? new Date(r.next_eligible_at).toLocaleString() : "—"}</td>
+                      <td className="p-2 text-xs">{r.last_sent_at ? new Date(r.last_sent_at).toLocaleString() : "—"}</td>
+                    </tr>
+                  ))}
+                  {(top.rows ?? []).length === 0 && (
+                    <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No contacts currently in queue</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><History className="h-4 w-4" /> Flush history</CardTitle>
+          <CardDescription>Latest 50 manual reprogram operations.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!history ? (
+            <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="p-2">When</th>
+                    <th className="p-2">By</th>
+                    <th className="p-2">Scope</th>
+                    <th className="p-2">Campaign</th>
+                    <th className="p-2 text-right">Rows</th>
+                    <th className="p-2">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(history.rows ?? []).map((r) => (
+                    <tr key={r.id} className="border-b" data-testid={`row-history-${r.id}`}>
+                      <td className="p-2 text-xs">{new Date(r.created_at).toLocaleString()}</td>
+                      <td className="p-2 text-xs">{r.user_name ?? r.user_id ?? "—"}</td>
+                      <td className="p-2"><Badge variant="outline">{r.scope}</Badge></td>
+                      <td className="p-2 text-xs">{r.campaign_name ?? "—"}</td>
+                      <td className="p-2 text-right tabular-nums">{r.count}</td>
+                      <td className="p-2 text-xs max-w-[280px] truncate" title={r.reason}>{r.reason}</td>
+                    </tr>
+                  ))}
+                  {(history.rows ?? []).length === 0 && (
+                    <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">No flush events yet</td></tr>
                   )}
                 </tbody>
               </table>
