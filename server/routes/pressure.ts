@@ -141,6 +141,8 @@ async function requireCampaignOwnership(req: Request, res: Response, campaignId:
 async function isAdminUser(uid: string): Promise<boolean> {
   // (1) DB-backed admin column is the source of truth.
   let dbAdminExists = false;
+  let dbErrorIsMissingColumn = false;
+  let dbHadRuntimeError = false;
   try {
     const me = await db.execute(sql<{ is_admin: boolean | null }>`SELECT is_admin FROM users WHERE id = ${uid}`);
     const row = me.rows[0] as { is_admin: boolean | null } | undefined;
@@ -149,12 +151,24 @@ async function isAdminUser(uid: string): Promise<boolean> {
     // so ADMIN_USER_IDS is strictly bootstrap-only.
     const any = await db.execute(sql`SELECT 1 FROM users WHERE is_admin = true LIMIT 1`);
     dbAdminExists = any.rows.length > 0;
-  } catch {
-    // Column may not yet exist on a freshly-booted DB before bootstrap
-    // ALTER ran — fall through to the env / non-prod path below.
+  } catch (err: any) {
+    // Postgres "undefined_column" (42703) — schema bootstrap hasn't yet
+    // added users.is_admin. Tolerate that one specific case so first-boot
+    // env fallback still works. ANY other DB error is treated as a
+    // runtime failure: in production we MUST fail closed (do not let a
+    // stale env allowlist silently bypass DB-first authz when the DB is
+    // flapping).
+    const code = err?.code ?? err?.cause?.code;
+    if (code === "42703") dbErrorIsMissingColumn = true;
+    else dbHadRuntimeError = true;
+    if (dbHadRuntimeError && process.env.NODE_ENV === "production") {
+      logger.warn(`[ADMIN_GATE] DB error during admin check (${err?.message || err}) — failing closed`);
+      return false;
+    }
   }
-  // (2) env-var fallback ONLY while no DB admin exists yet (bootstrap mode).
-  if (!dbAdminExists) {
+  // (2) env-var fallback ONLY while no DB admin exists yet (bootstrap),
+  // OR while the schema column is genuinely missing on first-boot.
+  if (!dbAdminExists || dbErrorIsMissingColumn) {
     const allowlist = (process.env.ADMIN_USER_IDS ?? "")
       .split(",").map((s) => s.trim()).filter(Boolean);
     if (allowlist.includes(uid)) return true;
@@ -168,13 +182,24 @@ function requireAdmin(req: Request, res: Response): Promise<boolean> {
   return (async () => {
     if (!requireAuth(req, res)) return false;
     const uid = req.session.userId as string;
+    if (await isAdminUser(uid)) return true;
+    // Only emit the "no admin configured" misconfiguration log when the
+    // installation truly has no admin path: empty env allowlist AND no
+    // users.is_admin=true row in the DB. Otherwise this is just a
+    // routine 403 from a non-admin caller and should not pollute logs.
     const allowlist = (process.env.ADMIN_USER_IDS ?? "")
       .split(",").map((s) => s.trim()).filter(Boolean);
-    if (await isAdminUser(uid)) return true;
     if (allowlist.length === 0 && process.env.NODE_ENV === "production") {
-      logger.error("[PRESSURE_QUEUE] No admin configured (ADMIN_USER_IDS unset, no users.is_admin=true) in production — blocking admin access");
-      res.status(403).json({ error: "Admin access disabled (set ADMIN_USER_IDS or grant users.is_admin)" });
-      return false;
+      try {
+        const any = await db.execute(sql`SELECT 1 FROM users WHERE is_admin = true LIMIT 1`);
+        if (any.rows.length === 0) {
+          logger.error("[PRESSURE_QUEUE] No admin configured (ADMIN_USER_IDS unset, no users.is_admin=true) in production — blocking admin access");
+          res.status(403).json({ error: "Admin access disabled (set ADMIN_USER_IDS or grant users.is_admin)" });
+          return false;
+        }
+      } catch {
+        // DB hiccup — fall through to the generic 403 below.
+      }
     }
     res.status(403).json({ error: "Forbidden: admin role required" });
     return false;
