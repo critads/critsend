@@ -306,7 +306,7 @@ export function registerPressureRoutes(app: Express): void {
         // R11: legacy {scope, subscriberIds} still works but is deprecated;
         // emit a one-line warning so callers can migrate to the new shape.
         logger.warn(
-          `[PRESSURE_QUEUE] DEPRECATED legacy flush body shape ({scope, subscriberIds}) used by user=${userId} campaign=${campaignId}; migrate to {campaignSendIds, reason}`,
+          `[PRESSURE_QUEUE] DEPRECATED legacy flush body shape ({scope, subscriberIds}) used by user=${userId} campaign=${campaignId}; migrate to {campaignSendIds, reason} — sunset 2026-12-31`,
         );
         if (body.scope === "all" || body.scope === "campaign-all") {
           count = await flushDeferredSends({
@@ -435,6 +435,12 @@ export function registerPressureRoutes(app: Express): void {
   app.get("/api/admin/pressure-queue/history", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     const limit = Math.min(200, Math.max(1, parseInt((req.query.limit as string) ?? "50", 10) || 50));
+    // Short TTL cache (15s) — history is polled by the dashboard every
+    // 30-60s; the join across audit/users/campaigns is cheap individually
+    // but adds up under refresh storms.
+    const cacheKey = `history:${limit}`;
+    const hit = cacheGet<{ rows: unknown[] }>(cacheKey);
+    if (hit) return res.json(hit);
     try {
       const rows = await db.execute(sql`
         SELECT a.id, a.created_at, a.scope, a.count, a.reason,
@@ -446,7 +452,9 @@ export function registerPressureRoutes(app: Express): void {
         ORDER BY a.created_at DESC
         LIMIT ${limit}
       `);
-      res.json({ rows: rows.rows });
+      const payload = { rows: rows.rows };
+      cacheSet(cacheKey, payload, 15_000);
+      res.json(payload);
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /history failed: ${err?.message || err}`);
       res.status(500).json({ error: err?.message || "Internal error" });

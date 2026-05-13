@@ -221,6 +221,10 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
           totalUpdated += n;
           chunks++;
           try { pressureGuardBackfillRowsTotal.inc(n); } catch {}
+          // R12: structured per-chunk log so ops can watch progress live.
+          logger.info(
+            `[PRESSURE_GUARD] backfill chunk_index=${chunks} rows_updated=${n} cumulative=${totalUpdated}`,
+          );
           // Yield between chunks so we don't block the event loop /
           // hog the pool while a huge table backfills.
           await new Promise((resolve) => setTimeout(resolve, 25));
