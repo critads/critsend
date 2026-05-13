@@ -140,21 +140,27 @@ async function requireCampaignOwnership(req: Request, res: Response, campaignId:
  */
 async function isAdminUser(uid: string): Promise<boolean> {
   // (1) DB-backed admin column is the source of truth.
+  let dbAdminExists = false;
   try {
-    const r = await db.execute(sql<{ is_admin: boolean | null }>`SELECT is_admin FROM users WHERE id = ${uid}`);
-    const row = r.rows[0] as { is_admin: boolean | null } | undefined;
+    const me = await db.execute(sql<{ is_admin: boolean | null }>`SELECT is_admin FROM users WHERE id = ${uid}`);
+    const row = me.rows[0] as { is_admin: boolean | null } | undefined;
     if (row && row.is_admin === true) return true;
+    // Detect whether ANY admin row exists; this gates the env-var fallback
+    // so ADMIN_USER_IDS is strictly bootstrap-only.
+    const any = await db.execute(sql`SELECT 1 FROM users WHERE is_admin = true LIMIT 1`);
+    dbAdminExists = any.rows.length > 0;
   } catch {
     // Column may not yet exist on a freshly-booted DB before bootstrap
     // ALTER ran — fall through to the env / non-prod path below.
   }
-  // (2) env-var fallback for first-deployment ergonomics, when there is
-  // no `users.is_admin=true` row yet to seed the first admin.
-  const allowlist = (process.env.ADMIN_USER_IDS ?? "")
-    .split(",").map((s) => s.trim()).filter(Boolean);
-  if (allowlist.includes(uid)) return true;
-  // (3) dev/test ergonomics: no env, no DB row, not production → admin.
-  if (allowlist.length === 0 && process.env.NODE_ENV !== "production") return true;
+  // (2) env-var fallback ONLY while no DB admin exists yet (bootstrap mode).
+  if (!dbAdminExists) {
+    const allowlist = (process.env.ADMIN_USER_IDS ?? "")
+      .split(",").map((s) => s.trim()).filter(Boolean);
+    if (allowlist.includes(uid)) return true;
+    // (3) dev/test ergonomics: no env, no DB row, not production → admin.
+    if (allowlist.length === 0 && process.env.NODE_ENV !== "production") return true;
+  }
   return false;
 }
 

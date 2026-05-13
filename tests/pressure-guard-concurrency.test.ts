@@ -67,6 +67,23 @@ d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () =
     expect(r.rows[0].last_sent_at).not.toBeNull();
   });
 
+  it("R2 audit: re-reserving an already-winning row does NOT advance last_sent_at", async () => {
+    // After the race above, the subscriber has an immediate (winner) row
+    // on olderCampaignId AND last_sent_at is stamped. Re-reserving the
+    // same (campaign, subscriber) must NOT bump last_sent_at because
+    // existing_winners CTE returns the row without going through the
+    // CAS UPDATE that sets last_sent_at = NOW().
+    const before = await db.execute(sql`SELECT last_sent_at FROM subscribers WHERE id = ${subId}`);
+    const t0 = new Date((before.rows[0] as { last_sent_at: string | Date }).last_sent_at).getTime();
+    // Wait so a buggy NOW() bump would be observable.
+    await new Promise((r) => setTimeout(r, 50));
+    const winners = await storage.pressureGuardReserveSendSlots(olderCampaignId, [subId]);
+    expect(winners).toContain(subId);
+    const after = await db.execute(sql`SELECT last_sent_at FROM subscribers WHERE id = ${subId}`);
+    const t1 = new Date((after.rows[0] as { last_sent_at: string | Date }).last_sent_at).getTime();
+    expect(t1).toBe(t0);
+  });
+
   it("R1: hashtextextended produces distinct 64-bit lock keys for distinct subscriber IDs", async () => {
     // Regression for the 32-bit collision risk fixed in R1. Use the
     // SAME hashtextextended call the CAS uses, with two distinct subs,
