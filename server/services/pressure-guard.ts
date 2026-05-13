@@ -126,15 +126,35 @@ export async function pressureGuardReserveSendSlots(
   for (let i = 0; i < subscriberIds.length; i += CHUNK_SIZE) {
     const chunk = subscriberIds.slice(i, i + CHUNK_SIZE);
 
+    // FIFO determinism (Task #144): if any *older* (smaller started_at)
+    // campaign already has a pending or attempting send for the same
+    // subscriber, the current campaign MUST defer — even if the contact's
+    // last_sent_at would otherwise allow a CAS win. This makes the
+    // first-slot reservation deterministic by campaigns.started_at instead
+    // of relying on Postgres lock-queue race timing.
     const result = await db.execute(sql`
       WITH input(id) AS (
         SELECT unnest(${chunk}::text[])
+      ),
+      my_started AS (
+        SELECT started_at FROM campaigns WHERE id = ${campaignId}
+      ),
+      blocked_by_older AS (
+        SELECT DISTINCT cs.subscriber_id
+        FROM campaign_sends cs
+        JOIN campaigns c ON c.id = cs.campaign_id
+        WHERE cs.subscriber_id = ANY(${chunk}::text[])
+          AND cs.campaign_id <> ${campaignId}
+          AND cs.status IN ('pending', 'attempting')
+          AND c.started_at IS NOT NULL
+          AND c.started_at < (SELECT started_at FROM my_started)
       ),
       cas AS (
         UPDATE subscribers s
         SET last_sent_at = NOW()
         FROM input i
         WHERE s.id = i.id
+          AND i.id NOT IN (SELECT subscriber_id FROM blocked_by_older)
           AND (s.last_sent_at IS NULL OR s.last_sent_at + (${windowHours}::numeric || ' hours')::interval <= NOW())
         RETURNING s.id
       ),
@@ -215,24 +235,34 @@ export async function pressureGuardReserveSendSlots(
  */
 export async function flushDeferredSends(opts: {
   campaignId?: string;
+  campaignSendIds?: string[] | "all";
+  /** Legacy alias kept for the per-campaign route's current request body. */
   subscriberIds?: string[];
   scope: "selected" | "campaign-all" | "global-all";
   reason: string;
   userId?: string | null;
 }): Promise<number> {
-  const { campaignId, subscriberIds, scope, reason, userId } = opts;
+  const { campaignId, campaignSendIds, subscriberIds, scope, reason, userId } = opts;
 
   let conditions = sql`status = 'pending' AND eligible_at IS NOT NULL AND eligible_at > NOW()`;
   if (campaignId) conditions = sql`${conditions} AND campaign_id = ${campaignId}`;
-  if (subscriberIds && subscriberIds.length > 0) {
+
+  const isAllSelector = campaignSendIds === "all";
+  if (Array.isArray(campaignSendIds) && campaignSendIds.length > 0) {
+    conditions = sql`${conditions} AND id = ANY(${campaignSendIds}::text[])`;
+  } else if (subscriberIds && subscriberIds.length > 0) {
     conditions = sql`${conditions} AND subscriber_id = ANY(${subscriberIds}::text[])`;
-  } else if (scope === "selected") {
+  } else if (scope === "selected" && !isAllSelector) {
     return 0;
   }
 
-  // Soft per-call cap so a runaway flush from the UI cannot rewrite millions
-  // of rows in a single statement; pages > 10k must be issued explicitly.
-  const FLUSH_CAP = Number(process.env.PRESSURE_FLUSH_CAP ?? 10_000);
+  // Per task contract: 10k cap applies ONLY to selected scopes; "all"
+  // scopes (campaign-all, global-all, campaignSendIds === "all") are
+  // truly uncapped so an operator can drain an entire backlog in one
+  // call. Selected scopes still cap to protect the DB pool.
+  const FLUSH_CAP_SELECTED = Number(process.env.PRESSURE_FLUSH_CAP ?? 10_000);
+  const isAllScope = scope === "campaign-all" || scope === "global-all" || isAllSelector;
+  const limitClause = isAllScope ? sql`` : sql`LIMIT ${FLUSH_CAP_SELECTED}`;
 
   let totalFlushed = 0;
   const perCampaign = new Map<string, number>();
@@ -244,7 +274,7 @@ export async function flushDeferredSends(opts: {
         SELECT id FROM campaign_sends
         WHERE ${conditions}
         ORDER BY eligible_at ASC
-        LIMIT ${FLUSH_CAP}
+        ${limitClause}
         FOR UPDATE SKIP LOCKED
       )
       RETURNING campaign_id

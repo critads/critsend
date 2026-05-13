@@ -41,15 +41,31 @@ function requireAuth(req: Request, res: Response): boolean {
 }
 
 /**
- * Admin-scope guard. The codebase does not currently model per-user roles
- * (single-tenant `users` table = (id, username, password)), so every
- * authenticated session is implicitly admin — same posture as the existing
- * /api/health/deploy and /api/database-health endpoints. We still log the
- * caller for audit trail and enforce that *some* session exists; if/when a
- * role column is added to `users`, gate this on user.role === 'admin'.
+ * Admin-scope guard. The `users` table in this codebase has no `role`
+ * column, so admin status is granted via the `ADMIN_USER_IDS` env var
+ * (comma-separated user IDs). When the env var is unset OR empty we
+ * fail closed in production (NODE_ENV==='production') to prevent any
+ * authenticated user from globally reprogramming queues; in non-prod
+ * the first authenticated user is treated as admin to keep dev/test
+ * ergonomics. Misconfiguration is logged loudly.
  */
 function requireAdmin(req: Request, res: Response): boolean {
   if (!requireAuth(req, res)) return false;
+  const allowlist = (process.env.ADMIN_USER_IDS ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  const uid = req.session.userId as string;
+  if (allowlist.length === 0) {
+    if (process.env.NODE_ENV === "production") {
+      logger.error("[PRESSURE_QUEUE] ADMIN_USER_IDS unset in production — blocking admin access");
+      res.status(403).json({ error: "Admin access disabled (set ADMIN_USER_IDS)" });
+      return false;
+    }
+    return true;
+  }
+  if (!allowlist.includes(uid)) {
+    res.status(403).json({ error: "Forbidden: admin role required" });
+    return false;
+  }
   return true;
 }
 
@@ -123,10 +139,30 @@ export function registerPressureRoutes(app: Express): void {
       return res.status(400).json({ error: "reason (>=3 chars) is required" });
     }
     try {
+      // Spec contract: body = { campaignSendIds: string[] | "all", reason }.
+      // We also accept the legacy `{ scope, subscriberIds }` shape for
+      // backward compatibility with the in-app UI.
+      const csIds = (req.body as any)?.campaignSendIds;
       let count = 0;
-      if (scope === "selected") {
+      if (csIds === "all" || scope === "all" || scope === "campaign-all") {
+        count = await flushDeferredSends({
+          campaignId,
+          campaignSendIds: "all",
+          scope: "campaign-all",
+          reason,
+          userId: req.session.userId ?? null,
+        });
+      } else if (Array.isArray(csIds) && csIds.length > 0) {
+        count = await flushDeferredSends({
+          campaignId,
+          campaignSendIds: csIds,
+          scope: "selected",
+          reason,
+          userId: req.session.userId ?? null,
+        });
+      } else if (scope === "selected") {
         if (!Array.isArray(subscriberIds) || subscriberIds.length === 0) {
-          return res.status(400).json({ error: "subscriberIds must be a non-empty array when scope='selected'" });
+          return res.status(400).json({ error: "campaignSendIds must be a non-empty array or \"all\"" });
         }
         count = await flushDeferredSends({
           campaignId,
@@ -136,12 +172,7 @@ export function registerPressureRoutes(app: Express): void {
           userId: req.session.userId ?? null,
         });
       } else {
-        count = await flushDeferredSends({
-          campaignId,
-          scope: "campaign-all",
-          reason,
-          userId: req.session.userId ?? null,
-        });
+        return res.status(400).json({ error: "Provide campaignSendIds: string[] | \"all\"" });
       }
       // Counter increments are folded into flushDeferredSends().
       res.json({ ok: true, reprogrammed: count, flushed: count });

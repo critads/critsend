@@ -81,7 +81,7 @@ async function pollDeferredQueue() {
       WHERE cs.status = 'pending'
         AND cs.eligible_at IS NOT NULL
         AND cs.eligible_at <= NOW()
-        AND c.status NOT IN ('paused', 'cancelled')
+        AND c.status = 'sending'
       ORDER BY c.started_at ASC NULLS FIRST
       LIMIT ${MAX_CAMPAIGNS_PER_TICK}
     `);
