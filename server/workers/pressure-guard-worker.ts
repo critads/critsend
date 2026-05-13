@@ -203,18 +203,18 @@ async function runMaintenanceTick() {
       pressureGuardDeferredIndexSizeBytes.set(sizeBytes);
 
       // R3 maintenance policy:
-      //   • The 1-hour gauge tick only updates pressureGuardDeferredIndexSizeBytes.
-      //   • Once per day cluster-wide, during MAINTENANCE_OFFPEAK_HOUR
-      //     (default 03:00), as enforced by a CAS UPDATE on
+      //   • Hourly gauge tick refreshes pressureGuardDeferredIndexSizeBytes.
+      //   • Once per day cluster-wide, on or after MAINTENANCE_OFFPEAK_HOUR
+      //     (default 03:00), enforced by a CAS UPDATE on
       //     pressure_maintenance_state.last_heavy_run_date:
       //       - VACUUM (ANALYZE) campaign_sends            (unconditional)
       //       - REINDEX INDEX CONCURRENTLY <deferred idx>  (unconditional)
-      //   The CAS guarantees only ONE worker process across the cluster
-      //   runs heavy ops on a given calendar day, even if every worker
-      //   ticks during the off-peak hour. A separate process-local
-      //   advisory lock prevents intra-process re-entry.
+      //   The CAS guarantees only ONE worker across the cluster runs
+      //   heavy ops on a given calendar day. The "on or after" window
+      //   (rather than "exactly equal to") prevents a missed day if
+      //   workers restart shortly after the off-peak hour.
       const now = new Date();
-      const inOffPeakWindow = now.getHours() === MAINTENANCE_OFFPEAK_HOUR;
+      const inOffPeakWindow = now.getHours() >= MAINTENANCE_OFFPEAK_HOUR;
       if (inOffPeakWindow) {
         const cas = await pool.query(
           `UPDATE pressure_maintenance_state
