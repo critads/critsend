@@ -14,6 +14,8 @@ import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 import { jobEvents } from "../job-events";
 import { messageQueue } from "../message-queue";
 import { classifyDbError, SenderRetriesExhaustedError } from "../db-errors";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 
 const MAX_AUTO_RETRIES = 3;
 const SENDER_MAX_ATTEMPTS = 3;
@@ -889,6 +891,35 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       }
     } catch (err: any) {
       logger.warn(`${logPrefix} Reconciliation check failed: ${err.message}`);
+    }
+
+    // Pressure-guard gate (Task #144): if there are still deferred rows
+    // (status='pending' AND eligible_at IS NOT NULL) the campaign is NOT
+    // truly done — the pressure-guard worker still owes those subscribers
+    // a send attempt. Leaving status='sending' lets the worker keep
+    // draining and the existing post-deferred completion path
+    // (job-poll re-trigger or worker-completion handler) will mark
+    // 'completed' once the deferred queue empties.
+    const deferredCheck = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM campaign_sends
+      WHERE campaign_id = ${campaignId}
+        AND status = 'pending' AND eligible_at IS NOT NULL
+    `);
+    const deferredRemaining = Number((deferredCheck.rows[0] as { n?: number } | undefined)?.n ?? 0);
+    if (deferredRemaining > 0) {
+      logger.info(`${logPrefix} Holding 'sending' status: ${deferredRemaining} deferred send(s) still queued by pressure guard`);
+      jobEvents.emitProgress({
+        jobType: "campaign",
+        jobId: campaignId,
+        campaignId,
+        status: "sending",
+        processedRows: processedCount,
+        totalRows: total,
+        sentCount: totalSent,
+        failedCount: totalFailed,
+        pendingCount: deferredRemaining,
+      });
+      return;
     }
 
     const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");

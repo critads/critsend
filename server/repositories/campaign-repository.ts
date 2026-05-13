@@ -552,14 +552,20 @@ export async function recordSendAndUpdateCounters(campaignId: string, subscriber
 }
 
 export async function recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes: number = 5): Promise<number> {
-  // Pressure-guard rows (eligible_at IS NOT NULL AND eligible_at > NOW())
-  // are intentionally pending until their gap window expires; never fail them.
+  // Pressure-guard rows (eligible_at IS NOT NULL) are owned by the
+  // pressure-guard worker — they are intentionally `pending` and the
+  // worker is responsible for draining them as `eligible_at` matures.
+  // We MUST NOT touch any row with `eligible_at IS NOT NULL` here, even
+  // if its eligible_at moment has just arrived: the drain worker is
+  // already racing to claim it and force-failing under it would lose
+  // sends. Pure orphans (status='pending' AND eligible_at IS NULL AND
+  // sent_at older than threshold) remain in scope.
   const result = await db.execute(sql`
     WITH orphaned AS (
       UPDATE campaign_sends SET status = 'failed'
       WHERE campaign_id = ${campaignId} AND status = 'pending'
         AND sent_at < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes}
-        AND (eligible_at IS NULL OR eligible_at <= NOW())
+        AND eligible_at IS NULL
       RETURNING id
     ),
     counter_update AS (

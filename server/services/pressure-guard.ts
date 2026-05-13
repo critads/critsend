@@ -95,6 +95,46 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
     } catch (err: any) {
       logger.warn(`[PRESSURE_GUARD] CONCURRENTLY index build failed (non-fatal): ${err?.message || err}`);
     }
+
+    // Chunked backfill of subscribers.last_sent_at from prior send history.
+    // Idempotent: only touches rows whose last_sent_at is NULL. Bounded per
+    // tick (5k chunks, ~50 chunks max per boot) so a slow rollout never
+    // monopolises a connection. The drain worker tolerates NULL → NOT NULL
+    // transitions mid-backfill (CAS condition handles both cases).
+    try {
+      const flagRow = await pool.query(`
+        SELECT 1 FROM pg_class WHERE relname = 'pressure_guard_backfill_done' LIMIT 1
+      `);
+      if (flagRow.rowCount === 0) {
+        let totalUpdated = 0;
+        for (let i = 0; i < 50; i++) {
+          const r = await pool.query(`
+            WITH batch AS (
+              SELECT s.id, MAX(cs.sent_at) AS last_sent
+              FROM subscribers s
+              JOIN campaign_sends cs ON cs.subscriber_id = s.id
+              WHERE s.last_sent_at IS NULL AND cs.status = 'sent' AND cs.sent_at IS NOT NULL
+              GROUP BY s.id
+              LIMIT 5000
+            )
+            UPDATE subscribers s SET last_sent_at = b.last_sent
+            FROM batch b WHERE s.id = b.id AND s.last_sent_at IS NULL
+            RETURNING s.id
+          `);
+          if (r.rowCount === 0) break;
+          totalUpdated += r.rowCount;
+        }
+        if (totalUpdated > 0) {
+          logger.info(`[PRESSURE_GUARD] Backfilled subscribers.last_sent_at for ${totalUpdated} contact(s)`);
+        }
+        // Sentinel: a tiny table whose existence marks the backfill as
+        // run-once. Cheap to check (pg_class lookup) and easy to drop if
+        // we ever need to re-run.
+        await pool.query(`CREATE TABLE IF NOT EXISTS pressure_guard_backfill_done (id integer PRIMARY KEY)`);
+      }
+    } catch (err: any) {
+      logger.warn(`[PRESSURE_GUARD] last_sent_at backfill failed (non-fatal): ${err?.message || err}`);
+    }
   }
 
   if (outcome === "ready") {
@@ -301,6 +341,6 @@ export async function flushDeferredSends(opts: {
     }
   } catch {}
 
-  logger.info(`[PRESSURE_GUARD] Reprogrammed ${totalFlushed} deferred send(s) (scope=${scope}, campaign=${campaignId ?? "ALL"}, capped=${FLUSH_CAP})`);
+  logger.info(`[PRESSURE_GUARD] Reprogrammed ${totalFlushed} deferred send(s) (scope=${scope}, campaign=${campaignId ?? "ALL"}, cap=${isAllScope ? "uncapped" : FLUSH_CAP_SELECTED})`);
   return totalFlushed;
 }

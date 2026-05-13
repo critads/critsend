@@ -278,4 +278,28 @@ async function drainCampaign(campaignId: string): Promise<void> {
     try { pressureGuardSentAfterDeferTotal.inc({ campaign_id: campaignId }, successIds.length); } catch {}
   }
   logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, deferred=${losers.length}, dropped=${dropIds.length}`);
+
+  // Post-drain completion check (Task #144): the campaign-sender held the
+  // status at 'sending' while deferred rows were outstanding. Once the
+  // pressure-guard worker drains the last deferred row, flip the campaign
+  // to 'completed' here so downstream workflows (follow-up scheduling,
+  // dashboards, jobEvents listeners) advance correctly.
+  try {
+    const remaining = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM campaign_sends
+      WHERE campaign_id = ${campaignId}
+        AND status IN ('pending', 'attempting')
+    `);
+    const n = Number((remaining.rows[0] as { n?: number } | undefined)?.n ?? 0);
+    if (n === 0) {
+      const flipped = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
+      if (flipped) {
+        await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
+        logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} marked completed (deferred queue drained)`);
+      }
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[PRESSURE_GUARD_WORKER] post-drain completion check failed for ${campaignId}: ${msg}`);
+  }
 }
