@@ -1,0 +1,98 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+remote: Enumerating objects: 76, done.
+remote: Counting objects: 100% (76/76), done.
+remote: Compressing objects: 100% (6/6), done.
+remote: Total 53 (delta 46), reused 53 (delta 46), pack-reused 0 (from 0)
+Unpacking objects: 100% (53/53), 15.15 KiB | 484.00 KiB/s, done.
+From https://github.com/critads/critsend
+   487a231..307beb4  main       -> origin/main
+Updating 487a231..307beb4
+Fast-forward
+ client/src/pages/campaign-edit.tsx           |  90 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-----
+ client/src/pages/campaign-new.tsx            |  92 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-----
+ replit.md                                    |   4 +--
+ server/bootstrap-lock.ts                     |   2 ++
+ server/repositories/subscriber-repository.ts |  68 ++++++++++++++++++++++++++++++++++--------------
+ server/routes/campaigns.ts                   | 102 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ server/routes/segments.ts                    |  25 ++++++++++++++++++
+ server/routes/tracking.ts                    |   4 +--
+ server/services/campaign-sender.ts           |   6 +++--
+ server/services/segment-compiler.ts          |   2 +-
+ server/storage-interface.ts                  |   4 +--
+ server/tracking-buffer.ts                    |   6 ++---
+ shared/schema.ts                             |   8 ++++++
+ tests/exclusion-segment-repo.test.ts         |  70 +++++++++++++++++++++++++++++++++++++++++++++++++
+ tests/exclusion-segment.test.ts              | 115 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 15 files changed, 552 insertions(+), 46 deletions(-)
+ create mode 100644 tests/exclusion-segment-repo.test.ts
+ create mode 100644 tests/exclusion-segment.test.ts
+[deploy] ✓ Code updated: 307beb4 Task #140: cooling-off 7 days + reset suppressed_until
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+47 vulnerabilities (6 low, 28 moderate, 12 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/@tanstack/react-query/build/modern/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2508 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-dWUzaJj6.css     89.48 kB │ gzip:  14.55 kB
+../dist/public/assets/index-Bmxp9TCs.js   1,544.95 kB │ gzip: 404.35 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.25s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 103ms
+building import worker...
+
+  dist/import-worker.cjs  624.1kb
+
+⚡ Done in 54ms
+building background worker...
+
+  dist/worker-main.cjs  968.2kb
+
+⚡ Done in 79ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)

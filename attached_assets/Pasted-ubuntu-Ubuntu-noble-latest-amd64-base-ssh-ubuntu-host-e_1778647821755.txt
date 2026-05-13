@@ -1,0 +1,150 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ ssh ubuntu@<host> '
+echo "=== PM2 STATUS ===";
+pm2 status;
+echo "";
+echo "=== WEB ERR (last 80) ===";
+tail -80 /var/log/critsend/web-err.log;
+echo "";
+echo "=== WEB OUT (last 30) ===";
+tail -30 /var/log/critsend/web-out.log;
+echo "";
+echo "=== HEALTH ===";
+curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://localhost:5000/api/health || echo "no response";
+'^C
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ echo "=== PM2 STATUS ===";
+pm2 status;
+echo "";
+echo "=== WEB ERR (last 80) ===";
+tail -80 /var/log/critsend/web-err.log;
+echo "";
+echo "=== WEB OUT (last 30) ===";
+tail -30 /var/log/critsend/web-out.log;
+echo "";
+echo "=== HEALTH ===";
+curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://localhost:5000/api/health || echo "no response";
+=== PM2 STATUS ===
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 33   │ online    │ 0%       │ 232.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 33   │ online    │ 0%       │ 87.5mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+
+=== WEB ERR (last 80) ===
+2026-05-13 06:10:03 +02:00: 2026-05-13T04:10:03.555Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=29e2b97c-1b0c-4b2e=-a10a-03bd939ff9bf
+2026-05-13 06:11:02 +02:00: 2026-05-13T04:11:02.945Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=d4f20364-506b-4fc1=-b67c-175fe9eb1491
+2026-05-13 06:19:49 +02:00: 2026-05-13T04:19:49.484Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=428b3120-4716-40dd=-bb07-469cd3f7d0af
+2026-05-13 06:20:25 +02:00: 2026-05-13T04:20:25.917Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+2026-05-13 06:20:26 +02:00: 2026-05-13T04:20:26.955Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:20:27 +02:00: 2026-05-13T04:20:27.952Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:21:04 +02:00: 2026-05-13T04:21:04.486Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=bf79d193-72c9-4d0a=-ba26-49a3c2850ab6
+2026-05-13 06:21:13 +02:00: 2026-05-13T04:21:13.907Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+2026-05-13 06:21:14 +02:00: 2026-05-13T04:21:14.938Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:21:31 +02:00: 2026-05-13T04:21:31.898Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=26f75c18-cf9c-4693=-9a57-00f5f308a112
+2026-05-13 06:21:43 +02:00: 2026-05-13T04:21:43.937Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+2026-05-13 06:21:44 +02:00: 2026-05-13T04:21:44.938Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:21:45 +02:00: 2026-05-13T04:21:45.942Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:21:46 +02:00: 2026-05-13T04:21:46.942Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:21:46 +02:00: 2026-05-13T04:21:46.943Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:22:14 +02:00: 2026-05-13T04:22:14.364Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=8c0e12ce-f4c4-42f8=-aa46-5e89e4088a76
+2026-05-13 06:22:17 +02:00: 2026-05-13T04:22:17.570Z [WARN] [TRACKING BUFFER] open batch (8 rows) failed, requeued 8 for retry: canceling statement due to statement timeout
+2026-05-13 06:22:17 +02:00: 2026-05-13T04:22:17.570Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to statement timeout
+2026-05-13 06:22:17 +02:00: 2026-05-13T04:22:17.570Z [WARN] [TRACKING BUFFER] flush backoff: interval=2250ms (1 consecutive failures)
+2026-05-13 06:22:25 +02:00: 2026-05-13T04:22:25.910Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+2026-05-13 06:22:29 +02:00: 2026-05-13T04:22:29.951Z [WARN] [TRACKING BUFFER] open batch (68 rows) failed, requeued 68 for retry: canceling statement due to statement timeout
+2026-05-13 06:22:29 +02:00: 2026-05-13T04:22:29.951Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to statement timeout
+2026-05-13 06:22:36 +02:00: 2026-05-13T04:22:36.902Z [WARN] [TRACKING BUFFER] flush backoff: interval=3375ms (2 consecutive failures)
+2026-05-13 06:23:03 +02:00: 2026-05-13T04:23:03.911Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to statement timeout
+2026-05-13 06:23:12 +02:00: 2026-05-13T04:23:12.169Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to statement timeout
+2026-05-13 06:23:13 +02:00: 2026-05-13T04:23:13.239Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=ab87e10d-b771-4b80=-88c7-308fc1cfc8dd
+2026-05-13 06:23:21 +02:00: 2026-05-13T04:23:21.910Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+2026-05-13 06:23:39 +02:00: 2026-05-13T04:23:39.910Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to statement timeout
+2026-05-13 06:23:40 +02:00: 2026-05-13T04:23:40.911Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:23:40 +02:00: 2026-05-13T04:23:40.911Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:23:40 +02:00: 2026-05-13T04:23:40.945Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:23:42 +02:00: 2026-05-13T04:23:42.913Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:23:43 +02:00: 2026-05-13T04:23:43.913Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:24:07 +02:00: 2026-05-13T04:24:07.912Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to statement timeout
+2026-05-13 06:24:08 +02:00: 2026-05-13T04:24:08.913Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:24:09 +02:00: 2026-05-13T04:24:09.944Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:24:10 +02:00: 2026-05-13T04:24:10.944Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+2026-05-13 06:24:53 +02:00: 2026-05-13T04:24:53.265Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=defe08d9-76e5-4c6d=-971c-b22e4aaed60e
+2026-05-13 06:26:40 +02:00: 2026-05-13T04:26:40.772Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=942f44e8-76b0-4978=-94a2-4c6c76994fa9
+2026-05-13 06:26:47 +02:00: 2026-05-13T04:26:47.828Z [WARN] Invalid tracking signature for unsubscribe: campaign=a4256a18-30bc-4a3b-b723-0b97f267deb1, subscriber=2e2108d4-f7a3-45ac-b45a-ab3e80dcdcee, sig=d70680fd...
+2026-05-13 06:26:51 +02:00: 2026-05-13T04:26:51.219Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=6b083fa1-7e95-42d6=-b73d-76a9fc9637e3
+2026-05-13 06:27:31 +02:00: 2026-05-13T04:27:31.791Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=d243086b-3f8b-4cae=-8958-5306a9cf8207
+2026-05-13 06:36:40 +02:00: 2026-05-13T04:36:40.830Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=a277d94b-fbaf-40df=-bc41-8384854c2ef4
+2026-05-13 06:37:34 +02:00: 2026-05-13T04:37:34.533Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=9b1ab571-9dfd-4666=-b3a2-f12630405ca5
+2026-05-13 06:38:03 +02:00: 2026-05-13T04:38:03.061Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=756d63c3-0c25-4fe5=-b86f-41a735c9b4ae
+2026-05-13 06:38:49 +02:00: 2026-05-13T04:38:49.020Z [WARN] Short unsubscribe token not found or invalid: TWjNcp6U,
+2026-05-13 06:38:53 +02:00: 2026-05-13T04:38:53.235Z [WARN] Short unsubscribe token not found or invalid: JnuBCyiC,
+2026-05-13 06:38:53 +02:00: 2026-05-13T04:38:53.631Z [WARN] Short unsubscribe token not found or invalid: gEo2Avx6,
+2026-05-13 06:38:58 +02:00: 2026-05-13T04:38:58.912Z [WARN] Short unsubscribe token not found or invalid: s4ozntu9,
+2026-05-13 06:39:44 +02:00: 2026-05-13T04:39:44.768Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=bfcb84e7-881a-4e9f=-9e6a-b318eacfdf6d
+2026-05-13 06:41:31 +02:00: 2026-05-13T04:41:31.836Z [WARN] Invalid tracking signature for open: campaign=135c0667-b312-4c96-a63d-19452361b7a5, subscriber=96ec1b03-a444-41c1=-b3e1-ff4978fd69a7
+2026-05-13 06:44:07 +02:00: 2026-05-13T04:44:07.498Z [WARN] Short unsubscribe token not found or invalid: P56tok6L,
+2026-05-13 06:45:23 +02:00: 2026-05-13T04:45:23.755Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=c8aa52a7-9c6d-4be3=-9401-8fe3c27203ec
+2026-05-13 06:45:59 +02:00: 2026-05-13T04:45:59.983Z [WARN] Short unsubscribe token not found or invalid: avsn6sj4,
+2026-05-13 06:46:01 +02:00: 2026-05-13T04:46:01.480Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=e0588109-9ab6-4ebd=-8c65-56196aba9a95
+2026-05-13 06:46:01 +02:00: 2026-05-13T04:46:01.815Z [WARN] Short unsubscribe token not found or invalid: YPs9y39a,
+2026-05-13 06:46:06 +02:00: 2026-05-13T04:46:06.928Z [WARN] Invalid tracking signature for unsubscribe: campaign=2f5fa68c-9931-40ac-a116-4f58a40464ad, subscriber=1ad1986c-2efb-4d49-81d5-99cb2c556b1b, sig=ca3e96ac...
+2026-05-13 06:46:09 +02:00: 2026-05-13T04:46:09.889Z [WARN] Invalid tracking signature for unsubscribe: campaign=731cafbd-8d02-47a6-84cb-9d8cb21376a0, subscriber=1ad1986c-2efb-4d49-81d5-99cb2c556b1b, sig=02d40722...
+2026-05-13 06:46:14 +02:00: 2026-05-13T04:46:14.503Z [WARN] Invalid tracking signature for unsubscribe: campaign=6dc764cf-2d32-41b2-98de-8f4a0766db2d, subscriber=1ad1986c-2efb-4d49-81d5-99cb2c556b1b, sig=488b230d...
+2026-05-13 06:46:17 +02:00: 2026-05-13T04:46:17.221Z [WARN] Invalid tracking signature for unsubscribe: campaign=a4256a18-30bc-4a3b-b723-0b97f267deb1, subscriber=1ad1986c-2efb-4d49-81d5-99cb2c556b1b, sig=a55c50e6...
+2026-05-13 06:46:33 +02:00: 2026-05-13T04:46:33.317Z [WARN] Invalid tracking signature for unsubscribe: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=56ae4a3e-76bc-4f0c-84e0-3538afe12862, sig=ab2d1f8b...
+2026-05-13 06:46:42 +02:00: 2026-05-13T04:46:42.767Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=614529cf-c06d-4728=-8304-fb23bd6dbb8d
+2026-05-13 06:46:59 +02:00: 2026-05-13T04:46:59.590Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=9905cccf-c8b5-46c3=-aa42-246aa4112702
+2026-05-13 06:47:07 +02:00: Error: EACCES: permission denied, mkdir '/var/lib/critsend/uploads/imports'
+2026-05-13 06:47:07 +02:00:     at Object.mkdirSync (node:fs:1386:26)
+2026-05-13 06:47:07 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1173:73467
+2026-05-13 06:47:07 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+2026-05-13 06:47:07 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1237:208
+2026-05-13 06:47:07 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1:225
+2026-05-13 06:47:07 +02:00:     at Object.<anonymous> (/home/ubuntu/critsend/dist/index.cjs:1576:5512)
+2026-05-13 06:47:07 +02:00:     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+2026-05-13 06:47:07 +02:00:     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+2026-05-13 06:47:07 +02:00:     at Module.load (node:internal/modules/cjs/loader:1266:32)
+2026-05-13 06:47:07 +02:00:     at Module._load (node:internal/modules/cjs/loader:1091:12) {
+2026-05-13 06:47:07 +02:00:   errno: -13,
+2026-05-13 06:47:07 +02:00:   code: 'EACCES',
+2026-05-13 06:47:07 +02:00:   syscall: 'mkdir',
+2026-05-13 06:47:07 +02:00:   path: '/var/lib/critsend/uploads/imports'
+2026-05-13 06:47:07 +02:00: }
+2026-05-13 06:49:08 +02:00: 2026-05-13T04:49:08.292Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: canceling statement due to statement timeout
+
+=== WEB OUT (last 30) ===
+2026-05-13 06:47:06 +02:00: 2026-05-13T04:47:06.734Z [INFO] [SHUTDOWN] All background workers stopped
+2026-05-13 06:47:06 +02:00: 2026-05-13T04:47:06.734Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian stopped
+2026-05-13 06:47:06 +02:00: 2026-05-13T04:47:06.734Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian stopped
+2026-05-13 06:47:06 +02:00: 2026-05-13T04:47:06.734Z [INFO] [SHUTDOWN] Background workers stopped
+2026-05-13 06:47:06 +02:00: 2026-05-13T04:47:06.734Z [INFO] [SHUTDOWN] Phase 3: Flush in-memory tracking and bounce buffers
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.021Z [INFO] [SHUTDOWN] Tracking buffer flushed successfully
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.021Z [INFO] [SHUTDOWN] Bounce buffer flushed successfully
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.021Z [INFO] [SHUTDOWN] Phase 4: Close message queues and Redis
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.022Z [INFO] [BullMQ] Workers closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.022Z [INFO] [BullMQ] Queues closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.076Z [INFO] NotifyQueue shut down
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.103Z [INFO] [Redis] Connections closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.103Z [INFO] [SHUTDOWN] Redis connections closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.103Z [INFO] [SHUTDOWN] Phase 5: Close database pools
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.103Z [INFO] [TRACKING POOL] read + flush pools closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.104Z [INFO] [SHUTDOWN] Tracking pool closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.104Z [INFO] [IMPORT POOL] closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.104Z [INFO] [SHUTDOWN] Import pool closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.105Z [INFO] [SHUTDOWN] Main database pool closed
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.105Z [INFO] [SHUTDOWN] Graceful shutdown complete
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.531Z [INFO] Database SSL enabled for external connection (Neon)
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.532Z [INFO] PG pool configured: max=30, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.728Z [INFO] [TRACKING POOL] read pool: max=50, flush pool: max=8, connTimeout=2000ms, stmtTimeout=10000ms, jsTimeout=12000ms, external=true, mode=auto-derived pooler, pooler=true
+2026-05-13 06:47:07 +02:00: 2026-05-13T04:47:07.750Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+2026-05-13 06:47:08 +02:00: 2026-05-13T04:47:08.017Z [INFO] [Redis/bullmq] Connected
+2026-05-13 06:47:08 +02:00: 2026-05-13T04:47:08.021Z [INFO] [Redis/main] Connected
+2026-05-13 06:47:08 +02:00: 2026-05-13T04:47:08.201Z [INFO] [SEGMENT] Bootstrap migration: cached_count column ready
+2026-05-13 06:47:08 +02:00: 2026-05-13T04:47:08.202Z [INFO] [TRACKING] Another process is running bootstrap — skipping
+2026-05-13 06:47:08 +02:00: 2026-05-13T04:47:08.204Z [INFO] [AUTOMATION] Bootstrap migration: mta_id column ready
+2026-05-13 06:47:08 +02:00: 2026-05-13T04:47:08.678Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+
+=== HEALTH ===
+HTTP 000
+no response
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

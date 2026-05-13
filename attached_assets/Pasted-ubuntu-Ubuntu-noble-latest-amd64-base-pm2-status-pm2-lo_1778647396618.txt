@@ -1,0 +1,117 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ pm2 status && pm2 logs --lines 20 --nostream
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 32   │ online    │ 0%       │ 326.2mb  │
+│ 1  │ critsend-worker    │ fork     │ 32   │ online    │ 0%       │ 452.7mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 20 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 20 lines:
+PM2        | 2026-05-12T07:03:52: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:52: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:53: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:54: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:54: PM2 log: pid=234777 msg=failed to kill - retrying in 100ms
+PM2        | 2026-05-12T07:03:54: PM2 log: App [critsend-worker:1] exited with code [0] via signal [SIGINT]
+PM2        | 2026-05-12T07:03:54: PM2 log: pid=234777 msg=process killed
+PM2        | 2026-05-12T07:03:54: PM2 log: App [critsend-worker:1] starting in -fork mode-
+PM2        | 2026-05-12T07:03:54: PM2 log: App [critsend-worker:1] online
+PM2        | 2026-05-12T11:13:32: PM2 log: [PM2] This PM2 is not UP TO DATE
+PM2        | 2026-05-12T11:13:32: PM2 log: [PM2] Upgrade to version 7.0.1
+
+/var/log/critsend/web-err.log last 20 lines:
+0|critsend | 2026-05-13 06:23:42 +02:00: 2026-05-13T04:23:42.913Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-13 06:23:43 +02:00: 2026-05-13T04:23:43.913Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-13 06:24:07 +02:00: 2026-05-13T04:24:07.912Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to statement timeout
+0|critsend | 2026-05-13 06:24:08 +02:00: 2026-05-13T04:24:08.913Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-13 06:24:09 +02:00: 2026-05-13T04:24:09.944Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-13 06:24:10 +02:00: 2026-05-13T04:24:10.944Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-13 06:24:53 +02:00: 2026-05-13T04:24:53.265Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=defe08d9-76e5-4c6d=-971c-b22e4aaed60e
+0|critsend | 2026-05-13 06:26:40 +02:00: 2026-05-13T04:26:40.772Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=942f44e8-76b0-4978=-94a2-4c6c76994fa9
+0|critsend | 2026-05-13 06:26:47 +02:00: 2026-05-13T04:26:47.828Z [WARN] Invalid tracking signature for unsubscribe: campaign=a4256a18-30bc-4a3b-b723-0b97f267deb1, subscriber=2e2108d4-f7a3-45ac-b45a-ab3e80dcdcee, sig=d70680fd...
+0|critsend | 2026-05-13 06:26:51 +02:00: 2026-05-13T04:26:51.219Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=6b083fa1-7e95-42d6=-b73d-76a9fc9637e3
+0|critsend | 2026-05-13 06:27:31 +02:00: 2026-05-13T04:27:31.791Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=d243086b-3f8b-4cae=-8958-5306a9cf8207
+0|critsend | 2026-05-13 06:36:40 +02:00: 2026-05-13T04:36:40.830Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=a277d94b-fbaf-40df=-bc41-8384854c2ef4
+0|critsend | 2026-05-13 06:37:34 +02:00: 2026-05-13T04:37:34.533Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=9b1ab571-9dfd-4666=-b3a2-f12630405ca5
+0|critsend | 2026-05-13 06:38:03 +02:00: 2026-05-13T04:38:03.061Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=756d63c3-0c25-4fe5=-b86f-41a735c9b4ae
+0|critsend | 2026-05-13 06:38:49 +02:00: 2026-05-13T04:38:49.020Z [WARN] Short unsubscribe token not found or invalid: TWjNcp6U,
+0|critsend | 2026-05-13 06:38:53 +02:00: 2026-05-13T04:38:53.235Z [WARN] Short unsubscribe token not found or invalid: JnuBCyiC,
+0|critsend | 2026-05-13 06:38:53 +02:00: 2026-05-13T04:38:53.631Z [WARN] Short unsubscribe token not found or invalid: gEo2Avx6,
+0|critsend | 2026-05-13 06:38:58 +02:00: 2026-05-13T04:38:58.912Z [WARN] Short unsubscribe token not found or invalid: s4ozntu9,
+0|critsend | 2026-05-13 06:39:44 +02:00: 2026-05-13T04:39:44.768Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=bfcb84e7-881a-4e9f=-9e6a-b318eacfdf6d
+0|critsend | 2026-05-13 06:41:31 +02:00: 2026-05-13T04:41:31.836Z [WARN] Invalid tracking signature for open: campaign=135c0667-b312-4c96-a63d-19452361b7a5, subscriber=96ec1b03-a444-41c1=-b3e1-ff4978fd69a7
+
+/var/log/critsend/web-out.log last 20 lines:
+0|critsend | 2026-05-13 06:40:03 +02:00: 2026-05-13T04:40:03.402Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=7b05f967-5833-44fb-af59-ff76a2869291
+0|critsend | 2026-05-13 06:40:26 +02:00: 2026-05-13T04:40:26.098Z [INFO] Unsubscribe request: campaign=a4256a18-30bc-4a3b-b723-0b97f267deb1, subscriber=d2976f45-db69-41da-8475-c535985dd69b
+0|critsend | 2026-05-13 06:40:30 +02:00: 2026-05-13T04:40:30.556Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=7b05f967-5833-44fb-af59-ff76a2869291
+0|critsend | 2026-05-13 06:40:40 +02:00: 2026-05-13T04:40:40.608Z [INFO] Unsubscribe request: campaign=731cafbd-8d02-47a6-84cb-9d8cb21376a0, subscriber=d2976f45-db69-41da-8475-c535985dd69b
+0|critsend | 2026-05-13 06:41:04 +02:00: 2026-05-13T04:41:04.761Z [INFO] Short unsubscribe: campaign=2c5a32f1-5ad3-41e9-a931-2555dfb1f0db, subscriber=04904f1b-b816-4a95-932d-01ff5e721fe4
+0|critsend | 2026-05-13 06:41:11 +02:00: 2026-05-13T04:41:11.779Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=82d5a3bf-839f-41c9-8529-a9c421310cb1
+0|critsend | 2026-05-13 06:41:22 +02:00: 2026-05-13T04:41:22.656Z [INFO] Unsubscribe request: campaign=a4256a18-30bc-4a3b-b723-0b97f267deb1, subscriber=e6f23df6-5ab8-483b-ac2f-acd92d7ad5e0
+0|critsend | 2026-05-13 06:41:27 +02:00: 2026-05-13T04:41:27.842Z [INFO] Unsubscribe request: campaign=1db9239e-283c-4838-b6d1-e4e34ce03cb2, subscriber=04904f1b-b816-4a95-932d-01ff5e721fe4
+0|critsend | 2026-05-13 06:41:35 +02:00: 2026-05-13T04:41:35.335Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=82d5a3bf-839f-41c9-8529-a9c421310cb1
+0|critsend | 2026-05-13 06:41:38 +02:00: 2026-05-13T04:41:38.975Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=1db9239e-283c-4838-b6d1-e4e34ce03cb2, subscriber=04904f1b-b816-4a95-932d-01ff5e721fe4
+0|critsend | 2026-05-13 06:41:44 +02:00: 2026-05-13T04:41:44.663Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=82d5a3bf-839f-41c9-8529-a9c421310cb1
+0|critsend | 2026-05-13 06:42:02 +02:00: 2026-05-13T04:42:02.505Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=82d5a3bf-839f-41c9-8529-a9c421310cb1
+0|critsend | 2026-05-13 06:42:10 +02:00: 2026-05-13T04:42:10.835Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=82d5a3bf-839f-41c9-8529-a9c421310cb1
+0|critsend | 2026-05-13 06:42:18 +02:00: 2026-05-13T04:42:18.034Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=82d5a3bf-839f-41c9-8529-a9c421310cb1
+0|critsend | 2026-05-13 06:42:29 +02:00: 2026-05-13T04:42:29.471Z [INFO] Unsubscribe request: campaign=f9f0a86f-342c-4cf9-ba50-5802e0df5ed4, subscriber=82d5a3bf-839f-41c9-8529-a9c421310cb1
+0|critsend | 2026-05-13 06:42:31 +02:00: 2026-05-13T04:42:31.820Z [INFO] Unsubscribe request: campaign=0f5a2916-d65e-4f8d-836e-4b1536b119e5, subscriber=afdef2ca-0900-4289-bf83-fdf0f9563151
+0|critsend | 2026-05-13 06:42:33 +02:00: 2026-05-13T04:42:33.656Z [INFO] Unsubscribe request: campaign=0f5a2916-d65e-4f8d-836e-4b1536b119e5, subscriber=afdef2ca-0900-4289-bf83-fdf0f9563151
+0|critsend | 2026-05-13 06:42:33 +02:00: 2026-05-13T04:42:33.955Z [INFO] Unsubscribe request: campaign=0f5a2916-d65e-4f8d-836e-4b1536b119e5, subscriber=afdef2ca-0900-4289-bf83-fdf0f9563151
+0|critsend | 2026-05-13 06:42:33 +02:00: 2026-05-13T04:42:33.967Z [INFO] Unsubscribe request: campaign=0f5a2916-d65e-4f8d-836e-4b1536b119e5, subscriber=afdef2ca-0900-4289-bf83-fdf0f9563151
+0|critsend | 2026-05-13 06:42:36 +02:00: 2026-05-13T04:42:36.886Z [INFO] Unsubscribe request: campaign=2f5fa68c-9931-40ac-a116-4f58a40464ad, subscriber=c22b86d9-f5e0-432b-a9c0-22aaadc10f37
+
+/var/log/critsend/worker-out.log last 20 lines:
+1|critsend | 2026-05-13 06:42:16 +02:00: 2026-05-13T04:42:16.986Z [INFO] Processed 6 tag operations in 6 bulk groups
+1|critsend | 2026-05-13 06:42:18 +02:00: 2026-05-13T04:42:18.943Z [INFO] Processed 6 tag operations in 6 bulk groups
+1|critsend | 2026-05-13 06:42:21 +02:00: 2026-05-13T04:42:21.273Z [INFO] Processed 13 tag operations in 9 bulk groups
+1|critsend | 2026-05-13 06:42:23 +02:00: 2026-05-13T04:42:23.396Z [INFO] Processed 14 tag operations in 11 bulk groups
+1|critsend | 2026-05-13 06:42:24 +02:00: 2026-05-13T04:42:24.890Z [INFO] Processed 5 tag operations in 5 bulk groups
+1|critsend | 2026-05-13 06:42:26 +02:00: 2026-05-13T04:42:26.827Z [INFO] Processed 4 tag operations in 2 bulk groups
+1|critsend | 2026-05-13 06:42:29 +02:00: 2026-05-13T04:42:29.114Z [INFO] Processed 9 tag operations in 7 bulk groups
+1|critsend | 2026-05-13 06:42:31 +02:00: 2026-05-13T04:42:31.249Z [INFO] Processed 10 tag operations in 9 bulk groups
+1|critsend | 2026-05-13 06:42:33 +02:00: 2026-05-13T04:42:33.445Z [INFO] Processed 16 tag operations in 10 bulk groups
+1|critsend | 2026-05-13 06:42:35 +02:00: 2026-05-13T04:42:35.011Z [INFO] Processed 6 tag operations in 5 bulk groups
+1|critsend | 2026-05-13 06:42:36 +02:00: 2026-05-13T04:42:36.805Z [INFO] Processed 4 tag operations in 2 bulk groups
+1|critsend | 2026-05-13 06:42:39 +02:00: 2026-05-13T04:42:39.287Z [INFO] Processed 13 tag operations in 7 bulk groups
+1|critsend | 2026-05-13 06:42:40 +02:00: 2026-05-13T04:42:40.856Z [INFO] Processed 4 tag operations in 4 bulk groups
+1|critsend | 2026-05-13 06:42:42 +02:00: 2026-05-13T04:42:42.886Z [INFO] Processed 5 tag operations in 4 bulk groups
+1|critsend | 2026-05-13 06:42:45 +02:00: 2026-05-13T04:42:45.026Z [INFO] Processed 6 tag operations in 6 bulk groups
+1|critsend | 2026-05-13 06:42:47 +02:00: 2026-05-13T04:42:47.173Z [INFO] Processed 10 tag operations in 6 bulk groups
+1|critsend | 2026-05-13 06:42:48 +02:00: 2026-05-13T04:42:48.905Z [INFO] Processed 5 tag operations in 4 bulk groups
+1|critsend | 2026-05-13 06:42:51 +02:00: 2026-05-13T04:42:51.637Z [INFO] Processed 18 tag operations in 12 bulk groups
+1|critsend | 2026-05-13 06:42:52 +02:00: 2026-05-13T04:42:52.810Z [INFO] Processed 3 tag operations in 3 bulk groups
+1|critsend | 2026-05-13 06:42:55 +02:00: 2026-05-13T04:42:55.124Z [INFO] Processed 8 tag operations in 7 bulk groups
+
+/var/log/critsend/worker-err.log last 20 lines:
+1|critsend | 2026-05-13 05:57:55 +02:00: 2026-05-13T03:57:55.499Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-13 06:08:38 +02:00: 2026-05-13T04:08:38.148Z [WARN] [CAMPAIGN 1db9239e-283c-4838-b6d1-e4e34ce03cb2 job:3b0892db] Batch 1: token generation failed, falling back to HMAC links: canceling statement due to statement timeout
+1|critsend | 2026-05-13 06:12:55 +02:00: 2026-05-13T04:12:55.473Z [ERROR] [COUNTER RECONCILER] tick failed: canceling statement due to statement timeout
+1|critsend | 2026-05-13 06:12:55 +02:00: 2026-05-13T04:12:55.499Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-13 06:21:45 +02:00: 2026-05-13T04:21:45.974Z [ERROR] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Async flush failed, entering tiered fallback: deadlock detected
+1|critsend | 2026-05-13 06:21:45 +02:00: 2026-05-13T04:21:45.974Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 2: splitting 195 rows into batches of 100 (original error: deadlock detected)
+1|critsend | 2026-05-13 06:22:16 +02:00: 2026-05-13T04:22:16.970Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 2 chunk failed (offset 0, size 100): canceling statement due to lock timeout
+1|critsend | 2026-05-13 06:23:06 +02:00: 2026-05-13T04:23:06.750Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 2 chunk failed (offset 100, size 95): canceling statement due to lock timeout
+1|critsend | 2026-05-13 06:23:06 +02:00: 2026-05-13T04:23:06.750Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 2: 195 rows still pending after partial failure
+1|critsend | 2026-05-13 06:23:06 +02:00: 2026-05-13T04:23:06.750Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 3: splitting 195 rows into batches of 25 (original error: deadlock detected)
+1|critsend | 2026-05-13 06:23:36 +02:00: 2026-05-13T04:23:36.933Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 3 chunk failed (offset 0, size 25): canceling statement due to lock timeout
+1|critsend | 2026-05-13 06:23:41 +02:00: 2026-05-13T04:23:41.973Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 3 chunk failed (offset 25, size 25): deadlock detected
+1|critsend | 2026-05-13 06:23:43 +02:00: 2026-05-13T04:23:43.941Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 3 chunk failed (offset 50, size 25): deadlock detected
+1|critsend | 2026-05-13 06:24:08 +02:00: 2026-05-13T04:24:08.586Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] Tiered retry level 3: 75 rows still pending after partial failure
+1|critsend | 2026-05-13 06:24:08 +02:00: 2026-05-13T04:24:08.586Z [WARN] [CAMPAIGN 5570d62a-0b19-44f8-be64-f8a9e2a78e38 job:3fe678e6] All tiered retries exhausted, falling back to individual writes (75/195 rows, concurrency 5)
+1|critsend | 2026-05-13 06:27:55 +02:00: 2026-05-13T04:27:55.452Z [ERROR] [COUNTER RECONCILER] tick failed: canceling statement due to statement timeout
+1|critsend | 2026-05-13 06:38:56 +02:00: 2026-05-13T04:38:56.688Z [ERROR] Failed to bulk process tag operations for tag O6DM: {"length":163,"name":"error","severity":"ERROR","code":"55P03","where":"while updating tuple (75034,27) in relation \"subscribers\"","file":"postgres.c","line":"3401","routine":"ProcessInterrupts"}
+1|critsend | 2026-05-13 06:38:59 +02:00: 2026-05-13T04:38:59.345Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: deadlock detected"}
+1|critsend | 2026-05-13 06:41:55 +02:00: 2026-05-13T04:41:55.498Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-13 06:42:55 +02:00: 2026-05-13T04:42:55.453Z [ERROR] [COUNTER RECONCILER] tick failed: canceling statement due to statement timeout
