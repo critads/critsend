@@ -206,6 +206,7 @@ export function registerPressureRoutes(app: Express): void {
       const totals = await db.execute(sql`
         SELECT
           COUNT(*) AS pending_deferred,
+          COUNT(DISTINCT subscriber_id) AS distinct_contacts_in_cooldown,
           COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now
         FROM campaign_sends WHERE status = 'pending' AND eligible_at IS NOT NULL
       `);

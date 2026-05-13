@@ -189,14 +189,35 @@ export async function pressureGuardReserveSendSlots(
           AND c.started_at IS NOT NULL
           AND c.started_at < (SELECT started_at FROM my_started)
       ),
+      already_in_campaign AS (
+        SELECT subscriber_id FROM campaign_sends
+        WHERE campaign_id = ${campaignId}
+          AND subscriber_id = ANY(${chunk}::text[])
+      ),
       cas AS (
+        -- Only stamp last_sent_at when we'd actually create a NEW dispatch.
+        -- If a row already exists for (campaign, subscriber) — re-runs,
+        -- retry passes, resumed campaigns — the INSERT below ON CONFLICT
+        -- DO NOTHING would skip but we'd have spuriously consumed the
+        -- contact's 6h slot. Excluding them keeps last_sent_at honest.
         UPDATE subscribers s
         SET last_sent_at = NOW()
         FROM input i
         WHERE s.id = i.id
           AND i.id NOT IN (SELECT subscriber_id FROM blocked_by_older)
+          AND i.id NOT IN (SELECT subscriber_id FROM already_in_campaign)
           AND (s.last_sent_at IS NULL OR s.last_sent_at + (${windowHours}::numeric || ' hours')::interval <= NOW())
         RETURNING s.id
+      ),
+      existing_winners AS (
+        -- Already-existing pending/attempting rows are returned as winners
+        -- without re-stamping last_sent_at — the slot was claimed on the
+        -- original reserve attempt.
+        SELECT subscriber_id FROM campaign_sends
+        WHERE campaign_id = ${campaignId}
+          AND subscriber_id = ANY(${chunk}::text[])
+          AND status IN ('pending', 'attempting')
+          AND eligible_at IS NULL
       ),
       reserved AS (
         INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)
@@ -228,7 +249,13 @@ export async function pressureGuardReserveSendSlots(
         SELECT COUNT(*)::int AS n FROM deferred_ins
       )
       SELECT
-        (SELECT array_agg(subscriber_id) FROM reserved) AS winners,
+        (
+          SELECT array_agg(subscriber_id) FROM (
+            SELECT subscriber_id FROM reserved
+            UNION
+            SELECT subscriber_id FROM existing_winners
+          ) w
+        ) AS winners,
         (SELECT n FROM defer_count) AS deferred_n
     `);
 
