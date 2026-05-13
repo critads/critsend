@@ -29,7 +29,12 @@ import { logger } from "../logger";
 import { withAdvisoryLock, LOCK_KEYS, indexExistsAndValid } from "../bootstrap-lock";
 import { pressureGuardDeferredTotal } from "../metrics";
 
+// Production hard-locks the window to 6h per task contract. The
+// `PRESSURE_WINDOW_HOURS` env override is honoured ONLY in non-prod
+// environments (development/test) where the nullsink suite needs to
+// validate guard mechanics over a much shorter window.
 export const PRESSURE_WINDOW_HOURS = (() => {
+  if (process.env.NODE_ENV === "production") return 6;
   const raw = process.env.PRESSURE_WINDOW_HOURS;
   if (!raw) return 6;
   const parsed = Number(raw);
@@ -127,13 +132,25 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
     // tick (5k chunks, ~50 chunks max per boot) so a slow rollout never
     // monopolises a connection. The drain worker tolerates NULL → NOT NULL
     // transitions mid-backfill (CAS condition handles both cases).
+    // Resumable full backfill (Task #144). We loop 5k-row chunks until
+    // the query returns 0, so the entire historical tail is covered
+    // even on multi-million-row tables. Each chunk is its own
+    // transaction, so the work resumes from where the previous boot
+    // left off if the process is killed mid-pass. The sentinel table
+    // is only created AFTER a chunk returns 0 rows — i.e. truly
+    // exhausted — so we never declare completion against a partial
+    // backfill.
     try {
       const flagRow = await pool.query(`
         SELECT 1 FROM pg_class WHERE relname = 'pressure_guard_backfill_done' LIMIT 1
       `);
       if (flagRow.rowCount === 0) {
         let totalUpdated = 0;
-        for (let i = 0; i < 50; i++) {
+        let chunks = 0;
+        // No upper bound on chunks: keep draining until empty. Each
+        // chunk is bounded at 5k rows so a single statement can never
+        // monopolise the connection.
+        while (true) {
           const r = await pool.query(`
             WITH batch AS (
               SELECT s.id, MAX(cs.sent_at) AS last_sent
@@ -149,17 +166,21 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
           `);
           if (r.rowCount === 0) break;
           totalUpdated += r.rowCount;
+          chunks++;
+          // Yield between chunks so we don't block the event loop /
+          // hog the pool while a huge table backfills.
+          await new Promise((resolve) => setTimeout(resolve, 25));
         }
         if (totalUpdated > 0) {
-          logger.info(`[PRESSURE_GUARD] Backfilled subscribers.last_sent_at for ${totalUpdated} contact(s)`);
+          logger.info(`[PRESSURE_GUARD] Backfilled subscribers.last_sent_at for ${totalUpdated} contact(s) across ${chunks} chunk(s)`);
         }
-        // Sentinel: a tiny table whose existence marks the backfill as
-        // run-once. Cheap to check (pg_class lookup) and easy to drop if
-        // we ever need to re-run.
+        // Sentinel only after the loop saw 0 rows — i.e. the tail is
+        // truly exhausted. If we crashed mid-pass, the next boot picks
+        // up the remaining NULLs and resumes.
         await pool.query(`CREATE TABLE IF NOT EXISTS pressure_guard_backfill_done (id integer PRIMARY KEY)`);
       }
     } catch (err: any) {
-      logger.warn(`[PRESSURE_GUARD] last_sent_at backfill failed (non-fatal): ${err?.message || err}`);
+      logger.warn(`[PRESSURE_GUARD] last_sent_at backfill failed (resumable on next boot): ${err?.message || err}`);
     }
   }
 
