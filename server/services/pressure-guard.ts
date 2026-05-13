@@ -83,10 +83,18 @@ async function verifyPressureSchemaReady(): Promise<boolean> {
         EXISTS(SELECT 1 FROM information_schema.columns
                WHERE table_name='campaign_sends' AND column_name='eligible_at') AS has_eligible_at,
         EXISTS(SELECT 1 FROM information_schema.tables
-               WHERE table_name='pressure_flush_audit') AS has_audit
+               WHERE table_name='pressure_flush_audit') AS has_audit,
+        -- Task #145 hardening artefacts:
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name='users' AND column_name='is_admin') AS has_is_admin,
+        EXISTS(SELECT 1 FROM information_schema.tables
+               WHERE table_name='pressure_maintenance_state') AS has_maint_state
     `);
     const row = r.rows[0] as Record<string, boolean>;
-    return Boolean(row?.has_last_sent_at && row?.has_deferred_count && row?.has_eligible_at && row?.has_audit);
+    return Boolean(
+      row?.has_last_sent_at && row?.has_deferred_count && row?.has_eligible_at &&
+      row?.has_audit && row?.has_is_admin && row?.has_maint_state,
+    );
   } catch {
     return false;
   }
