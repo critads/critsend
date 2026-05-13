@@ -1216,26 +1216,28 @@ function PressureDialog({ subscriber, onClose }: { subscriber: Subscriber | null
   // Task #145 R16: distinguish "subscriber not found" (404) from a
   // generic failure so the user gets an actionable empty-state instead
   // of a perpetual skeleton.
-  const { data, isLoading, error } = useQuery<{
+  type PressurePayload = {
     email: string;
     lastSentAt: string | null;
     nextEligibleAt: string;
     hoursUntilEligible: number;
     windowHours: number;
     upcomingDeferred: Array<{ campaign_id: string; campaign_name: string; eligible_at: string; status: string }>;
-  } | { __notFound: true }>({
+  };
+  type PressureResult = { kind: "ok"; data: PressurePayload } | { kind: "notFound" };
+  const { data, isLoading, error } = useQuery<PressureResult>({
     queryKey: ["/api/subscribers", subscriber?.id, "pressure"],
     queryFn: async () => {
       const r = await fetch(`/api/subscribers/${subscriber!.id}/pressure`, { credentials: "include" });
-      if (r.status === 404) return { __notFound: true } as const;
+      if (r.status === 404) return { kind: "notFound" };
       if (!r.ok) throw new Error(`Pressure lookup failed (${r.status})`);
-      return r.json();
+      return { kind: "ok", data: (await r.json()) as PressurePayload };
     },
     enabled: open,
     retry: false,
   });
-  const notFound = !!data && (data as any).__notFound === true;
-  const payload = !notFound ? (data as any) : null;
+  const notFound = data?.kind === "notFound";
+  const payload: PressurePayload | null = data?.kind === "ok" ? data.data : null;
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg" data-testid="dialog-pressure">
@@ -1280,7 +1282,7 @@ function PressureDialog({ subscriber, onClose }: { subscriber: Subscriber | null
               <div className="max-h-48 overflow-auto rounded-md border">
                 <table className="w-full text-xs">
                   <tbody>
-                    {(payload.upcomingDeferred ?? []).map((u: any) => (
+                    {(payload.upcomingDeferred ?? []).map((u) => (
                       <tr key={u.campaign_id + u.eligible_at} className="border-b" data-testid={`row-upcoming-${u.campaign_id}`}>
                         <td className="p-2">{u.campaign_name}</td>
                         <td className="p-2 text-muted-foreground">{new Date(u.eligible_at).toLocaleString()}</td>

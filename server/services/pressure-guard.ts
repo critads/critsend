@@ -39,9 +39,9 @@ import {
 // environments (development/test) where the nullsink suite needs to
 // validate guard mechanics over a much shorter window.
 //
-// Task #145 R14: when the override is set outside production, validate
-// it falls in [5min, 7d]. Out-of-range values are clamped to the default
-// 6h with a loud warning so a typo can't accidentally disable the guard.
+// Task #145 R14: strict bounds [5min, 7d]. Out-of-range values cause
+// the module to throw at import time so misconfiguration cannot reach
+// the running guard. Production ignores the env entirely.
 const PRESSURE_WINDOW_MIN_HOURS = 5 / 60; // 5 minutes
 const PRESSURE_WINDOW_MAX_HOURS = 168;    // 7 days
 export const PRESSURE_WINDOW_HOURS = (() => {
@@ -49,19 +49,11 @@ export const PRESSURE_WINDOW_HOURS = (() => {
   const raw = process.env.PRESSURE_WINDOW_HOURS;
   if (!raw) return 6;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    logger.warn(`[PRESSURE_GUARD] PRESSURE_WINDOW_HOURS=${raw} is not a non-negative finite number — falling back to 6h`);
-    return 6;
-  }
-  // The cascade test (PRESSURE_WINDOW_HOURS=0) needs an exact 0 escape
-  // hatch; everything else must respect the [5min, 7d] envelope.
-  if (parsed === 0) return 0;
-  if (parsed < PRESSURE_WINDOW_MIN_HOURS || parsed > PRESSURE_WINDOW_MAX_HOURS) {
-    logger.warn(
-      `[PRESSURE_GUARD] PRESSURE_WINDOW_HOURS=${parsed} is out of range ` +
-      `[${PRESSURE_WINDOW_MIN_HOURS}h, ${PRESSURE_WINDOW_MAX_HOURS}h] — falling back to 6h`,
+  if (!Number.isFinite(parsed) || parsed < PRESSURE_WINDOW_MIN_HOURS || parsed > PRESSURE_WINDOW_MAX_HOURS) {
+    throw new Error(
+      `[PRESSURE_GUARD] PRESSURE_WINDOW_HOURS=${raw} is invalid; ` +
+      `must be a finite number in [${PRESSURE_WINDOW_MIN_HOURS}h, ${PRESSURE_WINDOW_MAX_HOURS}h]`,
     );
-    return 6;
   }
   return parsed;
 })();
@@ -416,7 +408,7 @@ export async function pressureGuardReserveSendSlots(
       `);
     });
 
-    const row = result.rows[0] as any;
+    const row = result.rows[0] as { winners: string[] | null; deferred_n: number | null; blocked_n: number | null } | undefined;
     const winChunk: string[] = Array.isArray(row?.winners) ? row.winners : [];
     const deferredN = Number(row?.deferred_n ?? 0);
     const blockedN = Number(row?.blocked_n ?? 0);

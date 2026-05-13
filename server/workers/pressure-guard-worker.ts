@@ -53,9 +53,10 @@ const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_00
 // (REINDEX CONCURRENTLY) when bloat exceeds the configurable threshold.
 // Min 60s prevents tight-loop REINDEX storms; max 7d caps gauge staleness.
 const MAINTENANCE_INTERVAL_MS = envInt("PRESSURE_MAINTENANCE_INTERVAL_MS", 60 * 60_000, 60_000, 7 * 24 * 60 * 60_000);
-// Task #145 R15: audit TTL — drop pressure_flush_audit rows older than 12mo.
+// Task #145 R15: audit TTL — drop pressure_flush_audit rows older than
+// PRESSURE_FLUSH_AUDIT_RETENTION_DAYS (default 365).
 const AUDIT_TTL_INTERVAL_MS = envInt("PRESSURE_AUDIT_TTL_INTERVAL_MS", 24 * 60 * 60_000, 60 * 60_000, 7 * 24 * 60 * 60_000);
-const AUDIT_TTL_MONTHS = envInt("PRESSURE_AUDIT_TTL_MONTHS", 12, 1, 120);
+const AUDIT_RETENTION_DAYS = envInt("PRESSURE_FLUSH_AUDIT_RETENTION_DAYS", 365, 1, 3650);
 
 let pollInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
@@ -209,6 +210,16 @@ async function runMaintenanceTick() {
           logger.warn(`[PRESSURE_MAINTENANCE] REINDEX failed (non-fatal): ${err?.message || err}`);
         }
       }
+
+      // R3 also requires a daily VACUUM (ANALYZE) on campaign_sends so the
+      // partial-index planner stats stay accurate as deferred rows churn.
+      // Cheap on quiet windows; uses VACUUM (no FULL) so it never blocks.
+      try {
+        await pool.query(`VACUUM (ANALYZE) campaign_sends`);
+        logger.info(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) campaign_sends completed`);
+      } catch (err: any) {
+        logger.warn(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) failed (non-fatal): ${err?.message || err}`);
+      }
     } catch (err: any) {
       // pg_relation_size throws if the relation doesn't exist — boot race,
       // index still building. Treat as a soft no-op.
@@ -226,14 +237,13 @@ async function runAuditTtlTick() {
   if (getPressureGuardBootstrapState() !== "ready") return;
   await withSessionLock(LOCK_KEYS.PRESSURE_AUDIT_TTL, "PRESSURE_AUDIT_TTL", async () => {
     try {
-      const months = Number.isFinite(AUDIT_TTL_MONTHS) && AUDIT_TTL_MONTHS > 0 ? Math.floor(AUDIT_TTL_MONTHS) : 12;
       const r = await pool.query(
         `DELETE FROM pressure_flush_audit
-         WHERE created_at < NOW() - ($1::int || ' months')::interval`,
-        [months],
+         WHERE created_at < NOW() - ($1::int || ' days')::interval`,
+        [AUDIT_RETENTION_DAYS],
       );
       if ((r.rowCount ?? 0) > 0) {
-        logger.info(`[PRESSURE_AUDIT_TTL] Deleted ${r.rowCount} pressure_flush_audit row(s) older than ${months} months`);
+        logger.info(`[PRESSURE_AUDIT_TTL] Deleted ${r.rowCount} pressure_flush_audit row(s) older than ${AUDIT_RETENTION_DAYS} days`);
       }
     } catch (err: any) {
       logger.warn(`[PRESSURE_AUDIT_TTL] tick failed (non-fatal): ${err?.message || err}`);

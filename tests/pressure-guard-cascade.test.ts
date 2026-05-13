@@ -4,11 +4,16 @@
  *
  * Setup: 3 campaigns over the same subscriber, all with a nullsink MTA
  * so `sendEmailWithNullsink` returns success without external IO.
- * `PRESSURE_WINDOW_HOURS=0` is set BEFORE module import so the loser-
- * bump puts deferred rows back to `eligible_at <= NOW()` immediately.
- * We then call `drainCampaign(...)` in started_at order and assert that
- * each wave produces exactly one new sent row and reaches a terminal
- * state with no rows stuck in 'pending' or 'attempting'.
+ * `PRESSURE_WINDOW_HOURS=0.0833` (5 min, the lower bound) is set BEFORE
+ * module import. Between drain waves we explicitly backdate
+ * `subscribers.last_sent_at` to simulate the window having elapsed —
+ * this lets us observe a 3-wave cascade in seconds instead of 15min.
+ *
+ * Assertions per wave:
+ *   - Exactly one campaign_sends row transitions to 'sent'.
+ *   - `subscribers.last_sent_at` advances exactly once and only when a
+ *     wave produces a winner (not on losers).
+ *   - Final state: 3 'sent' rows, 0 'pending' / 'attempting'.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
@@ -18,7 +23,7 @@ const d = HAS_DB ? describe : describe.skip;
 d("Pressure Guard — drainCampaign cascades across 3 campaigns (Task #145 R2)", () => {
   let db: any;
   let sql: any;
-  let drainCampaign: any;
+  let drainCampaign: (id: string) => Promise<void>;
 
   const subId = `pg-cascade-sub-${Date.now()}`;
   const userId = `pg-cascade-user-${Date.now()}`;
@@ -28,9 +33,9 @@ d("Pressure Guard — drainCampaign cascades across 3 campaigns (Task #145 R2)",
   const c3 = `pg-cascade-c3-${Date.now()}`;
 
   beforeAll(async () => {
-    // R14 escape hatch: window=0 lets the loser-bump put rows back to
-    // eligible_at <= NOW() immediately, so the cascade unfolds in-test.
-    process.env.PRESSURE_WINDOW_HOURS = "0";
+    // Strict-bounds compliant: 5-minute window (0.0833h). Between waves
+    // we backdate last_sent_at by 10min to simulate window expiry.
+    process.env.PRESSURE_WINDOW_HOURS = "0.0833";
     ({ db, sql } = await import("../server/db"));
     const { runPressureGuardBootstrap } = await import("../server/services/pressure-guard");
     await runPressureGuardBootstrap();
@@ -72,37 +77,70 @@ d("Pressure Guard — drainCampaign cascades across 3 campaigns (Task #145 R2)",
     const r = await db.execute(sql`
       SELECT status FROM campaign_sends WHERE campaign_id = ${cid} AND subscriber_id = ${subId}
     `);
-    return (r.rows[0] as any)?.status as string;
+    return (r.rows[0] as { status: string } | undefined)?.status ?? "missing";
+  }
+  async function lastSentAt(): Promise<Date | null> {
+    const r = await db.execute(sql`SELECT last_sent_at FROM subscribers WHERE id = ${subId}`);
+    const v = (r.rows[0] as { last_sent_at: Date | string | null } | undefined)?.last_sent_at ?? null;
+    return v ? new Date(v) : null;
+  }
+  async function expireWindow() {
+    // Push last_sent_at 10min into the past so the next CAS wave is eligible
+    // (window = 5min). Also bump deferred eligible_at backwards so the
+    // SKIP LOCKED claim picks them up.
+    await db.execute(sql`UPDATE subscribers SET last_sent_at = NOW() - interval '10 minutes' WHERE id = ${subId}`);
+    await db.execute(sql`UPDATE campaign_sends SET eligible_at = NOW()
+      WHERE subscriber_id = ${subId} AND status = 'pending' AND eligible_at IS NOT NULL`);
   }
 
-  it("3 sequential drains in started_at order send each campaign exactly once (FIFO cascade)", async () => {
-    // Wave 1 — c1 (oldest). Should win the CAS and send; c1 row → 'sent'.
+  it("3 sequential waves produce exactly one new sent row each, in started_at order", async () => {
+    // Wave 1 — c1 (oldest).
+    const before1 = await lastSentAt();
     await drainCampaign(c1);
     expect(await statusFor(c1)).toBe("sent");
-
-    // c2 and c3 are still pending and (with window=0) re-eligible immediately.
     expect(await statusFor(c2)).toBe("pending");
     expect(await statusFor(c3)).toBe("pending");
+    const after1 = await lastSentAt();
+    expect(after1).not.toBeNull();
+    if (before1) expect(after1!.getTime()).toBeGreaterThan(before1.getTime());
 
-    // Wave 2 — c2 wins.
+    await expireWindow();
+
+    // Wave 2 — c2 wins. last_sent_at must advance exactly once more.
     await drainCampaign(c2);
     expect(await statusFor(c2)).toBe("sent");
     expect(await statusFor(c3)).toBe("pending");
+    const after2 = await lastSentAt();
+    expect(after2!.getTime()).toBeGreaterThanOrEqual(after1!.getTime());
+
+    await expireWindow();
 
     // Wave 3 — c3 wins.
     await drainCampaign(c3);
     expect(await statusFor(c3)).toBe("sent");
 
-    // Terminal invariant: no row stuck in 'attempting'; all three sent.
+    // Terminal invariant: exactly 3 sent rows, none stuck.
     const r = await db.execute(sql`
       SELECT status, COUNT(*)::int AS n FROM campaign_sends
       WHERE subscriber_id = ${subId}
       GROUP BY status ORDER BY status
     `);
     const byStatus = new Map<string, number>();
-    for (const row of r.rows) byStatus.set((row as any).status, Number((row as any).n));
+    for (const row of r.rows) {
+      const x = row as { status: string; n: number };
+      byStatus.set(x.status, Number(x.n));
+    }
     expect(byStatus.get("sent")).toBe(3);
     expect(byStatus.get("attempting") ?? 0).toBe(0);
     expect(byStatus.get("pending") ?? 0).toBe(0);
+  });
+
+  it("a wave with no eligible rows leaves last_sent_at unchanged", async () => {
+    const before = await lastSentAt();
+    // No deferred rows remain after the cascade; draining a finished
+    // campaign must be a no-op against the subscriber's last_sent_at.
+    await drainCampaign(c1);
+    const after = await lastSentAt();
+    expect(after?.getTime()).toBe(before?.getTime());
   });
 });

@@ -93,12 +93,13 @@ async function requireCampaignOwnership(req: Request, res: Response, campaignId:
   const uid = req.session.userId as string;
   if (await isAdminUser(uid)) return true;
   try {
-    const r = await db.execute(sql`SELECT user_id FROM campaigns WHERE id = ${campaignId}`);
+    const r = await db.execute(sql<{ user_id: string | null }>`SELECT user_id FROM campaigns WHERE id = ${campaignId}`);
     if (r.rows.length === 0) {
       res.status(404).json({ error: "Campaign not found" });
       return false;
     }
-    const ownerId = (r.rows[0] as any).user_id as string | null;
+    const ownerRow = r.rows[0] as { user_id: string | null };
+    const ownerId = ownerRow.user_id;
     if (ownerId && ownerId !== uid) {
       res.status(403).json({ error: "Forbidden" });
       return false;
@@ -125,18 +126,20 @@ async function requireCampaignOwnership(req: Request, res: Response, campaignId:
  *   4. Production with NEITHER configured: fail closed and log loudly.
  */
 async function isAdminUser(uid: string): Promise<boolean> {
-  // (2) env fallback first — cheap and synchronous.
-  const allowlist = (process.env.ADMIN_USER_IDS ?? "")
-    .split(",").map((s) => s.trim()).filter(Boolean);
-  if (allowlist.includes(uid)) return true;
-  // (1) DB-backed admin column.
+  // (1) DB-backed admin column is the source of truth.
   try {
-    const r = await db.execute(sql`SELECT is_admin FROM users WHERE id = ${uid}`);
-    if (r.rows.length > 0 && (r.rows[0] as any).is_admin === true) return true;
+    const r = await db.execute(sql<{ is_admin: boolean | null }>`SELECT is_admin FROM users WHERE id = ${uid}`);
+    const row = r.rows[0] as { is_admin: boolean | null } | undefined;
+    if (row && row.is_admin === true) return true;
   } catch {
     // Column may not yet exist on a freshly-booted DB before bootstrap
     // ALTER ran — fall through to the env / non-prod path below.
   }
+  // (2) env-var fallback for first-deployment ergonomics, when there is
+  // no `users.is_admin=true` row yet to seed the first admin.
+  const allowlist = (process.env.ADMIN_USER_IDS ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  if (allowlist.includes(uid)) return true;
   // (3) dev/test ergonomics: no env, no DB row, not production → admin.
   if (allowlist.length === 0 && process.env.NODE_ENV !== "production") return true;
   return false;
@@ -287,6 +290,11 @@ export function registerPressureRoutes(app: Express): void {
           campaignId, campaignSendIds: body.campaignSendIds, scope: "selected", reason, userId,
         });
       } else if ("scope" in body) {
+        // R11: legacy {scope, subscriberIds} body still works but is deprecated;
+        // emit a one-line warning so callers can migrate to {campaignSendIds, reason}.
+        logger.warn(
+          `[PRESSURE_QUEUE] DEPRECATED legacy flush body shape ({scope, subscriberIds}) used by user=${userId} campaign=${campaignId}; migrate to {campaignSendIds, reason}`,
+        );
         if (body.scope === "all" || body.scope === "campaign-all") {
           count = await flushDeferredSends({
             campaignId, campaignSendIds: "all", scope: "campaign-all", reason, userId,
