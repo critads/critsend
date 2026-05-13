@@ -67,6 +67,26 @@ d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () =
     expect(r.rows[0].last_sent_at).not.toBeNull();
   });
 
+  it("R1: hashtextextended produces distinct 64-bit lock keys for distinct subscriber IDs", async () => {
+    // Regression for the 32-bit collision risk fixed in R1. Use the
+    // SAME hashtextextended call the CAS uses, with two distinct subs,
+    // and assert the resulting bigints differ.
+    const sub1 = `pg-r1-distinct-a-${Date.now()}`;
+    const sub2 = `pg-r1-distinct-b-${Date.now()}`;
+    const r = await db.execute(sql`
+      SELECT hashtextextended(${sub1}, 0)::bigint AS k1,
+             hashtextextended(${sub2}, 0)::bigint AS k2
+    `);
+    const k1 = (r.rows[0] as { k1: string | number }).k1;
+    const k2 = (r.rows[0] as { k2: string | number }).k2;
+    expect(String(k1)).not.toBe(String(k2));
+    // And: hashing the SAME id twice yields the SAME key (idempotent).
+    const r2 = await db.execute(sql`
+      SELECT hashtextextended(${sub1}, 0)::bigint AS k
+    `);
+    expect(String((r2.rows[0] as { k: string | number }).k)).toBe(String(k1));
+  });
+
   it("deferred sends are scheduled at >= last_sent_at + window", async () => {
     const windowH = Number(process.env.PRESSURE_WINDOW_HOURS ?? 6);
     const r = await db.execute(sql`

@@ -49,10 +49,13 @@ function envInt(name: string, defaultValue: number, min: number, max: number): n
 const POLL_INTERVAL_MS = envInt("PRESSURE_GUARD_POLL_MS", 30_000, 1_000, 24 * 60 * 60_000);
 const BATCH_PER_CAMPAIGN = envInt("PRESSURE_GUARD_BATCH", 200, 1, 100_000);
 const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_000);
-// Task #145 R3: refresh the index-size gauge + run a daily maintenance pass
-// (REINDEX CONCURRENTLY) when bloat exceeds the configurable threshold.
-// Min 60s prevents tight-loop REINDEX storms; max 7d caps gauge staleness.
+// Task #145 R3: refresh the index-size gauge hourly, but only run the
+// expensive VACUUM (ANALYZE) + REINDEX policy once per day during the
+// configured off-peak hour (default 03:00 server-local). Min 60s
+// prevents tight-loop storms; max 7d caps gauge staleness.
 const MAINTENANCE_INTERVAL_MS = envInt("PRESSURE_MAINTENANCE_INTERVAL_MS", 60 * 60_000, 60_000, 7 * 24 * 60 * 60_000);
+const MAINTENANCE_OFFPEAK_HOUR = envInt("PRESSURE_MAINTENANCE_OFFPEAK_HOUR", 3, 0, 23);
+let lastHeavyMaintenanceDay: string | null = null;
 // Task #145 R15: audit TTL — drop pressure_flush_audit rows older than
 // PRESSURE_FLUSH_AUDIT_RETENTION_DAYS (default 365).
 const AUDIT_TTL_INTERVAL_MS = envInt("PRESSURE_AUDIT_TTL_INTERVAL_MS", 24 * 60 * 60_000, 60 * 60_000, 7 * 24 * 60 * 60_000);
@@ -198,27 +201,35 @@ async function runMaintenanceTick() {
       const sizeBytes = Number(r.rows[0]?.size_bytes ?? 0);
       pressureGuardDeferredIndexSizeBytes.set(sizeBytes);
 
-      const bloatThreshold = Number(process.env.PRESSURE_REINDEX_BLOAT_BYTES ?? 256 * 1024 * 1024);
-      if (sizeBytes >= bloatThreshold) {
-        logger.warn(
-          `[PRESSURE_MAINTENANCE] deferred index size ${sizeBytes}B >= threshold ${bloatThreshold}B — running REINDEX CONCURRENTLY`,
-        );
-        try {
-          await pool.query(`REINDEX INDEX CONCURRENTLY campaign_sends_pressure_deferred_idx`);
-          logger.info(`[PRESSURE_MAINTENANCE] REINDEX CONCURRENTLY completed`);
-        } catch (err: any) {
-          logger.warn(`[PRESSURE_MAINTENANCE] REINDEX failed (non-fatal): ${err?.message || err}`);
+      // Heavy ops (VACUUM/REINDEX) only run once per day during the
+      // configured off-peak hour, and only when bloat actually warrants it.
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const inOffPeakWindow = now.getHours() === MAINTENANCE_OFFPEAK_HOUR;
+      const alreadyRanToday = lastHeavyMaintenanceDay === today;
+      if (inOffPeakWindow && !alreadyRanToday) {
+        lastHeavyMaintenanceDay = today;
+        const bloatThreshold = Number(process.env.PRESSURE_REINDEX_BLOAT_BYTES ?? 256 * 1024 * 1024);
+        if (sizeBytes >= bloatThreshold) {
+          logger.warn(
+            `[PRESSURE_MAINTENANCE] off-peak: deferred index size ${sizeBytes}B >= threshold ${bloatThreshold}B — running REINDEX CONCURRENTLY`,
+          );
+          try {
+            await pool.query(`REINDEX INDEX CONCURRENTLY campaign_sends_pressure_deferred_idx`);
+            logger.info(`[PRESSURE_MAINTENANCE] REINDEX CONCURRENTLY completed`);
+          } catch (err: any) {
+            logger.warn(`[PRESSURE_MAINTENANCE] REINDEX failed (non-fatal): ${err?.message || err}`);
+          }
         }
-      }
-
-      // R3 also requires a daily VACUUM (ANALYZE) on campaign_sends so the
-      // partial-index planner stats stay accurate as deferred rows churn.
-      // Cheap on quiet windows; uses VACUUM (no FULL) so it never blocks.
-      try {
-        await pool.query(`VACUUM (ANALYZE) campaign_sends`);
-        logger.info(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) campaign_sends completed`);
-      } catch (err: any) {
-        logger.warn(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) failed (non-fatal): ${err?.message || err}`);
+        // Daily VACUUM (ANALYZE) keeps planner stats fresh so the partial
+        // indexes added in R6/R7/R8 stay selective. VACUUM (no FULL) is
+        // online and never blocks readers/writers.
+        try {
+          await pool.query(`VACUUM (ANALYZE) campaign_sends`);
+          logger.info(`[PRESSURE_MAINTENANCE] off-peak VACUUM (ANALYZE) campaign_sends completed`);
+        } catch (err: any) {
+          logger.warn(`[PRESSURE_MAINTENANCE] VACUUM (ANALYZE) failed (non-fatal): ${err?.message || err}`);
+        }
       }
     } catch (err: any) {
       // pg_relation_size throws if the relation doesn't exist — boot race,
@@ -315,9 +326,12 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   // Wrap the campaign_sends update + deferred_count bump in a single txn so
   // the audit counter never drifts from the row state, even on crash. We
   // intentionally do NOT touch pending_count (see pressureGuardReserveSendSlots).
+  // R4: increment deferred_count by the number of rows ACTUALLY mutated
+  // (RETURNING) — never by losers.length — so re-runs of a partially-applied
+  // batch (transient DB errors, retries) don't double-count.
   if (losers.length > 0) {
     await db.transaction(async (tx) => {
-      await tx.execute(sql`
+      const upd = await tx.execute(sql`
         UPDATE campaign_sends cs
         SET status = 'pending',
             eligible_at = COALESCE(s.last_sent_at, NOW()) + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval
@@ -326,10 +340,14 @@ export async function drainCampaign(campaignId: string): Promise<void> {
           AND cs.subscriber_id = ANY(${losers}::text[])
           AND s.id = cs.subscriber_id
           AND cs.status = 'attempting'
+        RETURNING cs.subscriber_id
       `);
-      await tx.execute(sql`
-        UPDATE campaigns SET deferred_count = deferred_count + ${losers.length} WHERE id = ${campaignId}
-      `);
+      const mutated = upd.rows.length;
+      if (mutated > 0) {
+        await tx.execute(sql`
+          UPDATE campaigns SET deferred_count = deferred_count + ${mutated} WHERE id = ${campaignId}
+        `);
+      }
     });
   }
 
