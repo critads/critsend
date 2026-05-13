@@ -86,15 +86,89 @@ mkdir -p images
 chmod 755 images
 ok "Directories ready (images)"
 
-# Surface the resolved import upload dir so operators can spot misconfig at a glance.
+# ─── Pre-flight: import upload dir must exist AND be writable by this user ──
+# Hard gate: if the upload dir is broken, fail BEFORE pm2 reload so we don't
+# flip prod to a 502 Bad Gateway. The app degrades gracefully (returns 503
+# from /api/import) but we'd rather catch this at deploy-time than discover
+# it post-reload. See task #141 for the post-mortem.
 _import_upload_dir=$(grep -E "^IMPORT_UPLOAD_DIR=" .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
 _import_upload_dir="${_import_upload_dir:-/var/lib/critsend/uploads/imports}"
-if [[ -d "$_import_upload_dir" ]]; then
-    ok "Import upload dir present: $_import_upload_dir"
-else
-    echo "[deploy] ⚠ Import upload dir missing: $_import_upload_dir"
-    echo "[deploy]   Run: sudo bash deploy/setup.sh   (provisions /var/lib/critsend/uploads/{imports,chunks})"
+_import_chunks_dir=$(grep -E "^IMPORT_CHUNKS_DIR=" .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+_import_chunks_dir="${_import_chunks_dir:-$(dirname "$_import_upload_dir")/chunks}"
+_data_root="$(dirname "$(dirname "$_import_upload_dir")")"  # e.g. /var/lib/critsend
+_app_user="$(id -un)"
+
+_check_writable() {
+    local d="$1"
+    [[ -d "$d" ]] || return 1
+    local probe="$d/.deploy-write-probe-$$"
+    ( : > "$probe" ) 2>/dev/null || return 1
+    rm -f "$probe"
+    return 0
+}
+
+# SAFETY: only allow recursive sudo chown/chmod on paths under known data
+# roots. Without this, a typo'd or malicious IMPORT_UPLOAD_DIR (e.g.
+# `/imports` whose dirname-of-dirname is `/`) would cause `sudo chown -R`
+# to retake ownership of the entire filesystem. We refuse to auto-repair
+# anything outside this allowlist and tell the operator what to run by hand.
+_safe_repair_root() {
+    local root="$1"
+    case "$root" in
+        /var/lib/critsend|/var/lib/critsend/*) return 0 ;;
+        /opt/critsend|/opt/critsend/*)        return 0 ;;
+        /home/*/critsend-data|/home/*/critsend-data/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Track per-dir failures separately so a successful auto-repair on one dir
+# never masks an unresolved failure on the other.
+_uploads_ok=1
+_chunks_ok=1
+for d in "$_import_upload_dir" "$_import_chunks_dir"; do
+    if _check_writable "$d"; then continue; fi
+
+    if [[ "$d" == "$_import_upload_dir" ]]; then _uploads_ok=0; else _chunks_ok=0; fi
+    echo "[deploy] ⚠ Import dir not writable by $_app_user: $d"
+
+    # Try a passwordless sudo recovery before giving up — but ONLY if the
+    # data root is in our allowlist. Recursive chown/chmod on an unbounded
+    # path is a footgun that has wrecked production hosts before.
+    if ! command -v sudo &>/dev/null || ! sudo -n true 2>/dev/null; then
+        echo "[deploy]   (passwordless sudo not available — skipping auto-repair)"
+        continue
+    fi
+    if ! _safe_repair_root "$_data_root"; then
+        echo "[deploy]   ✗ REFUSING auto-repair: data root '$_data_root' is outside the allowlist."
+        echo "[deploy]     Allowed roots: /var/lib/critsend, /opt/critsend, /home/*/critsend-data"
+        echo "[deploy]     Fix .env so IMPORT_UPLOAD_DIR sits under one of those, or run the chown by hand."
+        continue
+    fi
+
+    echo "[deploy]   Attempting auto-repair: sudo mkdir -p $d && sudo chown -R $_app_user:$_app_user $_data_root"
+    sudo mkdir -p "$d" 2>/dev/null || true
+    sudo chown -R "$_app_user:$_app_user" "$_data_root" 2>/dev/null || true
+    sudo chmod -R u+rwX "$_data_root" 2>/dev/null || true
+    if _check_writable "$d"; then
+        ok "Auto-repaired upload dir: $d"
+        if [[ "$d" == "$_import_upload_dir" ]]; then _uploads_ok=1; else _chunks_ok=1; fi
+    fi
+done
+
+if [[ "$_uploads_ok" != "1" || "$_chunks_ok" != "1" ]]; then
+    echo ""
+    echo "[deploy] ─────────────────────────────────────────────────────────────"
+    echo "[deploy]   Aborting BEFORE pm2 reload to avoid a 502 outage."
+    echo "[deploy]   Run on the server, then re-run this deploy:"
+    echo "[deploy]     sudo mkdir -p $_import_upload_dir $_import_chunks_dir"
+    echo "[deploy]     sudo chown -R $_app_user:$_app_user $_data_root"
+    echo "[deploy]     sudo chmod -R u+rwX $_data_root"
+    echo "[deploy]   Or full re-provision:  sudo bash deploy/setup.sh"
+    echo "[deploy] ─────────────────────────────────────────────────────────────"
+    fail "Import upload dirs not writable — refusing to reload pm2"
 fi
+ok "Import upload dirs writable: $_import_upload_dir, $_import_chunks_dir"
 
 # ─── Step 6: Update Nginx config (safe — rolls back on failure) ───────────────
 step "Updating Nginx configuration..."

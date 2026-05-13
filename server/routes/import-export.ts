@@ -1,4 +1,4 @@
-import { type Express, type Request, type Response } from "express";
+import { type Express, type Request, type Response, type NextFunction } from "express";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { db } from "../db";
@@ -6,7 +6,7 @@ import { sql, eq } from "drizzle-orm";
 import { importJobs, importJobQueue } from "@shared/schema";
 import * as fs from "fs";
 import * as path from "path";
-import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE, CHUNKS_DIR_BASE } from "../upload";
+import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE, CHUNKS_DIR_BASE, getUploadDirStatus, formatUploadDirError } from "../upload";
 import { sanitizeCsvValue } from "../utils";
 import { isMemoryPressure } from "../workers";
 import { jobEvents, type JobProgressEvent } from "../job-events";
@@ -69,10 +69,14 @@ export function registerImportExportRoutes(app: Express, helpers: {
   // Resolved at module load via IMPORT_CHUNKS_DIR (or derived from
   // IMPORT_UPLOAD_DIR) so chunked uploads survive deploys/PM2 restarts when
   // pointed at a persistent volume in production. See server/upload.ts.
+  //
+  // The directory is provisioned (and its writability validated) by
+  // ensureWritableDir() in server/upload.ts at module load. We deliberately
+  // DO NOT mkdir again here: any failure at route-registration time would
+  // crash the whole web process and bring down login + sending + tracking.
+  // Instead, uploadDirGuard (below) returns 503 when the dir is unusable,
+  // and the rest of the app keeps serving normally. See task #141.
   const CHUNKS_DIR = CHUNKS_DIR_BASE;
-  if (!fs.existsSync(CHUNKS_DIR)) {
-    fs.mkdirSync(CHUNKS_DIR, { recursive: true });
-  }
 
   const chunkedUploads = new Map<string, {
     filename: string;
@@ -101,7 +105,25 @@ export function registerImportExportRoutes(app: Express, helpers: {
     }
   }, 5 * 60 * 1000);
 
-  app.post("/api/import", uploadToDisk.single("file"), async (req: Request, res: Response) => {
+  // Short-circuit guard: if the on-disk upload dirs failed to provision at
+  // boot (e.g. EACCES on /var/lib/critsend), reject uploads with a clear
+  // 503 BEFORE multer touches the request — otherwise multer crashes
+  // mid-stream with a generic "ENOENT: no such file or directory" that
+  // tells the operator nothing. Logged once per request at WARN.
+  const uploadDirGuard = (req: Request, res: Response, next: NextFunction) => {
+    const status = getUploadDirStatus();
+    if (!status.ready) {
+      const failing = !status.uploads.ready ? status.uploads : status.chunks;
+      logger.warn(formatUploadDirError(failing));
+      res.setHeader('Retry-After', '300');
+      return res.status(503).json({
+        error: "CSV import is temporarily unavailable on this server. The upload directory is not writable. An administrator has been notified.",
+      });
+    }
+    next();
+  };
+
+  app.post("/api/import", uploadDirGuard, uploadToDisk.single("file"), async (req: Request, res: Response) => {
     if (isMemoryPressure) {
       res.setHeader('Retry-After', '60');
       return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
@@ -565,7 +587,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
     }
   });
 
-  app.post("/api/import/chunked/:uploadId/chunk/:chunkIndex", uploadChunkToDisk.single("chunk"), async (req: Request, res: Response) => {
+  app.post("/api/import/chunked/:uploadId/chunk/:chunkIndex", uploadDirGuard, uploadChunkToDisk.single("chunk"), async (req: Request, res: Response) => {
     try {
       const { uploadId, chunkIndex } = req.params;
       const index = parseInt(chunkIndex);

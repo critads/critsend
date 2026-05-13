@@ -118,20 +118,15 @@ fi
 # These must live OUTSIDE the app directory so `git pull` / PM2 reload don't
 # wipe in-flight imports. The app reads IMPORT_UPLOAD_DIR / IMPORT_CHUNKS_DIR
 # from the environment (set in deploy/ecosystem.config.cjs).
-for sub in uploads/imports uploads/chunks; do
-    target="$DATA_DIR/$sub"
-    if [[ ! -d "$target" ]]; then
-        mkdir -p "$target"
-        chown "$APP_USER:$APP_USER" "$target"
-        chmod 750 "$target"
-        success "Created persistent data directory: $target"
-    else
-        # Ensure ownership/perms even if pre-existing
-        chown "$APP_USER:$APP_USER" "$target"
-        chmod 750 "$target"
-        success "Persistent data directory already exists: $target"
-    fi
-done
+#
+# IMPORTANT: chown the WHOLE tree (not just the leaves). If only the leaves
+# are app-user owned, a recursive `mkdir -p` from the app fails with EACCES
+# the moment a leaf goes missing — which crash-loops the web process and
+# triggers a 502 Bad Gateway outage. See task #141 for the post-mortem.
+mkdir -p "$DATA_DIR/uploads/imports" "$DATA_DIR/uploads/chunks"
+chown -R "$APP_USER:$APP_USER" "$DATA_DIR"
+chmod -R u+rwX,g+rX,o-rwx "$DATA_DIR"
+success "Persistent data tree owned by $APP_USER: $DATA_DIR (uploads/imports, uploads/chunks)"
 
 # ─── Nginx ────────────────────────────────────────────────────────────────────
 if systemctl is-active --quiet nginx; then

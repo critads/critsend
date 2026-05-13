@@ -729,7 +729,7 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   // (the app directory) — otherwise `git pull` / atomic deploys / PM2
   // reloads can wipe queued CSVs and silently break in-flight imports.
   try {
-    const { UPLOADS_DIR_BASE, CHUNKS_DIR_BASE } = await import("./upload");
+    const { UPLOADS_DIR_BASE, CHUNKS_DIR_BASE, getUploadDirStatus, formatUploadDirError } = await import("./upload");
     const cwd = path.resolve(process.cwd());
     const insideCwd = (p: string) => {
       const rel = path.relative(cwd, p);
@@ -738,6 +738,29 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     const uploadInsideCwd = insideCwd(UPLOADS_DIR_BASE);
     const chunksInsideCwd = insideCwd(CHUNKS_DIR_BASE);
     logger.info(`[IMPORT] Upload dir: ${UPLOADS_DIR_BASE} (chunks: ${CHUNKS_DIR_BASE})`);
+
+    // Surface boot-time mkdir/writability failures via the in-app system
+    // error store so operators see the actionable recovery command in both
+    // web-err.log AND the admin UI. The upload route returns 503 when this
+    // is the case, so the rest of the app keeps serving normally.
+    const dirStatus = getUploadDirStatus();
+    if (!dirStatus.uploads.ready) {
+      logger.error(formatUploadDirError(dirStatus.uploads));
+      tryLogSystemError("Import upload dir not writable — CSV imports disabled", {
+        path: dirStatus.uploads.path,
+        errorCode: dirStatus.uploads.errorCode,
+        error: dirStatus.uploads.error,
+      });
+    }
+    if (!dirStatus.chunks.ready) {
+      logger.error(formatUploadDirError(dirStatus.chunks));
+      tryLogSystemError("Import chunks dir not writable — chunked CSV uploads disabled", {
+        path: dirStatus.chunks.path,
+        errorCode: dirStatus.chunks.errorCode,
+        error: dirStatus.chunks.error,
+      });
+    }
+
     if (process.env.NODE_ENV === "production" && (uploadInsideCwd || chunksInsideCwd)) {
       logger.error(
         `[IMPORT] CRITICAL: import upload dir is inside the app directory (${cwd}). ` +

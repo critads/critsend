@@ -1,6 +1,7 @@
 import multer from "multer";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { ObjectStorageService } from "./replit_integrations/object_storage";
 
 // Object storage service for persistent file storage (survives deployments)
@@ -37,11 +38,107 @@ function resolveImportChunksDir(): string {
 const UPLOADS_DIR_BASE = resolveImportUploadDir();
 const CHUNKS_DIR_BASE = resolveImportChunksDir();
 
-if (!fs.existsSync(UPLOADS_DIR_BASE)) {
-  fs.mkdirSync(UPLOADS_DIR_BASE, { recursive: true });
+/**
+ * Status of an upload directory after the boot-time provisioning attempt.
+ * Consumed by routes (to short-circuit with HTTP 503) and by the startup
+ * guard in server/index.ts (to surface a loud, actionable error log).
+ */
+export type UploadDirStatus = {
+  path: string;
+  ready: boolean;
+  error?: string;
+  errorCode?: string;
+};
+
+/**
+ * Try to ensure a directory exists AND is writable by the current process.
+ * On failure, returns a structured error instead of throwing — callers can
+ * decide how to degrade. We deliberately do NOT crash the process here:
+ * a missing/unwritable upload dir should disable uploads only, not take
+ * down the whole web tier (login, sending, tracking, dashboards).
+ */
+function ensureWritableDir(dir: string): UploadDirStatus {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err: any) {
+    return {
+      path: dir,
+      ready: false,
+      error: err?.message ?? String(err),
+      errorCode: err?.code,
+    };
+  }
+  // mkdirSync succeeded (or dir already existed) — verify writability with a
+  // probe file. fs.accessSync(W_OK) lies on some filesystems / when running
+  // as root, so the probe write is the authoritative check.
+  const probe = path.join(dir, `.write-probe-${process.pid}-${Date.now()}`);
+  try {
+    fs.writeFileSync(probe, "");
+    fs.unlinkSync(probe);
+  } catch (err: any) {
+    return {
+      path: dir,
+      ready: false,
+      error: err?.message ?? String(err),
+      errorCode: err?.code,
+    };
+  }
+  return { path: dir, ready: true };
 }
-if (!fs.existsSync(CHUNKS_DIR_BASE)) {
-  fs.mkdirSync(CHUNKS_DIR_BASE, { recursive: true });
+
+const UPLOADS_DIR_STATUS: UploadDirStatus = ensureWritableDir(UPLOADS_DIR_BASE);
+const CHUNKS_DIR_STATUS: UploadDirStatus = ensureWritableDir(CHUNKS_DIR_BASE);
+
+/**
+ * Format a human-actionable error line for operators. Includes the failing
+ * path, errno code, the username the process runs as, and the exact
+ * `sudo chown` command to run to recover. Logged at boot AND surfaced via
+ * the upload route's 503 response so the cause is obvious in both places.
+ */
+export function formatUploadDirError(status: UploadDirStatus): string {
+  const user = (() => {
+    try { return os.userInfo().username; } catch { return process.env.USER || "app-user"; }
+  })();
+  // `chown -R user:user <parent>` because the failure is almost always a
+  // root-owned parent dir (e.g. /var/lib/critsend) blocking creation /
+  // writes inside it. Chowning the parent fixes both create and write.
+  const parent = path.dirname(status.path);
+  return (
+    `[UPLOAD] Import upload dir not usable: ${status.path} ` +
+    `(code=${status.errorCode || "UNKNOWN"}, error=${status.error || "unknown"}). ` +
+    `Process runs as user "${user}". CSV imports are DISABLED until fixed. ` +
+    `Recovery: sudo mkdir -p ${status.path} && sudo chown -R ${user}:${user} ${parent} && sudo chmod -R u+rwX ${parent}`
+  );
+}
+
+// Emit a single boot-time ERROR per failing dir so operators see it in
+// web-err.log without the noise of an uncaught exception / crash loop.
+// The startup guard in server/index.ts ALSO surfaces this via the
+// in-app system_errors store so it shows up in the admin UI.
+if (!UPLOADS_DIR_STATUS.ready) {
+  // eslint-disable-next-line no-console
+  console.error(formatUploadDirError(UPLOADS_DIR_STATUS));
+}
+if (!CHUNKS_DIR_STATUS.ready) {
+  // eslint-disable-next-line no-console
+  console.error(formatUploadDirError(CHUNKS_DIR_STATUS));
+}
+
+/**
+ * Convenience accessor used by the upload routes to short-circuit with
+ * HTTP 503 + a clear message when the on-disk dirs are unusable, instead
+ * of letting multer fail mid-request with a generic ENOENT/EACCES.
+ */
+export function getUploadDirStatus(): {
+  uploads: UploadDirStatus;
+  chunks: UploadDirStatus;
+  ready: boolean;
+} {
+  return {
+    uploads: UPLOADS_DIR_STATUS,
+    chunks: CHUNKS_DIR_STATUS,
+    ready: UPLOADS_DIR_STATUS.ready && CHUNKS_DIR_STATUS.ready,
+  };
 }
 
 // Use disk storage for imports to avoid memory issues with large files (300MB+)
