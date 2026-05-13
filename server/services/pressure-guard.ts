@@ -166,18 +166,46 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
   // DDL didn't trip our `outcome='deferred'` branch. 'skipped' / 'error'
   // mean another node owns the bootstrap (or the lock query failed) — we
   // verify the schema artefacts are observably present before flipping
-  // ready, otherwise we stay 'pending' and the sender's start-up gate
-  // re-throws so the job retries with backoff.
+  // ready, otherwise we leave the state unchanged and a retry timer
+  // (started below) will re-probe until ready, so a bootstrap-skip on
+  // one node does not permanently block sending.
   const schemaOk = await verifyPressureSchemaReady();
   if (outcome === "ready" && (result === "ran" || schemaOk)) {
     bootstrapState = "ready";
+    stopBootstrapRetry();
     logger.info(`[PRESSURE_GUARD] Bootstrap ready (window=${PRESSURE_WINDOW_HOURS}h, lock=${result}, schema_verified=${schemaOk})`);
   } else {
     bootstrapState = "deferred";
     outcome = "deferred";
-    logger.warn(`[PRESSURE_GUARD] Bootstrap NOT ready: lock=${result}, schema_verified=${schemaOk}, outcome=${outcome}`);
+    logger.warn(`[PRESSURE_GUARD] Bootstrap NOT ready: lock=${result}, schema_verified=${schemaOk}, outcome=${outcome} — will retry every 15s`);
+    startBootstrapRetry();
   }
   return outcome;
+}
+
+// Self-healing retry. If the first bootstrap call returned 'deferred'
+// (lock contention with another booting process, schema not yet visible,
+// transient DB error), we re-probe `verifyPressureSchemaReady()` every
+// 15s and flip to 'ready' as soon as the artefacts appear. This prevents
+// the sender's start-up gate from being permanently stuck and keeps
+// multi-process boot races safe.
+let retryTimer: NodeJS.Timeout | null = null;
+function stopBootstrapRetry() {
+  if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+}
+function startBootstrapRetry() {
+  if (retryTimer) return;
+  retryTimer = setInterval(async () => {
+    if (bootstrapState === "ready") { stopBootstrapRetry(); return; }
+    const ok = await verifyPressureSchemaReady();
+    if (ok) {
+      bootstrapState = "ready";
+      stopBootstrapRetry();
+      logger.info(`[PRESSURE_GUARD] Bootstrap recovered to 'ready' via retry probe`);
+    }
+  }, 15_000);
+  // Don't keep the event loop alive just for this probe.
+  if (typeof retryTimer.unref === "function") retryTimer.unref();
 }
 
 /**
@@ -202,98 +230,96 @@ export async function pressureGuardReserveSendSlots(
   for (let i = 0; i < subscriberIds.length; i += CHUNK_SIZE) {
     const chunk = subscriberIds.slice(i, i + CHUNK_SIZE);
 
-    // FIFO determinism (Task #144): if any *older* (smaller started_at)
-    // campaign already has a pending or attempting send for the same
-    // subscriber, the current campaign MUST defer — even if the contact's
-    // last_sent_at would otherwise allow a CAS win. This makes the
-    // first-slot reservation deterministic by campaigns.started_at instead
-    // of relying on Postgres lock-queue race timing.
-    const result = await db.execute(sql`
-      WITH input(id) AS (
-        SELECT unnest(${chunk}::text[])
-      ),
-      my_started AS (
-        SELECT started_at FROM campaigns WHERE id = ${campaignId}
-      ),
-      blocked_by_older AS (
-        SELECT DISTINCT cs.subscriber_id
-        FROM campaign_sends cs
-        JOIN campaigns c ON c.id = cs.campaign_id
-        WHERE cs.subscriber_id = ANY(${chunk}::text[])
-          AND cs.campaign_id <> ${campaignId}
-          AND cs.status IN ('pending', 'attempting')
-          AND c.started_at IS NOT NULL
-          AND c.started_at < (SELECT started_at FROM my_started)
-      ),
-      already_in_campaign AS (
-        SELECT subscriber_id FROM campaign_sends
-        WHERE campaign_id = ${campaignId}
-          AND subscriber_id = ANY(${chunk}::text[])
-      ),
-      cas AS (
-        -- Only stamp last_sent_at when we'd actually create a NEW dispatch.
-        -- If a row already exists for (campaign, subscriber) — re-runs,
-        -- retry passes, resumed campaigns — the INSERT below ON CONFLICT
-        -- DO NOTHING would skip but we'd have spuriously consumed the
-        -- contact's 6h slot. Excluding them keeps last_sent_at honest.
-        UPDATE subscribers s
-        SET last_sent_at = NOW()
-        FROM input i
-        WHERE s.id = i.id
-          AND i.id NOT IN (SELECT subscriber_id FROM blocked_by_older)
-          AND i.id NOT IN (SELECT subscriber_id FROM already_in_campaign)
-          AND (s.last_sent_at IS NULL OR s.last_sent_at + (${windowHours}::numeric || ' hours')::interval <= NOW())
-        RETURNING s.id
-      ),
-      existing_winners AS (
-        -- Already-existing pending/attempting rows are returned as winners
-        -- without re-stamping last_sent_at — the slot was claimed on the
-        -- original reserve attempt.
-        SELECT subscriber_id FROM campaign_sends
-        WHERE campaign_id = ${campaignId}
-          AND subscriber_id = ANY(${chunk}::text[])
-          AND status IN ('pending', 'attempting')
-          AND eligible_at IS NULL
-      ),
-      reserved AS (
-        INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)
-        SELECT gen_random_uuid(), ${campaignId}, cas.id, 'pending', NOW(), NULL
-        FROM cas
-        ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
-        RETURNING subscriber_id
-      ),
-      losers AS (
-        SELECT s.id, s.last_sent_at
-        FROM subscribers s
-        JOIN input i ON i.id = s.id
-        WHERE s.id NOT IN (SELECT id FROM cas)
-      ),
-      deferred_ins AS (
-        INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)
+    // FIFO determinism (Task #144) — two layers:
+    //   (a) Per-subscriber advisory transaction locks (acquired in sorted
+    //       hashtext order) serialize concurrent reserves on the same
+    //       contact across all campaigns. This kills the lock-queue race
+    //       so when two senders race the *same* subscriber, only one
+    //       executes the CAS at a time.
+    //   (b) Inside the CAS, `blocked_by_older` filters subscribers that
+    //       already have a pending/attempting row in any older campaign
+    //       (smaller `started_at`). Combined with the started-ordered
+    //       `claimNextJob`, the older campaign always claims the slot
+    //       first — newer senders see the existing row under the lock and
+    //       get deferred.
+    const result = await db.transaction(async (tx) => {
+      // pg_advisory_xact_lock per subscriber, taken in sorted hash order
+      // so concurrent transactions reserving overlapping subscriber sets
+      // cannot deadlock on inverse acquisition order. Locks are released
+      // automatically when the transaction commits/rolls back.
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(h)
+        FROM (
+          SELECT DISTINCT hashtext(s)::bigint AS h
+          FROM unnest(${chunk}::text[]) AS s
+          ORDER BY h
+        ) ordered
+      `);
+      return await tx.execute(sql`
+        WITH input(id) AS (SELECT unnest(${chunk}::text[])),
+        my_started AS (SELECT started_at FROM campaigns WHERE id = ${campaignId}),
+        blocked_by_older AS (
+          SELECT DISTINCT cs.subscriber_id
+          FROM campaign_sends cs
+          JOIN campaigns c ON c.id = cs.campaign_id
+          WHERE cs.subscriber_id = ANY(${chunk}::text[])
+            AND cs.campaign_id <> ${campaignId}
+            AND cs.status IN ('pending','attempting')
+            AND c.started_at IS NOT NULL
+            AND c.started_at < (SELECT started_at FROM my_started)
+        ),
+        already_in_campaign AS (
+          SELECT subscriber_id FROM campaign_sends
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[])
+        ),
+        cas AS (
+          -- Only stamp last_sent_at for genuinely new dispatches; rows that
+          -- already exist for (campaign, subscriber) — re-runs, retries,
+          -- resumed campaigns — would otherwise consume a 6h slot they
+          -- already claimed, distorting the guard.
+          UPDATE subscribers s SET last_sent_at = NOW()
+          FROM input i
+          WHERE s.id = i.id
+            AND i.id NOT IN (SELECT subscriber_id FROM blocked_by_older)
+            AND i.id NOT IN (SELECT subscriber_id FROM already_in_campaign)
+            AND (s.last_sent_at IS NULL OR s.last_sent_at + (${windowHours}::numeric || ' hours')::interval <= NOW())
+          RETURNING s.id
+        ),
+        existing_winners AS (
+          -- Pre-existing pending/attempting rows count as winners without
+          -- re-stamping last_sent_at — the slot was claimed already.
+          SELECT subscriber_id FROM campaign_sends
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[])
+            AND status IN ('pending','attempting') AND eligible_at IS NULL
+        ),
+        reserved AS (
+          INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)
+          SELECT gen_random_uuid(), ${campaignId}, cas.id, 'pending', NOW(), NULL FROM cas
+          ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
+          RETURNING subscriber_id
+        ),
+        losers AS (
+          SELECT s.id, s.last_sent_at FROM subscribers s JOIN input i ON i.id = s.id
+          WHERE s.id NOT IN (SELECT id FROM cas)
+            AND s.id NOT IN (SELECT subscriber_id FROM already_in_campaign)
+        ),
+        deferred_ins AS (
+          INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)
+          SELECT gen_random_uuid(), ${campaignId}, l.id, 'pending', NOW(),
+            COALESCE(l.last_sent_at, NOW()) + (${windowHours}::numeric || ' hours')::interval
+          FROM losers l
+          ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
+          RETURNING subscriber_id
+        ),
+        defer_count AS (SELECT COUNT(*)::int AS n FROM deferred_ins)
         SELECT
-          gen_random_uuid(),
-          ${campaignId},
-          l.id,
-          'pending',
-          NOW(),
-          COALESCE(l.last_sent_at, NOW()) + (${windowHours}::numeric || ' hours')::interval
-        FROM losers l
-        ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
-        RETURNING subscriber_id
-      ),
-      defer_count AS (
-        SELECT COUNT(*)::int AS n FROM deferred_ins
-      )
-      SELECT
-        (
-          SELECT array_agg(subscriber_id) FROM (
+          (SELECT array_agg(subscriber_id) FROM (
             SELECT subscriber_id FROM reserved
-            UNION
-            SELECT subscriber_id FROM existing_winners
-          ) w
-        ) AS winners,
-        (SELECT n FROM defer_count) AS deferred_n
-    `);
+            UNION SELECT subscriber_id FROM existing_winners
+          ) w) AS winners,
+          (SELECT n FROM defer_count) AS deferred_n
+      `);
+    });
 
     const row = result.rows[0] as any;
     const winChunk: string[] = Array.isArray(row?.winners) ? row.winners : [];

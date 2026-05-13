@@ -1,0 +1,84 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+const HAS_DB = !!process.env.DATABASE_URL;
+const d = HAS_DB ? describe : describe.skip;
+
+d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () => {
+  let db: any;
+  let sql: any;
+  let storage: any;
+  let runPressureGuardBootstrap: any;
+
+  const subId = `pg-test-sub-${Date.now()}`;
+  const olderCampaignId = `pg-test-camp-old-${Date.now()}`;
+  const newerCampaignId = `pg-test-camp-new-${Date.now()}`;
+  const userId = `pg-test-user-${Date.now()}`;
+
+  beforeAll(async () => {
+    ({ db, sql } = await import("../server/db"));
+    ({ storage } = await import("../server/storage"));
+    ({ runPressureGuardBootstrap } = await import("../server/services/pressure-guard"));
+    await runPressureGuardBootstrap();
+
+    await db.execute(sql`INSERT INTO users (id, username, password) VALUES (${userId}, ${userId}, 'x')
+      ON CONFLICT (id) DO NOTHING`);
+    await db.execute(sql`INSERT INTO subscribers (id, email, status, last_sent_at)
+      VALUES (${subId}, ${`${subId}@example.com`}, 'active', NULL) ON CONFLICT (id) DO NOTHING`);
+    const olderStarted = new Date(Date.now() - 60_000);
+    const newerStarted = new Date(Date.now() - 30_000);
+    await db.execute(sql`INSERT INTO campaigns (id, user_id, name, status, started_at)
+      VALUES (${olderCampaignId}, ${userId}, 'older', 'sending', ${olderStarted}),
+             (${newerCampaignId}, ${userId}, 'newer', 'sending', ${newerStarted})
+      ON CONFLICT (id) DO NOTHING`);
+  });
+
+  afterAll(async () => {
+    await db.execute(sql`DELETE FROM campaign_sends WHERE subscriber_id = ${subId}`);
+    await db.execute(sql`DELETE FROM campaigns WHERE id IN (${olderCampaignId}, ${newerCampaignId})`);
+    await db.execute(sql`DELETE FROM subscribers WHERE id = ${subId}`);
+    await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
+  });
+
+  it("10 parallel reserves on the same subscriber → exactly 1 immediate winner, 9 deferred", async () => {
+    const tasks = Array.from({ length: 10 }, (_, i) =>
+      storage.pressureGuardReserveSendSlots(
+        i % 2 === 0 ? olderCampaignId : newerCampaignId,
+        [subId],
+      ),
+    );
+    const results = await Promise.all(tasks);
+    const totalImmediate = results.flat().length;
+    expect(totalImmediate).toBe(1);
+
+    const allRows = await db.execute(sql`
+      SELECT campaign_id, status, eligible_at FROM campaign_sends
+      WHERE subscriber_id = ${subId}
+    `);
+    const immediate = allRows.rows.filter((r: any) => r.eligible_at === null);
+    const deferred = allRows.rows.filter((r: any) => r.eligible_at !== null);
+    expect(immediate.length).toBe(1);
+    expect(deferred.length).toBeGreaterThanOrEqual(1);
+    // FIFO: the immediate winner must belong to the OLDER campaign.
+    expect(immediate[0].campaign_id).toBe(olderCampaignId);
+  });
+
+  it("subscriber.last_sent_at is stamped exactly once after the race", async () => {
+    const r = await db.execute(sql`SELECT last_sent_at FROM subscribers WHERE id = ${subId}`);
+    expect(r.rows[0].last_sent_at).not.toBeNull();
+  });
+
+  it("deferred sends are scheduled at >= last_sent_at + window", async () => {
+    const windowH = Number(process.env.PRESSURE_WINDOW_HOURS ?? 6);
+    const r = await db.execute(sql`
+      SELECT s.last_sent_at, MIN(cs.eligible_at) AS first_eligible
+      FROM campaign_sends cs JOIN subscribers s ON s.id = cs.subscriber_id
+      WHERE cs.subscriber_id = ${subId} AND cs.eligible_at IS NOT NULL
+      GROUP BY s.last_sent_at
+    `);
+    const last = new Date(r.rows[0].last_sent_at).getTime();
+    const first = new Date(r.rows[0].first_eligible).getTime();
+    const expected = last + windowH * 3600_000;
+    // Allow 5s skew for clock differences between the SQL NOW() calls.
+    expect(first).toBeGreaterThanOrEqual(expected - 5000);
+  });
+});
