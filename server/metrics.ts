@@ -88,6 +88,37 @@ export const pressureGuardFlushedTotal = new client.Counter({
   registers: [register],
 });
 
+// ── Pressure Guard hardening (Task #145) ──────────────────────────────
+// R10: per-campaign counter incremented every time the CAS sees an older
+// campaign already holding the slot for at least one input subscriber.
+export const pressureGuardBlockedByOlderTotal = new client.Counter({
+  name: 'critsend_pressure_blocked_by_older_total',
+  help: 'Total subscribers blocked by an older campaign during pressure CAS',
+  labelNames: ['campaign_id'] as const,
+  registers: [register],
+});
+
+// R12: backfill observability — counters for chunk progress and a gauge
+// that reflects the in-progress state on the current node.
+export const pressureGuardBackfillRowsTotal = new client.Counter({
+  name: 'critsend_pressure_backfill_rows_total',
+  help: 'Cumulative rows backfilled into subscribers.last_sent_at',
+  registers: [register],
+});
+
+export const pressureGuardBackfillInProgress = new client.Gauge({
+  name: 'critsend_pressure_backfill_in_progress',
+  help: '1 while the historical last_sent_at backfill is running, 0 otherwise',
+  registers: [register],
+});
+
+// R3: index bloat observability — refreshed by the maintenance worker.
+export const pressureGuardDeferredIndexSizeBytes = new client.Gauge({
+  name: 'critsend_pressure_deferred_index_size_bytes',
+  help: 'pg_relation_size of campaign_sends_pressure_deferred_idx in bytes',
+  registers: [register],
+});
+
 export const httpRequestsTotal = new client.Counter({
   name: 'critsend_http_requests_total',
   help: 'Total HTTP requests',

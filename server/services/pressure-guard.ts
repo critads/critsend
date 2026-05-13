@@ -27,18 +27,42 @@ import { pool, db } from "../db";
 import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { withAdvisoryLock, LOCK_KEYS, indexExistsAndValid } from "../bootstrap-lock";
-import { pressureGuardDeferredTotal } from "../metrics";
+import {
+  pressureGuardDeferredTotal,
+  pressureGuardBlockedByOlderTotal,
+  pressureGuardBackfillRowsTotal,
+  pressureGuardBackfillInProgress,
+} from "../metrics";
 
 // Production hard-locks the window to 6h per task contract. The
 // `PRESSURE_WINDOW_HOURS` env override is honoured ONLY in non-prod
 // environments (development/test) where the nullsink suite needs to
 // validate guard mechanics over a much shorter window.
+//
+// Task #145 R14: when the override is set outside production, validate
+// it falls in [5min, 7d]. Out-of-range values are clamped to the default
+// 6h with a loud warning so a typo can't accidentally disable the guard.
+const PRESSURE_WINDOW_MIN_HOURS = 5 / 60; // 5 minutes
+const PRESSURE_WINDOW_MAX_HOURS = 168;    // 7 days
 export const PRESSURE_WINDOW_HOURS = (() => {
   if (process.env.NODE_ENV === "production") return 6;
   const raw = process.env.PRESSURE_WINDOW_HOURS;
   if (!raw) return 6;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 6;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    logger.warn(`[PRESSURE_GUARD] PRESSURE_WINDOW_HOURS=${raw} is not a non-negative finite number — falling back to 6h`);
+    return 6;
+  }
+  // The cascade test (PRESSURE_WINDOW_HOURS=0) needs an exact 0 escape
+  // hatch; everything else must respect the [5min, 7d] envelope.
+  if (parsed === 0) return 0;
+  if (parsed < PRESSURE_WINDOW_MIN_HOURS || parsed > PRESSURE_WINDOW_MAX_HOURS) {
+    logger.warn(
+      `[PRESSURE_GUARD] PRESSURE_WINDOW_HOURS=${parsed} is out of range ` +
+      `[${PRESSURE_WINDOW_MIN_HOURS}h, ${PRESSURE_WINDOW_MAX_HOURS}h] — falling back to 6h`,
+    );
+    return 6;
+  }
   return parsed;
 })();
 
@@ -83,6 +107,8 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS deferred_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
+        // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
+        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false`);
         await client.query(`
           CREATE TABLE IF NOT EXISTS pressure_flush_audit (
             id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -113,18 +139,50 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
   // Build the partial index outside the advisory lock client (CREATE INDEX
   // CONCURRENTLY can't run in a transaction block).
   if (result === "ran" || result === "skipped") {
-    try {
-      const exists = await indexExistsAndValid("campaign_sends_pressure_deferred_idx");
-      if (!exists) {
-        await pool.query(`
-          CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_pressure_deferred_idx
-          ON campaign_sends (eligible_at)
-          WHERE status = 'pending' AND eligible_at IS NOT NULL
-        `);
-        logger.info("[PRESSURE_GUARD] Created partial index campaign_sends_pressure_deferred_idx");
+    // Task #145 R6/R7/R8: 3 additional partial indexes that back the
+    // per-campaign queue page, the admin /curve sparkline, and the
+    // top-20 most-deferred-contacts query. Each is built CONCURRENTLY
+    // and IF NOT EXISTS so reboot is a no-op once the index is live.
+    const indexes: Array<{ name: string; ddl: string }> = [
+      {
+        name: "campaign_sends_pressure_deferred_idx",
+        ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_pressure_deferred_idx
+              ON campaign_sends (eligible_at)
+              WHERE status = 'pending' AND eligible_at IS NOT NULL`,
+      },
+      {
+        // R6: per-campaign histogram + queue listing.
+        name: "campaign_sends_pressure_campaign_eligible_idx",
+        ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_pressure_campaign_eligible_idx
+              ON campaign_sends (campaign_id, eligible_at)
+              WHERE status = 'pending' AND eligible_at IS NOT NULL`,
+      },
+      {
+        // R7: admin /curve groups by date_trunc('day', sent_at) over
+        // rows with eligible_at IS NOT NULL in a 7-day window.
+        name: "campaign_sends_pressure_curve_idx",
+        ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_pressure_curve_idx
+              ON campaign_sends (sent_at)
+              WHERE eligible_at IS NOT NULL`,
+      },
+      {
+        // R8: top-20 GROUP BY subscriber_id over deferred rows.
+        name: "campaign_sends_pressure_subscriber_idx",
+        ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_pressure_subscriber_idx
+              ON campaign_sends (subscriber_id)
+              WHERE status = 'pending' AND eligible_at IS NOT NULL`,
+      },
+    ];
+    for (const { name, ddl } of indexes) {
+      try {
+        const exists = await indexExistsAndValid(name);
+        if (!exists) {
+          await pool.query(ddl);
+          logger.info(`[PRESSURE_GUARD] Created partial index ${name}`);
+        }
+      } catch (err: any) {
+        logger.warn(`[PRESSURE_GUARD] CONCURRENTLY ${name} build failed (non-fatal): ${err?.message || err}`);
       }
-    } catch (err: any) {
-      logger.warn(`[PRESSURE_GUARD] CONCURRENTLY index build failed (non-fatal): ${err?.message || err}`);
     }
 
     // Chunked backfill of subscribers.last_sent_at from prior send history.
@@ -147,6 +205,8 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
       if (flagRow.rowCount === 0) {
         let totalUpdated = 0;
         let chunks = 0;
+        // R12: surface backfill state in Prometheus while we work.
+        try { pressureGuardBackfillInProgress.set(1); } catch {}
         // No upper bound on chunks: keep draining until empty. Each
         // chunk is bounded at 5k rows so a single statement can never
         // monopolise the connection.
@@ -164,9 +224,11 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
             FROM batch b WHERE s.id = b.id AND s.last_sent_at IS NULL
             RETURNING s.id
           `);
-          if (r.rowCount === 0) break;
-          totalUpdated += r.rowCount;
+          const n = r.rowCount ?? 0;
+          if (n === 0) break;
+          totalUpdated += n;
           chunks++;
+          try { pressureGuardBackfillRowsTotal.inc(n); } catch {}
           // Yield between chunks so we don't block the event loop /
           // hog the pool while a huge table backfills.
           await new Promise((resolve) => setTimeout(resolve, 25));
@@ -178,8 +240,10 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
         // truly exhausted. If we crashed mid-pass, the next boot picks
         // up the remaining NULLs and resumes.
         await pool.query(`CREATE TABLE IF NOT EXISTS pressure_guard_backfill_done (id integer PRIMARY KEY)`);
+        try { pressureGuardBackfillInProgress.set(0); } catch {}
       }
     } catch (err: any) {
+      try { pressureGuardBackfillInProgress.set(0); } catch {}
       logger.warn(`[PRESSURE_GUARD] last_sent_at backfill failed (resumable on next boot): ${err?.message || err}`);
     }
   }
@@ -272,7 +336,7 @@ export async function pressureGuardReserveSendSlots(
       await tx.execute(sql`
         SELECT pg_advisory_xact_lock(h)
         FROM (
-          SELECT DISTINCT hashtext(s)::bigint AS h
+          SELECT DISTINCT hashtextextended(s, 0)::bigint AS h
           FROM unnest(${chunk}::text[]) AS s
           ORDER BY h
         ) ordered
@@ -340,19 +404,25 @@ export async function pressureGuardReserveSendSlots(
           ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
           RETURNING subscriber_id
         ),
-        defer_count AS (SELECT COUNT(*)::int AS n FROM deferred_ins)
+        defer_count AS (SELECT COUNT(*)::int AS n FROM deferred_ins),
+        blocked_count AS (SELECT COUNT(*)::int AS n FROM blocked_by_older)
         SELECT
           (SELECT array_agg(subscriber_id) FROM (
             SELECT subscriber_id FROM reserved
             UNION SELECT subscriber_id FROM existing_winners
           ) w) AS winners,
-          (SELECT n FROM defer_count) AS deferred_n
+          (SELECT n FROM defer_count) AS deferred_n,
+          (SELECT n FROM blocked_count) AS blocked_n
       `);
     });
 
     const row = result.rows[0] as any;
     const winChunk: string[] = Array.isArray(row?.winners) ? row.winners : [];
     const deferredN = Number(row?.deferred_n ?? 0);
+    const blockedN = Number(row?.blocked_n ?? 0);
+    if (blockedN > 0) {
+      try { pressureGuardBlockedByOlderTotal.inc({ campaign_id: campaignId }, blockedN); } catch {}
+    }
 
     if (winChunk.length) winners.push(...winChunk);
     if (deferredN > 0) {

@@ -954,6 +954,11 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  // Pressure Guard hardening (Task #145, R13). DB-backed admin gate that
+  // supersedes the legacy `ADMIN_USER_IDS` env var. The env var is still
+  // honoured as a bootstrap fallback so first-deployment ergonomics are
+  // preserved (see server/routes/pressure.ts requireAdmin).
+  isAdmin: boolean("is_admin").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

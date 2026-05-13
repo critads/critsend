@@ -26,12 +26,53 @@
 
 import type { Express, Request, Response } from "express";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "../db";
 import { logger } from "../logger";
 import {
   PRESSURE_WINDOW_HOURS,
   flushDeferredSends,
 } from "../services/pressure-guard";
+
+// Task #145 R11: discriminated union for the per-campaign flush body.
+// Three valid shapes: {campaignSendIds:"all"}, {campaignSendIds:string[]},
+// or the legacy {scope, subscriberIds} for the in-app UI. Reason is
+// always required (≥3 chars).
+const flushReason = z.string().trim().min(3, "reason (>=3 chars) is required");
+const campaignFlushBodySchema = z.union([
+  z.object({
+    campaignSendIds: z.literal("all"),
+    reason: flushReason,
+  }),
+  z.object({
+    campaignSendIds: z.array(z.string().min(1)).min(1),
+    reason: flushReason,
+  }),
+  z.object({
+    scope: z.enum(["selected", "all", "campaign-all"]),
+    subscriberIds: z.array(z.string().min(1)).optional(),
+    reason: flushReason,
+  }),
+]);
+const adminFlushBodySchema = z.object({ reason: flushReason });
+
+// Tiny in-memory TTL cache for the admin /curve and /top-contacts
+// endpoints (R6/R7/R8 mitigation): both queries scan large slices of
+// campaign_sends and are polled by the dashboard every 30-60s. Caching
+// for 30s (top) and 5min (curve) shields the DB from refresh storms.
+type CacheEntry<T> = { value: T; expiresAt: number };
+const cache = new Map<string, CacheEntry<any>>();
+function cacheGet<T>(key: string): T | null {
+  const e = cache.get(key);
+  if (!e) return null;
+  if (e.expiresAt <= Date.now()) { cache.delete(key); return null; }
+  return e.value as T;
+}
+function cacheSet<T>(key: string, value: T, ttlMs: number): T {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  return value;
+}
+
 function requireAuth(req: Request, res: Response): boolean {
   if (!req.session?.userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -50,9 +91,7 @@ function requireAuth(req: Request, res: Response): boolean {
 async function requireCampaignOwnership(req: Request, res: Response, campaignId: string): Promise<boolean> {
   if (!requireAuth(req, res)) return false;
   const uid = req.session.userId as string;
-  const adminAllow = (process.env.ADMIN_USER_IDS ?? "")
-    .split(",").map((s) => s.trim()).filter(Boolean);
-  if (adminAllow.includes(uid)) return true;
+  if (await isAdminUser(uid)) return true;
   try {
     const r = await db.execute(sql`SELECT user_id FROM campaigns WHERE id = ${campaignId}`);
     if (r.rows.length === 0) {
@@ -73,32 +112,51 @@ async function requireCampaignOwnership(req: Request, res: Response, campaignId:
 }
 
 /**
- * Admin-scope guard. The `users` table in this codebase has no `role`
- * column, so admin status is granted via the `ADMIN_USER_IDS` env var
- * (comma-separated user IDs). When the env var is unset OR empty we
- * fail closed in production (NODE_ENV==='production') to prevent any
- * authenticated user from globally reprogramming queues; in non-prod
- * the first authenticated user is treated as admin to keep dev/test
- * ergonomics. Misconfiguration is logged loudly.
+ * Admin-scope guard (Task #145 R13).
+ *
+ * Resolution order:
+ *   1. `users.is_admin = true` for the authenticated user (DB column,
+ *      managed by ops; survives env-var loss).
+ *   2. Env-var fallback: `ADMIN_USER_IDS` (comma-separated user IDs).
+ *      Kept for first-deployment ergonomics so a fresh DB without any
+ *      `is_admin=true` row can still seed the first admin via env.
+ *   3. Non-production NODE_ENV with NEITHER configured: treat the
+ *      session as admin so dev/test workflows aren't blocked.
+ *   4. Production with NEITHER configured: fail closed and log loudly.
  */
-function requireAdmin(req: Request, res: Response): boolean {
-  if (!requireAuth(req, res)) return false;
+async function isAdminUser(uid: string): Promise<boolean> {
+  // (2) env fallback first — cheap and synchronous.
   const allowlist = (process.env.ADMIN_USER_IDS ?? "")
     .split(",").map((s) => s.trim()).filter(Boolean);
-  const uid = req.session.userId as string;
-  if (allowlist.length === 0) {
-    if (process.env.NODE_ENV === "production") {
-      logger.error("[PRESSURE_QUEUE] ADMIN_USER_IDS unset in production — blocking admin access");
-      res.status(403).json({ error: "Admin access disabled (set ADMIN_USER_IDS)" });
+  if (allowlist.includes(uid)) return true;
+  // (1) DB-backed admin column.
+  try {
+    const r = await db.execute(sql`SELECT is_admin FROM users WHERE id = ${uid}`);
+    if (r.rows.length > 0 && (r.rows[0] as any).is_admin === true) return true;
+  } catch {
+    // Column may not yet exist on a freshly-booted DB before bootstrap
+    // ALTER ran — fall through to the env / non-prod path below.
+  }
+  // (3) dev/test ergonomics: no env, no DB row, not production → admin.
+  if (allowlist.length === 0 && process.env.NODE_ENV !== "production") return true;
+  return false;
+}
+
+function requireAdmin(req: Request, res: Response): Promise<boolean> {
+  return (async () => {
+    if (!requireAuth(req, res)) return false;
+    const uid = req.session.userId as string;
+    const allowlist = (process.env.ADMIN_USER_IDS ?? "")
+      .split(",").map((s) => s.trim()).filter(Boolean);
+    if (await isAdminUser(uid)) return true;
+    if (allowlist.length === 0 && process.env.NODE_ENV === "production") {
+      logger.error("[PRESSURE_QUEUE] No admin configured (ADMIN_USER_IDS unset, no users.is_admin=true) in production — blocking admin access");
+      res.status(403).json({ error: "Admin access disabled (set ADMIN_USER_IDS or grant users.is_admin)" });
       return false;
     }
-    return true;
-  }
-  if (!allowlist.includes(uid)) {
     res.status(403).json({ error: "Forbidden: admin role required" });
     return false;
-  }
-  return true;
+  })();
 }
 
 export function registerPressureRoutes(app: Express): void {
@@ -204,60 +262,44 @@ export function registerPressureRoutes(app: Express): void {
   app.post("/api/campaigns/:id/queue/flush", async (req: Request, res: Response) => {
     const campaignId = req.params.id;
     if (!(await requireCampaignOwnership(req, res, campaignId))) return;
-    const { subscriberIds, reason } = req.body ?? {};
-    const csIdsRaw = (req.body as any)?.campaignSendIds;
-    // Spec contract: body = { campaignSendIds: string[] | "all", reason }.
-    // `scope` is now optional and inferred from the payload shape; the
-    // legacy { scope, subscriberIds } body still works for the in-app UI.
-    let scope: "selected" | "all" | undefined = (req.body as any)?.scope;
-    if (!scope) {
-      if (csIdsRaw === "all") scope = "all";
-      else if (Array.isArray(csIdsRaw) && csIdsRaw.length > 0) scope = "selected";
-      else if (Array.isArray(subscriberIds) && subscriberIds.length > 0) scope = "selected";
+
+    // R11: validate the body up-front through the discriminated union;
+    // fall back to the legacy unwrapped path if neither variant matches.
+    const parsed = campaignFlushBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid flush body",
+        details: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      });
     }
-    if (scope !== "selected" && scope !== "all") {
-      return res.status(400).json({ error: "Provide campaignSendIds: string[] | \"all\" (or legacy scope)" });
-    }
-    if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
-      return res.status(400).json({ error: "reason (>=3 chars) is required" });
-    }
+    const body = parsed.data;
+    const reason = body.reason;
+    const userId = req.session.userId ?? null;
+
     try {
-      // Spec contract: body = { campaignSendIds: string[] | "all", reason }.
-      // We also accept the legacy `{ scope, subscriberIds }` shape for
-      // backward compatibility with the in-app UI.
-      const csIds = csIdsRaw;
       let count = 0;
-      if (csIds === "all" || scope === "all" || scope === "campaign-all") {
+      if ("campaignSendIds" in body && body.campaignSendIds === "all") {
         count = await flushDeferredSends({
-          campaignId,
-          campaignSendIds: "all",
-          scope: "campaign-all",
-          reason,
-          userId: req.session.userId ?? null,
+          campaignId, campaignSendIds: "all", scope: "campaign-all", reason, userId,
         });
-      } else if (Array.isArray(csIds) && csIds.length > 0) {
+      } else if ("campaignSendIds" in body && Array.isArray(body.campaignSendIds)) {
         count = await flushDeferredSends({
-          campaignId,
-          campaignSendIds: csIds,
-          scope: "selected",
-          reason,
-          userId: req.session.userId ?? null,
+          campaignId, campaignSendIds: body.campaignSendIds, scope: "selected", reason, userId,
         });
-      } else if (scope === "selected") {
-        if (!Array.isArray(subscriberIds) || subscriberIds.length === 0) {
-          return res.status(400).json({ error: "campaignSendIds must be a non-empty array or \"all\"" });
+      } else if ("scope" in body) {
+        if (body.scope === "all" || body.scope === "campaign-all") {
+          count = await flushDeferredSends({
+            campaignId, campaignSendIds: "all", scope: "campaign-all", reason, userId,
+          });
+        } else {
+          if (!body.subscriberIds || body.subscriberIds.length === 0) {
+            return res.status(400).json({ error: "scope='selected' requires non-empty subscriberIds" });
+          }
+          count = await flushDeferredSends({
+            campaignId, subscriberIds: body.subscriberIds, scope: "selected", reason, userId,
+          });
         }
-        count = await flushDeferredSends({
-          campaignId,
-          subscriberIds,
-          scope: "selected",
-          reason,
-          userId: req.session.userId ?? null,
-        });
-      } else {
-        return res.status(400).json({ error: "Provide campaignSendIds: string[] | \"all\"" });
       }
-      // Counter increments are folded into flushDeferredSends().
       res.json({ ok: true, reprogrammed: count, flushed: count });
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] flush(${campaignId}) failed: ${err?.message || err}`);
@@ -267,7 +309,7 @@ export function registerPressureRoutes(app: Express): void {
 
   // ── Cross-campaign admin view ───────────────────────────────────────
   app.get("/api/admin/pressure-queue", async (req: Request, res: Response) => {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     try {
       const summary = await db.execute(sql`
         SELECT
@@ -311,8 +353,12 @@ export function registerPressureRoutes(app: Express): void {
   // and (b) flush events from pressure_flush_audit. Useful for the
   // admin "deferred over time" sparkline.
   app.get("/api/admin/pressure-queue/curve", async (req: Request, res: Response) => {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     try {
+      // R7: 5-min cache. The dashboard polls /curve every 60s — without
+      // caching that's a 7-day group-by hitting the DB 60x/hr per session.
+      const cached = cacheGet<any>("admin:curve");
+      if (cached) return res.json(cached);
       const defers = await db.execute(sql`
         SELECT date_trunc('day', sent_at) AS day, COUNT(*) AS n
         FROM campaign_sends
@@ -326,11 +372,12 @@ export function registerPressureRoutes(app: Express): void {
         WHERE created_at >= NOW() - interval '7 days'
         GROUP BY 1 ORDER BY 1 ASC
       `);
-      res.json({
+      const payload = {
         windowHours: PRESSURE_WINDOW_HOURS,
         defers: defers.rows,
         flushes: flushes.rows,
-      });
+      };
+      res.json(cacheSet("admin:curve", payload, 5 * 60_000));
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/curve failed: ${err?.message || err}`);
       res.status(500).json({ error: err?.message || "Internal error" });
@@ -339,8 +386,12 @@ export function registerPressureRoutes(app: Express): void {
 
   // ── Top-20 most-deferred contacts (cross-campaign, currently pending) ─
   app.get("/api/admin/pressure-queue/top-contacts", async (req: Request, res: Response) => {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     try {
+      // R8: 30-second cache. Top-contacts is polled every 30s and runs a
+      // GROUP BY across all currently-deferred rows.
+      const cached = cacheGet<any>("admin:top-contacts");
+      if (cached) return res.json(cached);
       const rows = await db.execute(sql`
         SELECT cs.subscriber_id, s.email, s.last_sent_at,
                COUNT(*) AS deferred_rows,
@@ -352,7 +403,7 @@ export function registerPressureRoutes(app: Express): void {
         ORDER BY deferred_rows DESC, next_eligible_at ASC
         LIMIT 20
       `);
-      res.json({ rows: rows.rows });
+      res.json(cacheSet("admin:top-contacts", { rows: rows.rows }, 30_000));
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /top-contacts failed: ${err?.message || err}`);
       res.status(500).json({ error: err?.message || "Internal error" });
@@ -361,7 +412,7 @@ export function registerPressureRoutes(app: Express): void {
 
   // ── Flush audit history ─────────────────────────────────────────────
   app.get("/api/admin/pressure-queue/history", async (req: Request, res: Response) => {
-    if (!requireAdmin(req, res)) return;
+    if (!(await requireAdmin(req, res))) return;
     const limit = Math.min(200, Math.max(1, parseInt((req.query.limit as string) ?? "50", 10) || 50));
     try {
       const rows = await db.execute(sql`
@@ -382,11 +433,15 @@ export function registerPressureRoutes(app: Express): void {
   });
 
   app.post("/api/admin/pressure-queue/flush", async (req: Request, res: Response) => {
-    if (!requireAdmin(req, res)) return;
-    const { reason } = req.body ?? {};
-    if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
-      return res.status(400).json({ error: "reason (>=3 chars) is required" });
+    if (!(await requireAdmin(req, res))) return;
+    const parsed = adminFlushBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid flush body",
+        details: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      });
     }
+    const reason = parsed.data.reason;
     try {
       const count = await flushDeferredSends({
         scope: "global-all",

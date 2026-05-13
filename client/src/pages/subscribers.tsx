@@ -1213,22 +1213,29 @@ export default function Subscribers() {
 
 function PressureDialog({ subscriber, onClose }: { subscriber: Subscriber | null; onClose: () => void }) {
   const open = !!subscriber;
-  const { data, isLoading } = useQuery<{
+  // Task #145 R16: distinguish "subscriber not found" (404) from a
+  // generic failure so the user gets an actionable empty-state instead
+  // of a perpetual skeleton.
+  const { data, isLoading, error } = useQuery<{
     email: string;
     lastSentAt: string | null;
     nextEligibleAt: string;
     hoursUntilEligible: number;
     windowHours: number;
     upcomingDeferred: Array<{ campaign_id: string; campaign_name: string; eligible_at: string; status: string }>;
-  }>({
+  } | { __notFound: true }>({
     queryKey: ["/api/subscribers", subscriber?.id, "pressure"],
     queryFn: async () => {
       const r = await fetch(`/api/subscribers/${subscriber!.id}/pressure`, { credentials: "include" });
-      if (!r.ok) throw new Error("Failed");
+      if (r.status === 404) return { __notFound: true } as const;
+      if (!r.ok) throw new Error(`Pressure lookup failed (${r.status})`);
       return r.json();
     },
     enabled: open,
+    retry: false,
   });
+  const notFound = !!data && (data as any).__notFound === true;
+  const payload = !notFound ? (data as any) : null;
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg" data-testid="dialog-pressure">
@@ -1236,40 +1243,50 @@ function PressureDialog({ subscriber, onClose }: { subscriber: Subscriber | null
           <DialogTitle className="flex items-center gap-2"><Clock className="h-4 w-4" /> Pressure status</DialogTitle>
           <DialogDescription>Marketing pressure window enforcement for this contact.</DialogDescription>
         </DialogHeader>
-        {isLoading || !data ? (
+        {isLoading ? (
+          <div className="space-y-2"><Skeleton className="h-6 w-full" /><Skeleton className="h-6 w-full" /></div>
+        ) : error ? (
+          <div className="text-sm text-destructive py-6 text-center" data-testid="text-pressure-error">
+            Could not load pressure status. {(error as Error).message}
+          </div>
+        ) : notFound ? (
+          <div className="text-sm text-muted-foreground py-6 text-center" data-testid="text-pressure-not-found">
+            This subscriber no longer exists or was deleted.
+          </div>
+        ) : !payload ? (
           <div className="space-y-2"><Skeleton className="h-6 w-full" /><Skeleton className="h-6 w-full" /></div>
         ) : (
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-md border p-3">
                 <div className="text-xs text-muted-foreground">Window</div>
-                <div className="font-semibold tabular-nums" data-testid="text-pressure-window">{data.windowHours}h</div>
+                <div className="font-semibold tabular-nums" data-testid="text-pressure-window">{payload.windowHours}h</div>
               </div>
               <div className="rounded-md border p-3">
                 <div className="text-xs text-muted-foreground">Hours until eligible</div>
-                <div className="font-semibold tabular-nums" data-testid="text-pressure-hours">{data.hoursUntilEligible}</div>
+                <div className="font-semibold tabular-nums" data-testid="text-pressure-hours">{payload.hoursUntilEligible}</div>
               </div>
               <div className="rounded-md border p-3 col-span-2">
                 <div className="text-xs text-muted-foreground">Last sent (any campaign)</div>
-                <div className="font-mono text-xs" data-testid="text-pressure-last-sent">{data.lastSentAt ? new Date(data.lastSentAt).toLocaleString() : "Never"}</div>
+                <div className="font-mono text-xs" data-testid="text-pressure-last-sent">{payload.lastSentAt ? new Date(payload.lastSentAt).toLocaleString() : "Never"}</div>
               </div>
               <div className="rounded-md border p-3 col-span-2">
                 <div className="text-xs text-muted-foreground">Next eligible at</div>
-                <div className="font-mono text-xs" data-testid="text-pressure-next">{new Date(data.nextEligibleAt).toLocaleString()}</div>
+                <div className="font-mono text-xs" data-testid="text-pressure-next">{new Date(payload.nextEligibleAt).toLocaleString()}</div>
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground mb-1">Upcoming deferred sends ({data.upcomingDeferred?.length ?? 0})</div>
+              <div className="text-xs text-muted-foreground mb-1">Upcoming deferred sends ({payload.upcomingDeferred?.length ?? 0})</div>
               <div className="max-h-48 overflow-auto rounded-md border">
                 <table className="w-full text-xs">
                   <tbody>
-                    {(data.upcomingDeferred ?? []).map((u) => (
+                    {(payload.upcomingDeferred ?? []).map((u: any) => (
                       <tr key={u.campaign_id + u.eligible_at} className="border-b" data-testid={`row-upcoming-${u.campaign_id}`}>
                         <td className="p-2">{u.campaign_name}</td>
                         <td className="p-2 text-muted-foreground">{new Date(u.eligible_at).toLocaleString()}</td>
                       </tr>
                     ))}
-                    {(data.upcomingDeferred ?? []).length === 0 && (
+                    {(payload.upcomingDeferred ?? []).length === 0 && (
                       <tr><td className="p-3 text-center text-muted-foreground" colSpan={2}>No deferred sends</td></tr>
                     )}
                   </tbody>

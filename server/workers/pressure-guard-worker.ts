@@ -25,29 +25,92 @@ import { PRESSURE_WINDOW_HOURS, getPressureGuardBootstrapState } from "../servic
 import {
   pressureGuardSentAfterDeferTotal,
   pressureGuardPendingDeferred,
+  pressureGuardDeferredIndexSizeBytes,
 } from "../metrics";
+import { LOCK_KEYS } from "../bootstrap-lock";
 import type { Campaign, Mta, Subscriber } from "@shared/schema";
 
-const POLL_INTERVAL_MS = Number(process.env.PRESSURE_GUARD_POLL_MS ?? 30_000);
-const BATCH_PER_CAMPAIGN = Number(process.env.PRESSURE_GUARD_BATCH ?? 200);
-const MAX_CAMPAIGNS_PER_TICK = Number(process.env.PRESSURE_GUARD_MAX_CAMPAIGNS ?? 5);
+// Bounded env parser: rejects NaN / non-finite / out-of-range values and
+// falls back to the supplied default. Prevents misconfiguration from
+// turning the cadenced jobs into a tight loop (e.g. PRESSURE_MAINTENANCE_INTERVAL_MS=0)
+// or from disabling them silently via "abc".
+function envInt(name: string, defaultValue: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultValue;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < min || v > max) {
+    // eslint-disable-next-line no-console
+    console.warn(`[PRESSURE_GUARD_WORKER] ignoring out-of-range ${name}=${raw}; using default ${defaultValue}`);
+    return defaultValue;
+  }
+  return Math.floor(v);
+}
+
+const POLL_INTERVAL_MS = envInt("PRESSURE_GUARD_POLL_MS", 30_000, 1_000, 24 * 60 * 60_000);
+const BATCH_PER_CAMPAIGN = envInt("PRESSURE_GUARD_BATCH", 200, 1, 100_000);
+const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_000);
+// Task #145 R3: refresh the index-size gauge + run a daily maintenance pass
+// (REINDEX CONCURRENTLY) when bloat exceeds the configurable threshold.
+// Min 60s prevents tight-loop REINDEX storms; max 7d caps gauge staleness.
+const MAINTENANCE_INTERVAL_MS = envInt("PRESSURE_MAINTENANCE_INTERVAL_MS", 60 * 60_000, 60_000, 7 * 24 * 60 * 60_000);
+// Task #145 R15: audit TTL — drop pressure_flush_audit rows older than 12mo.
+const AUDIT_TTL_INTERVAL_MS = envInt("PRESSURE_AUDIT_TTL_INTERVAL_MS", 24 * 60 * 60_000, 60 * 60_000, 7 * 24 * 60 * 60_000);
+const AUDIT_TTL_MONTHS = envInt("PRESSURE_AUDIT_TTL_MONTHS", 12, 1, 120);
 
 let pollInterval: NodeJS.Timeout | null = null;
+let maintenanceInterval: NodeJS.Timeout | null = null;
+let auditTtlInterval: NodeJS.Timeout | null = null;
 let isPolling = false;
 
 export function startPressureGuardWorker() {
   if (pollInterval) return;
-  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}h, window=${PRESSURE_WINDOW_HOURS}h)`);
+  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, window=${PRESSURE_WINDOW_HOURS}h)`);
   pollInterval = setInterval(pollDeferredQueue, POLL_INTERVAL_MS);
   // Kick off after a short delay to let bootstrap run first.
   setTimeout(pollDeferredQueue, 5_000);
+  // R3 + R15 cadenced background jobs (also leader-elected).
+  maintenanceInterval = setInterval(runMaintenanceTick, MAINTENANCE_INTERVAL_MS);
+  auditTtlInterval = setInterval(runAuditTtlTick, AUDIT_TTL_INTERVAL_MS);
+  setTimeout(runMaintenanceTick, 30_000);
+  setTimeout(runAuditTtlTick, 60_000);
 }
 
 export function stopPressureGuardWorker() {
   if (pollInterval) {
     clearInterval(pollInterval);
     pollInterval = null;
-    logger.info("[PRESSURE_GUARD_WORKER] Stopped");
+  }
+  if (maintenanceInterval) {
+    clearInterval(maintenanceInterval);
+    maintenanceInterval = null;
+  }
+  if (auditTtlInterval) {
+    clearInterval(auditTtlInterval);
+    auditTtlInterval = null;
+  }
+  logger.info("[PRESSURE_GUARD_WORKER] Stopped");
+}
+
+/**
+ * Try to claim a session-level advisory lock for the duration of `fn`.
+ * Returns the result of `fn` if acquired, or `null` if another node owns
+ * the lock. The lock is released even on failure. Used to single-flight
+ * the drain poll across multiple worker processes (Task #145 R5).
+ */
+async function withSessionLock<T>(lockKey: number, label: string, fn: () => Promise<T>): Promise<T | null> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_lock($1) AS acquired`, [lockKey]);
+    if (!r.rows[0]?.acquired) return null;
+    try {
+      return await fn();
+    } finally {
+      try { await client.query(`SELECT pg_advisory_unlock($1)`, [lockKey]); } catch (e: any) {
+        logger.warn(`[${label}] failed to release lock ${lockKey}: ${e?.message || e}`);
+      }
+    }
+  } finally {
+    client.release();
   }
 }
 
@@ -55,6 +118,24 @@ async function pollDeferredQueue() {
   if (isPolling) return;
   if (getPressureGuardBootstrapState() !== "ready") return;
   isPolling = true;
+  try {
+    // R5: leader election. When multiple worker processes run (split web
+    // + worker mode, multi-replica), only one node should drain a tick;
+    // others bail immediately so we never double-claim under SKIP LOCKED
+    // *and* never burn duplicate gauge resets.
+    const ran = await withSessionLock(LOCK_KEYS.PRESSURE_DRAIN, "PRESSURE_DRAIN", async () => {
+      await pollDeferredQueueInner();
+      return true;
+    });
+    if (ran === null) return;
+  } catch (err: any) {
+    logger.error(`[PRESSURE_GUARD_WORKER] poll error: ${err?.message || err}`);
+  } finally {
+    isPolling = false;
+  }
+}
+
+async function pollDeferredQueueInner() {
   try {
     // Refresh the per-campaign gauge regardless of whether we have work.
     try {
@@ -95,13 +176,75 @@ async function pollDeferredQueue() {
       }
     }
   } catch (err: any) {
-    logger.error(`[PRESSURE_GUARD_WORKER] poll error: ${err?.message || err}`);
-  } finally {
-    isPolling = false;
+    logger.error(`[PRESSURE_GUARD_WORKER] poll inner error: ${err?.message || err}`);
   }
 }
 
-async function drainCampaign(campaignId: string): Promise<void> {
+/**
+ * Task #145 R3: refresh `critsend_pressure_deferred_index_size_bytes`
+ * and, when bloat exceeds `PRESSURE_REINDEX_BLOAT_BYTES` (default 256 MB),
+ * run REINDEX CONCURRENTLY on the partial deferred index. Both read and
+ * REINDEX are guarded by a session-level advisory lock so multi-replica
+ * deployments only ever issue the REINDEX from one node.
+ */
+async function runMaintenanceTick() {
+  if (getPressureGuardBootstrapState() !== "ready") return;
+  await withSessionLock(LOCK_KEYS.PRESSURE_MAINTENANCE, "PRESSURE_MAINTENANCE", async () => {
+    try {
+      const r = await pool.query<{ size_bytes: string | null }>(
+        `SELECT pg_relation_size('campaign_sends_pressure_deferred_idx')::bigint AS size_bytes`,
+      );
+      const sizeBytes = Number(r.rows[0]?.size_bytes ?? 0);
+      pressureGuardDeferredIndexSizeBytes.set(sizeBytes);
+
+      const bloatThreshold = Number(process.env.PRESSURE_REINDEX_BLOAT_BYTES ?? 256 * 1024 * 1024);
+      if (sizeBytes >= bloatThreshold) {
+        logger.warn(
+          `[PRESSURE_MAINTENANCE] deferred index size ${sizeBytes}B >= threshold ${bloatThreshold}B — running REINDEX CONCURRENTLY`,
+        );
+        try {
+          await pool.query(`REINDEX INDEX CONCURRENTLY campaign_sends_pressure_deferred_idx`);
+          logger.info(`[PRESSURE_MAINTENANCE] REINDEX CONCURRENTLY completed`);
+        } catch (err: any) {
+          logger.warn(`[PRESSURE_MAINTENANCE] REINDEX failed (non-fatal): ${err?.message || err}`);
+        }
+      }
+    } catch (err: any) {
+      // pg_relation_size throws if the relation doesn't exist — boot race,
+      // index still building. Treat as a soft no-op.
+      logger.warn(`[PRESSURE_MAINTENANCE] tick failed (non-fatal): ${err?.message || err}`);
+    }
+  });
+}
+
+/**
+ * Task #145 R15: enforce a 12-month TTL on pressure_flush_audit so the
+ * table doesn't grow unbounded for long-lived deployments. Runs daily,
+ * leader-elected.
+ */
+async function runAuditTtlTick() {
+  if (getPressureGuardBootstrapState() !== "ready") return;
+  await withSessionLock(LOCK_KEYS.PRESSURE_AUDIT_TTL, "PRESSURE_AUDIT_TTL", async () => {
+    try {
+      const months = Number.isFinite(AUDIT_TTL_MONTHS) && AUDIT_TTL_MONTHS > 0 ? Math.floor(AUDIT_TTL_MONTHS) : 12;
+      const r = await pool.query(
+        `DELETE FROM pressure_flush_audit
+         WHERE created_at < NOW() - ($1::int || ' months')::interval`,
+        [months],
+      );
+      if ((r.rowCount ?? 0) > 0) {
+        logger.info(`[PRESSURE_AUDIT_TTL] Deleted ${r.rowCount} pressure_flush_audit row(s) older than ${months} months`);
+      }
+    } catch (err: any) {
+      logger.warn(`[PRESSURE_AUDIT_TTL] tick failed (non-fatal): ${err?.message || err}`);
+    }
+  });
+}
+
+// Exported for tests: drives a single drain wave for `campaignId`. Tests
+// can call this directly to assert FIFO cascade and unsubscribe-during-
+// window behavior without spinning up the full poll interval.
+export async function drainCampaign(campaignId: string): Promise<void> {
   const campaign: Campaign | undefined = await storage.getCampaign(campaignId);
   if (!campaign) return;
   const mta: Mta | undefined = campaign.mtaId ? await storage.getMta(campaign.mtaId) : undefined;
