@@ -76,6 +76,7 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
       try {
         await client.query(`ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_sent_at timestamp`);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS deferred_count integer NOT NULL DEFAULT 0`);
+        await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
         await client.query(`
           CREATE TABLE IF NOT EXISTS pressure_flush_audit (
@@ -288,9 +289,16 @@ export async function pressureGuardReserveSendSlots(
         existing_winners AS (
           -- Pre-existing pending/attempting rows count as winners without
           -- re-stamping last_sent_at — the slot was claimed already.
+          -- Use FOR UPDATE SKIP LOCKED so concurrent reservers do NOT
+          -- both inherit the same pre-existing row as a winner; only the
+          -- caller that holds the row-lock picks it up. Combined with
+          -- per-subscriber pg_advisory_xact_lock above, this guarantees
+          -- exactly-one immediate winner per (campaign, subscriber) even
+          -- across retries/resumes that race the same chunk.
           SELECT subscriber_id FROM campaign_sends
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[])
             AND status IN ('pending','attempting') AND eligible_at IS NULL
+          FOR UPDATE SKIP LOCKED
         ),
         reserved AS (
           INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)

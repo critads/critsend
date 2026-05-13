@@ -131,9 +131,19 @@ export function registerPressureRoutes(app: Express): void {
   app.post("/api/campaigns/:id/queue/flush", async (req: Request, res: Response) => {
     if (!requireAuth(req, res)) return;
     const campaignId = req.params.id;
-    const { scope, subscriberIds, reason } = req.body ?? {};
+    const { subscriberIds, reason } = req.body ?? {};
+    const csIdsRaw = (req.body as any)?.campaignSendIds;
+    // Spec contract: body = { campaignSendIds: string[] | "all", reason }.
+    // `scope` is now optional and inferred from the payload shape; the
+    // legacy { scope, subscriberIds } body still works for the in-app UI.
+    let scope: "selected" | "all" | undefined = (req.body as any)?.scope;
+    if (!scope) {
+      if (csIdsRaw === "all") scope = "all";
+      else if (Array.isArray(csIdsRaw) && csIdsRaw.length > 0) scope = "selected";
+      else if (Array.isArray(subscriberIds) && subscriberIds.length > 0) scope = "selected";
+    }
     if (scope !== "selected" && scope !== "all") {
-      return res.status(400).json({ error: "scope must be 'selected' or 'all'" });
+      return res.status(400).json({ error: "Provide campaignSendIds: string[] | \"all\" (or legacy scope)" });
     }
     if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
       return res.status(400).json({ error: "reason (>=3 chars) is required" });
@@ -142,7 +152,7 @@ export function registerPressureRoutes(app: Express): void {
       // Spec contract: body = { campaignSendIds: string[] | "all", reason }.
       // We also accept the legacy `{ scope, subscriberIds }` shape for
       // backward compatibility with the in-app UI.
-      const csIds = (req.body as any)?.campaignSendIds;
+      const csIds = csIdsRaw;
       let count = 0;
       if (csIds === "all" || scope === "all" || scope === "campaign-all") {
         count = await flushDeferredSends({

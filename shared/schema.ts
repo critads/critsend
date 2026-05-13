@@ -143,6 +143,11 @@ export const campaigns = pgTable("campaigns", {
   // counts as 2. Live count of currently-pending deferred rows is computed
   // ad-hoc via campaign_sends WHERE status='pending' AND eligible_at IS NOT NULL.
   deferredCount: integer("deferred_count").notNull().default(0),
+  // Pressure-guard contract column. We do NOT skip pressure-blocked sends
+  // (they are deferred and drained later), so this counter remains 0 in
+  // the current implementation; the column is kept for spec/contract
+  // compatibility and future "skip" semantics if the policy ever changes.
+  skippedPressureCount: integer("skipped_pressure_count").notNull().default(0),
   // ── Auto-resend to openers (36h follow-up) ──────────────────────────
   // parentCampaignId: when set, this campaign is a follow-up child sent only
   //   to subscribers who opened the parent. Audience iteration in
@@ -530,6 +535,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   pendingCount: true, 
   failedCount: true,
   deferredCount: true,
+  skippedPressureCount: true,
   autoRetryCount: true,
   createdAt: true,
   startedAt: true,
@@ -556,6 +562,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   pendingCount: true,
   failedCount: true,
   deferredCount: true,
+  skippedPressureCount: true,
   autoRetryCount: true,
   createdAt: true,
   startedAt: true,
