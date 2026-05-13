@@ -42,17 +42,21 @@ import {
 // Task #145 R14: strict bounds [5min, 7d]. Out-of-range values cause
 // the module to throw at import time so misconfiguration cannot reach
 // the running guard. Production ignores the env entirely.
-const PRESSURE_WINDOW_MIN_HOURS = 5 / 60; // 5 minutes
-const PRESSURE_WINDOW_MAX_HOURS = 168;    // 7 days
+// We compare in MINUTES (rounded) so the documented short-form value
+// "0.0833" (the conventional decimal for 5 minutes) is accepted even
+// though it is numerically a hair under 5/60 hours.
+const PRESSURE_WINDOW_MIN_MINUTES = 5;
+const PRESSURE_WINDOW_MAX_MINUTES = 168 * 60; // 7 days
 export const PRESSURE_WINDOW_HOURS = (() => {
   if (process.env.NODE_ENV === "production") return 6;
   const raw = process.env.PRESSURE_WINDOW_HOURS;
   if (!raw) return 6;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < PRESSURE_WINDOW_MIN_HOURS || parsed > PRESSURE_WINDOW_MAX_HOURS) {
+  const minutes = Math.round(parsed * 60);
+  if (!Number.isFinite(parsed) || minutes < PRESSURE_WINDOW_MIN_MINUTES || minutes > PRESSURE_WINDOW_MAX_MINUTES) {
     throw new Error(
       `[PRESSURE_GUARD] PRESSURE_WINDOW_HOURS=${raw} is invalid; ` +
-      `must be a finite number in [${PRESSURE_WINDOW_MIN_HOURS}h, ${PRESSURE_WINDOW_MAX_HOURS}h]`,
+      `must be a finite number in [${PRESSURE_WINDOW_MIN_MINUTES}min, ${PRESSURE_WINDOW_MAX_MINUTES}min]`,
     );
   }
   return parsed;
