@@ -231,6 +231,34 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     throw new Error(msg);
   }
 
+  // Strict FIFO enforcement (Task #144): "Order = campaigns.started_at ASC".
+  // If any older campaign is still 'sending', requeue this one so the
+  // older campaign's reservations land first. Combined with the
+  // started_at-ordered job claim and per-subscriber advisory locks at
+  // CAS, this makes the immediate-winner choice deterministic by
+  // started_at — a newer campaign cannot grab a per-subscriber lock
+  // ahead of an older sending campaign because it never gets to run.
+  // Self/follow-up jobs (same campaign id) are excluded so resumed
+  // campaigns don't deadlock against themselves.
+  const myStartedRow = await db.execute(sql`SELECT started_at FROM campaigns WHERE id = ${campaignId}`);
+  const myStartedAt: Date | null = (myStartedRow.rows[0] as any)?.started_at ?? null;
+  if (myStartedAt) {
+    const olderSendingRow = await db.execute(sql`
+      SELECT id FROM campaigns
+      WHERE status = 'sending'
+        AND id <> ${campaignId}
+        AND started_at IS NOT NULL
+        AND started_at < ${myStartedAt}
+      LIMIT 1
+    `);
+    if (olderSendingRow.rows.length > 0) {
+      const olderId = (olderSendingRow.rows[0] as any).id;
+      const msg = `Older campaign ${olderId} still sending; deferring ${campaignId} (FIFO by started_at)`;
+      logger.info(`${logPrefix} ${msg}`);
+      throw new Error(msg);
+    }
+  }
+
   const recovered = await storage.recoverOrphanedPendingSends(campaignId, 2);
   if (recovered > 0) {
     logger.info(`${logPrefix} Recovered ${recovered} orphaned pending sends`);
