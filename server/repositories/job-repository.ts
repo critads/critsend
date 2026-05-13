@@ -76,13 +76,20 @@ export async function enqueueCampaignJobWithRetry(campaignId: string, retryCount
 }
 
 export async function claimNextJob(workerId: string): Promise<CampaignJob | null> {
+  // FIFO order is keyed on campaigns.started_at (Task #144 — Marketing
+  // Pressure Guard) so concurrent campaigns drain deterministically by
+  // the oldest started, not by job-row creation timestamp. Jobs whose
+  // campaign hasn't been started yet (started_at IS NULL — first run)
+  // sort last via NULLS LAST and tie-break on created_at to preserve the
+  // historical behavior for those edge cases.
   const result = await db.execute(sql`
     UPDATE campaign_jobs
     SET status = 'processing', started_at = NOW(), worker_id = ${workerId}
     WHERE id = (
-      SELECT id FROM campaign_jobs
-      WHERE status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-      ORDER BY created_at ASC
+      SELECT cj.id FROM campaign_jobs cj
+      LEFT JOIN campaigns c ON c.id = cj.campaign_id
+      WHERE cj.status = 'pending' AND (cj.next_retry_at IS NULL OR cj.next_retry_at <= NOW())
+      ORDER BY c.started_at ASC NULLS LAST, cj.created_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     )

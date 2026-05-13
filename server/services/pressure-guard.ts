@@ -42,6 +42,31 @@ export function getPressureGuardBootstrapState() {
   return bootstrapState;
 }
 
+async function verifyPressureSchemaReady(): Promise<boolean> {
+  // Sender start-up gate (Task #144): only flip bootstrapState='ready'
+  // after every required schema artefact is observably present. Catches
+  // the case where withAdvisoryLock() returns 'skipped' (another node
+  // is mid-bootstrap) or 'error' (lock acquisition failed) — neither
+  // implies the columns/indexes/audit table actually exist on this DB.
+  try {
+    const r = await pool.query(`
+      SELECT
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name='subscribers' AND column_name='last_sent_at') AS has_last_sent_at,
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name='campaigns' AND column_name='deferred_count') AS has_deferred_count,
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name='campaign_sends' AND column_name='eligible_at') AS has_eligible_at,
+        EXISTS(SELECT 1 FROM information_schema.tables
+               WHERE table_name='pressure_flush_audit') AS has_audit
+    `);
+    const row = r.rows[0] as Record<string, boolean>;
+    return Boolean(row?.has_last_sent_at && row?.has_deferred_count && row?.has_eligible_at && row?.has_audit);
+  } catch {
+    return false;
+  }
+}
+
 export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred"> {
   let outcome: "ready" | "deferred" = "ready";
   const result = await withAdvisoryLock(
@@ -137,9 +162,20 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
     }
   }
 
-  if (outcome === "ready") {
+  // Lock-result-aware readiness: 'ran' is only authoritative if the inner
+  // DDL didn't trip our `outcome='deferred'` branch. 'skipped' / 'error'
+  // mean another node owns the bootstrap (or the lock query failed) — we
+  // verify the schema artefacts are observably present before flipping
+  // ready, otherwise we stay 'pending' and the sender's start-up gate
+  // re-throws so the job retries with backoff.
+  const schemaOk = await verifyPressureSchemaReady();
+  if (outcome === "ready" && (result === "ran" || schemaOk)) {
     bootstrapState = "ready";
-    logger.info(`[PRESSURE_GUARD] Bootstrap ready (window=${PRESSURE_WINDOW_HOURS}h)`);
+    logger.info(`[PRESSURE_GUARD] Bootstrap ready (window=${PRESSURE_WINDOW_HOURS}h, lock=${result}, schema_verified=${schemaOk})`);
+  } else {
+    bootstrapState = "deferred";
+    outcome = "deferred";
+    logger.warn(`[PRESSURE_GUARD] Bootstrap NOT ready: lock=${result}, schema_verified=${schemaOk}, outcome=${outcome}`);
   }
   return outcome;
 }
