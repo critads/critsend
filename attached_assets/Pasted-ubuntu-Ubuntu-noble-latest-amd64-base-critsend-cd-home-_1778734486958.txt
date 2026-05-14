@@ -1,0 +1,63 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+npm run build
+pm2 reload critsend-worker critsend-web --update-env
+sleep 10
+pm2 logs critsend-worker --lines 50 --nostream | grep -iE 'job_poll|claim|error' | tail -20
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2510 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-CW0cF8dL.css     89.94 kB │ gzip:  14.65 kB
+../dist/public/assets/index-izV6PnTl.js   1,577.42 kB │ gzip: 410.38 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.34s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 95ms
+building import worker...
+
+  dist/import-worker.cjs  639.8kb
+
+⚡ Done in 62ms
+building background worker...
+
+  dist/worker-main.cjs  998.1kb
+
+⚡ Done in 84ms
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-worker](1) ✓
+1|critsend | 2026-05-14 06:51:34 +02:00: 2026-05-14T04:51:34.111Z [WARN] [TRIGRAM] campaign_name_trgm_idx creation encountered an error during advisory lock
+1|critsend | 2026-05-14 06:51:34 +02:00: 2026-05-14T04:51:34.112Z [WARN] [SEGMENT_NAME_LOWER] Bootstrap lock error: canceling statement due to lock timeout
+1|critsend | 2026-05-14 06:51:34 +02:00: 2026-05-14T04:51:34.112Z [WARN] [INDEX] segment_name_lower_idx creation encountered an error during advisory lock
+1|critsend | 2026-05-14 06:51:42 +02:00: 2026-05-14T04:51:42.707Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:51:52 +02:00: 2026-05-14T04:51:52.701Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:52:02 +02:00: 2026-05-14T04:52:02.700Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:52:12 +02:00: 2026-05-14T04:52:12.699Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:52:22 +02:00: 2026-05-14T04:52:22.700Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:52:32 +02:00: 2026-05-14T04:52:32.700Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:52:42 +02:00: 2026-05-14T04:52:42.700Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:52:52 +02:00: 2026-05-14T04:52:52.701Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:53:02 +02:00: 2026-05-14T04:53:02.701Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:53:32 +02:00: 2026-05-14T04:53:32.088Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-14 06:53:42 +02:00: 2026-05-14T04:53:42.552Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:53:52 +02:00: 2026-05-14T04:53:52.551Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:54:02 +02:00: 2026-05-14T04:54:02.551Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:54:06 +02:00: 2026-05-14T04:54:06.748Z [ERROR] Failed to bulk process tag operations for tag O1JR:
+1|critsend | 2026-05-14 06:54:06 +02:00: 2026-05-14T04:54:06.748Z [ERROR] Error in tag queue processing:
+1|critsend | 2026-05-14 06:54:29 +02:00: 2026-05-14T04:54:29.856Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+1|critsend | 2026-05-14 06:54:30 +02:00: 2026-05-14T04:54:30.268Z [INFO] [JOB_POLL] Starting job processor with worker ID: worker-290283-1778734469855, max concurrent campaigns: 12

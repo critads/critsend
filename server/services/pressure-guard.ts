@@ -101,6 +101,40 @@ async function verifyPressureSchemaReady(): Promise<boolean> {
 }
 
 export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred"> {
+  // Fast-path (Task #145 hotfix): if every required schema artefact is
+  // already present from a prior boot, flip the sender gate to 'ready'
+  // immediately. The heavy maintenance below (DDL, CREATE INDEX
+  // CONCURRENTLY on multi-million-row partials, last_sent_at backfill)
+  // is fully idempotent and can run in the background — it must NOT
+  // block the gate, otherwise legitimate sending stalls for many minutes
+  // on every restart while indexes/backfill churn. Without this fast-
+  // path the sender wraps "Pressure-guard bootstrap not ready
+  // (state=pending)" as a non-transient error, the campaign_job is
+  // marked failed, and auto-resume re-creates a fresh pending job that
+  // hits the same wall — a tight crash loop with zero outbound traffic.
+  if (await verifyPressureSchemaReady()) {
+    if (bootstrapState !== "ready") {
+      bootstrapState = "ready";
+      stopBootstrapRetry();
+      logger.info(
+        `[PRESSURE_GUARD] Bootstrap fast-path: schema already verified, gate opened immediately (window=${PRESSURE_WINDOW_HOURS}h) — heavy maintenance will run in background`,
+      );
+    }
+    // Background heavy maintenance — failures are non-fatal and the next
+    // boot retries from where we left off. We intentionally do not await.
+    void runPressureGuardHeavyMaintenance().catch((err: any) => {
+      logger.warn(
+        `[PRESSURE_GUARD] Background heavy maintenance failed (non-fatal, will retry next boot): ${err?.message || err}`,
+      );
+    });
+    return "ready";
+  }
+  // Slow path: schema is not present yet, must complete DDL synchronously
+  // before allowing sends.
+  return await runPressureGuardHeavyMaintenance();
+}
+
+async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred"> {
   let outcome: "ready" | "deferred" = "ready";
   const result = await withAdvisoryLock(
     LOCK_KEYS.PRESSURE_GUARD,
