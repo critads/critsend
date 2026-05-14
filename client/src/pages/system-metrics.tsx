@@ -364,6 +364,28 @@ export default function SystemMetricsPage() {
     retry: 2,
   });
 
+  // Task #148: rolling-1h 503 attribution. Admin-gated; non-admin viewers
+  // get a 403 which we silently swallow so the rest of the page keeps
+  // rendering. Polls on the same cadence as the main metrics query.
+  const { data: attribution } = useQuery<{
+    windowMs: number;
+    total: number;
+    bySource: Record<string, number>;
+    byRoute: Record<string, number>;
+    byPair: Array<{ source: string; route: string; count: number }>;
+    recent: Array<{
+      ts: number; rid: string; method: string; path: string; route: string;
+      source: string; kind?: string; code?: string;
+      poolActive: number; poolMax: number; poolWaiting: number;
+      poolSaturation: number; leaseHolding: number;
+    }>;
+    cumulative: { total: number; bySource: Record<string, number>; byRoute: Record<string, number> };
+  }>({
+    queryKey: ["/api/admin/503-attribution"],
+    refetchInterval: autoRefresh ? 10000 : false,
+    retry: false,
+  });
+
   const handleRefresh = useCallback(() => { refetch(); }, [refetch]);
 
   useEffect(() => {
@@ -651,6 +673,87 @@ export default function SystemMetricsPage() {
                   ))}
               </TableBody>
             </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {attribution && (attribution.total > 0 || attribution.cumulative.total > 0) && (
+        <Card data-testid="card-503-attribution" className="border-amber-500/30 dark:border-amber-500/20">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-amber-500" />
+              <CardTitle className="text-lg">503 Attribution (last 1h)</CardTitle>
+              <Badge variant="secondary" data-testid="badge-503-window-total">
+                {formatNumber(attribution.total)} in window · {formatNumber(attribution.cumulative.total)} since boot
+              </Badge>
+            </div>
+            <CardDescription>
+              Every 503 (`service_busy`) by source × route. Sources: load_shed, lease_exceeded,
+              checkout_timeout, handler_transient, memory_pressure.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {attribution.byPair.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Route</TableHead>
+                    <TableHead className="text-right">Count (1h)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {attribution.byPair.slice(0, 12).map((p, i) => (
+                    <TableRow key={i} data-testid={`row-503-pair-${i}`}>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono">{p.source}</Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">{p.route}</TableCell>
+                      <TableCell className="text-right font-mono">{formatNumber(p.count)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground">No 503 events in the last hour.</p>
+            )}
+            {attribution.recent.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Most recent {attribution.recent.length} events
+                </p>
+                <div className="rounded border max-h-64 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>When</TableHead>
+                        <TableHead>Source</TableHead>
+                        <TableHead>Route</TableHead>
+                        <TableHead>Pool</TableHead>
+                        <TableHead className="text-right">Lease</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {[...attribution.recent].reverse().map((e, i) => (
+                        <TableRow key={`${e.ts}-${e.rid}-${i}`} data-testid={`row-503-event-${i}`}>
+                          <TableCell className="font-mono text-xs whitespace-nowrap">
+                            {new Date(e.ts).toLocaleTimeString()}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="font-mono text-xs">{e.source}{e.kind ? `:${e.kind}` : ""}</Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{e.method} {e.route}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {e.poolActive}/{e.poolMax} w={e.poolWaiting} sat={e.poolSaturation.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs">{e.leaseHolding}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

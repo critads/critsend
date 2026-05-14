@@ -74,23 +74,46 @@ interface AttributionRecord {
   leaseHolding: number;
 }
 
-const RING_CAPACITY = 50;
-const ring: AttributionRecord[] = [];
-let ringHead = 0;
+// Timestamped per-emission event log. Sized large enough to hold a busy
+// hour's worth of 503s comfortably (5 000 events @ ~1.4/s sustained for
+// 1 h). Records older than EVENT_RETENTION_MS are evicted on the next
+// push so the rolling-1h aggregation can scan the whole array safely.
+//
+// The legacy "last 50" recent-events view returned by the admin endpoint
+// is derived from the tail of the same buffer.
+const EVENT_BUFFER_CAPACITY = 5000;
+const EVENT_RETENTION_MS = 60 * 60 * 1000; // 1 h
+const events: AttributionRecord[] = [];
 
-function pushRing(rec: AttributionRecord): void {
-  if (ring.length < RING_CAPACITY) {
-    ring.push(rec);
-    return;
+function pushEvent(rec: AttributionRecord): void {
+  events.push(rec);
+  // Evict overflow (capacity cap) AND anything older than retention.
+  // Cheap: events arrive in chronological order so a single splice from
+  // index 0 covers both cases.
+  let drop = 0;
+  const cutoff = rec.ts - EVENT_RETENTION_MS;
+  while (drop < events.length && events[drop].ts < cutoff) drop++;
+  if (events.length - drop > EVENT_BUFFER_CAPACITY) {
+    drop = events.length - EVENT_BUFFER_CAPACITY;
   }
-  ring[ringHead] = rec;
-  ringHead = (ringHead + 1) % RING_CAPACITY;
+  if (drop > 0) events.splice(0, drop);
 }
 
 /** Snapshot of the last 50 503 emissions (newest last). */
 export function getRecentServiceBusyEvents(): AttributionRecord[] {
-  if (ring.length < RING_CAPACITY) return [...ring];
-  return [...ring.slice(ringHead), ...ring.slice(0, ringHead)];
+  return events.slice(-50);
+}
+
+/** All events emitted within the last `windowMs` ms (default 1 h). Used
+ *  by the admin attribution endpoint for the rolling-window breakdown. */
+export function getEventsWithinWindow(windowMs: number = EVENT_RETENTION_MS): AttributionRecord[] {
+  const cutoff = Date.now() - windowMs;
+  // Linear scan from the right is faster than filter() since events are
+  // chronological — bail at the first older record.
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].ts < cutoff) return events.slice(i + 1);
+  }
+  return [...events];
 }
 
 // ── Per-(source,route) log throttling: 1 full line per second; bursts
@@ -214,7 +237,7 @@ export function emitServiceBusy(
   };
 
   bumpCounter(ctx.source, ctx.kind, route);
-  pushRing(rec);
+  pushEvent(rec);
   logEmission(rec, ctx.errorMessage);
 
   if (res.headersSent) return;
@@ -258,38 +281,70 @@ export function recordServiceBusy(
     leaseHolding,
   };
   bumpCounter(ctx.source, ctx.kind, route);
-  pushRing(rec);
+  pushEvent(rec);
   logEmission(rec, ctx.errorMessage);
 }
 
 /**
- * Aggregated counters for the admin attribution endpoint. The per-source
- * Prometheus counters are the canonical totals; this returns a snapshot
- * of `serviceBusy503Total` partitioned by (source, route).
+ * Rolling-window aggregation for the admin attribution endpoint. The
+ * per-source Prometheus counters are the cumulative source-of-truth
+ * (returned in `cumulative`), but the breakdown returned here is the
+ * rolling 1 h slice of the in-process event buffer — which is what
+ * operators actually want during incident triage ("what's blowing up
+ * RIGHT NOW").
  */
 export interface AttributionSnapshot {
+  windowMs: number;
   total: number;
   bySource: Record<string, number>;
   byRoute: Record<string, number>;
   byPair: Array<{ source: string; route: string; count: number }>;
   recent: AttributionRecord[];
+  cumulative: {
+    total: number;
+    bySource: Record<string, number>;
+    byRoute: Record<string, number>;
+  };
 }
 
-export async function getAttributionSnapshot(): Promise<AttributionSnapshot> {
-  const metric = await serviceBusy503Total.get();
+export async function getAttributionSnapshot(
+  windowMs: number = EVENT_RETENTION_MS,
+): Promise<AttributionSnapshot> {
+  // ── Rolling window slice ────────────────────────────────────────────
+  const slice = getEventsWithinWindow(windowMs);
   const bySource: Record<string, number> = {};
   const byRoute: Record<string, number> = {};
-  const byPair: Array<{ source: string; route: string; count: number }> = [];
-  let total = 0;
+  const pairKey = new Map<string, { source: string; route: string; count: number }>();
+  for (const e of slice) {
+    bySource[e.source] = (bySource[e.source] ?? 0) + 1;
+    byRoute[e.route] = (byRoute[e.route] ?? 0) + 1;
+    const k = `${e.source}|${e.route}`;
+    const existing = pairKey.get(k);
+    if (existing) existing.count++;
+    else pairKey.set(k, { source: e.source, route: e.route, count: 1 });
+  }
+  const byPair = Array.from(pairKey.values()).sort((a, b) => b.count - a.count);
+
+  // ── Cumulative-since-process-start (Prometheus counter) ─────────────
+  const metric = await serviceBusy503Total.get();
+  const cBySource: Record<string, number> = {};
+  const cByRoute: Record<string, number> = {};
+  let cTotal = 0;
   for (const v of metric.values) {
     const source = String(v.labels.source);
     const route = String(v.labels.route);
-    const count = v.value;
-    total += count;
-    bySource[source] = (bySource[source] ?? 0) + count;
-    byRoute[route] = (byRoute[route] ?? 0) + count;
-    byPair.push({ source, route, count });
+    cTotal += v.value;
+    cBySource[source] = (cBySource[source] ?? 0) + v.value;
+    cByRoute[route] = (cByRoute[route] ?? 0) + v.value;
   }
-  byPair.sort((a, b) => b.count - a.count);
-  return { total, bySource, byRoute, byPair, recent: getRecentServiceBusyEvents() };
+
+  return {
+    windowMs,
+    total: slice.length,
+    bySource,
+    byRoute,
+    byPair,
+    recent: getRecentServiceBusyEvents(),
+    cumulative: { total: cTotal, bySource: cBySource, byRoute: cByRoute },
+  };
 }

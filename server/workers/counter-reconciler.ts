@@ -56,11 +56,42 @@ export interface ReconcileResult {
  * tracking-buffer flush — every UPDATE is guarded so it only ever fills a
  * NULL or corrects a value that disagrees with the source-of-truth count.
  */
+/** Hard wall-clock budget per reconcile tick. If a single query is still
+ *  running at this mark, the dedicated client is released back to the
+ *  pool (terminating the in-flight statement_timeout) and the tick logs
+ *  the offending stage. This guarantees the reconciler never holds a
+ *  pool slot for the full 120 s pg statement_timeout. */
+const RECONCILE_TICK_BUDGET_MS = Number(process.env.COUNTER_RECONCILE_TICK_BUDGET_MS || 30 * 1000);
+
+type ReconcileStage =
+  | "idle"
+  | "sent_count"
+  | "first_open_at"
+  | "first_click_at"
+  | "engagement_counters";
+
 export async function reconcileCounters(
   options: { scope?: "recent" | "all" } = {},
 ): Promise<ReconcileResult> {
   const start = Date.now();
   const scope = options.scope ?? "recent";
+  // Track which stage is currently running so the 30 s budget guard can
+  // tell operators exactly which query stalled.
+  let currentStage: ReconcileStage = "idle";
+  let aborted = false;
+  const guard = setTimeout(() => {
+    aborted = true;
+    logger.error(
+      `[COUNTER RECONCILER] tick exceeded ${RECONCILE_TICK_BUDGET_MS}ms budget — stage=${currentStage} (scope=${scope}). ` +
+        `Aborting tick; pg statement_timeout will release the connection.`,
+    );
+  }, RECONCILE_TICK_BUDGET_MS);
+  guard.unref();
+  const checkBudget = (): void => {
+    if (aborted) {
+      throw new Error(`[COUNTER RECONCILER] aborted at stage=${currentStage} (>${RECONCILE_TICK_BUDGET_MS}ms budget)`);
+    }
+  };
 
   // Recent-activity campaign set: any campaign with a send OR a tracking event
   // in the last RECONCILE_WINDOW_HOURS. Used as the gating set for all three
@@ -87,6 +118,7 @@ export async function reconcileCounters(
   const inRecentRow = scope === "all" ? "" : `AND campaign_id IN (SELECT campaign_id FROM recent_campaigns)`;
 
   // 1. campaigns.sent_count (fill-only — never reduces)
+  currentStage = "sent_count";
   const sentRes = await effectivePool.query(
     `${truthLead} (
        SELECT campaign_id, COUNT(*)::bigint AS cnt
@@ -102,8 +134,10 @@ export async function reconcileCounters(
         AND c.sent_count < truth.cnt`,
   );
   const sentCountFixed = sentRes.rowCount ?? 0;
+  checkBudget();
 
   // 2. campaign_sends.first_open_at
+  currentStage = "first_open_at";
   const openRes = await effectivePool.query(
     `${truthLead} (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
@@ -120,8 +154,10 @@ export async function reconcileCounters(
         AND cs.first_open_at IS NULL`,
   );
   const firstOpenFixed = openRes.rowCount ?? 0;
+  checkBudget();
 
   // 3. campaign_sends.first_click_at
+  currentStage = "first_click_at";
   const clickRes = await effectivePool.query(
     `${truthLead} (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
@@ -138,8 +174,10 @@ export async function reconcileCounters(
         AND cs.first_click_at IS NULL`,
   );
   const firstClickFixed = clickRes.rowCount ?? 0;
+  checkBudget();
 
   // 4. Cached engagement counters on campaigns.* — single UPDATE that re-derives
+  currentStage = "engagement_counters";
   //    all six counters from campaign_stats via direct assignment. The truth
   //    from campaign_stats is always authoritative; if the cached counter
   //    drifted above truth (e.g. a bug in an earlier code version inflated
@@ -177,6 +215,8 @@ export async function reconcileCounters(
            OR c.complaints_count    IS DISTINCT FROM truth.complaints )`,
   );
   const engagementCountersFixed = engagementRes.rowCount ?? 0;
+  currentStage = "idle";
+  clearTimeout(guard);
 
   const durationMs = Date.now() - start;
 

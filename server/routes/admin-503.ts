@@ -73,7 +73,13 @@ export function register503AttributionRoutes(app: Express): void {
       return res.status(403).json({ error: "Forbidden" });
     }
     try {
-      const snap = await getAttributionSnapshot();
+      // ?windowMs=NNN lets ops zoom in (e.g. last 5 min during incident).
+      // Default 1 h, capped at 1 h (= the in-process retention window).
+      const requested = Number(req.query.windowMs);
+      const windowMs = Number.isFinite(requested) && requested > 0
+        ? Math.min(requested, 60 * 60 * 1000)
+        : undefined;
+      const snap = await getAttributionSnapshot(windowMs);
       res.json({
         generatedAt: new Date().toISOString(),
         ...snap,

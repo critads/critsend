@@ -412,7 +412,14 @@ export default function Campaigns() {
               // succeed" (503 service_busy) from genuine failures so users
               // don't see a scary red banner for a 1-second blip.
               const err = error as any;
-              const isBusy = err?.status === 503 || err?.body?.error === "service_busy";
+              // Tighten busy detection: only treat a 503 as transient
+              // pressure when it carries the canonical service_busy
+              // contract (body.error or a Retry-After header). Genuine
+              // 503s from upstream proxies / unrelated failures still
+              // surface as the red error card so they're not hidden.
+              const isBusy =
+                err?.status === 503 &&
+                (err?.body?.error === "service_busy" || (err?.retryAfterSeconds ?? 0) > 0);
               if (isBusy) {
                 return (
                   <div className="flex flex-col items-center justify-center py-16 text-center gap-4" data-testid="campaigns-busy-state">
