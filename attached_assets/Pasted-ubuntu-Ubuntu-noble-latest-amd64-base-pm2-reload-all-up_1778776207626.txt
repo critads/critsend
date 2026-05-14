@@ -1,0 +1,23 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ pm2 reload all --update-env
+sleep 15
+pm2 logs --nostream --lines 100 | grep -E "PRESSURE_GUARD_WORKER|LOCK_RECOVERY|leader_acquired" | tail -20
+psql "$DATABASE_URL" -c "SELECT date_trunc('minute', sent_at) m, COUNT(*) FROM campaign_sends WHERE sent_at > NOW() - INTERVAL '5 min' AND status='sent' GROUP BY 1 ORDER BY 1 DESC;"
+[PM2] Applying action reloadProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+0|critsend | 2026-05-14 18:29:06 +02:00: 2026-05-14T16:29:06.273Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 3 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900001":1,"900002":1,"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-14 18:29:36 +02:00: 2026-05-14T16:29:36.339Z [ERROR] [PRESSURE_GUARD_WORKER] poll inner error: canceling statement due to statement timeout
+1|critsend | 2026-05-14 18:29:36 +02:00: 2026-05-14T16:29:36.197Z [WARN] [LOCK_RECOVERY] (worker-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900001":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+1|critsend | 2026-05-14 18:28:57 +02:00: 2026-05-14T16:28:57.756Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:29:05 +02:00: 2026-05-14T16:29:05.132Z [INFO] [PRESSURE_GUARD_WORKER] Stopped
+1|critsend | 2026-05-14 18:29:36 +02:00: 2026-05-14T16:29:36.648Z [INFO] [PRESSURE_GUARD_WORKER] Starting (poll=10000ms, batch=1000, max-campaigns=20, drain-parallelism=4, smtp-concurrency=20, window=6h)
+0|critsend | 2026-05-14 18:28:42 +02:00: 2026-05-14T16:28:42.226Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:28:50 +02:00: 2026-05-14T16:28:50.905Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:29:01 +02:00: 2026-05-14T16:29:01.250Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:29:04 +02:00: 2026-05-14T16:29:04.592Z [INFO] [PRESSURE_GUARD_WORKER] Stopped
+0|critsend | 2026-05-14 18:29:06 +02:00: 2026-05-14T16:29:06.281Z [INFO] [PRESSURE_GUARD_WORKER] Starting (poll=10000ms, batch=1000, max-campaigns=20, drain-parallelism=4, smtp-concurrency=20, window=6h)
+0|critsend | 2026-05-14 18:29:20 +02:00: 2026-05-14T16:29:20.317Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:29:36 +02:00: 2026-05-14T16:29:36.340Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, drained_calls=0, errors=1
+0|critsend | 2026-05-14 18:29:46 +02:00: 2026-05-14T16:29:46.314Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
