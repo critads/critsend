@@ -911,6 +911,21 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     startImportGuardian();
     startCampaignGuardian();
 
+    // Pressure-guard deferred-drain worker (Task #144).
+    // In split-process or DISABLE_WORKERS=true deployments, the dedicated
+    // worker process never runs `startAllWorkers()` (which is the only other
+    // caller of `startPressureGuardWorker`). Without this, deferred rows
+    // (status='pending' AND eligible_at IS NOT NULL) are produced by the
+    // sender but NEVER consumed — `campaigns.deferred_count` grows
+    // monotonically, the queue page shows ever-increasing "pending deferred",
+    // and campaigns can never flip to 'completed', causing the campaign
+    // guardian to re-enqueue them in a loop. Leader election via
+    // `pg_try_advisory_lock(LOCK_KEYS.PRESSURE_DRAIN)` inside the worker
+    // keeps this safe if a real worker process is later re-enabled — only
+    // one node ever drains a tick.
+    const { startPressureGuardWorker } = await import('./workers/pressure-guard-worker');
+    startPressureGuardWorker();
+
     messageQueue.onMessage('import_jobs', () => {
       logger.info('[IMPORT_GUARDIAN] import_jobs NOTIFY received — scheduling fallback poll in 10 s');
       setTimeout(() => {

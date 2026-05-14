@@ -76,46 +76,76 @@ interface AttributionRecord {
   leaseHolding: number;
 }
 
-// Timestamped per-emission event log. Sized large enough to hold a busy
-// hour's worth of 503s comfortably (5 000 events @ ~1.4/s sustained for
-// 1 h). Records older than EVENT_RETENTION_MS are evicted on the next
-// push so the rolling-1h aggregation can scan the whole array safely.
+// Timestamped per-emission event log, implemented as a fixed-capacity
+// ring buffer so push is O(1) (no Array.splice on the hot 503 path).
 //
-// The legacy "last 50" recent-events view returned by the admin endpoint
-// is derived from the tail of the same buffer.
+// Sizing: 5 000 events at sustained ~1.4 events/s covers a busy hour
+// comfortably. Capacity is the hard cap; older records are overwritten
+// in place when the head wraps. EVENT_RETENTION_MS is enforced ONLY on
+// read (`getEventsWithinWindow`) — the buffer itself never scans for
+// time-based eviction, eliminating the previous O(n) front-splice that
+// was flagged as a hot-path risk under saturation.
+//
+// The legacy "last 50" recent-events view returned by the admin
+// endpoint is derived from the tail of the same buffer.
 const EVENT_BUFFER_CAPACITY = 5000;
 const EVENT_RETENTION_MS = 60 * 60 * 1000; // 1 h
-const events: AttributionRecord[] = [];
+const ring: Array<AttributionRecord | undefined> = new Array(EVENT_BUFFER_CAPACITY);
+let ringHead = 0;   // next write slot
+let ringSize = 0;   // current number of valid records (≤ capacity)
 
 function pushEvent(rec: AttributionRecord): void {
-  events.push(rec);
-  // Evict overflow (capacity cap) AND anything older than retention.
-  // Cheap: events arrive in chronological order so a single splice from
-  // index 0 covers both cases.
-  let drop = 0;
-  const cutoff = rec.ts - EVENT_RETENTION_MS;
-  while (drop < events.length && events[drop].ts < cutoff) drop++;
-  if (events.length - drop > EVENT_BUFFER_CAPACITY) {
-    drop = events.length - EVENT_BUFFER_CAPACITY;
+  ring[ringHead] = rec;
+  ringHead = (ringHead + 1) % EVENT_BUFFER_CAPACITY;
+  if (ringSize < EVENT_BUFFER_CAPACITY) ringSize++;
+}
+
+/**
+ * Iterate ring entries in chronological order (oldest → newest) and
+ * return them as a fresh array. Cost is O(ringSize) but with no
+ * allocations beyond the result array — suitable for the once-per-
+ * admin-poll snapshot path. NOT called on the hot 503 emission path.
+ */
+function snapshotRing(): AttributionRecord[] {
+  if (ringSize === 0) return [];
+  const out: AttributionRecord[] = new Array(ringSize);
+  // Oldest record is at (head - size + capacity) % capacity. When the
+  // buffer hasn't wrapped yet (ringSize < capacity), oldest is at 0.
+  const start = ringSize < EVENT_BUFFER_CAPACITY
+    ? 0
+    : ringHead;
+  for (let i = 0; i < ringSize; i++) {
+    out[i] = ring[(start + i) % EVENT_BUFFER_CAPACITY] as AttributionRecord;
   }
-  if (drop > 0) events.splice(0, drop);
+  return out;
 }
 
 /** Snapshot of the last 50 503 emissions (newest last). */
 export function getRecentServiceBusyEvents(): AttributionRecord[] {
-  return events.slice(-50);
+  if (ringSize === 0) return [];
+  const n = Math.min(50, ringSize);
+  const out: AttributionRecord[] = new Array(n);
+  // Walk backwards from the most-recently-written slot.
+  for (let i = 0; i < n; i++) {
+    const idx = (ringHead - 1 - i + EVENT_BUFFER_CAPACITY) % EVENT_BUFFER_CAPACITY;
+    out[n - 1 - i] = ring[idx] as AttributionRecord;
+  }
+  return out;
 }
 
 /** All events emitted within the last `windowMs` ms (default 1 h). Used
- *  by the admin attribution endpoint for the rolling-window breakdown. */
+ *  by the admin attribution endpoint for the rolling-window breakdown.
+ *  Snapshots once and filters in place to avoid mutating the ring. */
 export function getEventsWithinWindow(windowMs: number = EVENT_RETENTION_MS): AttributionRecord[] {
+  if (ringSize === 0) return [];
   const cutoff = Date.now() - windowMs;
-  // Linear scan from the right is faster than filter() since events are
-  // chronological — bail at the first older record.
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].ts < cutoff) return events.slice(i + 1);
+  const snap = snapshotRing();
+  // Snapshot is already chronological (oldest first); find the first
+  // record newer than the cutoff and slice from there.
+  for (let i = 0; i < snap.length; i++) {
+    if (snap[i].ts >= cutoff) return snap.slice(i);
   }
-  return [...events];
+  return [];
 }
 
 // ── Per-event structured logging.
