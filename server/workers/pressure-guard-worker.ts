@@ -58,6 +58,14 @@ function envInt(name: string, defaultValue: number, min: number, max: number): n
 const POLL_INTERVAL_MS = envInt("PRESSURE_GUARD_POLL_MS", 30_000, 1_000, 24 * 60 * 60_000);
 const BATCH_PER_CAMPAIGN = envInt("PRESSURE_GUARD_BATCH", 200, 1, 100_000);
 const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_000);
+// Task #153: bounded-parallel drain. Each drainCampaign call peaks at ~2
+// main-pool connections (claim txn + finalize txn) plus per-send work that
+// is mostly SMTP I/O. With DRAIN_PARALLELISM=4 the per-tick peak DB
+// footprint is ~8 connections — well within the 30-slot main pool.
+// Default stays at 1 (current sequential behavior) to avoid regressing
+// any existing deployment; opt-in by setting the env var (typically 4).
+// Cap of 16 prevents runaway pool saturation if misconfigured.
+const DRAIN_PARALLELISM = envInt("PRESSURE_GUARD_DRAIN_PARALLELISM", 1, 1, 16);
 // Task #145 R3: refresh the index-size gauge hourly, but only run the
 // expensive VACUUM (ANALYZE) + REINDEX policy once per day during the
 // configured off-peak hour (default 03:00 server-local). Min 60s
@@ -78,7 +86,7 @@ let isPolling = false;
 
 export function startPressureGuardWorker() {
   if (pollInterval) return;
-  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, window=${PRESSURE_WINDOW_HOURS}h)`);
+  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, window=${PRESSURE_WINDOW_HOURS}h)`);
   pollInterval = setInterval(pollDeferredQueue, POLL_INTERVAL_MS);
   // Kick off after a short delay to let bootstrap run first.
   setTimeout(pollDeferredQueue, 5_000);
@@ -333,16 +341,37 @@ async function pollDeferredQueueInner() {
     `);
 
     eligibleCampaigns = campaignsRes.rows.length;
-    for (const row of campaignsRes.rows) {
-      const campaignId = (row as any).campaign_id as string;
-      try {
-        await drainCampaign(campaignId);
-        drainedCalls += 1;
-      } catch (err: any) {
-        errorCount += 1;
-        logger.error(`[PRESSURE_GUARD_WORKER] drainCampaign(${campaignId}) failed: ${err?.message || err}`);
-      }
+    // Task #153: bounded-parallel drain. The previous implementation
+    // awaited each drainCampaign sequentially, which capped per-tick
+    // throughput at ~1 campaign × BATCH rows / drain-duration. With 8-10
+    // active campaigns each holding 100k+ deferred rows (constated 2026-05-14
+    // prod incident: 321k due_now after 10 simultaneous launches on
+    // overlapping audiences), the sequential drain produced ~1500 sends/min
+    // total — completely insufficient. Parallelizing with a small fixed
+    // concurrency cap (typically 4) multiplies throughput proportionally
+    // without saturating the main pool. JS is single-threaded so the
+    // drainedCalls/errorCount increments inside the worker functions are
+    // race-free even though the surrounding awaits interleave.
+    const queue = campaignsRes.rows.slice();
+    const workers: Promise<void>[] = [];
+    const parallelism = Math.min(DRAIN_PARALLELISM, queue.length);
+    for (let i = 0; i < parallelism; i++) {
+      workers.push((async () => {
+        while (queue.length > 0) {
+          const row = queue.shift();
+          if (!row) break;
+          const campaignId = (row as any).campaign_id as string;
+          try {
+            await drainCampaign(campaignId);
+            drainedCalls += 1;
+          } catch (err: any) {
+            errorCount += 1;
+            logger.error(`[PRESSURE_GUARD_WORKER] drainCampaign(${campaignId}) failed: ${err?.message || err}`);
+          }
+        }
+      })());
     }
+    await Promise.all(workers);
   } catch (err: any) {
     errorCount += 1;
     logger.error(`[PRESSURE_GUARD_WORKER] poll inner error: ${err?.message || err}`);

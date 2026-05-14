@@ -67,6 +67,20 @@ module.exports = {
         // by deploy/setup.sh. Override in .env if needed.
         IMPORT_UPLOAD_DIR: dotenvVars.IMPORT_UPLOAD_DIR || "/var/lib/critsend/uploads/imports",
         IMPORT_CHUNKS_DIR: dotenvVars.IMPORT_CHUNKS_DIR || "/var/lib/critsend/uploads/chunks",
+        // Task #153: pressure-guard drain tuning persisted across PM2
+        // reloads. The drain runs in BOTH the web (DISABLE_WORKERS branch
+        // in server/index.ts) and worker processes — only one acquires the
+        // leader lease at a time, so the values must match on both sides.
+        // Tuned during the 2026-05-14 prod incident (10+ campaigns launched
+        // in parallel on overlapping audiences → 321k due_now backlog) to
+        // accelerate drain throughput from ~1.5k to ~25k sends/min while
+        // staying within the 50-conn Neon Launch budget. Override in .env
+        // if needed; do NOT raise DRAIN_PARALLELISM above 6 without first
+        // verifying main-pool headroom (see CONNECTION BUDGET log line).
+        PRESSURE_GUARD_POLL_MS: dotenvVars.PRESSURE_GUARD_POLL_MS || "10000",
+        PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
+        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
+        PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
       },
 
       max_restarts: 10,
@@ -101,6 +115,12 @@ module.exports = {
         // worker-side temp writes land on the persistent volume.
         IMPORT_UPLOAD_DIR: dotenvVars.IMPORT_UPLOAD_DIR || "/var/lib/critsend/uploads/imports",
         IMPORT_CHUNKS_DIR: dotenvVars.IMPORT_CHUNKS_DIR || "/var/lib/critsend/uploads/chunks",
+        // Task #153: same pressure-guard drain tuning as the web process.
+        // The drain leader can be either side; values MUST match.
+        PRESSURE_GUARD_POLL_MS: dotenvVars.PRESSURE_GUARD_POLL_MS || "10000",
+        PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
+        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
+        PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
       },
 
       max_restarts: 50,
