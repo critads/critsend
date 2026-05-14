@@ -1,0 +1,109 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ psql "postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" <<'SQL'
+SET statement_timeout='30s';
+
+-- D'abord, vérifions les colonnes réelles
+\d campaign_sends
+\d campaigns
+SQL
+SET
+                              Table "public.campaign_sends"
+     Column     |            Type             | Collation | Nullable |      Default      
+----------------+-----------------------------+-----------+----------+-------------------
+ id             | character varying           |           | not null | gen_random_uuid()
+ campaign_id    | character varying           |           | not null | 
+ subscriber_id  | character varying           |           | not null | 
+ sent_at        | timestamp without time zone |           | not null | now()
+ status         | text                        |           | not null | 'sent'::text
+ first_open_at  | timestamp without time zone |           |          | 
+ first_click_at | timestamp without time zone |           |          | 
+ retry_count    | integer                     |           | not null | 0
+ last_retry_at  | timestamp without time zone |           |          | 
+ eligible_at    | timestamp without time zone |           |          | 
+Indexes:
+    "campaign_sends_pkey" PRIMARY KEY, btree (id)
+    "campaign_sends_active_subscriber_idx" btree (subscriber_id, campaign_id) WHERE status = ANY (ARRAY['pending'::text, 'attempting'::text]) INVALID
+    "campaign_sends_campaign_idx" btree (campaign_id)
+    "campaign_sends_campaign_status_idx" btree (campaign_id, status)
+    "campaign_sends_pressure_campaign_eligible_idx" btree (campaign_id, eligible_at) WHERE status = 'pending'::text AND eligible_at IS NOT NULL
+    "campaign_sends_pressure_curve_idx" btree (sent_at) WHERE eligible_at IS NOT NULL
+    "campaign_sends_pressure_deferred_idx" btree (eligible_at) WHERE status = 'pending'::text AND eligible_at IS NOT NULL
+    "campaign_sends_pressure_subscriber_idx" btree (subscriber_id) WHERE status = 'pending'::text AND eligible_at IS NOT NULL
+    "campaign_sends_sent_at_idx" btree (sent_at)
+    "campaign_sends_unique_idx" UNIQUE, btree (campaign_id, subscriber_id)
+Foreign-key constraints:
+    "campaign_sends_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    "campaign_sends_subscriber_id_subscribers_id_fk" FOREIGN KEY (subscriber_id) REFERENCES subscribers(id) ON DELETE CASCADE
+
+                                     Table "public.campaigns"
+         Column         |            Type             | Collation | Nullable |       Default       
+------------------------+-----------------------------+-----------+----------+---------------------
+ id                     | character varying           |           | not null | gen_random_uuid()
+ name                   | text                        |           | not null | 
+ mta_id                 | character varying           |           |          | 
+ segment_id             | character varying           |           |          | 
+ from_name              | text                        |           | not null | 
+ from_email             | text                        |           | not null | 
+ reply_email            | text                        |           |          | 
+ subject                | text                        |           | not null | 
+ preheader              | text                        |           |          | 
+ html_content           | text                        |           | not null | 
+ track_clicks           | boolean                     |           | not null | true
+ track_opens            | boolean                     |           | not null | true
+ unsubscribe_text       | text                        |           |          | 'Unsubscribe'::text
+ company_address        | text                        |           |          | 
+ sending_speed          | text                        |           | not null | 'medium'::text
+ scheduled_at           | timestamp without time zone |           |          | 
+ status                 | text                        |           | not null | 'draft'::text
+ pause_reason           | text                        |           |          | 
+ open_tag               | text                        |           |          | 
+ click_tag              | text                        |           |          | 
+ unsubscribe_tag        | text                        |           |          | 
+ sent_count             | integer                     |           | not null | 0
+ pending_count          | integer                     |           | not null | 0
+ failed_count           | integer                     |           | not null | 0
+ created_at             | timestamp without time zone |           | not null | now()
+ started_at             | timestamp without time zone |           |          | 
+ completed_at           | timestamp without time zone |           |          | 
+ retry_until            | timestamp without time zone |           |          | 
+ auto_retry_count       | integer                     |           | not null | 0
+ unique_opens_count     | integer                     |           | not null | 0
+ total_opens_count      | integer                     |           | not null | 0
+ unique_clicks_count    | integer                     |           | not null | 0
+ total_clicks_count     | integer                     |           | not null | 0
+ unsubscribes_count     | integer                     |           | not null | 0
+ complaints_count       | integer                     |           | not null | 0
+ parent_campaign_id     | character varying           |           |          | 
+ follow_up_enabled      | boolean                     |           | not null | false
+ follow_up_delay_hours  | integer                     |           | not null | 36
+ follow_up_scheduled_at | timestamp without time zone |           |          | 
+ follow_up_campaign_id  | character varying           |           |          | 
+ follow_up_subject      | text                        |           |          | 
+ exclude_segment_id     | character varying           |           |          | 
+ deferred_count         | integer                     |           | not null | 0
+ skipped_pressure_count | integer                     |           | not null | 0
+Indexes:
+    "campaigns_pkey" PRIMARY KEY, btree (id)
+    "campaign_name_trgm_idx" gin (name gin_trgm_ops)
+    "campaign_subject_trgm_idx" gin (subject gin_trgm_ops)
+    "campaigns_follow_up_schedule_idx" btree (follow_up_scheduled_at) WHERE follow_up_enabled = true AND follow_up_campaign_id IS NULL AND follow_up_scheduled_at IS NOT NULL
+    "campaigns_originals_created_at_idx" btree (created_at DESC) WHERE parent_campaign_id IS NULL
+    "campaigns_parent_campaign_unique_idx" UNIQUE, btree (parent_campaign_id) WHERE parent_campaign_id IS NOT NULL
+Foreign-key constraints:
+    "campaigns_exclude_segment_id_fkey" FOREIGN KEY (exclude_segment_id) REFERENCES segments(id) ON DELETE SET NULL
+    "campaigns_mta_id_mtas_id_fk" FOREIGN KEY (mta_id) REFERENCES mtas(id)
+    "campaigns_parent_campaign_id_campaigns_id_fk" FOREIGN KEY (parent_campaign_id) REFERENCES campaigns(id) ON DELETE RESTRICT
+    "campaigns_segment_id_segments_id_fk" FOREIGN KEY (segment_id) REFERENCES segments(id)
+Referenced by:
+    TABLE "ab_test_variants" CONSTRAINT "ab_test_variants_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    TABLE "analytics_daily" CONSTRAINT "analytics_daily_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+    TABLE "campaign_jobs" CONSTRAINT "campaign_jobs_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+    TABLE "campaign_links" CONSTRAINT "campaign_links_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    TABLE "campaign_sends" CONSTRAINT "campaign_sends_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    TABLE "campaign_stats" CONSTRAINT "campaign_stats_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+    TABLE "campaigns" CONSTRAINT "campaigns_parent_campaign_id_campaigns_id_fk" FOREIGN KEY (parent_campaign_id) REFERENCES campaigns(id) ON DELETE RESTRICT
+    TABLE "error_logs" CONSTRAINT "error_logs_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+    TABLE "nullsink_captures" CONSTRAINT "nullsink_captures_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+    TABLE "pending_tag_operations" CONSTRAINT "pending_tag_operations_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+    TABLE "tracking_tokens" CONSTRAINT "tracking_tokens_campaign_id_campaigns_id_fk" FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

@@ -1,0 +1,43 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # Le worker drainait-il à errors=0 depuis le restart ?
+pm2 logs critsend-worker --lines 200 --nostream | grep "PRESSURE_GUARD_WORKER" | tail -10
+
+# Combien de drains ont réussi sur la dernière minute ?
+pm2 logs --lines 500 --nostream | grep -E "drained: sent=|drained_calls=[1-9]" | tail -15
+
+# L'état actuel du due_now sur tes 5 plus grosses campagnes
+psql "postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" <<'SQL'
+SET statement_timeout='15s';
+SELECT 
+  campaign_id,
+  COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now,
+  COUNT(*) AS total_deferred
+FROM campaign_sends 
+WHERE campaign_id IN (
+  'f19f77d2-28e4-4faf-9635-63f0ed5d00eb',
+  'a426fec3-e713-4059-a794-0d15fbe054d9',
+  'bdfabc8f-064a-4a68-be14-dea0f789988b',
+  'c211240b-2858-4478-8462-e27ddf2cbc40',
+SQLER BY 2 DESC;n_idrred'b-188a269f15ba'
+1|critsend | 2026-05-14 14:49:09 +02:00: 2026-05-14T12:49:09.785Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:49:19 +02:00: 2026-05-14T12:49:19.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:49:30 +02:00: 2026-05-14T12:49:30.048Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:49:39 +02:00: 2026-05-14T12:49:39.791Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:49:49 +02:00: 2026-05-14T12:49:49.792Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:49:59 +02:00: 2026-05-14T12:49:59.787Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:50:09 +02:00: 2026-05-14T12:50:09.785Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:50:19 +02:00: 2026-05-14T12:50:19.788Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:50:29 +02:00: 2026-05-14T12:50:29.788Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:50:39 +02:00: 2026-05-14T12:50:39.796Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:36:55 +02:00: 2026-05-14T12:36:55.466Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 73c3d3fb-a698-48d1-947f-3d39917a1a89 drained: sent=199, failed=0, deferred=0, dropped=1
+0|critsend | 2026-05-14 14:37:04 +02:00: 2026-05-14T12:37:04.413Z [INFO] [PRESSURE_GUARD_WORKER] Campaign a426fec3-e713-4059-a794-0d15fbe054d9 drained: sent=56, failed=0, deferred=143, dropped=1
+0|critsend | 2026-05-14 14:37:11 +02:00: 2026-05-14T12:37:11.577Z [INFO] [PRESSURE_GUARD_WORKER] Campaign f19f77d2-28e4-4faf-9635-63f0ed5d00eb drained: sent=38, failed=0, deferred=162, dropped=0
+0|critsend | 2026-05-14 14:37:37 +02:00: 2026-05-14T12:37:37.338Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a drained: sent=198, failed=0, deferred=0, dropped=2
+0|critsend | 2026-05-14 14:38:01 +02:00: 2026-05-14T12:38:01.590Z [INFO] [PRESSURE_GUARD_WORKER] Campaign e1645451-43a4-4423-bf2b-188a269f15ba drained: sent=162, failed=0, deferred=38, dropped=0
+0|critsend | 2026-05-14 14:38:01 +02:00: 2026-05-14T12:38:01.754Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=5, drained_calls=5, errors=0
+0|critsend | 2026-05-14 14:49:48 +02:00: 2026-05-14T12:49:48.070Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a drained: sent=1000, failed=0, deferred=0, dropped=0
+SET
+ campaign_id | due_now | total_deferred 
+-------------+---------+----------------
+(0 rows)
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

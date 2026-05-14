@@ -1,0 +1,27 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web critsend-worker --lines 50 | grep -E "LOCK_RECOVERY|BOOTSTRAP|PRESSURE_GUARD"
+0|critsend | 2026-05-14 14:15:18 +02:00: 2026-05-14T12:15:18.098Z [ERROR] [PRESSURE_GUARD] DDL failed: canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:15:18 +02:00: 2026-05-14T12:15:18.471Z [WARN] [BOOTSTRAP_LOCK] Index campaign_sends_active_subscriber_idx exists but is INVALID — will be dropped and rebuilt
+0|critsend | 2026-05-14 14:15:48 +02:00: 2026-05-14T12:15:48.500Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaign_sends_active_subscriber_idx: canceling statement due to lock timeout
+0|critsend | 2026-05-14 14:16:15 +02:00: 2026-05-14T12:16:15.131Z [WARN] [ANALYTICS_BOOTSTRAP] Failed to create campaign_sends_campaign_first_open_idx: canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:16:15 +02:00: 2026-05-14T12:16:15.294Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=ran, schema_verified=true, outcome=deferred — will retry every 15s
+0|critsend | 2026-05-14 14:29:45 +02:00: 2026-05-14T12:29:45.573Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-14 14:30:02 +02:00: 2026-05-14T12:30:02.942Z [ERROR] [PRESSURE_GUARD] DDL failed: canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:30:03 +02:00: 2026-05-14T12:30:03.127Z [WARN] [BOOTSTRAP_LOCK] Index campaign_sends_active_subscriber_idx exists but is INVALID — will be dropped and rebuilt
+0|critsend | 2026-05-14 14:29:45 +02:00: 2026-05-14T12:29:45.585Z [INFO] [PRESSURE_GUARD_WORKER] Starting (poll=30000ms, batch=200, max-campaigns=5, window=6h)
+0|critsend | 2026-05-14 14:29:45 +02:00: 2026-05-14T12:29:45.725Z [INFO] [PRESSURE_GUARD] Bootstrap fast-path: schema already verified, gate opened immediately (window=6h) — heavy maintenance will run in background
+0|critsend | 2026-05-14 14:29:46 +02:00: 2026-05-14T12:29:46.937Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+0|critsend | 2026-05-14 14:29:46 +02:00: 2026-05-14T12:29:46.965Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_campaign_type_idx — skipping
+0|critsend | 2026-05-14 14:29:46 +02:00: 2026-05-14T12:29:46.994Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+0|critsend | 2026-05-14 14:29:47 +02:00: 2026-05-14T12:29:47.021Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_sent_at_idx — skipping
+0|critsend | 2026-05-14 14:29:47 +02:00: 2026-05-14T12:29:47.049Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_import_date_idx — skipping
+0|critsend | 2026-05-14 14:29:47 +02:00: 2026-05-14T12:29:47.080Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_suppressed_partial_idx — skipping
+0|critsend | 2026-05-14 14:29:47 +02:00: 2026-05-14T12:29:47.109Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+0|critsend | 2026-05-14 14:29:50 +02:00: 2026-05-14T12:29:50.616Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:30:15 +02:00: 2026-05-14T12:30:15.586Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend-web  | 2026-05-14 14:30:33 +02:00: 2026-05-14T12:30:33.164Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaign_sends_active_subscriber_idx: canceling statement due to lock timeout
+0|critsend-web  | 2026-05-14 14:30:45 +02:00: 2026-05-14T12:30:45.586Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend-web  | 2026-05-14 14:30:47 +02:00: 2026-05-14T12:30:47.166Z [WARN] [ANALYTICS_BOOTSTRAP] Failed to create campaign_sends_campaign_first_open_idx: canceling statement due to statement timeout
+0|critsend-web  | 2026-05-14 14:30:47 +02:00: 2026-05-14T12:30:47.272Z [INFO] [PRESSURE_GUARD] Created partial index campaign_sends_active_subscriber_idx
+0|critsend-web  | 2026-05-14 14:30:47 +02:00: 2026-05-14T12:30:47.300Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+0|critsend-web  | 2026-05-14 14:30:47 +02:00: 2026-05-14T12:30:47.368Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=ran, schema_verified=true, outcome=deferred — will retry every 15s
+

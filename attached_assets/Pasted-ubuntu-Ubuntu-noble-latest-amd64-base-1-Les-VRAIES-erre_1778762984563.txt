@@ -1,0 +1,66 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # 1. Les VRAIES erreurs (level ERROR) dans la dernière heure
+pm2 logs --lines 2000 --nostream | grep -E "\[ERROR\]" | grep -v "tick:" | tail -30
+
+# 2. Précisément autour du tick errors=8 (14:46:48)
+pm2 logs --lines 2000 --nostream | grep -E "12:46:4[5-9]|12:46:5[0-9]|12:47:0[0-5]" | grep -iE "ERROR|drain|lease|timeout|pool" | tail -30
+0|critsend | 2026-05-14 14:43:56 +02:00: 2026-05-14T12:43:56.655Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+0|critsend | 2026-05-14 14:43:56 +02:00: 2026-05-14T12:43:56.655Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+0|critsend | 2026-05-14 14:43:56 +02:00: 2026-05-14T12:43:56.655Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+0|critsend | 2026-05-14 14:43:57 +02:00: 2026-05-14T12:43:57.545Z [ERROR] [PRESSURE_QUEUE] /admin/pressure-queue failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:43:57 +02:00: 2026-05-14T12:43:57.578Z [ERROR] Unhandled Promise Rejection {"reason":"Maximum call stack size exceeded"}
+0|critsend | 2026-05-14 14:43:57 +02:00: 2026-05-14T12:43:57.580Z [ERROR] [CAMPAIGNS] Bootstrap migration FAILED: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:44:07 +02:00: 2026-05-14T12:44:07.503Z [ERROR] [SHUTDOWN] Force-exit after 25000ms — cleanup did not finish in time
+0|critsend | 2026-05-14 14:44:08 +02:00: 2026-05-14T12:44:08.314Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-14 14:44:18 +02:00: 2026-05-14T12:44:18.656Z [ERROR] [TRACKING] Bootstrap migration FAILED (suppressed_until): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:44:18 +02:00: 2026-05-14T12:44:18.864Z [ERROR] [PRESSURE_GUARD] DDL failed: canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:44:39 +02:00: 2026-05-14T12:44:39.096Z [ERROR] [ANALYTICS_BOOTSTRAP] DDL bootstrap FAILED: canceling statement due to lock timeout
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.452Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.453Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(73c3d3fb-a698-48d1-947f-3d39917a1a89) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.454Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(f19f77d2-28e4-4faf-9635-63f0ed5d00eb) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.455Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(a426fec3-e713-4059-a794-0d15fbe054d9) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.455Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(bdfabc8f-064a-4a68-be14-dea0f789988b) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.456Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(e1645451-43a4-4423-bf2b-188a269f15ba) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.456Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(b1e9230f-e973-4ef1-980c-04c64eed9602) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.457Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(c211240b-2858-4478-8462-e27ddf2cbc40) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.754Z [ERROR] Metrics collection error {"error":"error: canceling statement due to statement timeout"}
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.543Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-14 14:47:00 +02:00: 2026-05-14T12:47:00.266Z [ERROR] [TRACKING] Bootstrap migration FAILED (suppressed_until): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:47:01 +02:00: 2026-05-14T12:47:01.854Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:01 +02:00: 2026-05-14T12:47:01.990Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:01 +02:00: 2026-05-14T12:47:01.995Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.313Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.406Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.743Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.812Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:10 +02:00: 2026-05-14T12:47:10.376Z [ERROR] [TRACKING] Bootstrap migration FAILED (campaign_stats covering index): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.454Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(f19f77d2-28e4-4faf-9635-63f0ed5d00eb) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.455Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(a426fec3-e713-4059-a794-0d15fbe054d9) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.455Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(bdfabc8f-064a-4a68-be14-dea0f789988b) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.456Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(e1645451-43a4-4423-bf2b-188a269f15ba) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.456Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(b1e9230f-e973-4ef1-980c-04c64eed9602) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.457Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(c211240b-2858-4478-8462-e27ddf2cbc40) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.457Z [WARN] [PRESSURE_DRAIN] lease release failed (non-fatal, TTL will reclaim): Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.754Z [ERROR] Metrics collection error {"error":"error: canceling statement due to statement timeout"}
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.543Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-14 14:47:00 +02:00: 2026-05-14T12:47:00.084Z [WARN] [TRACKING QUERIES] Link cache warming failed (non-fatal): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:47:00 +02:00: 2026-05-14T12:47:00.266Z [ERROR] [TRACKING] Bootstrap migration FAILED (suppressed_until): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:47:00 +02:00: 2026-05-14T12:47:00.851Z [WARN] [503] source=handler_transient method=GET path=/api/campaigns route=/api/campaigns rid=a8b1e0bf-49c0-43fd-ba9f-4aaea20792d6 kind=timeout code=57014 pool active=7/30 idle=7 total=14 waiting=0 sat=0.23 lease=0 err="canceling statement due to statement timeout"
+0|critsend | 2026-05-14 14:47:01 +02:00: 2026-05-14T12:47:01.854Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:01 +02:00: 2026-05-14T12:47:01.990Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:01 +02:00: 2026-05-14T12:47:01.995Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.313Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.406Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.743Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:47:02 +02:00: 2026-05-14T12:47:02.812Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.457Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=8, drained_calls=0, errors=8
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.781Z [INFO] [SHUTDOWN] Main database pool closed
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.161Z [INFO] PG pool configured: max=30, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.381Z [INFO] [TRACKING POOL] read pool: max=50, flush pool: max=8, connTimeout=2000ms, stmtTimeout=10000ms, jsTimeout=12000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.384Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.512Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.543Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 30 | Tracking pool: 50 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 31 | External: true
+0|critsend | 2026-05-14 14:46:50 +02:00: 2026-05-14T12:46:50.305Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-14 14:46:50 +02:00: 2026-05-14T12:46:50.385Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-14 14:46:55 +02:00: 2026-05-14T12:46:55.102Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:00 +02:00: 2026-05-14T12:47:00.086Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

@@ -1,0 +1,28 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # 1. Restart les 2 process en propageant les env (le --update-env force pm2 à pousser les nouvelles vars dans le process)
+pm2 restart all --update-env
+
+# 2. Attends que le boot soit fini (5s)
+sleep 5
+
+# 3. Confirme tout d'un coup : Starting line + LOCK_RECOVERY + premier tick
+pm2 logs --lines 100 --nostream | grep -E "PRESSURE_GUARD_WORKER Starting|LOCK_RECOVERY|leader_acquired" | tail -15
+[PM2] Applying action restartProcessId on app [all](ids: [ 0, 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 47   │ online    │ 12.5%    │ 291.6mb  │
+│ 1  │ critsend-worker    │ fork     │ 50   │ online    │ 0%       │ 22.5mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+0|critsend | 2026-05-14 14:44:08 +02:00: 2026-05-14T12:44:08.712Z [WARN] [LOCK_RECOVERY] (web-boot) terminate pid=28637 objid=900002 failed: terminating connection due to administrator command
+0|critsend | 2026-05-14 14:44:08 +02:00: 2026-05-14T12:44:08.712Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-14 14:46:50 +02:00: 2026-05-14T12:46:50.041Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 2 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900001":1,"900002":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+1|critsend | 2026-05-14 14:47:19 +02:00: 2026-05-14T12:47:19.359Z [WARN] [LOCK_RECOVERY] (worker-boot) terminated 3 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900001":1,"900003":1,"900004":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+1|critsend | 2026-05-14 14:46:43 +02:00: 2026-05-14T12:46:43.640Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:46:48 +02:00: 2026-05-14T12:46:48.457Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=8, drained_calls=0, errors=8
+0|critsend | 2026-05-14 14:46:55 +02:00: 2026-05-14T12:46:55.102Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:00 +02:00: 2026-05-14T12:47:00.086Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:10 +02:00: 2026-05-14T12:47:10.083Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:20 +02:00: 2026-05-14T12:47:20.085Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

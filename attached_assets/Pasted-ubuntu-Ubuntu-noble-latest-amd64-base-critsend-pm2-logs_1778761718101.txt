@@ -1,0 +1,35 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 200 --nostream | grep -E "PRESSURE_GUARD_WORKER|drained:" | tail -30
+0|critsend | 2026-05-14 14:16:44 +02:00: 2026-05-14T12:16:44.513Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:17:14 +02:00: 2026-05-14T12:17:14.506Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:17:44 +02:00: 2026-05-14T12:17:44.508Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:18:14 +02:00: 2026-05-14T12:18:14.515Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:18:44 +02:00: 2026-05-14T12:18:44.507Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:19:14 +02:00: 2026-05-14T12:19:14.513Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:19:44 +02:00: 2026-05-14T12:19:44.510Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:20:14 +02:00: 2026-05-14T12:20:14.510Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:20:44 +02:00: 2026-05-14T12:20:44.515Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:21:14 +02:00: 2026-05-14T12:21:14.513Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:21:44 +02:00: 2026-05-14T12:21:44.511Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:22:14 +02:00: 2026-05-14T12:22:14.518Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:22:44 +02:00: 2026-05-14T12:22:44.519Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:23:14 +02:00: 2026-05-14T12:23:14.510Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:23:44 +02:00: 2026-05-14T12:23:44.515Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:24:47 +02:00: 2026-05-14T12:24:47.987Z [INFO] [PRESSURE_GUARD_WORKER] Campaign f19f77d2-28e4-4faf-9635-63f0ed5d00eb drained: sent=128, failed=0, deferred=72, dropped=0
+0|critsend | 2026-05-14 14:25:04 +02:00: 2026-05-14T12:25:04.679Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a drained: sent=117, failed=0, deferred=83, dropped=0
+0|critsend | 2026-05-14 14:25:07 +02:00: 2026-05-14T12:25:07.235Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 73c3d3fb-a698-48d1-947f-3d39917a1a89: dropped 1 unsub/suppressed at dispatch
+0|critsend | 2026-05-14 14:25:31 +02:00: 2026-05-14T12:25:31.698Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 73c3d3fb-a698-48d1-947f-3d39917a1a89 drained: sent=196, failed=0, deferred=3, dropped=1
+0|critsend | 2026-05-14 14:25:35 +02:00: 2026-05-14T12:25:35.279Z [INFO] [PRESSURE_GUARD_WORKER] Campaign a426fec3-e713-4059-a794-0d15fbe054d9 drained: sent=14, failed=0, deferred=186, dropped=0
+0|critsend | 2026-05-14 14:25:38 +02:00: 2026-05-14T12:25:38.061Z [INFO] [PRESSURE_GUARD_WORKER] Campaign b1e9230f-e973-4ef1-980c-04c64eed9602 drained: sent=8, failed=0, deferred=192, dropped=0
+0|critsend | 2026-05-14 14:25:38 +02:00: 2026-05-14T12:25:38.110Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=5, drained_calls=5, errors=0
+0|critsend | 2026-05-14 14:26:14 +02:00: 2026-05-14T12:26:14.540Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a drained: sent=157, failed=0, deferred=43, dropped=0
+0|critsend | 2026-05-14 14:26:36 +02:00: 2026-05-14T12:26:36.062Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 73c3d3fb-a698-48d1-947f-3d39917a1a89 drained: sent=158, failed=0, deferred=42, dropped=0
+0|critsend | 2026-05-14 14:26:45 +02:00: 2026-05-14T12:26:45.946Z [INFO] [PRESSURE_GUARD_WORKER] Campaign a426fec3-e713-4059-a794-0d15fbe054d9 drained: sent=63, failed=0, deferred=137, dropped=0
+0|critsend | 2026-05-14 14:26:51 +02:00: 2026-05-14T12:26:51.070Z [INFO] [PRESSURE_GUARD_WORKER] Campaign b1e9230f-e973-4ef1-980c-04c64eed9602 drained: sent=26, failed=0, deferred=174, dropped=0
+0|critsend | 2026-05-14 14:26:53 +02:00: 2026-05-14T12:26:53.014Z [INFO] [PRESSURE_GUARD_WORKER] Campaign bdfabc8f-064a-4a68-be14-dea0f789988b: dropped 1 unsub/suppressed at dispatch
+0|critsend | 2026-05-14 14:27:19 +02:00: 2026-05-14T12:27:19.572Z [INFO] [PRESSURE_GUARD_WORKER] Campaign bdfabc8f-064a-4a68-be14-dea0f789988b drained: sent=199, failed=0, deferred=0, dropped=1
+0|critsend | 2026-05-14 14:27:19 +02:00: 2026-05-14T12:27:19.679Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=5, drained_calls=5, errors=0
+0|critsend | 2026-05-14 14:27:44 +02:00: 2026-05-14T12:27:44.512Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ psql "$NEON_URL" -c "SET statement_timeout='10s'; SELECT COUNT(*) FROM campaign_sends WHERE eligible_at <= NOW() AND status = 'deferred';"
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

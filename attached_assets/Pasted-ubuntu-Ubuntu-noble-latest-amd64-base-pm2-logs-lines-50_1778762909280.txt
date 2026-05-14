@@ -1,0 +1,87 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ pm2 logs --lines 500 --nostream | grep -iE "ERROR|WARN" | grep -iE "PRESSURE|drain|pool|timeout|503|service_busy|lease" | tail -30
+0|critsend | 2026-05-14 14:46:55 +02:00: 2026-05-14T12:46:55.102Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:00 +02:00: 2026-05-14T12:47:00.086Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:10 +02:00: 2026-05-14T12:47:10.083Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:20 +02:00: 2026-05-14T12:47:20.085Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:47:30 +02:00: 2026-05-14T12:47:30.082Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:42:08 +02:00: 2026-05-14T12:42:08.134Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=5, drained_calls=5, errors=0
+1|critsend | 2026-05-14 14:43:48 +02:00: 2026-05-14T12:43:48.632Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:43:53 +02:00: 2026-05-14T12:43:53.640Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:44:03 +02:00: 2026-05-14T12:44:03.634Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:44:13 +02:00: 2026-05-14T12:44:13.632Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:44:23 +02:00: 2026-05-14T12:44:23.633Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:44:33 +02:00: 2026-05-14T12:44:33.604Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:44:43 +02:00: 2026-05-14T12:44:43.603Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:44:53 +02:00: 2026-05-14T12:44:53.603Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:45:03 +02:00: 2026-05-14T12:45:03.604Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:45:13 +02:00: 2026-05-14T12:45:13.603Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:45:23 +02:00: 2026-05-14T12:45:23.603Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:45:33 +02:00: 2026-05-14T12:45:33.604Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:45:43 +02:00: 2026-05-14T12:45:43.604Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:45:53 +02:00: 2026-05-14T12:45:53.604Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:46:03 +02:00: 2026-05-14T12:46:03.633Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:46:13 +02:00: 2026-05-14T12:46:13.633Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:46:23 +02:00: 2026-05-14T12:46:23.632Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:46:33 +02:00: 2026-05-14T12:46:33.890Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:46:43 +02:00: 2026-05-14T12:46:43.640Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:24 +02:00: 2026-05-14T12:47:24.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:29 +02:00: 2026-05-14T12:47:29.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:39 +02:00: 2026-05-14T12:47:39.754Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:49 +02:00: 2026-05-14T12:47:49.755Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:59 +02:00: 2026-05-14T12:47:59.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # L'erreur précise du tick à 14:46:48
+pm2 logs --lines 500 --nostream | grep -B 2 -A 5 "drained_calls=0, errors=" | tail -40
+
+# Status du pool DB
+pm2 logs --lines 200 --nostream | grep -E "POOL|saturation|active=|waiting=" | tail -10
+1|critsend | 2026-05-14 14:46:46 +02:00: 2026-05-14T12:46:46.593Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:060fae24] Segment '25961d7b-8248-4ffa-8a86-4e5bcdd7268c' has 219708 subscribers
+1|critsend | 2026-05-14 14:46:46 +02:00: 2026-05-14T12:46:46.689Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:060fae24] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-14 14:46:46 +02:00: 2026-05-14T12:46:46.813Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:060fae24] Pre-registered 22 click tracking link(s)
+1|critsend | 2026-05-14 14:46:47 +02:00: 2026-05-14T12:46:47.276Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:6f3e5dbc] Segment '6948ddfa-13a8-4859-8fda-32645806e161' has 138878 subscribers
+1|critsend | 2026-05-14 14:46:47 +02:00: 2026-05-14T12:46:47.363Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:6f3e5dbc] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+--
+1|critsend | 2026-05-14 14:47:20 +02:00: 2026-05-14T12:47:20.183Z [INFO] [MAINTENANCE] Default maintenance rules seeded
+1|critsend | 2026-05-14 14:47:23 +02:00: 2026-05-14T12:47:23.782Z [INFO] Processed 50 tag operations in 22 bulk groups
+1|critsend | 2026-05-14 14:47:24 +02:00: 2026-05-14T12:47:24.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:25 +02:00: 2026-05-14T12:47:25.558Z [INFO] Processed 2 tag operations in 2 bulk groups
+1|critsend | 2026-05-14 14:47:25 +02:00: 2026-05-14T12:47:25.930Z [INFO] Processed 50 tag operations in 23 bulk groups
+1|critsend | 2026-05-14 14:47:29 +02:00: 2026-05-14T12:47:29.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:33 +02:00: 2026-05-14T12:47:33.466Z [INFO] Processed 46 tag operations in 17 bulk groups
+1|critsend | 2026-05-14 14:47:33 +02:00: 2026-05-14T12:47:33.952Z [INFO] Processed 8 tag operations in 7 bulk groups
+1|critsend | 2026-05-14 14:47:35 +02:00: 2026-05-14T12:47:35.898Z [INFO] Processed 9 tag operations in 6 bulk groups
+1|critsend | 2026-05-14 14:47:38 +02:00: 2026-05-14T12:47:38.255Z [INFO] Processed 22 tag operations in 5 bulk groups
+1|critsend | 2026-05-14 14:47:39 +02:00: 2026-05-14T12:47:39.754Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:40 +02:00: 2026-05-14T12:47:40.001Z [INFO] Processed 9 tag operations in 8 bulk groups
+1|critsend | 2026-05-14 14:47:40 +02:00: 2026-05-14T12:47:40.215Z [INFO] [PRESSURE_GUARD] Created partial index campaign_sends_active_subscriber_idx
+1|critsend | 2026-05-14 14:47:40 +02:00: 2026-05-14T12:47:40.243Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+1|critsend | 2026-05-14 14:47:42 +02:00: 2026-05-14T12:47:42.688Z [INFO] Processed 23 tag operations in 15 bulk groups
+1|critsend | 2026-05-14 14:47:43 +02:00: 2026-05-14T12:47:43.900Z [INFO] Processed 7 tag operations in 7 bulk groups
+1|critsend | 2026-05-14 14:47:45 +02:00: 2026-05-14T12:47:45.617Z [INFO] Processed 3 tag operations in 3 bulk groups
+1|critsend | 2026-05-14 14:47:48 +02:00: 2026-05-14T12:47:48.434Z [INFO] Processed 20 tag operations in 11 bulk groups
+1|critsend | 2026-05-14 14:47:49 +02:00: 2026-05-14T12:47:49.755Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:47:49 +02:00: 2026-05-14T12:47:49.871Z [INFO] Processed 7 tag operations in 7 bulk groups
+1|critsend | 2026-05-14 14:47:51 +02:00: 2026-05-14T12:47:51.948Z [INFO] Processed 8 tag operations in 8 bulk groups
+1|critsend | 2026-05-14 14:47:54 +02:00: 2026-05-14T12:47:54.204Z [INFO] Processed 15 tag operations in 9 bulk groups
+1|critsend | 2026-05-14 14:47:55 +02:00: 2026-05-14T12:47:55.338Z [INFO] [PRESSURE_GUARD] Bootstrap recovered to 'ready' via retry probe
+1|critsend | 2026-05-14 14:47:55 +02:00: 2026-05-14T12:47:55.679Z [INFO] Processed 5 tag operations in 3 bulk groups
+1|critsend | 2026-05-14 14:47:57 +02:00: 2026-05-14T12:47:57.629Z [INFO] Processed 4 tag operations in 2 bulk groups
+1|critsend | 2026-05-14 14:47:59 +02:00: 2026-05-14T12:47:59.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:48:00 +02:00: 2026-05-14T12:48:00.083Z [INFO] Processed 12 tag operations in 8 bulk groups
+1|critsend | 2026-05-14 14:48:01 +02:00: 2026-05-14T12:48:01.999Z [INFO] Processed 10 tag operations in 8 bulk groups
+1|critsend | 2026-05-14 14:48:03 +02:00: 2026-05-14T12:48:03.966Z [INFO] Processed 10 tag operations in 7 bulk groups
+1|critsend | 2026-05-14 14:48:06 +02:00: 2026-05-14T12:48:06.161Z [INFO] Processed 15 tag operations in 9 bulk groups
+1|critsend | 2026-05-14 14:48:07 +02:00: 2026-05-14T12:48:07.948Z [INFO] Processed 8 tag operations in 8 bulk groups
+1|critsend | 2026-05-14 14:48:09 +02:00: 2026-05-14T12:48:09.784Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:48:09 +02:00: 2026-05-14T12:48:09.795Z [INFO] Processed 6 tag operations in 5 bulk groups
+
+0|critsend | 2026-05-14 14:46:40 +02:00: 2026-05-14T12:46:40.344Z [INFO] [TRACKING POOL] read + flush pools closed
+0|critsend | 2026-05-14 14:46:40 +02:00: 2026-05-14T12:46:40.344Z [INFO] [IMPORT POOL] closed
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.381Z [INFO] [TRACKING POOL] read pool: max=50, flush pool: max=8, connTimeout=2000ms, stmtTimeout=10000ms, jsTimeout=12000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.384Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+0|critsend | 2026-05-14 14:46:49 +02:00: 2026-05-14T12:46:49.512Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+0|critsend | 2026-05-14 14:46:50 +02:00: 2026-05-14T12:46:50.305Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-14 14:46:50 +02:00: 2026-05-14T12:46:50.385Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+1|critsend | 2026-05-14 14:47:14 +02:00: 2026-05-14T12:47:14.062Z [INFO] [IMPORT POOL] closed
+1|critsend | 2026-05-14 14:47:18 +02:00: 2026-05-14T12:47:18.722Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+1|critsend | 2026-05-14 14:47:19 +02:00: 2026-05-14T12:47:19.086Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

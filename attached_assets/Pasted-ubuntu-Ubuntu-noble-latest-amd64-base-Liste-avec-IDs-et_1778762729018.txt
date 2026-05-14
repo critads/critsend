@@ -1,0 +1,159 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # Liste avec IDs et statut actuel
+pm2 list
+
+# Variables d'environnement par ID numérique
+pm2 env 0   # web
+pm2 env 1   # worker
+
+# OU plus lisible : show
+pm2 show critsend-web   | grep -A 30 "env:"
+pm2 show critsend-worker | grep -A 30 "env:"
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 46   │ online    │ 0%       │ 274.4mb  │
+│ 1  │ critsend-worker    │ fork     │ 49   │ online    │ 0%       │ 88.7mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+PRESSURE_GUARD_BATCH: 1000
+updateEnv: true
+namespace: default
+max_restarts: 10
+min_uptime: 10000
+listen_timeout: 30000
+kill_timeout: 30000
+restart_delay: 5000
+max_memory_restart: 2147483648
+log_date_format: YYYY-MM-DD HH:mm:ss Z
+cwd: /home/ubuntu/critsend
+km_link: false
+vizion_running: false
+NODE_APP_INSTANCE: 0
+critsend-web: {"PRESSURE_GUARD_MAX_CAMPAIGNS":"20","PRESSURE_GUARD_BATCH":"1000","PRESSURE_GUARD_POLL_MS":"10000"}
+PM2_HOME: /home/ubuntu/.pm2
+PM2_JSON_PROCESSING: true
+PM2_USAGE: CLI
+_: /home/ubuntu/.nvm/versions/node/v20.20.2/bin/pm2
+OLDPWD: /home/ubuntu/critsend
+MTA_ENCRYPTION_KEY: a74b46157bedb0090edd5390fd655af746bf88948786d6664bec69166ba9d712
+SSH_TTY: /dev/pts/0
+NVM_BIN: /home/ubuntu/.nvm/versions/node/v20.20.2/bin
+DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1000/bus
+PATH: /home/ubuntu/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+PG_CONNECTION_TIMEOUT_MS: 10000
+XDG_DATA_DIRS: /usr/local/share:/usr/share:/var/lib/snapd/desktop
+SSH_CLIENT: 169.150.209.215 57855 22
+XDG_RUNTIME_DIR: /run/user/1000
+LC_CTYPE: C.UTF-8
+XDG_SESSION_ID: 2672
+NVM_CD_FLAGS: 
+SHLVL: 1
+NEON_DATABASE_URL: postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+SESSION_SECRET: ae9807a0a3fcbb8c7b3c23fd40455b42d6c75e9e1a3688f3daccf05d0da58783
+USER: ubuntu
+LESSOPEN: | /usr/bin/lesspipe %s
+TERM: xterm-256color
+XDG_SESSION_CLASS: user
+LESSCLOSE: /usr/bin/lesspipe %s %s
+NVM_DIR: /home/ubuntu/.nvm
+PUBLIC_URL: https://critsender.critads.com
+SSH_CONNECTION: 169.150.209.215 57855 37.27.117.222 22
+STORAGE_BACKEND: local
+LS_COLORS: rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.crdownload=00;90:*.dpkg-dist=00;90:*.dpkg-new=00;90:*.dpkg-old=00;90:*.dpkg-tmp=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:*.swp=00;90:*.tmp=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:
+LANG: C.UTF-8
+HOME: /home/ubuntu
+TRACKING_SECRET: 91298cf19c3c28253f308160279ff0f58b39c048de833b8392caffef2104714f
+NODE_ENV: production
+PORT: 5000
+XDG_SESSION_TYPE: tty
+LOGNAME: ubuntu
+PWD: /home/ubuntu
+DATABASE_URL: postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require
+NVM_INC: /home/ubuntu/.nvm/versions/node/v20.20.2/include/node
+REDIS_URL: rediss://default:gQAAAAAAAapUAAIgcDFlYTQ1YmIwN2EyNzk0YzJjODViYTQ5OTc2MzMxM2IzYg@pleasant-bonefish-109140.upstash.io:6379
+SHELL: /bin/bash
+PROCESS_TYPE: web
+NODE_OPTIONS: --max-old-space-size=4096 --expose-gc
+unique_id: d29d9802-6aba-4811-8e3a-a45e4273c693
+version: 1.0.0
+node_version: 20.20.2
+error_file: /var/log/critsend/web-err.log
+out_file: /var/log/critsend/web-out.log
+script: dist/index.cjs
+IMPORT_UPLOAD_DIR: /var/lib/critsend/uploads/imports
+IMPORT_CHUNKS_DIR: /var/lib/critsend/uploads/chunks
+PRESSURE_GUARD_MAX_CAMPAIGNS: 20
+PM2_PROGRAMMATIC: true
+PRESSURE_GUARD_POLL_MS: 10000
+PRESSURE_GUARD_POLL_MS: 10000
+PM2_PROGRAMMATIC: true
+PRESSURE_GUARD_MAX_CAMPAIGNS: 20
+IMPORT_CHUNKS_DIR: /var/lib/critsend/uploads/chunks
+IMPORT_UPLOAD_DIR: /var/lib/critsend/uploads/imports
+script: dist/worker-main.cjs
+out_file: /var/log/critsend/worker-out.log
+error_file: /var/log/critsend/worker-err.log
+node_version: 20.20.2
+version: 1.0.0
+unique_id: 3b60d800-ae54-40fc-9e56-399cc532fe1b
+MAX_CONNECTIONS_PER_REQUEST: 2
+MAX_CONCURRENT_CAMPAIGNS: 12
+WORKER_PG_POOL_MAX: 18
+NODE_OPTIONS: --max-old-space-size=6144 --expose-gc
+PROCESS_TYPE: worker
+SHELL: /bin/bash
+REDIS_URL: rediss://default:gQAAAAAAAapUAAIgcDFlYTQ1YmIwN2EyNzk0YzJjODViYTQ5OTc2MzMxM2IzYg@pleasant-bonefish-109140.upstash.io:6379
+NVM_INC: /home/ubuntu/.nvm/versions/node/v20.20.2/include/node
+DATABASE_URL: postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require
+PWD: /home/ubuntu
+LOGNAME: ubuntu
+XDG_SESSION_TYPE: tty
+PORT: 5000
+NODE_ENV: production
+TRACKING_SECRET: 91298cf19c3c28253f308160279ff0f58b39c048de833b8392caffef2104714f
+HOME: /home/ubuntu
+LANG: C.UTF-8
+LS_COLORS: rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.crdownload=00;90:*.dpkg-dist=00;90:*.dpkg-new=00;90:*.dpkg-old=00;90:*.dpkg-tmp=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:*.swp=00;90:*.tmp=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:
+STORAGE_BACKEND: local
+SSH_CONNECTION: 169.150.209.215 57855 37.27.117.222 22
+PUBLIC_URL: https://critsender.critads.com
+NVM_DIR: /home/ubuntu/.nvm
+LESSCLOSE: /usr/bin/lesspipe %s %s
+XDG_SESSION_CLASS: user
+TERM: xterm-256color
+LESSOPEN: | /usr/bin/lesspipe %s
+USER: ubuntu
+SESSION_SECRET: ae9807a0a3fcbb8c7b3c23fd40455b42d6c75e9e1a3688f3daccf05d0da58783
+NEON_DATABASE_URL: postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+SHLVL: 1
+NVM_CD_FLAGS: 
+XDG_SESSION_ID: 2672
+LC_CTYPE: C.UTF-8
+XDG_RUNTIME_DIR: /run/user/1000
+SSH_CLIENT: 169.150.209.215 57855 22
+XDG_DATA_DIRS: /usr/local/share:/usr/share:/var/lib/snapd/desktop
+PG_CONNECTION_TIMEOUT_MS: 10000
+PATH: /home/ubuntu/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1000/bus
+NVM_BIN: /home/ubuntu/.nvm/versions/node/v20.20.2/bin
+SSH_TTY: /dev/pts/0
+MTA_ENCRYPTION_KEY: a74b46157bedb0090edd5390fd655af746bf88948786d6664bec69166ba9d712
+OLDPWD: /home/ubuntu/critsend
+_: /home/ubuntu/.nvm/versions/node/v20.20.2/bin/pm2
+PM2_USAGE: CLI
+PM2_JSON_PROCESSING: true
+PM2_HOME: /home/ubuntu/.pm2
+critsend-worker: {"PRESSURE_GUARD_MAX_CAMPAIGNS":"20","PRESSURE_GUARD_BATCH":"1000","PRESSURE_GUARD_POLL_MS":"10000"}
+NODE_APP_INSTANCE: 0
+vizion_running: false
+km_link: false
+cwd: /home/ubuntu/critsend
+log_date_format: YYYY-MM-DD HH:mm:ss Z
+max_memory_restart: 4294967296
+restart_delay: 5000
+kill_timeout: 30000
+min_uptime: 10000
+max_restarts: 50
+namespace: default
+updateEnv: true
+PRESSURE_GUARD_BATCH: 1000
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 
