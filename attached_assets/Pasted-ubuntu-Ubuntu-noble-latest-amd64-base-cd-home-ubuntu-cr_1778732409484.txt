@@ -1,0 +1,174 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && git pull && bash deploy/deploy.sh
+remote: Enumerating objects: 292, done.
+remote: Counting objects: 100% (292/292), done.
+remote: Compressing objects: 100% (30/30), done.
+remote: Total 256 (delta 223), reused 255 (delta 222), pack-reused 0 (from 0)
+Receiving objects: 100% (256/256), 113.22 KiB | 2.41 MiB/s, done.
+Resolving deltas: 100% (223/223), completed with 30 local objects.
+From https://github.com/critads/critsend
+   307beb4..d2a682f  main       -> origin/main
+Updating 307beb4..d2a682f
+Fast-forward
+ .agents/agent_assets_metadata.toml                   |   8 +
+ ...st-amd64-base-cd-home-ubuntu-cr_1778647281245.txt |  98 ++++
+ ...st-amd64-base-pm2-status-pm2-lo_1778647396618.txt | 117 +++++
+ ...st-amd64-base-ssh-ubuntu-host-e_1778647821755.txt | 150 ++++++
+ ...enshot_2026-05-13_at_8.48.55_AM_1778647738337.png | Bin 0 -> 10000 bytes
+ client/src/App.tsx                                   |   4 +
+ client/src/components/app-sidebar.tsx                |   6 +
+ client/src/pages/admin-pressure-queue.tsx            | 303 +++++++++++
+ client/src/pages/campaign-detail.tsx                 |   6 +
+ client/src/pages/campaign-queue.tsx                  | 250 +++++++++
+ client/src/pages/subscribers.tsx                     | 105 ++++
+ deploy/ADMIN_BOOTSTRAP.md                            |  47 ++
+ deploy/deploy.sh                                     |  86 +++-
+ deploy/setup.sh                                      |  23 +-
+ docs/pressure-guard-audit.md                         | 167 ++++++
+ replit.md                                            |   1 +
+ scripts/test-pressure-concurrency.ts                 | 126 +++++
+ server/bootstrap-lock.ts                             |   8 +
+ server/index.ts                                      |  33 +-
+ server/metrics.ts                                    |  62 +++
+ server/repositories/campaign-repository.ts           |   9 +
+ server/repositories/job-repository.ts                |  13 +-
+ server/routes.ts                                     |   2 +
+ server/routes/import-export.ts                       |  36 +-
+ server/routes/pressure.ts                            | 559 +++++++++++++++++++++
+ server/services/campaign-sender.ts                   |  80 ++-
+ server/services/pressure-guard.ts                    | 552 ++++++++++++++++++++
+ server/storage-interface.ts                          |   1 +
+ server/storage.ts                                    |   3 +
+ server/upload.ts                                     | 105 +++-
+ server/workers.ts                                    |   9 +
+ server/workers/pressure-guard-worker.ts              | 483 ++++++++++++++++++
+ shared/schema.ts                                     |  65 +++
+ tests/pressure-guard-cascade.test.ts                 | 146 ++++++
+ tests/pressure-guard-concurrency.test.ts             | 121 +++++
+ tests/pressure-guard-deferred-idempotency.test.ts    |  84 ++++
+ tests/pressure-guard-unsub-during-window.test.ts     | 115 +++++
+ tests/pressure-guard-window-bounds.test.ts           |  69 +++
+ 38 files changed, 4006 insertions(+), 46 deletions(-)
+ create mode 100644 .agents/agent_assets_metadata.toml
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-cd-home-ubuntu-cr_1778647281245.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-pm2-status-pm2-lo_1778647396618.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-ssh-ubuntu-host-e_1778647821755.txt
+ create mode 100644 attached_assets/Screenshot_2026-05-13_at_8.48.55_AM_1778647738337.png
+ create mode 100644 client/src/pages/admin-pressure-queue.tsx
+ create mode 100644 client/src/pages/campaign-queue.tsx
+ create mode 100644 deploy/ADMIN_BOOTSTRAP.md
+ create mode 100644 docs/pressure-guard-audit.md
+ create mode 100644 scripts/test-pressure-concurrency.ts
+ create mode 100644 server/routes/pressure.ts
+ create mode 100644 server/services/pressure-guard.ts
+ create mode 100644 server/workers/pressure-guard-worker.ts
+ create mode 100644 tests/pressure-guard-cascade.test.ts
+ create mode 100644 tests/pressure-guard-concurrency.test.ts
+ create mode 100644 tests/pressure-guard-deferred-idempotency.test.ts
+ create mode 100644 tests/pressure-guard-unsub-during-window.test.ts
+ create mode 100644 tests/pressure-guard-window-bounds.test.ts
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: d2a682f Task #145: Pressure Guard hardening (audit follow-up R1-R16)
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+47 vulnerabilities (6 low, 28 moderate, 12 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.14.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.14.1
+npm notice To update run: npm install -g npm@11.14.1
+npm notice
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (35) src/hooks/use-auth.ts
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2510 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-CW0cF8dL.css     89.94 kB │ gzip:  14.65 kB
+../dist/public/assets/index-izV6PnTl.js   1,577.42 kB │ gzip: 410.38 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.12s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 108ms
+building import worker...
+
+  dist/import-worker.cjs  639.8kb
+
+⚡ Done in 67ms
+building background worker...
+
+  dist/worker-main.cjs  998.1kb
+
+⚡ Done in 79ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Pushing database schema changes (drizzle-kit push)...
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/home/ubuntu/critsend/drizzle.config.ts'
+Using 'pg' driver for database querying
+[✓] Pulling schema from database...
+error: canceling statement due to lock timeout
+    at /home/ubuntu/critsend/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async Object.query (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:80622:26)
+    at async pgPush (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:84432:13)
+    at async Object.handler (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:93871:9)
+    at async run (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:93117:7) {
+  length: 104,
+  severity: 'ERROR',
+  code: '55P03',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'postgres.c',
+  line: '3401',
+  routine: 'ProcessInterrupts'
+}
+[deploy] ✓ Database schema up to date
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

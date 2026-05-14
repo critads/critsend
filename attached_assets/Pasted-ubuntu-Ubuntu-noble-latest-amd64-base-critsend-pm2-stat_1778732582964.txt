@@ -1,0 +1,85 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status && pm2 describe critsend-web | grep -E 'uptime|restart'
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 34   │ online    │ 0%       │ 304.0mb  │
+│ 1  │ critsend-worker    │ fork     │ 34   │ online    │ 0%       │ 444.6mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+│ restarts          │ 34                                                │
+│ uptime            │ 23h                                               │
+│ unstable restarts │ 0                                                 │
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: d2a682f Task #145: Pressure Guard hardening (audit follow-up R1-R16)
+
+[deploy] ▶ Installing dependencies (npm ci)...
+
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 7s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+47 vulnerabilities (6 low, 28 moderate, 12 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/@tanstack/react-query/build/modern/index.js
+ PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2510 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-CW0cF8dL.css     89.94 kB │ gzip:  14.65 kB
+../dist/public/assets/index-izV6PnTl.js   1,577.42 kB │ gzip: 410.38 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.17s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 104ms
+building import worker...
+
+  dist/import-worker.cjs  639.8kb
+
+⚡ Done in 59ms
+building background worker...
+
+  dist/worker-main.cjs  998.1kb
+
+⚡ Done in 77ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-worker --lines 50 --nostream | grep -i 'pressure'

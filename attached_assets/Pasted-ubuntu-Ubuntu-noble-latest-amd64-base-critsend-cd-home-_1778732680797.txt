@@ -1,0 +1,39 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+# Vérifier que les vars import existent dans .env
+grep -E "^(IMPORT_UPLOAD_DIR|IMPORT_CHUNKS_DIR)=" .env
+# Si elles manquent, les ajouter (chemins par défaut du script) :
+echo "IMPORT_UPLOAD_DIR=/var/lib/critsend/uploads/imports" | sudo tee -a .env
+echo "IMPORT_CHUNKS_DIR=/var/lib/critsend/uploads/chunks" | sudo tee -a .env
+# S'assurer que les répertoires existent et sont writable :
+sudo mkdir -p /var/lib/critsend/uploads/imports /var/lib/critsend/uploads/chunks
+sudo chown -R ubuntu:ubuntu /var/lib/critsend
+sudo chmod -R u+rwX /var/lib/critsend
+# Nginx + PM2 reload manuel (équivalent des étapes 6-7 du script) :
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend
+sudo nginx -t && sudo systemctl reload nginx
+pm2 reload deploy/ecosystem.config.cjs --env production
+# Vérification post-reload :
+sleep 5
+pm2 status
+curl -s http://localhost:5000/api/health/startup
+pm2 logs critsend-worker --lines 100 --nostream | grep -iE 'pressure|bootstrap'
+[sudo] password for ubuntu: 
+IMPORT_UPLOAD_DIR=/var/lib/critsend/uploads/imports
+IMPORT_CHUNKS_DIR=/var/lib/critsend/uploads/chunks
+2026/05/14 06:24:09 [emerg] 289190#289190: cannot load certificate "/etc/letsencrypt/live/server.critsender.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/server.critsender.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx: configuration file /etc/nginx/nginx.conf test failed
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] [critsend-worker](1) ✓
+[PM2] [critsend-web](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 35   │ online    │ 0%       │ 274.0mb  │
+│ 1  │ critsend-worker    │ fork     │ 35   │ online    │ 0%       │ 126.9mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+{"status":"ready","uptime":5,"timestamp":"2026-05-14T04:24:15.588Z"}1|critsend | 2026-05-14 06:24:12 +02:00: 2026-05-14T04:24:12.490Z [WARN] [MTA_HOSTNAME_TRGM] Bootstrap lock error: deadlock detected
+1|critsend | 2026-05-14 06:24:10 +02:00: 2026-05-14T04:24:10.930Z [INFO] [AUTOMATION] Bootstrap migration: mta_id column ready
+1|critsend | 2026-05-14 06:24:10 +02:00: 2026-05-14T04:24:10.998Z [INFO] [IMPORT]Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+1|critsend | 2026-05-14 06:24:11 +02:00: 2026-05-14T04:24:11.388Z [INFO] [CAMPAIGN_SUBJECT_TRGM] Another process is running bootstrap — skipping
+1|critsend | 2026-05-14 06:24:11 +02:00: 2026-05-14T04:24:11.388Z [INFO] [CAMPAIGN_NAME_TRGM] Another process is running bootstrap — skipping

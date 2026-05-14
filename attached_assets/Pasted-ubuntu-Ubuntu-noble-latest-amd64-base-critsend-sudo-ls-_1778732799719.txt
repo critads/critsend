@@ -1,0 +1,29 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo ls /etc/letsencrypt/live/ && grep -E 'ssl_certificate|server_name' deploy/nginx.conf
+README	critsender.critads.com	critsender.mahlesoldes.com
+    server_name server.critsender.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com critsender.rndaserver.com critsender.kammaspeed.com;
+    server_name server.critsender.com critsender.mahlesoldes.com critsender.mayasoldes.com critsender.mayesale.com critsender.rndamailing.com critsender.verysent.com;
+    ssl_certificate     /etc/letsencrypt/live/server.critsender.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/server.critsender.com/privkey.pem;
+    server_name critsender.rndaserver.com;
+    ssl_certificate     /etc/letsencrypt/live/critsender.rndaserver.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/critsender.rndaserver.com/privkey.pem;
+    server_name critsender.kammaspeed.com;
+    ssl_certificate     /etc/letsencrypt/live/critsender.kammaspeed.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/critsender.kammaspeed.com/privkey.pem;
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-worker --lines 300 --nostream | grep -iE 'pressure_guard|pressure_maintenance|is_admin' | tail -30
+1|critsend | 2026-05-14 06:25:05 +02:00: 2026-05-14T04:25:05.121Z [ERROR] [PRESSURE_GUARD] DDL failed: canceling statement due to lock timeout
+1|critsend | 2026-05-14 06:25:55 +02:00: 2026-05-14T04:25:55.349Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_pressure_campaign_eligible_idx build failed (non-fatal): canceling statement due to statement timeout
+1|critsend | 2026-05-14 06:25:35 +02:00: 2026-05-14T04:25:35.243Z [INFO] [PRESSURE_GUARD] Created partial index campaign_sends_pressure_deferred_idx
+1|critsend | 2026-05-14 06:26:05 +02:00: 2026-05-14T04:26:05.444Z [INFO] [PRESSURE_GUARD] Created partial index campaign_sends_pressure_curve_idx
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ psql \$NEON_DATABASE_URL -c \"
+  SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='is_admin';
+  SELECT * FROM pressure_maintenance_state;
+  SELECT count(*) FROM pressure_flush_audit;
+\"
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
+SELECT: command not found
+SELECT: command not found
+-bash: syntax error near unexpected token `('
+": command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

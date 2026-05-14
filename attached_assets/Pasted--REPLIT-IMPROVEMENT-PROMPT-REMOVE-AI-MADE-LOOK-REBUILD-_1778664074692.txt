@@ -1,0 +1,353 @@
+# REPLIT IMPROVEMENT PROMPT — REMOVE “AI MADE” LOOK & REBUILD PREMIUM BRANDING / DESIGN
+
+The current result still looks too “AI generated”, too generic, too template-based, and not premium enough.
+
+You must now completely redesign the visual identity, artistic direction, branding system, illustrations, logo, layouts, spacing, typography and graphical language of Bonjour Matin so the final product feels like a REAL high-end media startup created by a world-class design agency.
+
+━━━━━━━━━━━━━━━━━━
+
+# CRITICAL ISSUE TO FIX
+
+━━━━━━━━━━━━━━━━━━
+
+Currently the product suffers from:
+
+* generic AI-looking layouts
+* generic gradients
+* basic typography
+* weak visual hierarchy
+* cheap looking cards
+* simplistic logo
+* stock/AI-looking illustrations
+* poor spacing rhythm
+* too much “classic SaaS template” feeling
+* no emotional branding
+* no premium editorial identity
+* not enough visual sophistication
+* not enough art direction
+* not enough personality
+
+The result MUST stop looking:
+
+* like a Replit template
+* like a startup boilerplate
+* like a generated landing page
+* like a Tailwind demo
+* like an AI generated SaaS
+
+━━━━━━━━━━━━━━━━━━
+
+# TARGET FEELING
+
+━━━━━━━━━━━━━━━━━━
+
+The experience should feel closer to:
+
+* Apple News
+* Morning Brew
+* Linear
+* Notion
+* Arc Browser
+* Monocle Magazine
+* The New York Times modern digital experience
+* Artifact
+* High-end editorial magazines
+* Premium fintech branding
+
+The user should immediately feel:
+“This looks expensive, modern, intelligent and professionally art directed.”
+
+━━━━━━━━━━━━━━━━━━
+
+# COMPLETE VISUAL REWORK
+
+━━━━━━━━━━━━━━━━━━
+
+Completely redesign:
+
+* logo
+* icon system
+* typography
+* layout system
+* spacing system
+* cards
+* buttons
+* forms
+* navigation
+* hero section
+* newsletter preview
+* backgrounds
+* illustrations
+* animations
+* onboarding flow
+* color palette
+* mobile experience
+
+━━━━━━━━━━━━━━━━━━
+
+# LOGO DIRECTION
+
+━━━━━━━━━━━━━━━━━━
+
+The logo is currently too simple and generic.
+
+Create a MUCH stronger visual identity.
+
+Requirements:
+
+* minimalist but iconic
+* premium editorial feel
+* intelligent typography
+* custom wordmark
+* subtle luxury feeling
+* memorable symbol
+* scalable favicon
+* not cartoonish
+* not startup cliché
+* not generic AI logo
+
+Avoid:
+
+* lightning bolts
+* generic globes
+* generic newspaper icons
+* obvious AI symbols
+* generic gradients
+
+The logo must feel:
+
+* timeless
+* elegant
+* sophisticated
+* premium media brand
+
+━━━━━━━━━━━━━━━━━━
+
+# TYPOGRAPHY SYSTEM
+
+━━━━━━━━━━━━━━━━━━
+
+Typography currently looks too default.
+
+Build a true editorial typography system:
+
+* powerful font pairing
+* premium headline font
+* highly readable body font
+* luxury spacing rhythm
+* strong visual hierarchy
+
+Typography should feel:
+
+* intelligent
+* calm
+* premium
+* media-oriented
+* editorial
+
+Avoid:
+
+* default Tailwind typography
+* startup fonts overused everywhere
+* oversized childish headings
+
+━━━━━━━━━━━━━━━━━━
+
+# ART DIRECTION
+
+━━━━━━━━━━━━━━━━━━
+
+The illustrations and graphics currently look AI-generated and cheap.
+
+Replace them with a much more sophisticated visual language.
+
+The graphical system should use:
+
+* abstract editorial compositions
+* premium shapes
+* layered textures
+* cinematic lighting
+* subtle grain
+* editorial collages
+* modern magazine inspired compositions
+* asymmetric layouts
+* sophisticated image masking
+* luxury spacing
+
+The design must feel intentionally art directed.
+
+━━━━━━━━━━━━━━━━━━
+
+# COLOR SYSTEM
+
+━━━━━━━━━━━━━━━━━━
+
+The current palette is too generic.
+
+Create a refined palette:
+
+* sophisticated neutrals
+* subtle warm tones
+* elegant contrast
+* deep blacks
+* refined whites
+* restrained accent colors
+
+Avoid:
+
+* flashy startup gradients
+* crypto colors
+* neon overload
+* childish contrast
+
+━━━━━━━━━━━━━━━━━━
+
+# HERO SECTION REBUILD
+
+━━━━━━━━━━━━━━━━━━
+
+Completely rebuild the hero section.
+
+The hero should feel cinematic and emotionally powerful.
+
+Must include:
+
+* premium editorial composition
+* realistic newsletter visualization
+* elegant motion
+* layered depth
+* advanced layout structure
+* visually impressive typography
+* emotional storytelling
+
+The page should instantly communicate:
+“This is the smartest way to consume news every morning.”
+
+━━━━━━━━━━━━━━━━━━
+
+# COMPONENT QUALITY
+
+━━━━━━━━━━━━━━━━━━
+
+Every component must feel custom designed.
+
+Buttons:
+
+* premium hover states
+* tactile feeling
+* refined shadows
+* smooth transitions
+
+Cards:
+
+* depth
+* elegant borders
+* advanced spacing
+* subtle hover motion
+
+Forms:
+
+* luxurious input styling
+* polished focus states
+* micro interactions
+
+━━━━━━━━━━━━━━━━━━
+
+# ANIMATIONS
+
+━━━━━━━━━━━━━━━━━━
+
+Current animations are too basic.
+
+Create:
+
+* ultra smooth motion
+* cinematic transitions
+* premium easing
+* subtle parallax
+* layered entrance animations
+* refined hover effects
+
+Motion should feel:
+
+* expensive
+* fluid
+* Apple-level quality
+
+Never:
+
+* over animate
+* use gimmicky motion
+* create distracting effects
+
+━━━━━━━━━━━━━━━━━━
+
+# MOBILE EXPERIENCE
+
+━━━━━━━━━━━━━━━━━━
+
+The mobile version must feel native-app quality.
+
+Requirements:
+
+* luxurious spacing
+* thumb-friendly UX
+* editorial mobile layouts
+* fluid scrolling feel
+* premium responsiveness
+
+━━━━━━━━━━━━━━━━━━
+
+# NEWSLETTER DESIGN UPGRADE
+
+━━━━━━━━━━━━━━━━━━
+
+The newsletter itself must look MUCH more premium.
+
+It currently looks too generic.
+
+Redesign it like:
+
+* a luxury editorial digest
+* a premium morning briefing
+* a modern media publication
+
+Improve:
+
+* article hierarchy
+* typography
+* spacing
+* image integration
+* visual rhythm
+* section separation
+* CTA styling
+
+━━━━━━━━━━━━━━━━━━
+
+# IMPORTANT
+
+━━━━━━━━━━━━━━━━━━
+
+Do NOT:
+
+* use generic AI illustrations
+* use overused startup layouts
+* use obvious Tailwind defaults
+* use simplistic icon packs everywhere
+* use generic blobs/gradients
+* generate fake “cool startup” visuals
+
+You MUST:
+
+* create a real premium brand identity
+* create a believable funded startup aesthetic
+* create a memorable editorial product
+* create a visually unique experience
+
+The result must feel like it was crafted by:
+
+* a senior art director
+* a luxury branding agency
+* a top-tier product design team
+
+Do a COMPLETE visual overhaul until the project no longer looks AI generated in any way.

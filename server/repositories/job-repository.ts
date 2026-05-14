@@ -90,7 +90,7 @@ export async function claimNextJob(workerId: string): Promise<CampaignJob | null
       LEFT JOIN campaigns c ON c.id = cj.campaign_id
       WHERE cj.status = 'pending' AND (cj.next_retry_at IS NULL OR cj.next_retry_at <= NOW())
       ORDER BY c.started_at ASC NULLS LAST, cj.created_at ASC
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF cj SKIP LOCKED
       LIMIT 1
     )
     RETURNING *
