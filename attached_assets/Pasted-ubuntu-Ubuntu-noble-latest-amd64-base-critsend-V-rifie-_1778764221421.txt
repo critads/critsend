@@ -1,0 +1,23 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ # Vérifie les ticks récents (drained_calls doit être > 1 si parallélisation active)
+pm2 logs --nostream --lines 1000 | grep "PRESSURE_GUARD_WORKER\] tick" | tail -10
+
+# Vérifie quand le worker a été démarré (uptime)
+pm2 describe critsend-worker | grep -E "uptime|created at|restart time"
+
+# Vérifie si dist/ a été rebuild après ton git pull
+ls -la dist/worker-main.cjs dist/index.cjs
+0|critsend | 2026-05-14 15:08:30 +02:00: 2026-05-14T13:08:30.463Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:08:40 +02:00: 2026-05-14T13:08:40.464Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:08:50 +02:00: 2026-05-14T13:08:50.465Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:09:00 +02:00: 2026-05-14T13:09:00.464Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:09:10 +02:00: 2026-05-14T13:09:10.465Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:09:20 +02:00: 2026-05-14T13:09:20.465Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:09:30 +02:00: 2026-05-14T13:09:30.466Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:09:40 +02:00: 2026-05-14T13:09:40.467Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:09:50 +02:00: 2026-05-14T13:09:50.467Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 15:10:00 +02:00: 2026-05-14T13:10:00.468Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+│ uptime            │ 109s                                              │
+│ created at        │ 2026-05-14T13:07:48.675Z                          │
+-rw-rw-r-- 1 ubuntu ubuntu 1994997 May 14 15:07 dist/index.cjs
+-rw-rw-r-- 1 ubuntu ubuntu 1028833 May 14 15:07 dist/worker-main.cjs
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
