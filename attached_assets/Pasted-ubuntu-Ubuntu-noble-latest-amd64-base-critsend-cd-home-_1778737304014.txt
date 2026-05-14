@@ -1,0 +1,49 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && git pull && npm run build && pm2 restart critsend-worker critsend-web --update-env
+Already up to date.
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/@tanstack/react-query/build/modern/index.j
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2510 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-CW0cF8dL.css     89.94 kB │ gzip:  14.65 kB
+../dist/public/assets/index-izV6PnTl.js   1,577.42 kB │ gzip: 410.38 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.37s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 115ms
+building import worker...
+
+  dist/import-worker.cjs  640.0kb
+
+⚡ Done in 51ms
+building background worker...
+
+  dist/worker-main.cjs  998.5kb
+
+⚡ Done in 76ms
+[PM2] Applying action restartProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-worker](1) ✓
+[PM2] Applying action restartProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] [critsend-web](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 38   │ online    │ 0%       │ 19.5mb   │
+│ 1  │ critsend-worker    │ fork     │ 43   │ online    │ 57.5%    │ 115.8mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
