@@ -118,47 +118,22 @@ export function getEventsWithinWindow(windowMs: number = EVENT_RETENTION_MS): At
   return [...events];
 }
 
-// ── Per-(source,route) log throttling: 1 full line per second; bursts
-//    coalesced into a single summary line emitted at the end of the second.
-interface BurstAgg {
-  count: number;
-  firstAt: number;
-  lastSnapshot: AttributionRecord;
-  flushTimer: NodeJS.Timeout;
-}
-const bursts = new Map<string, BurstAgg>();
-
-function bucketKey(source: string, route: string): string {
-  return `${source}|${route}`;
-}
-
-function flushBurst(key: string): void {
-  const agg = bursts.get(key);
-  if (!agg) return;
-  bursts.delete(key);
-  const elapsed = Date.now() - agg.firstAt;
-  if (agg.count > 1) {
-    const s = agg.lastSnapshot;
-    logger.warn(
-      `[503] ${s.source} route=${s.route} ` +
-        `coalesced count=${agg.count} over ${elapsed}ms ` +
-        `(last rid=${s.rid} kind=${s.kind ?? "-"} ` +
-        `pool active=${s.poolActive}/${s.poolMax} idle=${s.poolIdle} total=${s.poolTotal} ` +
-        `waiting=${s.poolWaiting} sat=${s.poolSaturation.toFixed(2)})`,
-    );
-  }
-}
-
+// ── Per-event structured logging.
+//
+// Earlier iterations of this module coalesced bursts into a single
+// summary line per (source,route)/second to limit log volume. Code
+// review for Task #148 flagged that as lossy: an operator handed a
+// user's request-id could not always resolve it to a source from logs
+// alone, because only the first event of each burst carried rid /
+// method / path. We now log EVERY emission as one compact structured
+// line so per-request attribution is guaranteed (Prometheus counters
+// + the in-process ring buffer + the dashboard remain unchanged).
+//
+// Volume bound: 503 emission is itself a load-shed signal — the safety
+// net only fires under pressure, and pressure is what we want logged.
+// At full saturation (~MAIN_POOL_MAX requests rejected per second) this
+// is a few hundred lines/sec at worst, well within logger throughput.
 function logEmission(rec: AttributionRecord, errorMessage?: string): void {
-  const key = bucketKey(rec.source, rec.route);
-  const existing = bursts.get(key);
-  if (existing) {
-    existing.count++;
-    existing.lastSnapshot = rec;
-    return;
-  }
-  // First emission in this second → log the full structured line and
-  // start a 1 s aggregation window for any follow-up bursts.
   logger.warn(
     `[503] source=${rec.source} method=${rec.method} path=${rec.path} ` +
       `route=${rec.route} rid=${rec.rid} kind=${rec.kind ?? "-"} ` +
@@ -168,14 +143,6 @@ function logEmission(rec: AttributionRecord, errorMessage?: string): void {
       `lease=${rec.leaseHolding}` +
       (errorMessage ? ` err="${errorMessage.slice(0, 200)}"` : ""),
   );
-  const flushTimer = setTimeout(() => flushBurst(key), 1000);
-  flushTimer.unref();
-  bursts.set(key, {
-    count: 1,
-    firstAt: Date.now(),
-    lastSnapshot: rec,
-    flushTimer,
-  });
 }
 
 function bumpCounter(source: ServiceBusySource, kind: string | undefined, route: string): void {
