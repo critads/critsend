@@ -89,12 +89,17 @@ async function verifyPressureSchemaReady(): Promise<boolean> {
         EXISTS(SELECT 1 FROM information_schema.columns
                WHERE table_name='users' AND column_name='is_admin') AS has_is_admin,
         EXISTS(SELECT 1 FROM information_schema.tables
-               WHERE table_name='pressure_maintenance_state') AS has_maint_state
+               WHERE table_name='pressure_maintenance_state') AS has_maint_state,
+        -- Task #149: lease-table for leader election (replaces session-level
+        -- pg_try_advisory_lock which leaks on PgBouncer transaction-pooled endpoints).
+        EXISTS(SELECT 1 FROM information_schema.tables
+               WHERE table_name='pressure_guard_leader') AS has_leader_table
     `);
     const row = r.rows[0] as Record<string, boolean>;
     return Boolean(
       row?.has_last_sent_at && row?.has_deferred_count && row?.has_eligible_at &&
-      row?.has_audit && row?.has_is_admin && row?.has_maint_state,
+      row?.has_audit && row?.has_is_admin && row?.has_maint_state &&
+      row?.has_leader_table,
     );
   } catch {
     return false;
@@ -154,6 +159,19 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
           )
         `);
         await client.query(`INSERT INTO pressure_maintenance_state (id) VALUES (true) ON CONFLICT (id) DO NOTHING`);
+        // Task #149: lease-table for cross-cluster leader election.
+        // Replaces `pg_try_advisory_lock` (session-level) which leaks
+        // indefinitely on Neon PgBouncer transaction-pooled endpoints.
+        // Each row is acquired/refreshed/released by atomic single-statement
+        // ops, so it is fully compatible with transaction pooling and
+        // self-recovers after a node crash via the TTL on `expires_at`.
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS pressure_guard_leader (
+            lock_key text PRIMARY KEY,
+            holder_id text NOT NULL,
+            expires_at timestamptz NOT NULL
+          )
+        `);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
         // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).

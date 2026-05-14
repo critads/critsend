@@ -30,6 +30,14 @@ import {
 } from "../metrics";
 import { LOCK_KEYS } from "../bootstrap-lock";
 import type { Campaign, Mta, Subscriber } from "@shared/schema";
+import crypto from "crypto";
+
+// Task #149: stable per-process holder ID for lease-based leader election.
+// Used to recognise our own lease rows when reclaiming an expired lease
+// (so we can refresh in-place without bouncing between holders).
+const LEADER_HOLDER_ID = `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+const LEASE_TTL_MS = envInt("PRESSURE_LEADER_LEASE_TTL_MS", 60_000, 5_000, 5 * 60_000);
+const LEASE_REFRESH_MS = Math.max(2_000, Math.floor(LEASE_TTL_MS / 3));
 
 // Bounded env parser: rejects NaN / non-finite / out-of-range values and
 // falls back to the supplied default. Prevents misconfiguration from
@@ -98,25 +106,100 @@ export function stopPressureGuardWorker() {
 }
 
 /**
- * Try to claim a session-level advisory lock for the duration of `fn`.
- * Returns the result of `fn` if acquired, or `null` if another node owns
- * the lock. The lock is released even on failure. Used to single-flight
- * the drain poll across multiple worker processes (Task #145 R5).
+ * Task #149: lease-table-based leader election for cross-cluster
+ * single-flighting of cadenced background jobs.
+ *
+ * Replaces the previous `withSessionLock` (built on session-level
+ * `pg_try_advisory_lock`), which is fundamentally incompatible with
+ * Neon's PgBouncer transaction-pooled endpoints: each `pg.Client.query`
+ * is routed to a different physical backend, so the `acquire` and
+ * `unlock` queries land on different connections. Acquired locks leak
+ * indefinitely on the original backend (constated stuck PIDs in prod,
+ * `application_name=pgbouncer`, idle, executing unrelated queries).
+ *
+ * The lease table approach is immune to this:
+ *   • acquire/refresh/release are each a single atomic statement, so
+ *     PgBouncer can route them to any backend without consequence;
+ *   • leases self-recover after a node crash via the `expires_at` TTL;
+ *   • holder identity is preserved across refreshes via `holder_id`.
+ *
+ * Usage: pass a numeric lock key (we reuse the same `LOCK_KEYS.*`
+ * constants for label parity with logs and metrics). Returns the result
+ * of `fn` when leadership is acquired, or `null` if another node holds
+ * a fresh lease.
  */
-async function withSessionLock<T>(lockKey: number, label: string, fn: () => Promise<T>): Promise<T | null> {
-  const client = await pool.connect();
+async function withLeaderLease<T>(lockKey: number, label: string, fn: () => Promise<T>): Promise<T | null> {
+  const lockKeyStr = `pressure_guard:${lockKey}`;
+  const ttlMs = LEASE_TTL_MS;
+
+  // Atomic acquire/reclaim: insert a fresh lease, OR steal one whose
+  // `expires_at` has elapsed, OR refresh-in-place if we already hold it.
+  // Returns at most one row whose `holder_id` equals ours iff we won.
+  let acquired = false;
   try {
-    const r = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_lock($1) AS acquired`, [lockKey]);
-    if (!r.rows[0]?.acquired) return null;
+    const r = await pool.query<{ holder_id: string }>(
+      `INSERT INTO pressure_guard_leader (lock_key, holder_id, expires_at)
+       VALUES ($1, $2, NOW() + ($3 || ' milliseconds')::interval)
+       ON CONFLICT (lock_key) DO UPDATE
+       SET holder_id = EXCLUDED.holder_id,
+           expires_at = EXCLUDED.expires_at
+       WHERE pressure_guard_leader.expires_at < NOW()
+          OR pressure_guard_leader.holder_id = EXCLUDED.holder_id
+       RETURNING holder_id`,
+      [lockKeyStr, LEADER_HOLDER_ID, String(ttlMs)],
+    );
+    acquired = r.rows[0]?.holder_id === LEADER_HOLDER_ID;
+  } catch (err: any) {
+    // Table may not exist yet on first boot before bootstrap has run —
+    // log and bail (caller treats null as "not leader this tick").
+    logger.warn(`[${label}] lease acquire failed (non-fatal, will retry next tick): ${err?.message || err}`);
+    return null;
+  }
+  if (!acquired) return null;
+
+  // Background refresh while `fn` runs. We CAS-refresh: only extend the
+  // expiry if WE still hold the row, otherwise stop refreshing (we lost
+  // ownership during a clock skew / previous tick straggler).
+  let stopRefresh = false;
+  const refreshTimer = setInterval(async () => {
+    if (stopRefresh) return;
     try {
-      return await fn();
-    } finally {
-      try { await client.query(`SELECT pg_advisory_unlock($1)`, [lockKey]); } catch (e: any) {
-        logger.warn(`[${label}] failed to release lock ${lockKey}: ${e?.message || e}`);
+      const upd = await pool.query(
+        `UPDATE pressure_guard_leader
+         SET expires_at = NOW() + ($1 || ' milliseconds')::interval
+         WHERE lock_key = $2 AND holder_id = $3
+         RETURNING 1`,
+        [String(ttlMs), lockKeyStr, LEADER_HOLDER_ID],
+      );
+      if ((upd.rowCount ?? 0) === 0) {
+        // Lost ownership — stop refreshing; `fn` continues but the next
+        // tick will re-elect cleanly.
+        stopRefresh = true;
+        logger.warn(`[${label}] lease refresh lost ownership of ${lockKeyStr} — another node took over`);
       }
+    } catch (err: any) {
+      logger.warn(`[${label}] lease refresh failed (non-fatal): ${err?.message || err}`);
     }
+  }, LEASE_REFRESH_MS);
+  refreshTimer.unref();
+
+  try {
+    return await fn();
   } finally {
-    client.release();
+    stopRefresh = true;
+    clearInterval(refreshTimer);
+    // Best-effort release: clear our row so another node can claim
+    // immediately without waiting for the TTL.
+    try {
+      await pool.query(
+        `UPDATE pressure_guard_leader
+         SET expires_at = NOW()
+         WHERE lock_key = $1 AND holder_id = $2`,
+        [lockKeyStr, LEADER_HOLDER_ID],
+      );
+    } catch (err: any) {
+      logger.warn(`[${label}] lease release failed (non-fatal, TTL will reclaim): ${err?.message || err}`);
+    }
   }
 }
 
@@ -129,11 +212,18 @@ async function pollDeferredQueue() {
     // + worker mode, multi-replica), only one node should drain a tick;
     // others bail immediately so we never double-claim under SKIP LOCKED
     // *and* never burn duplicate gauge resets.
-    const ran = await withSessionLock(LOCK_KEYS.PRESSURE_DRAIN, "PRESSURE_DRAIN", async () => {
+    const ran = await withLeaderLease(LOCK_KEYS.PRESSURE_DRAIN, "PRESSURE_DRAIN", async () => {
       await pollDeferredQueueInner();
       return true;
     });
-    if (ran === null) return;
+    if (ran === null) {
+      // Task #149: emit a per-tick line even when we're not the leader
+      // so log greps show the worker is alive (the previous silent-bail
+      // made it impossible to distinguish "dead worker" from "leader on
+      // another node" in production).
+      logger.info(`[PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease)`);
+      return;
+    }
   } catch (err: any) {
     logger.error(`[PRESSURE_GUARD_WORKER] poll error: ${err?.message || err}`);
   } finally {
@@ -149,7 +239,22 @@ async function pollDeferredQueue() {
 const GAUGE_TOP_N = envInt("PRESSURE_GAUGE_TOP_N", 50, 1, 1_000);
 
 async function pollDeferredQueueInner() {
+  // Task #149: defensive per-tick counters so the end-of-function INFO
+  // line gives ops a single grep target for "is the drain alive and
+  // doing anything?" — independent of whether any campaign actually
+  // gets drained on a given tick.
+  let bootstrapStateLabel: string = "ready";
+  let hasPending = false;
+  let eligibleCampaigns = 0;
+  let drainedCalls = 0;
+  let errorCount = 0;
   try {
+    const bs = getPressureGuardBootstrapState();
+    bootstrapStateLabel = bs;
+    if (bs !== "ready") {
+      logger.info(`[PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=${bs}, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0`);
+      return;
+    }
     // R17 step 1: cheap pre-check via the partial index
     // `campaign_sends_pressure_deferred_idx`. EXISTS short-circuits on
     // the first matching row, so this is O(1) even with millions of
@@ -164,6 +269,7 @@ async function pollDeferredQueueInner() {
       ) AS has_any
     `);
     const hasAny = (probe.rows[0] as { has_any?: boolean } | undefined)?.has_any === true;
+    hasPending = hasAny;
     if (!hasAny) {
       try { pressureGuardPendingDeferred.reset(); } catch {}
       return;
@@ -214,16 +320,29 @@ async function pollDeferredQueueInner() {
       LIMIT ${MAX_CAMPAIGNS_PER_TICK}
     `);
 
+    eligibleCampaigns = campaignsRes.rows.length;
     for (const row of campaignsRes.rows) {
       const campaignId = (row as any).campaign_id as string;
       try {
         await drainCampaign(campaignId);
+        drainedCalls += 1;
       } catch (err: any) {
+        errorCount += 1;
         logger.error(`[PRESSURE_GUARD_WORKER] drainCampaign(${campaignId}) failed: ${err?.message || err}`);
       }
     }
   } catch (err: any) {
+    errorCount += 1;
     logger.error(`[PRESSURE_GUARD_WORKER] poll inner error: ${err?.message || err}`);
+  } finally {
+    // Task #149: single-line per-tick summary for ops grep. This MUST
+    // emit on every tick (drain or no drain) so a future silent-bail is
+    // immediately distinguishable from a healthy idle worker.
+    logger.info(
+      `[PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=${bootstrapStateLabel}, ` +
+      `has_pending=${hasPending ? "Y" : "N"}, eligible_campaigns=${eligibleCampaigns}, ` +
+      `drained_calls=${drainedCalls}, errors=${errorCount}`,
+    );
   }
 }
 
@@ -236,7 +355,7 @@ async function pollDeferredQueueInner() {
  */
 async function runMaintenanceTick() {
   if (getPressureGuardBootstrapState() !== "ready") return;
-  await withSessionLock(LOCK_KEYS.PRESSURE_MAINTENANCE, "PRESSURE_MAINTENANCE", async () => {
+  await withLeaderLease(LOCK_KEYS.PRESSURE_MAINTENANCE, "PRESSURE_MAINTENANCE", async () => {
     try {
       const r = await pool.query<{ size_bytes: string | null }>(
         `SELECT pg_relation_size('campaign_sends_pressure_deferred_idx')::bigint AS size_bytes`,
@@ -295,7 +414,7 @@ async function runMaintenanceTick() {
  */
 async function runAuditTtlTick() {
   if (getPressureGuardBootstrapState() !== "ready") return;
-  await withSessionLock(LOCK_KEYS.PRESSURE_AUDIT_TTL, "PRESSURE_AUDIT_TTL", async () => {
+  await withLeaderLease(LOCK_KEYS.PRESSURE_AUDIT_TTL, "PRESSURE_AUDIT_TTL", async () => {
     try {
       const r = await pool.query(
         `DELETE FROM pressure_flush_audit
