@@ -60,6 +60,7 @@ export interface IStorage {
   getSegments(): Promise<Segment[]>;
   getSegmentsPaginated(opts: { page: number; limit: number; search?: string }): Promise<{ segments: Segment[]; total: number }>;
   getSegment(id: string): Promise<Segment | undefined>;
+  getSegmentsByIds(ids: string[]): Promise<Segment[]>;
   createSegment(data: InsertSegment): Promise<Segment>;
   updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined>;
   deleteSegment(id: string): Promise<void>;

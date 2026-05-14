@@ -33,10 +33,7 @@ type ConnectCallback = (err: Error | undefined, client: PoolClient | undefined, 
 type ReleaseFn = (err?: Error | boolean) => void;
 type ConnectFn = Pool["connect"];
 import { logger } from "../logger";
-import {
-  poolRequestHolding,
-  poolRequestLeaseExceededTotal,
-} from "../metrics";
+import { poolRequestHolding } from "../metrics";
 
 const MAX_PER_REQUEST = Number(process.env.MAX_CONNECTIONS_PER_REQUEST || 2);
 
@@ -63,6 +60,12 @@ export function isRequestLeaseExceeded(err: unknown): err is RequestLeaseExceede
   );
 }
 
+/** Cause of the most-recent pool error on the active request. Carried on
+ *  the ALS context so `poolErrorResponseUpgrade` can attribute the upgraded
+ *  500→503 to the TRUE source (lease_exceeded vs checkout_timeout) instead
+ *  of generically labelling everything `checkout_timeout`. */
+export type PoolErrorKind = "checkout_timeout" | "lease_exceeded";
+
 interface LeaseCtx {
   route: string;
   count: number;
@@ -70,17 +73,30 @@ interface LeaseCtx {
   warned: boolean;
   /** Set true when ANY pool checkout error happened during this request. */
   poolErrorOccurred: boolean;
+  /** Most-recent pool error classification (if any). */
+  poolErrorKind?: PoolErrorKind;
 }
 
 /** Mark the active request as having seen a pool checkout error. No-op
  *  outside an ALS context (e.g. background workers). */
-export function markPoolErrorOnRequest(): void {
+export function markPoolErrorOnRequest(kind: PoolErrorKind = "checkout_timeout"): void {
   const ctx = leaseStore.getStore();
-  if (ctx) ctx.poolErrorOccurred = true;
+  if (!ctx) return;
+  ctx.poolErrorOccurred = true;
+  // Don't downgrade a previously-recorded lease_exceeded with a later
+  // generic checkout_timeout: lease_exceeded is the more-specific cause.
+  if (ctx.poolErrorKind !== "lease_exceeded") ctx.poolErrorKind = kind;
 }
 
 export function requestSawPoolError(): boolean {
   return leaseStore.getStore()?.poolErrorOccurred === true;
+}
+
+/** Returns the recorded pool-error kind for the active request, or
+ *  undefined when no error has been recorded. Used by the 500→503
+ *  upgrade in pool-safety.ts. */
+export function requestPoolErrorKind(): PoolErrorKind | undefined {
+  return leaseStore.getStore()?.poolErrorKind;
 }
 
 export const leaseStore = new AsyncLocalStorage<LeaseCtx>();
@@ -107,17 +123,23 @@ function checkCap(ctx: LeaseCtx): void {
   // already-acquired client is left untouched so any in-progress
   // transaction can complete + release cleanly.
   if (ctx.count >= MAX_PER_REQUEST) {
-    poolRequestLeaseExceededTotal.inc({ route: ctx.route });
     if (!ctx.warned) {
       ctx.warned = true;
       logger.warn(
         `[POOL LEASE] Route ${ctx.route} attempted ${ctx.count + 1}-th concurrent checkout (cap=${MAX_PER_REQUEST}); rejecting with 503.`,
       );
     }
-    // Mark on the request ALS context so any locally caught 500 from the
-    // route handler is upgraded to the canonical 503 + Retry-After contract
-    // by `poolErrorResponseUpgrade` in pool-safety.ts.
+    // Record the cause on the ALS context so any locally caught 500 from
+    // the route handler is upgraded to the canonical 503 + Retry-After
+    // contract by `poolErrorResponseUpgrade` AND attributed to
+    // lease_exceeded (not the generic checkout_timeout).
+    //
+    // Counter increment is intentionally NOT here — the unified 503
+    // emission helper (`bumpCounter` in service-busy.ts) increments
+    // `poolRequestLeaseExceededTotal` exactly once per emitted 503. If
+    // we incremented here too, every lease miss would double-count.
     ctx.poolErrorOccurred = true;
+    ctx.poolErrorKind = "lease_exceeded";
     throw new RequestLeaseExceededError(ctx.route, ctx.count + 1, MAX_PER_REQUEST);
   }
 }

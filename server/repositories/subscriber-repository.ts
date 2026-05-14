@@ -468,6 +468,17 @@ export async function getSegment(id: string): Promise<Segment | undefined> {
   return segment;
 }
 
+/**
+ * Bulk existence/lookup for segment IDs in a single round-trip.
+ * Used by POST /api/campaigns to validate `segmentId` + `excludeSegmentId`
+ * with one pool checkout instead of two — keeps us under the per-request
+ * lease cap (Task #148).
+ */
+export async function getSegmentsByIds(ids: string[]): Promise<Segment[]> {
+  if (ids.length === 0) return [];
+  return db.select().from(segments).where(inArray(segments.id, ids));
+}
+
 export async function createSegment(data: InsertSegment): Promise<Segment> {
   const [segment] = await db.insert(segments).values(data).returning();
   return segment;

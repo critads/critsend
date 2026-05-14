@@ -7,7 +7,8 @@ import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
 import { logger } from "../logger";
-import { classifyDbError, userFacingMessageFor } from "../db-errors";
+import { classifyDbError } from "../db-errors";
+import { emitServiceBusy } from "../middleware/service-busy";
 import { messageQueue } from "../message-queue";
 import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
 import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62 } from "../utils";
@@ -283,13 +284,6 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
   
-  // Per-process throttle so a sustained DB outage doesn't spam the logs with
-  // one stack trace per failed list request. We log the first failure with
-  // full context and then a single summary line every 60s.
-  let lastCampaignsListErrorLog = 0;
-  let suppressedCampaignsListErrors = 0;
-  const CAMPAIGNS_LIST_ERROR_LOG_INTERVAL_MS = 60_000;
-
   app.get("/api/campaigns", async (req: Request, res: Response) => {
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -307,24 +301,15 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error) {
       const classified = classifyDbError(error);
       if (classified.transient) {
-        const now = Date.now();
-        if (now - lastCampaignsListErrorLog >= CAMPAIGNS_LIST_ERROR_LOG_INTERVAL_MS) {
-          logger.error(
-            `[campaigns] list query failed (transient ${classified.kind}, code=${classified.code ?? "n/a"}): ${classified.message}` +
-            (suppressedCampaignsListErrors > 0
-              ? ` (+${suppressedCampaignsListErrors} similar suppressed)`
-              : "")
-          );
-          lastCampaignsListErrorLog = now;
-          suppressedCampaignsListErrors = 0;
-        } else {
-          suppressedCampaignsListErrors++;
-        }
-        res.status(503).json({
-          error: "service_unavailable",
+        // Task #148: every transient 503 now flows through emitServiceBusy
+        // → structured log + per-source counter + ring buffer entry. The
+        // helper coalesces bursts so a sustained DB outage doesn't spam
+        // the logs (replaces the prior 60s manual throttle).
+        emitServiceBusy(req, res, {
+          source: "handler_transient",
           kind: classified.kind,
-          message: userFacingMessageFor(classified.kind),
-          retryable: true,
+          code: classified.code,
+          errorMessage: classified.message,
         });
         return;
       }
@@ -574,16 +559,22 @@ export function registerCampaignRoutes(app: Express, helpers: {
       ) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
-      // Task #138: explicit existence check on both segment refs. The FK
-      // catches dangling IDs at INSERT time but produces an opaque DB
-      // error; checking here returns a clear 400 to the client.
-      if (normalizedBody.segmentId) {
-        const seg = await storage.getSegment(normalizedBody.segmentId);
-        if (!seg) return res.status(400).json({ error: "Audience segment does not exist" });
-      }
-      if (normalizedBody.excludeSegmentId) {
-        const seg = await storage.getSegment(normalizedBody.excludeSegmentId);
-        if (!seg) return res.status(400).json({ error: "Exclusion segment does not exist" });
+      // Task #138 + #148: explicit existence check on both segment refs.
+      // Coalesced into a single `WHERE id = ANY(...)` round-trip (1 pool
+      // checkout instead of 2) so this route stays under the per-request
+      // lease cap when followed by the campaign-insert transaction.
+      const segIds = [normalizedBody.segmentId, normalizedBody.excludeSegmentId].filter(
+        (v): v is string => typeof v === "string" && v.length > 0,
+      );
+      if (segIds.length > 0) {
+        const found = await storage.getSegmentsByIds(segIds);
+        const foundSet = new Set(found.map((s) => s.id));
+        if (normalizedBody.segmentId && !foundSet.has(normalizedBody.segmentId)) {
+          return res.status(400).json({ error: "Audience segment does not exist" });
+        }
+        if (normalizedBody.excludeSegmentId && !foundSet.has(normalizedBody.excludeSegmentId)) {
+          return res.status(400).json({ error: "Exclusion segment does not exist" });
+        }
       }
 
       let data: any;
@@ -1039,8 +1030,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
   app.post("/api/campaigns/:id/send", async (req: Request, res: Response) => {
     if (isMemoryPressure) {
-      res.setHeader('Retry-After', '60');
-      return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
+      // Task #148: route this 503 through the unified helper so it appears
+      // in the attribution ring + critsend_memory_pressure_503_total counter.
+      return emitServiceBusy(req, res, { source: "memory_pressure", retryAfterSeconds: 60 });
     }
     const campaignId = req.params.id;
     const timestamp = new Date().toISOString();

@@ -65,69 +65,77 @@ export async function reconcileCounters(
   // Recent-activity campaign set: any campaign with a send OR a tracking event
   // in the last RECONCILE_WINDOW_HOURS. Used as the gating set for all three
   // updates so that an old campaign with a fresh open/click still reconciles.
+  //
+  // Task #148: previously the `recent_campaigns` CTE was only applied as a
+  // post-aggregation filter on the UPDATE row, but the `truth` CTE itself
+  // still scanned the FULL `campaign_stats` table (~20M rows in prod) before
+  // the join — tripping the pool's 120s statement_timeout. We now push the
+  // recent-campaigns filter INTO every `truth` CTE so each scope-recent run
+  // touches only the active subset (typically <100 campaigns).
   const recentCampaignsCte =
     scope === "all"
       ? ""
-      : `, recent_campaigns AS (
+      : `WITH recent_campaigns AS (
           SELECT campaign_id FROM campaign_sends
             WHERE sent_at > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours'
           UNION
           SELECT campaign_id FROM campaign_stats
             WHERE "timestamp" > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours'
-        )`;
-  const inRecent = scope === "all" ? "" : `AND cs.campaign_id IN (SELECT campaign_id FROM recent_campaigns)`;
-  const inRecentCampaign = scope === "all" ? "" : `AND c.id IN (SELECT campaign_id FROM recent_campaigns)`;
+        ),`;
+  // For scope=all we still need a leading WITH; the `truth` CTE supplies it.
+  const truthLead = scope === "all" ? "WITH truth AS" : `${recentCampaignsCte} truth AS`;
+  const inRecentRow = scope === "all" ? "" : `AND campaign_id IN (SELECT campaign_id FROM recent_campaigns)`;
 
   // 1. campaigns.sent_count (fill-only — never reduces)
   const sentRes = await effectivePool.query(
-    `WITH truth AS (
+    `${truthLead} (
        SELECT campaign_id, COUNT(*)::bigint AS cnt
          FROM campaign_sends
         WHERE status = 'sent'
+          ${inRecentRow}
         GROUP BY campaign_id
-     )${recentCampaignsCte}
+     )
      UPDATE campaigns c
         SET sent_count = truth.cnt
        FROM truth
       WHERE c.id = truth.campaign_id
-        AND c.sent_count < truth.cnt
-        ${inRecentCampaign}`,
+        AND c.sent_count < truth.cnt`,
   );
   const sentCountFixed = sentRes.rowCount ?? 0;
 
   // 2. campaign_sends.first_open_at
   const openRes = await effectivePool.query(
-    `WITH truth AS (
+    `${truthLead} (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
          FROM campaign_stats
         WHERE type = 'open'
+          ${inRecentRow}
         GROUP BY campaign_id, subscriber_id
-     )${recentCampaignsCte}
+     )
      UPDATE campaign_sends cs
         SET first_open_at = truth.first_ts
        FROM truth
       WHERE cs.campaign_id = truth.campaign_id
         AND cs.subscriber_id = truth.subscriber_id
-        AND cs.first_open_at IS NULL
-        ${inRecent}`,
+        AND cs.first_open_at IS NULL`,
   );
   const firstOpenFixed = openRes.rowCount ?? 0;
 
   // 3. campaign_sends.first_click_at
   const clickRes = await effectivePool.query(
-    `WITH truth AS (
+    `${truthLead} (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
          FROM campaign_stats
         WHERE type = 'click'
+          ${inRecentRow}
         GROUP BY campaign_id, subscriber_id
-     )${recentCampaignsCte}
+     )
      UPDATE campaign_sends cs
         SET first_click_at = truth.first_ts
        FROM truth
       WHERE cs.campaign_id = truth.campaign_id
         AND cs.subscriber_id = truth.subscriber_id
-        AND cs.first_click_at IS NULL
-        ${inRecent}`,
+        AND cs.first_click_at IS NULL`,
   );
   const firstClickFixed = clickRes.rowCount ?? 0;
 
@@ -139,7 +147,7 @@ export async function reconcileCounters(
   //    GREATEST() (fill-only) which could never fix overcounts — resulting in
   //    >100% open rates on the /campaigns list.
   const engagementRes = await effectivePool.query(
-    `WITH truth AS (
+    `${truthLead} (
        SELECT campaign_id,
               COUNT(*) FILTER (WHERE type = 'open')::bigint                          AS total_opens,
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')::bigint     AS unique_opens,
@@ -148,8 +156,10 @@ export async function reconcileCounters(
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')::bigint AS unsubscribes,
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints
          FROM campaign_stats
+        WHERE TRUE
+          ${inRecentRow}
         GROUP BY campaign_id
-     )${recentCampaignsCte}
+     )
      UPDATE campaigns c
         SET total_opens_count   = truth.total_opens,
             unique_opens_count  = truth.unique_opens,
@@ -164,8 +174,7 @@ export async function reconcileCounters(
            OR c.total_clicks_count  IS DISTINCT FROM truth.total_clicks
            OR c.unique_clicks_count IS DISTINCT FROM truth.unique_clicks
            OR c.unsubscribes_count  IS DISTINCT FROM truth.unsubscribes
-           OR c.complaints_count    IS DISTINCT FROM truth.complaints )
-        ${inRecentCampaign}`,
+           OR c.complaints_count    IS DISTINCT FROM truth.complaints )`,
   );
   const engagementCountersFixed = engagementRes.rowCount ?? 0;
 

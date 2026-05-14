@@ -10,10 +10,32 @@ export async function fetchCsrfToken(): Promise<string> {
   return csrfToken!;
 }
 
+/**
+ * Custom error type carrying the parsed HTTP status + JSON body so callers
+ * (e.g. the campaigns list page) can branch on `error.status === 503` and
+ * `error.body?.error === "service_busy"` without parsing message strings.
+ */
+export class ApiError extends Error {
+  public readonly status: number;
+  public readonly body: any;
+  public readonly retryAfterSeconds?: number;
+  constructor(status: number, body: any, message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let body: any = null;
+    try { body = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+    const retryAfter = res.headers.get("Retry-After");
+    const retryAfterSeconds = retryAfter ? Number(retryAfter) : undefined;
+    throw new ApiError(res.status, body, `${res.status}: ${text}`, retryAfterSeconds);
   }
 }
 
@@ -67,14 +89,33 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
+    // Build the URL from the queryKey: first segment is the path, optional
+    // second segment is an object of query params (so callers can use
+    // ["/api/campaigns", { page, search }] without inflating the cache key
+    // into a flat string). Falls back to the legacy join-with-/ behaviour
+    // for plain string-only keys.
+    const [first, second] = queryKey as [unknown, unknown?];
+    let url: string;
+    if (typeof first === "string" && second && typeof second === "object" && !Array.isArray(second)) {
+      const sp = new URLSearchParams();
+      for (const [k, v] of Object.entries(second as Record<string, unknown>)) {
+        if (v === undefined || v === null || v === "" || v === false) continue;
+        sp.set(k, String(v));
+      }
+      const q = sp.toString();
+      url = q ? `${first}?${q}` : first;
+    } else {
+      url = (queryKey as unknown[]).join("/");
+    }
+    const res = await fetch(url, { credentials: "include" });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }
 
+    // throwIfResNotOk now throws ApiError carrying status + parsed body,
+    // so callers can branch on err.status === 503 / err.body.error
+    // (Task #148: distinguish "service_busy" from real failures).
     await throwIfResNotOk(res);
     return await res.json();
   };

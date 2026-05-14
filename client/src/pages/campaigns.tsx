@@ -168,9 +168,11 @@ export default function Campaigns() {
 
   const { data: campaignsData, isLoading, isError, error } = useQuery<PaginatedCampaigns>({
     queryKey: ["/api/campaigns", { page: currentPage, search: debouncedSearch, originalsOnly }],
+    // Task #148: route through `apiRequest` so 503 responses surface as
+    // `ApiError` with `.status` + parsed `.body` — required for the
+    // soft-busy branch in the error UI below to fire reliably.
     queryFn: async () => {
-      const res = await fetch(`/api/campaigns?${queryString}`, { credentials: "include" });
-      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      const res = await apiRequest("GET", `/api/campaigns?${queryString}`);
       return res.json();
     },
     placeholderData: keepPreviousData,
@@ -405,26 +407,59 @@ export default function Campaigns() {
               ))}
             </div>
           ) : isError ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center gap-4" data-testid="campaigns-error-state">
-              <div className="rounded-full bg-destructive/10 p-4">
-                <AlertCircle className="h-10 w-10 text-destructive" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Failed to load campaigns</h3>
-                <p className="text-muted-foreground text-sm max-w-sm">
-                  {(error as any)?.message || "The server returned an error. Check the Error Logs page for details."}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] })}
-                data-testid="button-retry-campaigns"
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Retry
-              </Button>
-            </div>
+            (() => {
+              // Task #148: distinguish "server is briefly busy, retry will
+              // succeed" (503 service_busy) from genuine failures so users
+              // don't see a scary red banner for a 1-second blip.
+              const err = error as any;
+              const isBusy = err?.status === 503 || err?.body?.error === "service_busy";
+              if (isBusy) {
+                return (
+                  <div className="flex flex-col items-center justify-center py-16 text-center gap-4" data-testid="campaigns-busy-state">
+                    <div className="rounded-full bg-muted p-4">
+                      <RefreshCw className="h-10 w-10 text-muted-foreground animate-spin" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold mb-1">Serveur momentanément occupé</h3>
+                      <p className="text-muted-foreground text-sm max-w-sm">
+                        Nouvelle tentative dans un instant…
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] })}
+                      data-testid="button-retry-campaigns"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Réessayer maintenant
+                    </Button>
+                  </div>
+                );
+              }
+              return (
+                <div className="flex flex-col items-center justify-center py-16 text-center gap-4" data-testid="campaigns-error-state">
+                  <div className="rounded-full bg-destructive/10 p-4">
+                    <AlertCircle className="h-10 w-10 text-destructive" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold mb-1">Failed to load campaigns</h3>
+                    <p className="text-muted-foreground text-sm max-w-sm">
+                      {err?.message || "The server returned an error. Check the Error Logs page for details."}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] })}
+                    data-testid="button-retry-campaigns"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Retry
+                  </Button>
+                </div>
+              );
+            })()
           ) : campaigns && campaigns.length > 0 ? (
             <div className="space-y-4">
             <div className="rounded-md border overflow-x-auto">

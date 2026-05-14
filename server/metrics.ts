@@ -448,6 +448,39 @@ export const poolRequestLeaseExceededTotal = new client.Counter({
   registers: [register],
 });
 
+// ─── 503 attribution (Task #148) ──────────────────────────────────────────
+// Cross-cutting meta-counter incremented EXACTLY once per 503 emitted by
+// the unified service-busy helper. Use this when you want the total 503
+// rate or the per-(source,route) breakdown without summing five different
+// per-source counters that have heterogeneous label sets.
+export const serviceBusy503Total = new client.Counter({
+  name: 'critsend_service_busy_503_total',
+  help: 'Total 503 service_busy responses emitted via emitServiceBusy(), labelled by source and route bucket',
+  labelNames: ['source', 'route'] as const,
+  registers: [register],
+});
+
+// 503s emitted by route-handler local catch blocks for transient DB errors
+// (statement_timeout, connection lost, disk_full). Distinct from the pool
+// safety-net counters because these are application-level decisions made
+// AFTER a query was attempted.
+export const campaignsListTransient503Total = new client.Counter({
+  name: 'critsend_handler_transient_503_total',
+  help: 'Route-handler 503 responses caused by a transient DB error (timeout, connection, disk_full)',
+  labelNames: ['kind', 'route'] as const,
+  registers: [register],
+});
+
+// 503s emitted because the in-process memory monitor flagged isMemoryPressure.
+// Until Task #148 these were counted nowhere — we now want every emission
+// attributable so operators can correlate with the heap-utilisation gauge.
+export const memoryPressure503Total = new client.Counter({
+  name: 'critsend_memory_pressure_503_total',
+  help: 'Requests rejected with 503 because the memory monitor flagged isMemoryPressure',
+  labelNames: ['route'] as const,
+  registers: [register],
+});
+
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   res.on('finish', () => {

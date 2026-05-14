@@ -21,10 +21,8 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { pool, getPoolSaturation, isPoolCheckoutError } from "../db";
 import { MAIN_POOL_MAX } from "../connection-budget";
-import { logger } from "../logger";
-import { poolLoadShedTotal, poolCheckoutTimeoutTotal } from "../metrics";
-import { isRequestLeaseExceeded, requestSawPoolError } from "./request-lease";
-import { routeBucket } from "./route-bucket";
+import { isRequestLeaseExceeded, requestSawPoolError, requestPoolErrorKind } from "./request-lease";
+import { emitServiceBusy, recordServiceBusy } from "./service-busy";
 
 const LOAD_SHED_THRESHOLD = Number(process.env.POOL_LOAD_SHED_THRESHOLD || 0.9);
 // Routes that must always be served, even under saturation.
@@ -68,15 +66,11 @@ function isSpaPageRequest(req: Request): boolean {
 // `routeBucket` lives in its own module so this file and `request-lease.ts`
 // can both import it without forming a circular dependency.
 
-/** Canonical body for every 503 response coming out of the safety net. */
-// Strict shape per task contract: only `{ error: "service_busy" }`. The
-// retry interval is communicated solely via the `Retry-After: 1` header.
+/** Canonical body for every 503 response coming out of the safety net.
+ *  Kept as a constant for the in-place patched paths in
+ *  `poolErrorResponseUpgrade` (which bypass `emitServiceBusy` because the
+ *  response was already partially mutated by the patched res.status). */
 const SERVICE_BUSY_BODY = { error: "service_busy" } as const;
-
-function sendServiceBusy(res: Response): Response {
-  res.setHeader("Retry-After", "1");
-  return res.status(503).json(SERVICE_BUSY_BODY);
-}
 
 /**
  * Upgrade any `res.status(500)` to a canonical 503 + Retry-After +
@@ -94,16 +88,24 @@ type JsonFn = Response["json"];
 type SendFn = Response["send"];
 type EndFn = Response["end"];
 
-export function poolErrorResponseUpgrade(_req: Request, res: Response, next: NextFunction): void {
+export function poolErrorResponseUpgrade(req: Request, res: Response, next: NextFunction): void {
   const originalStatus: StatusFn = res.status.bind(res);
   const originalSendStatus: SendStatusFn = res.sendStatus.bind(res);
   const originalJson: JsonFn = res.json.bind(res);
   const originalSend: SendFn = res.send.bind(res);
   let upgraded = false;
 
+  const upgradeSource = (): "lease_exceeded" | "checkout_timeout" =>
+    requestPoolErrorKind() === "lease_exceeded" ? "lease_exceeded" : "checkout_timeout";
+
   const patchedStatus: StatusFn = (code: number) => {
     if (code === 500 && !res.headersSent && requestSawPoolError()) {
-      poolCheckoutTimeoutTotal.inc();
+      // Attribute the upgrade through the unified helper using the TRUE
+      // pool-error kind recorded on the ALS context (lease_exceeded vs
+      // checkout_timeout). `kind=upgraded_from_500` tells operators the
+      // 503 was synthesised from a route's locally-caught 500 rather than
+      // bubbling through `poolErrorHandler`.
+      recordServiceBusy(req, { source: upgradeSource(), kind: "upgraded_from_500" });
       upgraded = true;
       res.setHeader("Retry-After", "1");
       return originalStatus(503);
@@ -114,7 +116,7 @@ export function poolErrorResponseUpgrade(_req: Request, res: Response, next: Nex
 
   const patchedSendStatus: SendStatusFn = (code: number) => {
     if (code === 500 && !res.headersSent && requestSawPoolError()) {
-      poolCheckoutTimeoutTotal.inc();
+      recordServiceBusy(req, { source: upgradeSource(), kind: "upgraded_from_500" });
       upgraded = true;
       res.setHeader("Retry-After", "1");
       // Emit canonical JSON body (not Express's default plain-text status
@@ -164,9 +166,6 @@ export function poolErrorResponseUpgrade(_req: Request, res: Response, next: Nex
 const WAITING_PERSISTENCE_MS = Number(process.env.POOL_WAITING_PERSISTENCE_MS || 500);
 let waitingSinceMs = 0;
 
-let lastShedLogAt = 0;
-const SHED_LOG_INTERVAL_MS = 5_000;
-
 /**
  * Reject non-critical requests with 503 when the main pool is already
  * saturated. Runs before the request handler so we never queue work that
@@ -191,16 +190,9 @@ export function loadShedMiddleware(req: Request, res: Response, next: NextFuncti
   if (!waitingPersistent && !saturationHot) return next();
 
   const reason = saturationHot ? "saturation" : "waiting";
-  poolLoadShedTotal.inc({ reason, route: routeBucket(req.path) });
-  if (now - lastShedLogAt > SHED_LOG_INTERVAL_MS) {
-    lastShedLogAt = now;
-    const persistedFor = waitingSinceMs > 0 ? now - waitingSinceMs : 0;
-    const reqId = req.requestId || '-';
-    logger.warn(
-      `[POOL SAFETY] Load-shedding ${req.method} ${req.path}: pool active=${pool.totalCount - pool.idleCount}/${MAIN_POOL_MAX}, waiting=${waiting} (for ${persistedFor}ms), saturation=${saturation.toFixed(2)} (reason=${reason}) rid=${reqId}`,
-    );
-  }
-  sendServiceBusy(res);
+  // emitServiceBusy logs once per (source,route)/second and coalesces
+  // bursts — replaces the manual SHED_LOG_INTERVAL_MS throttle.
+  emitServiceBusy(req, res, { source: "load_shed", kind: reason });
 }
 
 /**
@@ -210,18 +202,17 @@ export function loadShedMiddleware(req: Request, res: Response, next: NextFuncti
  */
 export function poolErrorHandler(err: unknown, req: Request, res: Response, next: NextFunction): void {
   if (isRequestLeaseExceeded(err)) {
-    // The lease tracker already counted this in
-    // critsend_db_pool_request_lease_exceeded_total{route} — just translate
-    // to the standard 503 contract here.
     if (res.headersSent) return next(err);
-    sendServiceBusy(res);
+    emitServiceBusy(req, res, { source: "lease_exceeded" });
     return;
   }
   if (!isPoolCheckoutError(err)) return next(err);
-  poolCheckoutTimeoutTotal.inc();
-  const msg = err instanceof Error ? err.message : String(err);
-  const reqId = req.requestId || '-';
-  logger.warn(`[POOL SAFETY] Checkout timeout on ${req.method} ${req.path}: ${msg} rid=${reqId}`);
   if (res.headersSent) return next(err);
-  sendServiceBusy(res);
+  const msg = err instanceof Error ? err.message : String(err);
+  emitServiceBusy(req, res, { source: "checkout_timeout", errorMessage: msg });
 }
+
+// Silence "declared but unused" for MAIN_POOL_MAX import after the refactor —
+// we keep the import because it documents intent and may be re-used by
+// future safety nets in this same file.
+void MAIN_POOL_MAX;
