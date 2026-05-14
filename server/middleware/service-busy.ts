@@ -223,7 +223,7 @@ export function emitServiceBusy(
   const active = total - idle;
   const saturation = getPoolSaturation();
   const leaseHolding = leaseStore.getStore()?.count ?? 0;
-  const rid = (req as any).requestId || "-";
+  const rid = (req as Request & { requestId?: string }).requestId || "-";
 
   const rec: AttributionRecord = {
     ts: Date.now(),
@@ -273,7 +273,7 @@ export function recordServiceBusy(
   const active = total - idle;
   const saturation = getPoolSaturation();
   const leaseHolding = leaseStore.getStore()?.count ?? 0;
-  const rid = (req as any).requestId || "-";
+  const rid = (req as Request & { requestId?: string }).requestId || "-";
   const rec: AttributionRecord = {
     ts: Date.now(),
     rid,

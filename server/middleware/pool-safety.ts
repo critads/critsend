@@ -65,11 +65,20 @@ function isSpaPageRequest(req: Request): boolean {
 // `routeBucket` lives in its own module so this file and `request-lease.ts`
 // can both import it without forming a circular dependency.
 
-/** Canonical body for every 503 response coming out of the safety net.
- *  Kept as a constant for the in-place patched paths in
- *  `poolErrorResponseUpgrade` (which bypass `emitServiceBusy` because the
- *  response was already partially mutated by the patched res.status). */
-const SERVICE_BUSY_BODY = { error: "service_busy" } as const;
+/** Canonical body builder for every 503 response coming out of the
+ *  safety net. Mirrors the shape returned by `emitServiceBusy` so the
+ *  upgraded paths in `poolErrorResponseUpgrade` (which bypass
+ *  `emitServiceBusy` because the response was already partially mutated
+ *  by the patched res.status setter) are byte-identical with the direct
+ *  emission paths. */
+function serviceBusyBody(source: "lease_exceeded" | "checkout_timeout") {
+  return {
+    error: "service_busy",
+    source,
+    kind: "upgraded_from_500",
+    retryable: true,
+  } as const;
+}
 
 /**
  * Upgrade any `res.status(500)` to a canonical 503 + Retry-After +
@@ -93,18 +102,15 @@ export function poolErrorResponseUpgrade(req: Request, res: Response, next: Next
   const originalJson: JsonFn = res.json.bind(res);
   const originalSend: SendFn = res.send.bind(res);
   let upgraded = false;
+  let upgradedSource: "lease_exceeded" | "checkout_timeout" = "checkout_timeout";
 
   const upgradeSource = (): "lease_exceeded" | "checkout_timeout" =>
     requestPoolErrorKind() === "lease_exceeded" ? "lease_exceeded" : "checkout_timeout";
 
   const patchedStatus: StatusFn = (code: number) => {
     if (code === 500 && !res.headersSent && requestSawPoolError()) {
-      // Attribute the upgrade through the unified helper using the TRUE
-      // pool-error kind recorded on the ALS context (lease_exceeded vs
-      // checkout_timeout). `kind=upgraded_from_500` tells operators the
-      // 503 was synthesised from a route's locally-caught 500 rather than
-      // bubbling through `poolErrorHandler`.
-      recordServiceBusy(req, { source: upgradeSource(), kind: "upgraded_from_500" });
+      upgradedSource = upgradeSource();
+      recordServiceBusy(req, { source: upgradedSource, kind: "upgraded_from_500" });
       upgraded = true;
       res.setHeader("Retry-After", "1");
       return originalStatus(503);
@@ -115,41 +121,34 @@ export function poolErrorResponseUpgrade(req: Request, res: Response, next: Next
 
   const patchedSendStatus: SendStatusFn = (code: number) => {
     if (code === 500 && !res.headersSent && requestSawPoolError()) {
-      recordServiceBusy(req, { source: upgradeSource(), kind: "upgraded_from_500" });
+      upgradedSource = upgradeSource();
+      recordServiceBusy(req, { source: upgradedSource, kind: "upgraded_from_500" });
       upgraded = true;
       res.setHeader("Retry-After", "1");
-      // Emit canonical JSON body (not Express's default plain-text status
-      // message) so all 503s from the safety net are byte-identical.
       originalStatus(503);
-      originalJson(SERVICE_BUSY_BODY);
+      originalJson(serviceBusyBody(upgradedSource));
       return res;
     }
     return originalSendStatus(code);
   };
   res.sendStatus = patchedSendStatus;
 
-  // When the request was upgraded, replace whatever body the handler tried
-  // to send with the canonical service-busy payload — preserves contract.
   const patchedJson: JsonFn = (body?: unknown) => {
-    if (upgraded) return originalJson(SERVICE_BUSY_BODY);
+    if (upgraded) return originalJson(serviceBusyBody(upgradedSource));
     return originalJson(body);
   };
   res.json = patchedJson;
 
   const patchedSend: SendFn = (body?: unknown) => {
-    if (upgraded) return originalJson(SERVICE_BUSY_BODY);
+    if (upgraded) return originalJson(serviceBusyBody(upgradedSource));
     return originalSend(body);
   };
   res.send = patchedSend;
 
-  // Some handlers call `res.status(500).end()` directly (no body). Without
-  // this patch they would emit a 503 with an empty body, breaking the
-  // canonical contract. When upgraded, redirect through `originalJson` so
-  // the body is the strict service-busy payload.
   const originalEnd = res.end.bind(res) as EndFn;
   const patchedEnd = ((...args: unknown[]) => {
     if (upgraded && !res.headersSent) {
-      return originalJson(SERVICE_BUSY_BODY);
+      return originalJson(serviceBusyBody(upgradedSource));
     }
     return (originalEnd as (...a: unknown[]) => Response).apply(res, args);
   }) as EndFn;
