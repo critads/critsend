@@ -1,0 +1,197 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # 1. Erreurs récentes dans les 2 process (worker + web)
+pm2 logs --nostream --err --lines 200 | tail -100
+
+# 2. État pm2 (uptime, restarts, memory)
+pm2 list
+
+# 3. Activité pressure-guard worker récente
+pm2 logs --nostream --lines 200 | grep -E "PRESSURE_GUARD|sent failed|SMTP" | tail -50
+
+# 4. Y a-t-il eu un crash worker récent ?
+pm2 logs --nostream --lines 500 | grep -iE "error|fatal|exit|restart|memory" | tail -30
+0|critsend | 2026-05-14 18:08:14 +02:00: 2026-05-14T16:08:14.353Z [WARN] Short unsubscribe token not found or invalid: yzwwePBz
+0|critsend | 2026-05-14 18:08:16 +02:00: 2026-05-14T16:08:16.647Z [WARN] Invalid tracking signature for click (lid): campaign=b1e9230f-e973-4ef1-980c-04c64eed9602, subscriber=6299f2c4-99e4-400b-b7a1-07349a4f5dc4
+0|critsend | 2026-05-14 18:08:16 +02:00: 2026-05-14T16:08:16.872Z [WARN] Invalid tracking signature for click (lid): campaign=1db9239e-283c-4838-b6d1-e4e34ce03cb2, subscriber=6591ac60-37b0-4021-8a53-66b6d0aeb0af
+0|critsend | 2026-05-14 18:08:17 +02:00: 2026-05-14T16:08:17.374Z [WARN] Short unsubscribe token not found or invalid: eBJyeqLA
+0|critsend | 2026-05-14 18:08:23 +02:00: 2026-05-14T16:08:23.686Z [WARN] Invalid tracking signature for unsubscribe: campaign=1db9239e-283c-4838-b6d1-e4e34ce03cb2, subscriber=8df6bb57-5487-4ff6-891f-e5c0ac8a92b2, sig=37d8404f...
+0|critsend | 2026-05-14 18:08:29 +02:00: 2026-05-14T16:08:29.566Z [WARN] Invalid tracking signature for click (lid): campaign=1db9239e-283c-4838-b6d1-e4e34ce03cb2, subscriber=6591ac60-37b0-4021-8a53-66b6d0aeb0af
+0|critsend | 2026-05-14 18:08:44 +02:00: 2026-05-14T16:08:44.709Z [WARN] Invalid tracking signature for unsubscribe: campaign=b9f6396f-f876-8ba3-585d-54b04bee7271, subscriber=7083e5f6-89e1-933f-e2b3-56302f5e4db1, sig=undefined...
+0|critsend | 2026-05-14 18:08:45 +02:00: 2026-05-14T16:08:45.583Z [WARN] Invalid tracking signature for click (lid): campaign=b1e9230f-e973-4ef1-980c-04c64eed9602, subscriber=6299f2c4-99e4-400b-b7a1-07349a4f5dc4
+0|critsend | 2026-05-14 18:08:54 +02:00: 2026-05-14T16:08:54.715Z [WARN] Invalid tracking signature for unsubscribe: campaign=a4256a18-30bc-4a3b-b723-0b97f267deb1, subscriber=8df6bb57-5487-4ff6-891f-e5c0ac8a92b2, sig=c8ded178...
+0|critsend | 2026-05-14 18:08:58 +02:00: 2026-05-14T16:08:58.358Z [WARN] Short unsubscribe token not found or invalid: 0eLjdJV2
+0|critsend | 2026-05-14 18:09:11 +02:00: 2026-05-14T16:09:11.523Z [WARN] Short unsubscribe token not found or invalid: 5jkB88A2
+0|critsend | 2026-05-14 18:09:36 +02:00: 2026-05-14T16:09:36.459Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:09:36 +02:00: 2026-05-14T16:09:36.879Z [WARN] Invalid tracking signature for click (lid): campaign=b1e9230f-e973-4ef1-980c-04c64eed9602, subscriber=6299f2c4-99e4-400b-b7a1-07349a4f5dc4
+0|critsend | 2026-05-14 18:10:01 +02:00: 2026-05-14T16:10:01.971Z [WARN] Short unsubscribe token not found or invalid: ACCTnQFU,
+0|critsend | 2026-05-14 18:10:36 +02:00: 2026-05-14T16:10:36.458Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.518Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.518Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.519Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.520Z [WARN] Invalid tracking signature for unsubscribe: campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=NjlmNzZiZD, sig=6d9adb8c...
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.520Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.521Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.522Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.522Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.523Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.524Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.524Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.525Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.526Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.527Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.528Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.529Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.533Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:10:37 +02:00: 2026-05-14T16:10:37.534Z [WARN] Invalid tracking signature for click (lid): campaign=3a2db3b5-0c19-4b51-ab4e-2ecb4889a7fb, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:03 +02:00: 2026-05-14T16:11:03.774Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:06 +02:00: 2026-05-14T16:11:06.919Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:06 +02:00: 2026-05-14T16:11:06.996Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:06 +02:00: 2026-05-14T16:11:06.997Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:06 +02:00: 2026-05-14T16:11:06.998Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.001Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.004Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.005Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.006Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.007Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.008Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.009Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.010Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.011Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.012Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.013Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.014Z [WARN] Invalid tracking signature for unsubscribe: campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=NjlmNzZiZD, sig=d9fef1bb...
+0|critsend | 2026-05-14 18:11:07 +02:00: 2026-05-14T16:11:07.015Z [WARN] Invalid tracking signature for click (lid): campaign=535ccaa4-5e62-4ae9-af5c-2acc9bd21fdc, subscriber=69f76bd7-6224-47f6-a9af-8b808dca614c
+0|critsend | 2026-05-14 18:11:36 +02:00: 2026-05-14T16:11:36.457Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:11:51 +02:00: 2026-05-14T16:11:51.138Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=f78f1f88-c6e5-499b=-92f6-91e1720a7b3b
+0|critsend | 2026-05-14 18:14:36 +02:00: 2026-05-14T16:14:36.331Z [WARN] Short unsubscribe token not found or invalid: favicon.ico
+0|critsend | 2026-05-14 18:14:36 +02:00: 2026-05-14T16:14:36.459Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:15:32 +02:00: 2026-05-14T16:15:32.728Z [WARN] Invalid tracking signature for open: campaign=ddb7f423-5c2c-4951-8aa8-335c1d656863, subscriber=a8adc7c9-7db2-42e6=-b551-1902ee75b54f
+0|critsend | 2026-05-14 18:16:36 +02:00: 2026-05-14T16:16:36.489Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:17:36 +02:00: 2026-05-14T16:17:36.480Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:18:36 +02:00: 2026-05-14T16:18:36.459Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:19:28 +02:00: 2026-05-14T16:19:28.419Z [WARN] Short unsubscribe token not found or invalid: 9Pkj94pA,
+0|critsend | 2026-05-14 18:19:46 +02:00: 2026-05-14T16:19:46.801Z [WARN] Short unsubscribe token not found or invalid: CgT4VwUo,
+0|critsend | 2026-05-14 18:20:36 +02:00: 2026-05-14T16:20:36.470Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:20:48 +02:00: 2026-05-14T16:20:48.589Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue/top-contacts","timeout":30000}
+0|critsend | 2026-05-14 18:20:54 +02:00: 2026-05-14T16:20:54.264Z [ERROR] [PRESSURE_QUEUE] /top-contacts failed: Cannot set headers after they are sent to the client
+0|critsend | 2026-05-14 18:20:54 +02:00: Error [ERR_HTTP_HEADERS_SENT]: Cannot set headers after they are sent to the client
+0|critsend | 2026-05-14 18:20:54 +02:00:     at ServerResponse.setHeader (node:_http_outgoing:655:11)
+0|critsend | 2026-05-14 18:20:54 +02:00:     at vt.set.vt.header (/home/ubuntu/critsend/dist/index.cjs:53:25031)
+0|critsend | 2026-05-14 18:20:54 +02:00:     at vt.send (/home/ubuntu/critsend/dist/index.cjs:53:20570)
+0|critsend | 2026-05-14 18:20:54 +02:00:     at ServerResponse.h [as send] (/home/ubuntu/critsend/dist/index.cjs:1983:5474)
+0|critsend | 2026-05-14 18:20:54 +02:00:     at vt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)
+0|critsend | 2026-05-14 18:20:54 +02:00:     at ServerResponse.f (/home/ubuntu/critsend/dist/index.cjs:1983:5432)
+0|critsend | 2026-05-14 18:20:54 +02:00:     at e.json (/home/ubuntu/critsend/dist/index.cjs:1983:18344)
+0|critsend | 2026-05-14 18:20:54 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1949:151
+0|critsend | 2026-05-14 18:20:54 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+0|critsend | 2026-05-14 18:20:54 +02:00:   code: 'ERR_HTTP_HEADERS_SENT'
+0|critsend | 2026-05-14 18:20:54 +02:00: }
+0|critsend | 2026-05-14 18:20:54 +02:00: 2026-05-14T16:20:54.278Z [ERROR] Unhandled Promise Rejection {"reason":"Cannot set headers after they are sent to the client"}
+0|critsend | 2026-05-14 18:21:37 +02:00: 2026-05-14T16:21:37.674Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:22:19 +02:00: 2026-05-14T16:22:19.284Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue/top-contacts","timeout":30000}
+0|critsend | 2026-05-14 18:22:28 +02:00: 2026-05-14T16:22:28.150Z [ERROR] [PRESSURE_QUEUE] /top-contacts failed: Cannot set headers after they are sent to the client
+0|critsend | 2026-05-14 18:22:28 +02:00: Error [ERR_HTTP_HEADERS_SENT]: Cannot set headers after they are sent to the client
+0|critsend | 2026-05-14 18:22:28 +02:00:     at ServerResponse.setHeader (node:_http_outgoing:655:11)
+0|critsend | 2026-05-14 18:22:28 +02:00:     at vt.set.vt.header (/home/ubuntu/critsend/dist/index.cjs:53:25031)
+0|critsend | 2026-05-14 18:22:28 +02:00:     at vt.send (/home/ubuntu/critsend/dist/index.cjs:53:20570)
+0|critsend | 2026-05-14 18:22:28 +02:00:     at ServerResponse.h [as send] (/home/ubuntu/critsend/dist/index.cjs:1983:5474)
+0|critsend | 2026-05-14 18:22:28 +02:00:     at vt.json (/home/ubuntu/critsend/dist/index.cjs:53:21700)
+0|critsend | 2026-05-14 18:22:28 +02:00:     at ServerResponse.f (/home/ubuntu/critsend/dist/index.cjs:1983:5432)
+0|critsend | 2026-05-14 18:22:28 +02:00:     at e.json (/home/ubuntu/critsend/dist/index.cjs:1983:18344)
+0|critsend | 2026-05-14 18:22:28 +02:00:     at /home/ubuntu/critsend/dist/index.cjs:1949:151
+0|critsend | 2026-05-14 18:22:28 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+0|critsend | 2026-05-14 18:22:28 +02:00:   code: 'ERR_HTTP_HEADERS_SENT'
+0|critsend | 2026-05-14 18:22:28 +02:00: }
+0|critsend | 2026-05-14 18:22:28 +02:00: 2026-05-14T16:22:28.160Z [ERROR] Unhandled Promise Rejection {"reason":"Cannot set headers after they are sent to the client"}
+0|critsend | 2026-05-14 18:22:36 +02:00: 2026-05-14T16:22:36.487Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:23:36 +02:00: 2026-05-14T16:23:36.532Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:23:50 +02:00: 2026-05-14T16:23:50.779Z [WARN] [503] source=load_shed method=GET path=/api/campaigns route=/api/campaigns rid=80e1a8ec-a865-4c41-bf91-40f72c255382 kind=saturation code=- pool active=29/30 idle=1 total=30 waiting=0 sat=0.97 lease=0
+0|critsend | 2026-05-14 18:24:36 +02:00: 2026-05-14T16:24:36.468Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-14 18:24:49 +02:00: 2026-05-14T16:24:49.920Z [WARN] Short unsubscribe token not found or invalid: VJAQpGhx,
+0|critsend | 2026-05-14 18:25:36 +02:00: 2026-05-14T16:25:36.462Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 49   │ online    │ 0%       │ 373.0mb  │
+│ 1  │ critsend-worker    │ fork     │ 52   │ online    │ 0%       │ 1.3gb    │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+0|critsend | 2026-05-14 18:22:03 +02:00: 2026-05-14T16:22:03.883Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:22:13 +02:00: 2026-05-14T16:22:13.396Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:22:21 +02:00: 2026-05-14T16:22:21.801Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:22:32 +02:00: 2026-05-14T16:22:32.800Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:22:43 +02:00: 2026-05-14T16:22:43.099Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:22:52 +02:00: 2026-05-14T16:22:52.891Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:23:02 +02:00: 2026-05-14T16:23:02.464Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:23:11 +02:00: 2026-05-14T16:23:11.672Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:23:21 +02:00: 2026-05-14T16:23:21.836Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:23:30 +02:00: 2026-05-14T16:23:30.558Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:23:37 +02:00: 2026-05-14T16:23:37.058Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:23:52 +02:00: 2026-05-14T16:23:52.934Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:24:01 +02:00: 2026-05-14T16:24:01.466Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:24:15 +02:00: 2026-05-14T16:24:15.318Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:24:22 +02:00: 2026-05-14T16:24:22.214Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:24:32 +02:00: 2026-05-14T16:24:32.005Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:24:42 +02:00: 2026-05-14T16:24:42.596Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:24:51 +02:00: 2026-05-14T16:24:51.837Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:25:02 +02:00: 2026-05-14T16:25:02.402Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:25:12 +02:00: 2026-05-14T16:25:12.108Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:25:21 +02:00: 2026-05-14T16:25:21.385Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 18:25:30 +02:00: 2026-05-14T16:25:30.933Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:27 +02:00: 2026-05-14T16:23:27.744Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:37 +02:00: 2026-05-14T16:23:37.756Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:38 +02:00: 2026-05-14T16:23:38.156Z [INFO] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:851f4183] Verifying SMTP connection to MTA 'Mahlesoldes.com'...
+1|critsend | 2026-05-14 18:23:38 +02:00: 2026-05-14T16:23:38.189Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:6605d9ba] Verifying SMTP connection to MTA 'Verysent'...
+1|critsend | 2026-05-14 18:23:38 +02:00: 2026-05-14T16:23:38.233Z [INFO] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:851f4183] SMTP verification OK
+1|critsend | 2026-05-14 18:23:38 +02:00: 2026-05-14T16:23:38.265Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:6605d9ba] SMTP verification OK
+1|critsend | 2026-05-14 18:23:47 +02:00: 2026-05-14T16:23:47.743Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:57 +02:00: 2026-05-14T16:23:57.744Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:07 +02:00: 2026-05-14T16:24:07.602Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:bac675c1] Verifying SMTP connection to MTA 'Server2.mayasoldes.com'...
+1|critsend | 2026-05-14 18:24:07 +02:00: 2026-05-14T16:24:07.666Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:b0ef771a] Verifying SMTP connection to MTA 'Rndaserver.com'...
+1|critsend | 2026-05-14 18:24:07 +02:00: 2026-05-14T16:24:07.678Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:bac675c1] SMTP verification OK
+1|critsend | 2026-05-14 18:24:07 +02:00: 2026-05-14T16:24:07.742Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:b0ef771a] SMTP verification OK
+1|critsend | 2026-05-14 18:24:07 +02:00: 2026-05-14T16:24:07.750Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:17 +02:00: 2026-05-14T16:24:17.745Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:27 +02:00: 2026-05-14T16:24:27.744Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:37 +02:00: 2026-05-14T16:24:37.498Z [INFO] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:c47a3066] Verifying SMTP connection to MTA 'Rndamailing'...
+1|critsend | 2026-05-14 18:24:37 +02:00: 2026-05-14T16:24:37.575Z [INFO] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:c47a3066] SMTP verification OK
+1|critsend | 2026-05-14 18:24:37 +02:00: 2026-05-14T16:24:37.747Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:47 +02:00: 2026-05-14T16:24:47.750Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:57 +02:00: 2026-05-14T16:24:57.746Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:07 +02:00: 2026-05-14T16:25:07.521Z [INFO] [CAMPAIGN 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a job:05a33464] Verifying SMTP connection to MTA 'Kammaspeed.com'...
+1|critsend | 2026-05-14 18:25:07 +02:00: 2026-05-14T16:25:07.614Z [INFO] [CAMPAIGN 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a job:05a33464] SMTP verification OK
+1|critsend | 2026-05-14 18:25:07 +02:00: 2026-05-14T16:25:07.753Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:17 +02:00: 2026-05-14T16:25:17.752Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:27 +02:00: 2026-05-14T16:25:27.756Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:37 +02:00: 2026-05-14T16:25:37.649Z [INFO] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:85a32c9e] Verifying SMTP connection to MTA 'Mayesale.com'...
+1|critsend | 2026-05-14 18:25:37 +02:00: 2026-05-14T16:25:37.725Z [INFO] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:85a32c9e] SMTP verification OK
+1|critsend | 2026-05-14 18:25:37 +02:00: 2026-05-14T16:25:37.750Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:20:47 +02:00: 2026-05-14T16:20:47.749Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:20:57 +02:00: 2026-05-14T16:20:57.745Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:21:07 +02:00: 2026-05-14T16:21:07.745Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:21:17 +02:00: 2026-05-14T16:21:17.749Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:21:27 +02:00: 2026-05-14T16:21:27.750Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:21:37 +02:00: 2026-05-14T16:21:37.743Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:21:47 +02:00: 2026-05-14T16:21:47.746Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:21:57 +02:00: 2026-05-14T16:21:57.754Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:22:07 +02:00: 2026-05-14T16:22:07.753Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:22:17 +02:00: 2026-05-14T16:22:17.747Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:22:27 +02:00: 2026-05-14T16:22:27.752Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:22:37 +02:00: 2026-05-14T16:22:37.743Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:22:47 +02:00: 2026-05-14T16:22:47.746Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:22:57 +02:00: 2026-05-14T16:22:57.751Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:07 +02:00: 2026-05-14T16:23:07.746Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:17 +02:00: 2026-05-14T16:23:17.748Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:27 +02:00: 2026-05-14T16:23:27.744Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:37 +02:00: 2026-05-14T16:23:37.756Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:47 +02:00: 2026-05-14T16:23:47.743Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:23:57 +02:00: 2026-05-14T16:23:57.744Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:07 +02:00: 2026-05-14T16:24:07.750Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:17 +02:00: 2026-05-14T16:24:17.745Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:27 +02:00: 2026-05-14T16:24:27.744Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:37 +02:00: 2026-05-14T16:24:37.747Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:47 +02:00: 2026-05-14T16:24:47.750Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:24:57 +02:00: 2026-05-14T16:24:57.746Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:07 +02:00: 2026-05-14T16:25:07.753Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:17 +02:00: 2026-05-14T16:25:17.752Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:27 +02:00: 2026-05-14T16:25:27.756Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 18:25:37 +02:00: 2026-05-14T16:25:37.750Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
