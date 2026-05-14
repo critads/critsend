@@ -20,7 +20,6 @@
  */
 import { type Request, type Response, type NextFunction } from "express";
 import { pool, getPoolSaturation, isPoolCheckoutError } from "../db";
-import { MAIN_POOL_MAX } from "../connection-budget";
 import { isRequestLeaseExceeded, requestSawPoolError, requestPoolErrorKind } from "./request-lease";
 import { emitServiceBusy, recordServiceBusy } from "./service-busy";
 
@@ -190,8 +189,10 @@ export function loadShedMiddleware(req: Request, res: Response, next: NextFuncti
   if (!waitingPersistent && !saturationHot) return next();
 
   const reason = saturationHot ? "saturation" : "waiting";
-  // emitServiceBusy logs once per (source,route)/second and coalesces
-  // bursts — replaces the manual SHED_LOG_INTERVAL_MS throttle.
+  // emitServiceBusy logs every emission as a structured `[503]` line with
+  // request id / route / pool snapshot so per-request attribution from
+  // logs alone is guaranteed (Task #148). Volume is naturally bounded by
+  // the pool checkout rate, so no coalescing throttle is applied here.
   emitServiceBusy(req, res, { source: "load_shed", kind: reason });
 }
 
@@ -212,7 +213,3 @@ export function poolErrorHandler(err: unknown, req: Request, res: Response, next
   emitServiceBusy(req, res, { source: "checkout_timeout", errorMessage: msg });
 }
 
-// Silence "declared but unused" for MAIN_POOL_MAX import after the refactor —
-// we keep the import because it documents intent and may be re-used by
-// future safety nets in this same file.
-void MAIN_POOL_MAX;

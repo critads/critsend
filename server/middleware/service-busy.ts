@@ -13,10 +13,12 @@
  *   - An entry appended to an in-memory ring buffer that powers the
  *     `/api/admin/503-attribution` triage endpoint.
  *
- * Logging is rate-limited per (source,route) bucket to one full line per
- * second; bursts are coalesced into a single summary line at the end of
- * the second.  A 503 is NEVER silently swallowed — every emission is at
- * minimum reflected in the ring buffer + Prometheus counter.
+ * Every emission is logged as one structured `[503]` line — no
+ * coalescing — so per-request attribution from logs alone is guaranteed
+ * (rid + method + path + route + source + pool snapshot + lease holding).
+ * Volume is naturally bounded by the pool checkout rate. A 503 is NEVER
+ * silently swallowed: every emission also hits the Prometheus counter
+ * and the in-memory ring buffer.
  *
  * This module is the single source of truth for the 503 contract — see
  * Task #148 (Eradicate unexplained 503s on /campaigns).
@@ -203,9 +205,9 @@ function bumpCounter(source: ServiceBusySource, kind: string | undefined, route:
 
 /**
  * Canonical 503 emitter. Sets headers + body, increments the source's
- * Prometheus counter, writes one structured log line (or coalesces it
- * into the active 1 s burst window for the (source,route) bucket), and
- * records the event in the in-memory ring buffer.
+ * Prometheus counter, writes one structured `[503]` log line (no
+ * coalescing — see header comment), and records the event in the
+ * in-memory ring buffer.
  *
  * Idempotent on already-sent responses: the log/counter/ring still fire
  * (so we never lose attribution), but the body write is skipped.
