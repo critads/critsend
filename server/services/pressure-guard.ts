@@ -220,6 +220,24 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
               ON campaign_sends (subscriber_id)
               WHERE status = 'pending' AND eligible_at IS NOT NULL`,
       },
+      {
+        // Task #145 hotfix R17: critical hot-path index for the
+        // `blocked_by_older` CTE in pressureGuardReserveSendSlots.
+        // Without this, every CAS batch triggers a partial-table scan over
+        // campaign_sends (27 GB / 54M rows) to find rows where the chunk's
+        // subscriber_ids have a pending/attempting row in another campaign.
+        // The partial WHERE filter is intentionally NOT keyed on
+        // eligible_at IS NOT NULL because `blocked_by_older` matches BOTH
+        // active-pending (eligible_at NULL) and deferred-pending
+        // (eligible_at NOT NULL) plus 'attempting' rows. Live size is
+        // bounded by total in-flight sends across all campaigns —
+        // typically <100k rows even at peak — so the index stays small
+        // (a few MB) regardless of historical send volume.
+        name: "campaign_sends_active_subscriber_idx",
+        ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_active_subscriber_idx
+              ON campaign_sends (subscriber_id, campaign_id)
+              WHERE status IN ('pending', 'attempting')`,
+      },
     ];
     for (const { name, ddl } of indexes) {
       try {
@@ -233,70 +251,34 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
       }
     }
 
-    // Chunked backfill of subscribers.last_sent_at from prior send history.
-    // Idempotent: only touches rows whose last_sent_at is NULL. Bounded per
-    // tick (5k chunks, ~50 chunks max per boot) so a slow rollout never
-    // monopolises a connection. The drain worker tolerates NULL → NOT NULL
-    // transitions mid-backfill (CAS condition handles both cases).
-    // Resumable full backfill (Task #144). We loop 5k-row chunks until
-    // the query returns 0, so the entire historical tail is covered
-    // even on multi-million-row tables. Each chunk is its own
-    // transaction, so the work resumes from where the previous boot
-    // left off if the process is killed mid-pass. The sentinel table
-    // is only created AFTER a chunk returns 0 rows — i.e. truly
-    // exhausted — so we never declare completion against a partial
-    // backfill.
+    // Task #145 hotfix R17: the historical backfill of
+    // subscribers.last_sent_at has been REMOVED. Rationale:
+    //   1. The previous query JOINed subscribers (1.58M) with
+    //      campaign_sends (27 GB / 54M rows) GROUP BY subscriber_id —
+    //      every chunk timed out against statement_timeout, leaving
+    //      `with_last_sent_at = 0/1.58M` after multiple boot attempts
+    //      and stalling the bootstrap for many minutes per restart.
+    //   2. NULL is semantically correct: the CAS condition at
+    //      `pressureGuardReserveSendSlots` is
+    //      `(last_sent_at IS NULL OR last_sent_at + 6h <= NOW())` —
+    //      a NULL contact wins immediately. The 6h guard auto-engages
+    //      from the very first send forward, which is exactly the
+    //      desired behaviour going forward.
+    //   3. The "deferred queue" semantic is unaffected: deferral is
+    //      keyed on the receiving contact's *current* last_sent_at,
+    //      stamped by the previous send. Historical sends > 6h ago
+    //      never participate in deferral regardless of whether
+    //      last_sent_at was backfilled.
+    // We still create the sentinel table so any old in-flight code path
+    // that checks for it continues to short-circuit cleanly.
     try {
-      const flagRow = await pool.query(`
-        SELECT 1 FROM pg_class WHERE relname = 'pressure_guard_backfill_done' LIMIT 1
-      `);
-      if (flagRow.rowCount === 0) {
-        let totalUpdated = 0;
-        let chunks = 0;
-        // R12: surface backfill state in Prometheus while we work.
-        try { pressureGuardBackfillInProgress.set(1); } catch {}
-        // No upper bound on chunks: keep draining until empty. Each
-        // chunk is bounded at 5k rows so a single statement can never
-        // monopolise the connection.
-        while (true) {
-          const r = await pool.query(`
-            WITH batch AS (
-              SELECT s.id, MAX(cs.sent_at) AS last_sent
-              FROM subscribers s
-              JOIN campaign_sends cs ON cs.subscriber_id = s.id
-              WHERE s.last_sent_at IS NULL AND cs.status = 'sent' AND cs.sent_at IS NOT NULL
-              GROUP BY s.id
-              LIMIT 5000
-            )
-            UPDATE subscribers s SET last_sent_at = b.last_sent
-            FROM batch b WHERE s.id = b.id AND s.last_sent_at IS NULL
-            RETURNING s.id
-          `);
-          const n = r.rowCount ?? 0;
-          if (n === 0) break;
-          totalUpdated += n;
-          chunks++;
-          try { pressureGuardBackfillRowsTotal.inc(n); } catch {}
-          // R12: structured per-chunk log so ops can watch progress live.
-          logger.info(
-            `[PRESSURE_GUARD] backfill chunk_index=${chunks} rows_updated=${n} cumulative=${totalUpdated}`,
-          );
-          // Yield between chunks so we don't block the event loop /
-          // hog the pool while a huge table backfills.
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        }
-        if (totalUpdated > 0) {
-          logger.info(`[PRESSURE_GUARD] Backfilled subscribers.last_sent_at for ${totalUpdated} contact(s) across ${chunks} chunk(s)`);
-        }
-        // Sentinel only after the loop saw 0 rows — i.e. the tail is
-        // truly exhausted. If we crashed mid-pass, the next boot picks
-        // up the remaining NULLs and resumes.
-        await pool.query(`CREATE TABLE IF NOT EXISTS pressure_guard_backfill_done (id integer PRIMARY KEY)`);
-        try { pressureGuardBackfillInProgress.set(0); } catch {}
-      }
-    } catch (err: any) {
+      await pool.query(`CREATE TABLE IF NOT EXISTS pressure_guard_backfill_done (id integer PRIMARY KEY)`);
       try { pressureGuardBackfillInProgress.set(0); } catch {}
-      logger.warn(`[PRESSURE_GUARD] last_sent_at backfill failed (resumable on next boot): ${err?.message || err}`);
+      logger.info(
+        `[PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)`,
+      );
+    } catch (err: any) {
+      logger.warn(`[PRESSURE_GUARD] sentinel create failed (non-fatal): ${err?.message || err}`);
     }
   }
 

@@ -140,15 +140,49 @@ async function pollDeferredQueue() {
   }
 }
 
+// Hot-path scalability cap (Task #145 R17): the per-campaign gauge does
+// `GROUP BY campaign_id` over the whole deferred queue, which costs more
+// as the backlog grows. To keep the 30s tick cheap when 100k+ rows are
+// deferred across many campaigns, we (a) early-exit when the queue is
+// empty, (b) cap the gauge to the top N campaigns by deferred count.
+const GAUGE_TOP_N = envInt("PRESSURE_GAUGE_TOP_N", 50, 1, 1_000);
+
 async function pollDeferredQueueInner() {
   try {
-    // Refresh the per-campaign gauge regardless of whether we have work.
+    // R17 step 1: cheap pre-check via the partial index
+    // `campaign_sends_pressure_deferred_idx`. EXISTS short-circuits on
+    // the first matching row, so this is O(1) even with millions of
+    // rows in campaign_sends. When the queue is empty (the common case
+    // outside actual pressure events) we reset the gauge and bail in
+    // a single index probe.
+    const probe = await db.execute(sql`
+      SELECT EXISTS (
+        SELECT 1 FROM campaign_sends
+        WHERE status = 'pending' AND eligible_at IS NOT NULL
+        LIMIT 1
+      ) AS has_any
+    `);
+    const hasAny = (probe.rows[0] as { has_any?: boolean } | undefined)?.has_any === true;
+    if (!hasAny) {
+      try { pressureGuardPendingDeferred.reset(); } catch {}
+      return;
+    }
+
+    // R17 step 2: bounded per-campaign gauge. We refresh AT MOST
+    // GAUGE_TOP_N labels per tick (default 50), ordered by descending
+    // deferred count, so observability stays intact for the campaigns
+    // an operator actually cares about while the work to compute the
+    // gauge stays bounded regardless of how many distinct campaigns
+    // contribute to the backlog. Stale labels for campaigns that fell
+    // out of the top-N are dropped on every refresh via .reset().
     try {
       const g = await db.execute(sql`
         SELECT campaign_id, COUNT(*)::int AS n
         FROM campaign_sends
         WHERE status = 'pending' AND eligible_at IS NOT NULL
         GROUP BY campaign_id
+        ORDER BY n DESC
+        LIMIT ${GAUGE_TOP_N}
       `);
       pressureGuardPendingDeferred.reset();
       for (const row of g.rows) {
@@ -157,9 +191,16 @@ async function pollDeferredQueueInner() {
           Number((row as any).n ?? 0),
         );
       }
-    } catch {}
+    } catch (err: any) {
+      logger.warn(`[PRESSURE_GUARD_WORKER] gauge refresh failed (non-fatal): ${err?.message || err}`);
+    }
 
     // Pick the next N campaigns that have eligible deferred rows, ordered FIFO.
+    // The index `campaign_sends_pressure_deferred_idx` covers the
+    // `WHERE status='pending' AND eligible_at IS NOT NULL` filter,
+    // and the eligible_at <= NOW() bound seeks into the leading sorted
+    // edge of that index. The JOIN with campaigns is cheap (390 rows
+    // total) and ordered by started_at via the planner.
     const campaignsRes = await db.execute(sql`
       SELECT DISTINCT cs.campaign_id, c.started_at
       FROM campaign_sends cs
