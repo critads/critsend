@@ -783,6 +783,14 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
 
   validateConnectionBudget();
 
+  // Task #152: preemptively terminate any idle PgBouncer-labelled backend
+  // still holding a session-level advisory bootstrap lock from a previous
+  // process incarnation (pm2 reload leak — see bootstrap-lock-recovery.ts
+  // for the full rationale). Best-effort, never throws. Runs BEFORE the
+  // bootstrap migrations below so they don't get "skipped" on a leaked lock.
+  const { releaseStuckBootstrapLocks } = await import("./bootstrap-lock-recovery");
+  await releaseStuckBootstrapLocks("web-boot");
+
   const { probeTrackingPool } = await import("./tracking-pool");
   const { probeImportPool } = await import("./import-pool");
   probeTrackingPool().catch(() => {});

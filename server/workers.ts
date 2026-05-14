@@ -1765,6 +1765,14 @@ function stopWorkerHeartbeat() {
 }
 
 export async function startAllWorkers() {
+  // Task #152: preemptively terminate any idle PgBouncer-labelled backend
+  // still holding a session-level advisory bootstrap lock from a previous
+  // worker incarnation (pm2 reload leak). Best-effort, never throws. Runs
+  // BEFORE the bootstrap calls below so they don't get "skipped" on a
+  // leaked lock. See server/bootstrap-lock-recovery.ts for full rationale.
+  const { releaseStuckBootstrapLocks } = await import("./bootstrap-lock-recovery");
+  await releaseStuckBootstrapLocks("worker-boot");
+
   await startJobProcessor();
   startTagQueueWorker();
   startMaintenanceWorker();
