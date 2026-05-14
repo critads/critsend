@@ -1,0 +1,32 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend
+git pull origin main
+pm2 reload critsend-worker critsend-web
+sleep 5
+pm2 logs critsend-worker --lines 30 --nostream | grep -i job_poll
+From https://github.com/critads/critsend
+ * branch            main       -> FETCH_HEAD
+Already up to date.
+Use --update-env to update environment variables
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-worker](1) ✓
+1|critsend | 2026-05-14 06:47:38 +02:00: 2026-05-14T04:47:38.002Z [INFO] [JOB_POLL] Starting job processor with worker ID: worker-289873-1778734057577, max concurrent campaigns: 12
+1|critsend | 2026-05-14 06:43:51 +02:00: 2026-05-14T04:43:51.085Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:44:01 +02:00: 2026-05-14T04:44:01.084Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:44:11 +02:00: 2026-05-14T04:44:11.086Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:44:21 +02:00: 2026-05-14T04:44:21.084Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:44:31 +02:00: 2026-05-14T04:44:31.085Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:44:41 +02:00: 2026-05-14T04:44:41.085Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:44:51 +02:00: 2026-05-14T04:44:51.086Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:45:01 +02:00: 2026-05-14T04:45:01.085Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:45:11 +02:00: 2026-05-14T04:45:11.085Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:45:21 +02:00: 2026-05-14T04:45:21.087Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:45:31 +02:00: 2026-05-14T04:45:31.087Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:45:41 +02:00: 2026-05-14T04:45:41.089Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:45:51 +02:00: 2026-05-14T04:45:51.090Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:46:01 +02:00: 2026-05-14T04:46:01.089Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:46:11 +02:00: 2026-05-14T04:46:11.088Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:46:21 +02:00: 2026-05-14T04:46:21.090Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:46:31 +02:00: 2026-05-14T04:46:31.090Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:46:41 +02:00: 2026-05-14T04:46:41.089Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:46:51 +02:00: 2026-05-14T04:46:51.090Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
+1|critsend | 2026-05-14 06:47:01 +02:00: 2026-05-14T04:47:01.089Z [ERROR] [JOB_POLL] Error in job polling: {"length":133,"name":"error","severity":"ERROR","code":"0A000","file":"initsplan.c","line":"1403","routine":"make_outerjoininfo"}
