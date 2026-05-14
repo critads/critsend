@@ -1,0 +1,25 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-worker --lines 200 --nostream | grep -E "PRESSURE_GUARD" | tail -20
+
+# Et l'état de la file deferred
+psql "postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" -c "SET statement_timeout='15s'; SELECT COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now, COUNT(*) AS deferred_total FROM campaign_sends WHERE status='deferred';"
+
+# Et qui détient le bail
+psql "postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" -c "SET statement_timeout='5s'; SELECT * FROM pressure_guard_leader;"
+1|critsend | 2026-05-14 13:41:13 +02:00: 2026-05-14T11:41:13.667Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_active_subscriber_idx build failed (non-fatal): canceling statement due to lock timeout
+1|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.478Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=skipped, schema_verified=false, outcome=deferred — will retry every 15s
+1|critsend | 2026-05-14 14:16:04 +02:00: 2026-05-14T12:16:04.516Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:16:34 +02:00: 2026-05-14T12:16:34.512Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:17:04 +02:00: 2026-05-14T12:17:04.512Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:17:34 +02:00: 2026-05-14T12:17:34.511Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:18:04 +02:00: 2026-05-14T12:18:04.514Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:18:34 +02:00: 2026-05-14T12:18:34.514Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-14 14:18:43 +02:00: 2026-05-14T12:18:43.688Z [INFO] [PRESSURE_GUARD] Campaign 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a: reserved 2, deferred 5
+SET
+ERROR:  canceling statement due to statement timeout
+SET
+       lock_key        |   holder_id    |          expires_at           
+-----------------------+----------------+-------------------------------
+ pressure_guard:900014 | 25897-5cb682ee | 2026-05-14 12:19:54.586757+00
+(1 row)
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

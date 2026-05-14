@@ -1,0 +1,110 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+remote: Enumerating objects: 32, done.
+remote: Counting objects: 100% (32/32), done.
+remote: Compressing objects: 100% (4/4), done.
+remote: Total 22 (delta 18), reused 22 (delta 18), pack-reused 0 (from 0)
+Unpacking objects: 100% (22/22), 248.21 KiB | 1.69 MiB/s, done.
+From https://github.com/critads/critsend
+   aad20ec..c7c5bf6  main       -> origin/main
+Updating aad20ec..c7c5bf6
+Fast-forward
+ ...shot_2026-05-14_at_3.42.03_PM_1778758931426.png | Bin 0 -> 275023 bytes
+ replit.md                                          |   2 +-
+ server/routes.ts                                   |   2 +
+ server/routes/admin-pressure-guard-locks.ts        | 126 ++++++++++++++++
+ server/services/pressure-guard.ts                  |  22 ++-
+ server/workers/pressure-guard-worker.ts            | 167 ++++++++++++++++++---
+ 6 files changed, 298 insertions(+), 21 deletions(-)
+ create mode 100644 attached_assets/Screenshot_2026-05-14_at_3.42.03_PM_1778758931426.png
+ create mode 100644 server/routes/admin-pressure-guard-locks.ts
+[deploy] ✓ Code updated: c7c5bf6 Improve system stability by preventing database lock issues
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+47 vulnerabilities (6 low, 28 moderate, 12 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2510 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-BjKQhfmD.css     90.05 kB │ gzip:  14.69 kB
+../dist/public/assets/index-BsAOVIp9.js   1,581.24 kB │ gzip: 411.33 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.37s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 110ms
+building import worker...
+
+  dist/import-worker.cjs  640.7kb
+
+⚡ Done in 60ms
+building background worker...
+
+  dist/worker-main.cjs  1002.8kb
+
+⚡ Done in 76ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Waiting for app to become healthy...
+[deploy]   Health check attempt 1/20: HTTP 200
+[deploy] ✓ App is healthy
+
+[deploy] ✓ Deploy complete!
+[deploy]   Logs:   pm2 logs critsend-web
+[deploy]   Health: curl http://localhost:5000/api/health
+

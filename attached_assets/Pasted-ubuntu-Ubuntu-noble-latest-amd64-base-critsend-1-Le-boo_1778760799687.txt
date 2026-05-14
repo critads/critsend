@@ -1,0 +1,38 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ # 1) Le bootstrap est-il passé en ready ?
+pm2 logs critsend-web --lines 200 --nostream | grep -E "PRESSURE_GUARD|leader_acquired" | tail -30
+
+# 2) La table pressure_guard_leader existe-t-elle + qui est leader ?
+psql "postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" <<'SQL'
+SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='pressure_guard_leader') AS has_leader_table;
+SELECT * FROM pressure_guard_leader;
+SELECT COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now,
+       COUNT(*) AS deferred_total
+FROM campaign_sends WHERE status='deferred';
+SQL
+0|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.411Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_active_subscriber_idx build failed (non-fatal): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.478Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=skipped, schema_verified=false, outcome=deferred — will retry every 15s
+0|critsend | 2026-05-14 14:06:51 +02:00: 2026-05-14T12:06:51.484Z [INFO] [PRESSURE_GUARD_WORKER] Stopped
+0|critsend | 2026-05-14 14:07:12 +02:00: 2026-05-14T12:07:12.244Z [INFO] [PRESSURE_GUARD_WORKER] Starting (poll=30000ms, batch=200, max-campaigns=5, window=6h)
+0|critsend | 2026-05-14 14:07:12 +02:00: 2026-05-14T12:07:12.643Z [INFO] [PRESSURE_GUARD] Another process is running bootstrap — skipping
+0|critsend | 2026-05-14 14:07:17 +02:00: 2026-05-14T12:07:17.244Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:07:42 +02:00: 2026-05-14T12:07:42.245Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:08:12 +02:00: 2026-05-14T12:08:12.245Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:08:42 +02:00: 2026-05-14T12:08:42.245Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:09:12 +02:00: 2026-05-14T12:09:12.245Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:09:42 +02:00: 2026-05-14T12:09:42.245Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.441Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+0|critsend | 2026-05-14 14:10:12 +02:00: 2026-05-14T12:10:12.245Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:10:42 +02:00: 2026-05-14T12:10:42.246Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:11:12 +02:00: 2026-05-14T12:11:12.246Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:11:42 +02:00: 2026-05-14T12:11:42.246Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:12:12 +02:00: 2026-05-14T12:12:12.247Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:12:42 +02:00: 2026-05-14T12:12:42.248Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+ has_leader_table 
+------------------
+ f
+(1 row)
+
+ERROR:  relation "pressure_guard_leader" does not exist
+LINE 1: SELECT * FROM pressure_guard_leader;
+                      ^
+ERROR:  canceling statement due to statement timeout

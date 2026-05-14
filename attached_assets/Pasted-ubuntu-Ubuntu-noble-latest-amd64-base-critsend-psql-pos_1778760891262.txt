@@ -1,0 +1,55 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ psql "postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" <<'SQL'
+-- 1) Augmente le statement_timeout pour cette session
+SET statement_timeout = '30s';
+
+-- 2) Liste TOUS les locks advisory bootstrap encore détenus
+SELECT l.pid, l.objid, a.state, a.application_name,
+       NOW() - a.state_change AS idle_for,
+       LEFT(a.query, 80) AS query_short
+FROM pg_locks l
+JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE l.locktype='advisory' AND l.classid=0
+  AND l.objid BETWEEN 900001 AND 900020
+  AND l.granted
+ORDER BY l.objid;
+
+-- 3) Tue toutes les sessions idle pgbouncer qui détiennent ces locks
+SELECT l.pid, l.objid, pg_terminate_backend(l.pid) AS terminated
+FROM pg_locks l
+JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE l.locktype='advisory' AND l.classid=0
+  AND l.objid BETWEEN 900001 AND 900020
+  AND l.granted
+SQLND a.application_name = 'pgbouncer';action','idle in transaction (aborted)')
+SET
+  pid  | objid  | state | application_name |    idle_for     |                 query_short                 
+-------+--------+-------+------------------+-----------------+---------------------------------------------
+ 16564 | 900004 | idle  | pgbouncer        | 00:06:36.566523 | SELECT open_tag, click_tag, unsubscribe_tag+
+       |        |       |                  |                 |          FROM campaigns WHERE id = $
+ 16571 | 900005 | idle  | pgbouncer        | 00:06:36.626116 | SELECT open_tag, click_tag, unsubscribe_tag+
+       |        |       |                  |                 |          FROM campaigns WHERE id = $
+(2 rows)
+
+  pid  | objid  | terminated 
+-------+--------+------------
+ 16564 | 900004 | t
+ 16571 | 900005 | t
+(2 rows)
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 restart critsend-web
+sleep 10
+pm2 logs critsend-web --lines 50 --nostream | grep -E "PRESSURE_GUARD|leader" | tail -20
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] [critsend-web](0) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 41   │ online    │ 0%       │ 21.8mb   │
+│ 1  │ critsend-worker    │ fork     │ 45   │ online    │ 1.8%     │ 98.9mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+0|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.411Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_active_subscriber_idx build failed (non-fatal): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.478Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=skipped, schema_verified=false, outcome=deferred — will retry every 15s
+0|critsend | 2026-05-14 14:14:14 +02:00: 2026-05-14T12:14:14.474Z [INFO] [PRESSURE_GUARD_WORKER] Starting (poll=30000ms, batch=200, max-campaigns=5, window=6h)
+0|critsend | 2026-05-14 14:14:19 +02:00: 2026-05-14T12:14:19.474Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

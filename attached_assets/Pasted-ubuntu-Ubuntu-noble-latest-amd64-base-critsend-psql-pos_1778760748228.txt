@@ -1,0 +1,38 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ psql "postgresql://neondb_owner:npg_vMEnX9w5bcky@ep-sparkling-hat-agun83el-pooler.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require" <<'SQL'
+-- 1) Voir qui détient le lock de bootstrap (objid 900013) et les 3 autres
+SELECT l.pid, l.objid, a.state, a.application_name,
+       NOW() - a.state_change AS idle_for, a.query
+FROM pg_locks l
+JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE l.locktype='advisory' AND l.classid=0
+  AND l.objid IN (900013, 900014, 900015, 900016)
+  AND l.granted;
+
+-- 2) Tuer toutes les sessions idle qui détiennent un de ces 4 locks
+SELECT l.pid, l.objid, pg_terminate_backend(l.pid) AS terminated
+FROM pg_locks l
+JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE l.locktype='advisory' AND l.classid=0
+  AND l.objid IN (900013, 900014, 900015, 900016)
+  AND l.granted
+  AND a.state IN ('idle','idle in transaction','idle in transaction (aborted)')
+  AND a.application_name = 'pgbouncer';
+
+-- 3) Re-vérifier qu'il ne reste plus rien
+SELECT COUNT(*) AS remaining_stuck_locks
+SQLND l.granted; (900013, 900014, 900015, 900016)
+  pid  | objid  | state | application_name |    idle_for    |                                                                                                                                                   query                                                                                                                                                    
+-------+--------+-------+------------------+----------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 16609 | 900015 | idle  | pgbouncer        | 00:00:45.14362 | select "id", "name", "description", "status", "trigger_type", "trigger_config", "steps", "mta_id", "total_enrolled", "total_completed", "total_failed", "created_at", "updated_at" from "automation_workflows" where ("automation_workflows"."status" = $1 and "automation_workflows"."trigger_type" = $2)
+(1 row)
+
+  pid  | objid  | terminated 
+-------+--------+------------
+ 16609 | 900015 | t
+(1 row)
+
+ remaining_stuck_locks 
+-----------------------
+                     0
+(1 row)
+

@@ -1,0 +1,18 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sleep 20
+pm2 logs critsend-web --lines 60 --nostream | grep -E "PRESSURE_GUARD|leader_acquired" | tail -15
+0|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.411Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_active_subscriber_idx build failed (non-fatal): canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:10:04 +02:00: 2026-05-14T12:10:04.478Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=skipped, schema_verified=false, outcome=deferred — will retry every 15s
+0|critsend | 2026-05-14 14:15:18 +02:00: 2026-05-14T12:15:18.098Z [ERROR] [PRESSURE_GUARD] DDL failed: canceling statement due to statement timeout
+0|critsend | 2026-05-14 14:16:15 +02:00: 2026-05-14T12:16:15.294Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=ran, schema_verified=true, outcome=deferred — will retry every 15s
+0|critsend | 2026-05-14 14:14:19 +02:00: 2026-05-14T12:14:19.474Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:14:44 +02:00: 2026-05-14T12:14:44.475Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:15:14 +02:00: 2026-05-14T12:15:14.476Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=pending), bootstrap=pending, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:15:44 +02:00: 2026-05-14T12:15:44.476Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:16:14 +02:00: 2026-05-14T12:16:14.477Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:16:15 +02:00: 2026-05-14T12:16:15.196Z [INFO] [PRESSURE_GUARD] Created partial index campaign_sends_active_subscriber_idx
+0|critsend | 2026-05-14 14:16:15 +02:00: 2026-05-14T12:16:15.231Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+0|critsend | 2026-05-14 14:16:30 +02:00: 2026-05-14T12:16:30.333Z [INFO] [PRESSURE_GUARD] Bootstrap recovered to 'ready' via retry probe
+0|critsend | 2026-05-14 14:16:44 +02:00: 2026-05-14T12:16:44.513Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:17:14 +02:00: 2026-05-14T12:17:14.506Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-14 14:17:44 +02:00: 2026-05-14T12:17:44.508Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
