@@ -429,7 +429,7 @@ export async function getLinkedFollowUp(campaignId: string): Promise<{ parent: C
   const linked = await db
     .select()
     .from(campaigns)
-    .where(sql`${campaigns.id} = ANY(${idsToFetch}::text[])`);
+    .where(sql`${campaigns.id} = ANY(${toPgTextArray(idsToFetch)}::text[])`);
 
   const byId = new Map(linked.map(r => [r.id, r]));
   return {
@@ -1319,7 +1319,7 @@ export async function getOverallAnalytics() {
         COUNT(*) FILTER (WHERE first_open_at IS NOT NULL)::int  AS unique_opens,
         COUNT(*) FILTER (WHERE first_click_at IS NOT NULL)::int AS unique_clicks
       FROM campaign_sends
-      WHERE campaign_id = ANY(${ids}::text[])
+      WHERE campaign_id = ANY(${toPgTextArray(ids)}::text[])
       GROUP BY campaign_id
     `);
     const byId = new Map<string, { uo: number; uc: number }>();

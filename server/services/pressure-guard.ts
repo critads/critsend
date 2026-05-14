@@ -25,6 +25,7 @@
 
 import { pool, db } from "../db";
 import { sql } from "drizzle-orm";
+import { toPgTextArray } from "../utils/pg-array";
 import { logger } from "../logger";
 import { withAdvisoryLock, LOCK_KEYS, indexExistsAndValid } from "../bootstrap-lock";
 import {
@@ -349,6 +350,11 @@ export async function pressureGuardReserveSendSlots(
 
   for (let i = 0; i < subscriberIds.length; i += CHUNK_SIZE) {
     const chunk = subscriberIds.slice(i, i + CHUNK_SIZE);
+    // Drizzle expands `${jsArray}` as a row constructor `($1,$2,...)` which
+    // is type `record`, not `text[]`. Casting record→text[] fails with
+    // 42846 ("cannot cast type record to text[]"). Serialize the array as
+    // a single PG array literal string so it binds as ONE param of text[].
+    const chunkLiteral = toPgTextArray(chunk);
 
     // FIFO determinism (Task #144) — two layers:
     //   (a) Per-subscriber advisory transaction locks (acquired in sorted
@@ -371,18 +377,18 @@ export async function pressureGuardReserveSendSlots(
         SELECT pg_advisory_xact_lock(h)
         FROM (
           SELECT DISTINCT hashtextextended(s, 0)::bigint AS h
-          FROM unnest(${chunk}::text[]) AS s
+          FROM unnest(${chunkLiteral}::text[]) AS s
           ORDER BY h
         ) ordered
       `);
       return await tx.execute(sql`
-        WITH input(id) AS (SELECT unnest(${chunk}::text[])),
+        WITH input(id) AS (SELECT unnest(${chunkLiteral}::text[])),
         my_started AS (SELECT started_at FROM campaigns WHERE id = ${campaignId}),
         blocked_by_older AS (
           SELECT DISTINCT cs.subscriber_id
           FROM campaign_sends cs
           JOIN campaigns c ON c.id = cs.campaign_id
-          WHERE cs.subscriber_id = ANY(${chunk}::text[])
+          WHERE cs.subscriber_id = ANY(${chunkLiteral}::text[])
             AND cs.campaign_id <> ${campaignId}
             AND cs.status IN ('pending','attempting')
             AND c.started_at IS NOT NULL
@@ -390,7 +396,7 @@ export async function pressureGuardReserveSendSlots(
         ),
         already_in_campaign AS (
           SELECT subscriber_id FROM campaign_sends
-          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[])
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunkLiteral}::text[])
         ),
         cas AS (
           -- Only stamp last_sent_at for genuinely new dispatches; rows that
@@ -415,7 +421,7 @@ export async function pressureGuardReserveSendSlots(
           -- exactly-one immediate winner per (campaign, subscriber) even
           -- across retries/resumes that race the same chunk.
           SELECT subscriber_id FROM campaign_sends
-          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunk}::text[])
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunkLiteral}::text[])
             AND status IN ('pending','attempting') AND eligible_at IS NULL
           FOR UPDATE SKIP LOCKED
         ),
@@ -510,10 +516,13 @@ export async function flushDeferredSends(opts: {
   if (campaignId) conditions = sql`${conditions} AND campaign_id = ${campaignId}`;
 
   const isAllSelector = campaignSendIds === "all";
+  // See pressureGuardReserveSendSlots: ${jsArray}::text[] compiles to
+  // `($1,$2,...)::text[]` (record→text[] cast, 42846). Bind as a single
+  // PG array literal string instead.
   if (Array.isArray(campaignSendIds) && campaignSendIds.length > 0) {
-    conditions = sql`${conditions} AND id = ANY(${campaignSendIds}::text[])`;
+    conditions = sql`${conditions} AND id = ANY(${toPgTextArray(campaignSendIds)}::text[])`;
   } else if (subscriberIds && subscriberIds.length > 0) {
-    conditions = sql`${conditions} AND subscriber_id = ANY(${subscriberIds}::text[])`;
+    conditions = sql`${conditions} AND subscriber_id = ANY(${toPgTextArray(subscriberIds)}::text[])`;
   } else if (scope === "selected" && !isAllSelector) {
     return 0;
   }

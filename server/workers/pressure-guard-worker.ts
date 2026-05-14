@@ -18,6 +18,7 @@
 
 import { sql } from "drizzle-orm";
 import { db, pool } from "../db";
+import { toPgTextArray } from "../utils/pg-array";
 import { logger } from "../logger";
 import { storage } from "../storage";
 import { sendEmailWithNullsink } from "../email-service";
@@ -363,7 +364,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   const casRes = await db.execute(sql`
     UPDATE subscribers s
     SET last_sent_at = NOW()
-    WHERE s.id = ANY(${claimedSubIds}::text[])
+    WHERE s.id = ANY(${toPgTextArray(claimedSubIds)}::text[])
       AND (s.last_sent_at IS NULL OR s.last_sent_at + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval <= NOW())
     RETURNING s.id, s.last_sent_at
   `);
@@ -385,7 +386,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
             eligible_at = COALESCE(s.last_sent_at, NOW()) + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval
         FROM subscribers s
         WHERE cs.campaign_id = ${campaignId}
-          AND cs.subscriber_id = ANY(${losers}::text[])
+          AND cs.subscriber_id = ANY(${toPgTextArray(losers)}::text[])
           AND s.id = cs.subscriber_id
           AND cs.status = 'attempting'
         RETURNING cs.subscriber_id
@@ -404,7 +405,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   // Re-check unsubscribe / suppression / bounce flags for winners.
   const subs = await db.execute(sql`
     SELECT id, email, tags, refs, ip_address, import_date, suppressed_until, last_engaged_at, last_sent_at
-    FROM subscribers WHERE id = ANY(${Array.from(winnerIds)}::text[])
+    FROM subscribers WHERE id = ANY(${toPgTextArray(Array.from(winnerIds))}::text[])
   `);
   const eligibleSubs: Subscriber[] = [];
   const dropIds: string[] = [];
@@ -435,7 +436,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   if (dropIds.length > 0) {
     await db.execute(sql`
       UPDATE campaign_sends SET status = 'failed', eligible_at = NULL
-      WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${dropIds}::text[]) AND status = 'attempting'
+      WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(dropIds)}::text[]) AND status = 'attempting'
     `);
     await db.execute(sql`
       UPDATE campaigns
@@ -475,13 +476,13 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     if (successIds.length > 0) {
       await tx.execute(sql`
         UPDATE campaign_sends SET status = 'sent', eligible_at = NULL, sent_at = NOW()
-        WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${successIds}::text[]) AND status = 'attempting'
+        WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(successIds)}::text[]) AND status = 'attempting'
       `);
     }
     if (failedIds.length > 0) {
       await tx.execute(sql`
         UPDATE campaign_sends SET status = 'failed', eligible_at = NULL
-        WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${failedIds}::text[]) AND status = 'attempting'
+        WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(failedIds)}::text[]) AND status = 'attempting'
       `);
     }
     await tx.execute(sql`

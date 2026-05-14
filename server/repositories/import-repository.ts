@@ -10,6 +10,7 @@ import { db } from "../db";
 import { eq, desc, and, or, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { importQueue } from "../queues";
+import { toPgTextArray } from "../utils/pg-array";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -233,27 +234,30 @@ export async function detectImportRefs(jobId: string): Promise<string[]> {
 
 export async function countAffectedSubscribers(refs: string[]): Promise<number> {
   if (refs.length === 0) return 0;
-  const result = await db.execute(sql`SELECT COUNT(*) AS count FROM subscribers WHERE refs && ${refs}::text[]`);
+  const refsLit = toPgTextArray(refs);
+  const result = await db.execute(sql`SELECT COUNT(*) AS count FROM subscribers WHERE refs && ${refsLit}::text[]`);
   return parseInt((result.rows as any[])[0]?.count || "0");
 }
 
 export async function countBckProtectedSubscribers(refs: string[]): Promise<number> {
   if (refs.length === 0) return 0;
+  const refsLit = toPgTextArray(refs);
   const result = await db.execute(sql`
-    SELECT COUNT(*) AS count FROM subscribers WHERE refs && ${refs}::text[] AND 'BCK' = ANY(tags)
+    SELECT COUNT(*) AS count FROM subscribers WHERE refs && ${refsLit}::text[] AND 'BCK' = ANY(tags)
   `);
   return parseInt((result.rows as any[])[0]?.count || "0");
 }
 
 export async function cleanExistingRefs(refs: string[]): Promise<number> {
   if (refs.length === 0) return 0;
+  const refsLit = toPgTextArray(refs);
   const BATCH_SIZE = 50000;
   let totalCleaned = 0;
   while (true) {
     const result = await db.execute(sql`
       UPDATE subscribers
-      SET refs = (SELECT COALESCE(array_agg(r), ARRAY[]::text[]) FROM unnest(refs) AS r WHERE r != ALL(${refs}::text[]))
-      WHERE id IN (SELECT id FROM subscribers WHERE refs && ${refs}::text[] LIMIT ${BATCH_SIZE})
+      SET refs = (SELECT COALESCE(array_agg(r), ARRAY[]::text[]) FROM unnest(refs) AS r WHERE r != ALL(${refsLit}::text[]))
+      WHERE id IN (SELECT id FROM subscribers WHERE refs && ${refsLit}::text[] LIMIT ${BATCH_SIZE})
     `);
     const affected = (result as any).rowCount || 0;
     totalCleaned += affected;
@@ -266,12 +270,13 @@ export async function cleanExistingRefs(refs: string[]): Promise<number> {
 export async function deleteSubscribersByRefs(refs: string[]): Promise<{ deleted: number; bckProtected: number }> {
   if (refs.length === 0) return { deleted: 0, bckProtected: 0 };
   const bckProtected = await countBckProtectedSubscribers(refs);
+  const refsLit = toPgTextArray(refs);
   const BATCH_SIZE = 50000;
   let totalDeleted = 0;
   while (true) {
     const result = await db.execute(sql`
       DELETE FROM subscribers WHERE id IN (
-        SELECT id FROM subscribers WHERE refs && ${refs}::text[] AND NOT ('BCK' = ANY(tags)) LIMIT ${BATCH_SIZE}
+        SELECT id FROM subscribers WHERE refs && ${refsLit}::text[] AND NOT ('BCK' = ANY(tags)) LIMIT ${BATCH_SIZE}
       )
     `);
     const affected = (result as any).rowCount || 0;

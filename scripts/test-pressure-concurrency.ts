@@ -20,6 +20,7 @@
 
 import { db, pool } from "../server/db";
 import { sql } from "drizzle-orm";
+import { toPgTextArray } from "../server/utils/pg-array";
 import {
   PRESSURE_WINDOW_HOURS,
   pressureGuardReserveSendSlots,
@@ -89,7 +90,7 @@ async function main() {
   const lsCheck = await db.execute(sql`
     SELECT COUNT(*) FILTER (WHERE last_sent_at IS NOT NULL) AS reserved,
            COUNT(*) AS total
-    FROM subscribers WHERE id = ANY(${subIds}::text[])
+    FROM subscribers WHERE id = ANY(${toPgTextArray(subIds)}::text[])
   `);
   const lsRow = lsCheck.rows[0] as any;
   console.log(`[TEST] Subscribers reserved (last_sent_at != NULL): ${lsRow.reserved}/${lsRow.total}`);
@@ -99,15 +100,15 @@ async function main() {
     SELECT
       COUNT(*) FILTER (WHERE eligible_at IS NULL) AS active,
       COUNT(*) FILTER (WHERE eligible_at IS NOT NULL) AS deferred
-    FROM campaign_sends WHERE campaign_id = ANY(${campaignIds}::text[])
+    FROM campaign_sends WHERE campaign_id = ANY(${toPgTextArray(campaignIds)}::text[])
   `);
   const sRow = sendsCheck.rows[0] as any;
   console.log(`[TEST] campaign_sends inserted: active=${sRow.active}, deferred=${sRow.deferred}, expected total=${SUBSCRIBER_COUNT * CONCURRENT_CAMPAIGNS}`);
 
   // Cleanup.
-  await db.execute(sql`DELETE FROM campaign_sends WHERE campaign_id = ANY(${campaignIds}::text[])`);
-  await db.execute(sql`DELETE FROM campaigns WHERE id = ANY(${campaignIds}::text[])`);
-  await db.execute(sql`DELETE FROM subscribers WHERE id = ANY(${subIds}::text[])`);
+  await db.execute(sql`DELETE FROM campaign_sends WHERE campaign_id = ANY(${toPgTextArray(campaignIds)}::text[])`);
+  await db.execute(sql`DELETE FROM campaigns WHERE id = ANY(${toPgTextArray(campaignIds)}::text[])`);
+  await db.execute(sql`DELETE FROM subscribers WHERE id = ANY(${toPgTextArray(subIds)}::text[])`);
   console.log(`[TEST] Cleanup done`);
 
   // Verdict.
