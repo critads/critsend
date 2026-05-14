@@ -66,6 +66,20 @@ const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_00
 // any existing deployment; opt-in by setting the env var (typically 4).
 // Cap of 16 prevents runaway pool saturation if misconfigured.
 const DRAIN_PARALLELISM = envInt("PRESSURE_GUARD_DRAIN_PARALLELISM", 1, 1, 16);
+// Task #154: parallelize the SMTP send loop INSIDE drainCampaign. Previously
+// the per-batch dispatch was a strict `for await` loop — every send waited
+// for the previous SMTP RTT to complete, capping per-campaign throughput at
+// ~1/(SMTP_RTT) sends/sec (~10 sends/sec for ~100ms RTT, i.e. 600/min/campaign).
+// With DRAIN_PARALLELISM=4 that ceiling was ~2,400 sends/min cluster-wide —
+// not enough to keep up with a 800k+ deferred backlog.
+// SMTP send is pure I/O (Nodemailer pool handles connection reuse), so
+// parallelizing N sends per campaign multiplies throughput linearly until
+// either the MTA's max connections, the Nodemailer pool, or the network
+// becomes the bottleneck. With DRAIN_PARALLELISM=4 × SMTP_CONCURRENCY=20,
+// peak SMTP fan-out is 80 simultaneous sends across all in-flight campaigns,
+// which fits comfortably in typical Nodemailer pool sizes (5-10 per MTA × 7 MTAs).
+// Cap of 100 prevents runaway resource exhaustion if misconfigured.
+const SMTP_CONCURRENCY = envInt("PRESSURE_GUARD_SMTP_CONCURRENCY", 20, 1, 100);
 // Task #145 R3: refresh the index-size gauge hourly, but only run the
 // expensive VACUUM (ANALYZE) + REINDEX policy once per day during the
 // configured off-peak hour (default 03:00 server-local). Min 60s
@@ -86,7 +100,7 @@ let isPolling = false;
 
 export function startPressureGuardWorker() {
   if (pollInterval) return;
-  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, window=${PRESSURE_WINDOW_HOURS}h)`);
+  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, smtp-concurrency=${SMTP_CONCURRENCY}, window=${PRESSURE_WINDOW_HOURS}h)`);
   pollInterval = setInterval(pollDeferredQueue, POLL_INTERVAL_MS);
   // Kick off after a short delay to let bootstrap run first.
   setTimeout(pollDeferredQueue, 5_000);
@@ -618,18 +632,29 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   } as any;
   const customHeadersMap = new Map<string, string>();
 
+  // Task #154: bounded-parallel SMTP fan-out. Replaces the strict for-await
+  // loop that capped per-campaign throughput at ~1/SMTP_RTT sends/sec.
+  // N workers pull from a shared queue; SMTP I/O is interleaved while
+  // Node's single-threaded event loop keeps successIds/failedIds.push race-
+  // free between awaits. Default SMTP_CONCURRENCY=20 — see env var comment.
   const successIds: string[] = [];
   const failedIds: string[] = [];
-  for (const sub of eligibleSubs) {
-    try {
-      const result = await sendEmailWithNullsink(mta as any, sub, campaign, trackingOpts, customHeadersMap);
-      if (result.success) successIds.push(sub.id);
-      else failedIds.push(sub.id);
-    } catch (err: any) {
-      logger.warn(`[PRESSURE_GUARD_WORKER] send failed for ${sub.email}: ${err?.message || err}`);
-      failedIds.push(sub.id);
+  const sendQueue = [...eligibleSubs];
+  const workers = Array.from({ length: Math.min(SMTP_CONCURRENCY, eligibleSubs.length) }, async () => {
+    while (sendQueue.length > 0) {
+      const sub = sendQueue.shift();
+      if (!sub) return;
+      try {
+        const result = await sendEmailWithNullsink(mta as any, sub, campaign, trackingOpts, customHeadersMap);
+        if (result.success) successIds.push(sub.id);
+        else failedIds.push(sub.id);
+      } catch (err: any) {
+        logger.warn(`[PRESSURE_GUARD_WORKER] send failed for ${sub.email}: ${err?.message || err}`);
+        failedIds.push(sub.id);
+      }
     }
-  }
+  });
+  await Promise.all(workers);
 
   // Finalize: status attempting → sent/failed + clear eligible_at.
   await db.transaction(async (tx) => {

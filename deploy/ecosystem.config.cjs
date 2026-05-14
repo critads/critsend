@@ -81,6 +81,12 @@ module.exports = {
         PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
         PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
         PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
+        // Task #154: SMTP fan-out concurrency INSIDE drainCampaign. Replaces
+        // the strict for-await loop that capped per-campaign throughput at
+        // ~10 sends/sec (~600/min). With SMTP_CONCURRENCY=20 × DRAIN_PARALLELISM=4
+        // the theoretical ceiling is ~80 simultaneous SMTP sends → ~24k/min
+        // cluster-wide, sufficient to drain the 800k+ deferred backlog in <1h.
+        PRESSURE_GUARD_SMTP_CONCURRENCY: dotenvVars.PRESSURE_GUARD_SMTP_CONCURRENCY || "20",
       },
 
       max_restarts: 10,
@@ -121,6 +127,8 @@ module.exports = {
         PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
         PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
         PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
+        // Task #154: SMTP fan-out concurrency — same value MUST match web side.
+        PRESSURE_GUARD_SMTP_CONCURRENCY: dotenvVars.PRESSURE_GUARD_SMTP_CONCURRENCY || "20",
       },
 
       max_restarts: 50,
