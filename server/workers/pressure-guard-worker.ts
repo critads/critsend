@@ -205,7 +205,16 @@ async function withLeaderLease<T>(lockKey: number, label: string, fn: () => Prom
 
 async function pollDeferredQueue() {
   if (isPolling) return;
-  if (getPressureGuardBootstrapState() !== "ready") return;
+  // Task #149: emit canonical tick line even on early-bails so every tick
+  // is observable via `pm2 logs | grep PRESSURE_GUARD_WORKER tick:`.
+  const bs = getPressureGuardBootstrapState();
+  if (bs !== "ready") {
+    logger.info(
+      `[PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=${bs}), bootstrap=${bs}, ` +
+      `has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0`,
+    );
+    return;
+  }
   isPolling = true;
   try {
     // R5: leader election. When multiple worker processes run (split web
@@ -217,11 +226,14 @@ async function pollDeferredQueue() {
       return true;
     });
     if (ran === null) {
-      // Task #149: emit a per-tick line even when we're not the leader
-      // so log greps show the worker is alive (the previous silent-bail
-      // made it impossible to distinguish "dead worker" from "leader on
-      // another node" in production).
-      logger.info(`[PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease)`);
+      // Task #149: emit the canonical per-tick line in the same shape as
+      // the leader path so a single grep `tick: ` regex covers every
+      // possible outcome (leader-empty, leader-drained, non-leader,
+      // bootstrap-not-ready).
+      logger.info(
+        `[PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), ` +
+        `bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0`,
+      );
       return;
     }
   } catch (err: any) {

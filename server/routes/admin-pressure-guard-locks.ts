@@ -89,7 +89,12 @@ export function registerAdminPressureGuardLocksRoutes(app: Express): void {
              AND l.classid = 0
              AND l.objid = ANY($1::int[])
              AND l.granted = true
-             AND a.state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')`,
+             AND a.state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')
+             -- Tighten match to PgBouncer-only sessions per the
+             -- documented behaviour. The pre-Task-#149 leak is exclusive
+             -- to backends labelled application_name='pgbouncer'; never
+             -- target our own app's connections.
+             AND a.application_name = 'pgbouncer'`,
           [Array.from(PRESSURE_LOCK_OBJIDS)],
         );
 
