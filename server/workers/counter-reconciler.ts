@@ -79,12 +79,46 @@ export async function reconcileCounters(
   // tell operators exactly which query stalled.
   let currentStage: ReconcileStage = "idle";
   let aborted = false;
+
+  // Dedicated client so we can:
+  //  (a) set a per-session `statement_timeout` slightly under the wall
+  //      budget — the server-side hard kill that always wins;
+  //  (b) capture `pg_backend_pid()` so the wall-clock guard can issue a
+  //      `pg_cancel_backend()` from a fresh connection if the in-flight
+  //      query refuses to honour statement_timeout (e.g. waiting on a
+  //      socket read);
+  //  (c) destroy the connection on abort by releasing it with an error,
+  //      forcing pg-pool to close the underlying socket — Postgres then
+  //      rolls back the in-flight statement immediately.
+  const client = await effectivePool.connect();
+  let backendPid: number | null = null;
+  let clientReleased = false;
+  const releaseClient = (err?: Error): void => {
+    if (clientReleased) return;
+    clientReleased = true;
+    try { client.release(err as any); } catch { /* pool may already have evicted */ }
+  };
+
   const guard = setTimeout(() => {
     aborted = true;
     logger.error(
-      `[COUNTER RECONCILER] tick exceeded ${RECONCILE_TICK_BUDGET_MS}ms budget — stage=${currentStage} (scope=${scope}). ` +
-        `Aborting tick; pg statement_timeout will release the connection.`,
+      `[COUNTER RECONCILER] tick exceeded ${RECONCILE_TICK_BUDGET_MS}ms budget — stage=${currentStage} (scope=${scope}, pid=${backendPid ?? "?"}). ` +
+        `Issuing pg_cancel_backend + destroying client to release the pool slot now.`,
     );
+    // Best-effort server-side cancel from a separate, short-lived
+    // connection — we don't await this, as the abort path must not
+    // itself hold a pool slot for any meaningful duration.
+    if (backendPid != null) {
+      effectivePool
+        .query(`SELECT pg_cancel_backend($1)`, [backendPid])
+        .catch((err) =>
+          logger.warn(`[COUNTER RECONCILER] pg_cancel_backend(${backendPid}) failed: ${err?.message || err}`),
+        );
+    }
+    // Destroy the stalled client (release with an Error tells pg-pool
+    // not to return it to the pool — it closes the socket, which
+    // Postgres notices and aborts the running statement).
+    releaseClient(new Error("reconciler tick budget exceeded"));
   }, RECONCILE_TICK_BUDGET_MS);
   guard.unref();
   const checkBudget = (): void => {
@@ -92,6 +126,20 @@ export async function reconcileCounters(
       throw new Error(`[COUNTER RECONCILER] aborted at stage=${currentStage} (>${RECONCILE_TICK_BUDGET_MS}ms budget)`);
     }
   };
+
+  // Per-session statement_timeout = budget − 5s safety margin. This is
+  // the canonical termination path; the wall-clock guard above is the
+  // backstop for cases where pg's own timer is delayed.
+  const sessionTimeoutMs = Math.max(5000, RECONCILE_TICK_BUDGET_MS - 5000);
+  try {
+    await client.query(`SET statement_timeout = ${sessionTimeoutMs}`);
+    const pidRow = await client.query(`SELECT pg_backend_pid() AS pid`);
+    backendPid = Number(pidRow.rows[0]?.pid) || null;
+  } catch (err) {
+    clearTimeout(guard);
+    releaseClient(err as Error);
+    throw err;
+  }
 
   // Recent-activity campaign set: any campaign with a send OR a tracking event
   // in the last RECONCILE_WINDOW_HOURS. Used as the gating set for all three
@@ -117,9 +165,14 @@ export async function reconcileCounters(
   const truthLead = scope === "all" ? "WITH truth AS" : `${recentCampaignsCte} truth AS`;
   const inRecentRow = scope === "all" ? "" : `AND campaign_id IN (SELECT campaign_id FROM recent_campaigns)`;
 
+  let sentCountFixed = 0;
+  let firstOpenFixed = 0;
+  let firstClickFixed = 0;
+  let engagementCountersFixed = 0;
+  try {
   // 1. campaigns.sent_count (fill-only — never reduces)
   currentStage = "sent_count";
-  const sentRes = await effectivePool.query(
+  const sentRes = await client.query(
     `${truthLead} (
        SELECT campaign_id, COUNT(*)::bigint AS cnt
          FROM campaign_sends
@@ -133,12 +186,12 @@ export async function reconcileCounters(
       WHERE c.id = truth.campaign_id
         AND c.sent_count < truth.cnt`,
   );
-  const sentCountFixed = sentRes.rowCount ?? 0;
+  sentCountFixed = sentRes.rowCount ?? 0;
   checkBudget();
 
   // 2. campaign_sends.first_open_at
   currentStage = "first_open_at";
-  const openRes = await effectivePool.query(
+  const openRes = await client.query(
     `${truthLead} (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
          FROM campaign_stats
@@ -153,12 +206,12 @@ export async function reconcileCounters(
         AND cs.subscriber_id = truth.subscriber_id
         AND cs.first_open_at IS NULL`,
   );
-  const firstOpenFixed = openRes.rowCount ?? 0;
+  firstOpenFixed = openRes.rowCount ?? 0;
   checkBudget();
 
   // 3. campaign_sends.first_click_at
   currentStage = "first_click_at";
-  const clickRes = await effectivePool.query(
+  const clickRes = await client.query(
     `${truthLead} (
        SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
          FROM campaign_stats
@@ -173,7 +226,7 @@ export async function reconcileCounters(
         AND cs.subscriber_id = truth.subscriber_id
         AND cs.first_click_at IS NULL`,
   );
-  const firstClickFixed = clickRes.rowCount ?? 0;
+  firstClickFixed = clickRes.rowCount ?? 0;
   checkBudget();
 
   // 4. Cached engagement counters on campaigns.* — single UPDATE that re-derives
@@ -184,7 +237,7 @@ export async function reconcileCounters(
   //    unique_opens_count), this corrects it downward. Previous versions used
   //    GREATEST() (fill-only) which could never fix overcounts — resulting in
   //    >100% open rates on the /campaigns list.
-  const engagementRes = await effectivePool.query(
+  const engagementRes = await client.query(
     `${truthLead} (
        SELECT campaign_id,
               COUNT(*) FILTER (WHERE type = 'open')::bigint                          AS total_opens,
@@ -214,9 +267,15 @@ export async function reconcileCounters(
            OR c.unsubscribes_count  IS DISTINCT FROM truth.unsubscribes
            OR c.complaints_count    IS DISTINCT FROM truth.complaints )`,
   );
-  const engagementCountersFixed = engagementRes.rowCount ?? 0;
+  engagementCountersFixed = engagementRes.rowCount ?? 0;
   currentStage = "idle";
-  clearTimeout(guard);
+  } finally {
+    clearTimeout(guard);
+    // If we got here via the abort path, releaseClient was already
+    // called with an error and this is a no-op. On the happy path,
+    // releaseClient() returns the client cleanly to the pool.
+    releaseClient(aborted ? new Error("reconciler aborted") : undefined);
+  }
 
   const durationMs = Date.now() - start;
 

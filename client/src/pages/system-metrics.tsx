@@ -376,7 +376,8 @@ export default function SystemMetricsPage() {
     recent: Array<{
       ts: number; rid: string; method: string; path: string; route: string;
       source: string; kind?: string; code?: string;
-      poolActive: number; poolMax: number; poolWaiting: number;
+      poolActive: number; poolIdle: number; poolTotal: number;
+      poolMax: number; poolWaiting: number;
       poolSaturation: number; leaseHolding: number;
     }>;
     cumulative: { total: number; bySource: Record<string, number>; byRoute: Record<string, number> };
@@ -744,7 +745,7 @@ export default function SystemMetricsPage() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{e.method} {e.route}</TableCell>
                           <TableCell className="font-mono text-xs">
-                            {e.poolActive}/{e.poolMax} w={e.poolWaiting} sat={e.poolSaturation.toFixed(2)}
+                            {e.poolActive}/{e.poolMax} idle={e.poolIdle} total={e.poolTotal} w={e.poolWaiting} sat={e.poolSaturation.toFixed(2)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-xs">{e.leaseHolding}</TableCell>
                         </TableRow>

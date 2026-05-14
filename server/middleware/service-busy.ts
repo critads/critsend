@@ -68,6 +68,8 @@ interface AttributionRecord {
   kind?: string;
   code?: string;
   poolActive: number;
+  poolIdle: number;
+  poolTotal: number;
   poolMax: number;
   poolWaiting: number;
   poolSaturation: number;
@@ -136,12 +138,13 @@ function flushBurst(key: string): void {
   bursts.delete(key);
   const elapsed = Date.now() - agg.firstAt;
   if (agg.count > 1) {
+    const s = agg.lastSnapshot;
     logger.warn(
-      `[503] ${agg.lastSnapshot.source} route=${agg.lastSnapshot.route} ` +
+      `[503] ${s.source} route=${s.route} ` +
         `coalesced count=${agg.count} over ${elapsed}ms ` +
-        `(last rid=${agg.lastSnapshot.rid} kind=${agg.lastSnapshot.kind ?? "-"} ` +
-        `pool active=${agg.lastSnapshot.poolActive}/${agg.lastSnapshot.poolMax} ` +
-        `waiting=${agg.lastSnapshot.poolWaiting} sat=${agg.lastSnapshot.poolSaturation.toFixed(2)})`,
+        `(last rid=${s.rid} kind=${s.kind ?? "-"} ` +
+        `pool active=${s.poolActive}/${s.poolMax} idle=${s.poolIdle} total=${s.poolTotal} ` +
+        `waiting=${s.poolWaiting} sat=${s.poolSaturation.toFixed(2)})`,
     );
   }
 }
@@ -160,6 +163,7 @@ function logEmission(rec: AttributionRecord, errorMessage?: string): void {
     `[503] source=${rec.source} method=${rec.method} path=${rec.path} ` +
       `route=${rec.route} rid=${rec.rid} kind=${rec.kind ?? "-"} ` +
       `code=${rec.code ?? "-"} pool active=${rec.poolActive}/${rec.poolMax} ` +
+      `idle=${rec.poolIdle} total=${rec.poolTotal} ` +
       `waiting=${rec.poolWaiting} sat=${rec.poolSaturation.toFixed(2)} ` +
       `lease=${rec.leaseHolding}` +
       (errorMessage ? ` err="${errorMessage.slice(0, 200)}"` : ""),
@@ -215,7 +219,9 @@ export function emitServiceBusy(
   ctx: ServiceBusyContext,
 ): void {
   const route = (req.route?.path as string) || routeBucket(req.path || "/");
-  const active = pool.totalCount - pool.idleCount;
+  const idle = pool.idleCount;
+  const total = pool.totalCount;
+  const active = total - idle;
   const saturation = getPoolSaturation();
   const leaseHolding = leaseStore.getStore()?.count ?? 0;
   const rid = (req as any).requestId || "-";
@@ -230,6 +236,8 @@ export function emitServiceBusy(
     kind: ctx.kind,
     code: ctx.code,
     poolActive: active,
+    poolIdle: idle,
+    poolTotal: total,
     poolMax: MAIN_POOL_MAX,
     poolWaiting: pool.waitingCount,
     poolSaturation: saturation,
@@ -261,7 +269,9 @@ export function recordServiceBusy(
   ctx: ServiceBusyContext,
 ): void {
   const route = (req.route?.path as string) || routeBucket(req.path || "/");
-  const active = pool.totalCount - pool.idleCount;
+  const idle = pool.idleCount;
+  const total = pool.totalCount;
+  const active = total - idle;
   const saturation = getPoolSaturation();
   const leaseHolding = leaseStore.getStore()?.count ?? 0;
   const rid = (req as any).requestId || "-";
@@ -275,6 +285,8 @@ export function recordServiceBusy(
     kind: ctx.kind,
     code: ctx.code,
     poolActive: active,
+    poolIdle: idle,
+    poolTotal: total,
     poolMax: MAIN_POOL_MAX,
     poolWaiting: pool.waitingCount,
     poolSaturation: saturation,
