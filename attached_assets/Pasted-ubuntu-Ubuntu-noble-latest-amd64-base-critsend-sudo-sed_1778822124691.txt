@@ -1,0 +1,121 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo sed -i '/^# ─── critsender\.rndaserver\.com/,$d' /etc/nginx/sites-available/critsend
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sudo nginx -t && sudo systemctl restart nginx && sudo systemctl status nginx --no-pager
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+● nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-05-15 07:14:59 CEST; 18ms ago
+       Docs: man:nginx(8)
+    Process: 313103 ExecStartPre=/usr/sbin/nginx -t -q -g daemon on; master_process on; (code=exited, status=0/SUCCESS)
+    Process: 313105 ExecStart=/usr/sbin/nginx -g daemon on; master_process on; (code=exited, status=0/SUCCESS)
+   Main PID: 313108 (nginx)
+      Tasks: 72 (limit: 154075)
+     Memory: 50.1M (peak: 50.1M)
+        CPU: 129ms
+     CGroup: /system.slice/nginx.service
+             ├─313108 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313109 "nginx: worker process"
+             ├─313110 "nginx: worker process"
+             ├─313111 "nginx: worker process"
+             ├─313112 "nginx: worker process"
+             ├─313113 "nginx: worker process"
+             ├─313114 "nginx: worker process"
+             ├─313115 "nginx: worker process"
+             ├─313116 "nginx: worker process"
+             ├─313117 "nginx: worker process"
+             ├─313118 "nginx: worker process"
+             ├─313119 "nginx: worker process"
+             ├─313121 "nginx: worker process"
+             ├─313122 "nginx: worker process"
+             ├─313123 "nginx: worker process"
+             ├─313124 "nginx: worker process"
+             ├─313125 "nginx: worker process"
+             ├─313126 "nginx: worker process"
+             ├─313127 "nginx: worker process"
+             ├─313128 "nginx: worker process"
+             ├─313129 "nginx: worker process"
+             ├─313130 "nginx: worker process"
+             ├─313131 "nginx: worker process"
+             ├─313132 "nginx: worker process"
+             ├─313133 "nginx: worker process"
+             ├─313134 "nginx: worker process"
+             ├─313135 "nginx: worker process"
+             ├─313136 "nginx: worker process"
+             ├─313138 "nginx: worker process"
+             ├─313139 "nginx: worker process"
+             ├─313140 "nginx: worker process"
+             ├─313141 "nginx: worker process"
+             ├─313142 "nginx: worker process"
+             ├─313143 "nginx: worker process"
+             ├─313144 "nginx: worker process"
+             ├─313145 "nginx: worker process"
+             ├─313146 "nginx: worker process"
+             ├─313147 "nginx: worker process"
+             ├─313148 "nginx: worker process"
+             ├─313149 "nginx: worker process"
+             ├─313150 "nginx: worker process"
+             ├─313151 "nginx: worker process"
+             ├─313152 "nginx: worker process"
+             ├─313153 "nginx: worker process"
+             ├─313154 "nginx: worker process"
+             ├─313155 "nginx: worker process"
+             ├─313156 "nginx: worker process"
+             ├─313157 "nginx: worker process"
+             ├─313158 "nginx: worker process"
+             ├─313159 "nginx: worker process"
+             ├─313160 "nginx: worker process"
+             ├─313162 "nginx: worker process"
+             ├─313163 "nginx: worker process"
+             ├─313165 "nginx: worker process"
+             ├─313166 "nginx: worker process"
+             ├─313167 "nginx: worker process"
+             ├─313168 "nginx: worker process"
+             ├─313169 "nginx: worker process"
+             ├─313170 "nginx: worker process"
+             ├─313171 "nginx: worker process"
+             ├─313172 "nginx: worker process"
+             ├─313173 "nginx: worker process"
+             ├─313174 "nginx: worker process"
+             ├─313175 "nginx: worker process"
+             ├─313176 "nginx: worker process"
+             ├─313177 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313178 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313179 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313180 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313181 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313182 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313183 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313184 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313185 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             ├─313186 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+             └─313187 "nginx: master process /usr/sbin/nginx -g daemon on; mast…
+
+May 15 07:14:59 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.ser…..
+May 15 07:14:59 Ubuntu-noble-latest-amd64-base systemd[1]: Started nginx.serv…r.
+Hint: Some lines were ellipsized, use -l to show in full.
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ curl -I https://critsender.critads.com/
+HTTP/2 200 
+server: nginx/1.24.0 (Ubuntu)
+date: Fri, 15 May 2026 05:15:07 GMT
+content-type: text/html; charset=UTF-8
+content-length: 2218
+vary: Accept-Encoding
+content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+origin-agent-cluster: ?1
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-xss-protection: 0
+accept-ranges: bytes
+cache-control: public, max-age=31536000, immutable
+last-modified: Fri, 15 May 2026 05:00:36 GMT
+etag: W/"8aa-19e2a0208e3"
+strict-transport-security: max-age=63072000; includeSubDomains; preload
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
