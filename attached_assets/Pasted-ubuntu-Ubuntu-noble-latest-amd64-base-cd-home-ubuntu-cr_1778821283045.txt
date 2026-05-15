@@ -1,0 +1,86 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend
+# 1. Pull + build + reload
+git pull --ff-only
+npm run build
+pm2 reload deploy/ecosystem.config.cjs --update-env
+# 2. Vérifier que les 2 process sont online
+pm2 list
+# 3. Voir le drain redémarrer avec le NOUVEAU code
+pm2 logs critsend-worker --lines 100 --nostream | grep -E "PRESSURE_GUARD_WORKER|LOCK_RECOVERY"
+# 4. Confirmer la query d'éligibilité (la ligne tick: doit apparaître toutes les 10s)
+pm2 logs critsend-worker --lines 50 --nostream | grep "tick:"
+remote: Enumerating objects: 46, done.
+remote: Counting objects: 100% (46/46), done.
+remote: Compressing objects: 100% (6/6), done.
+remote: Total 34 (delta 29), reused 33 (delta 28), pack-reused 0 (from 0)
+Unpacking objects: 100% (34/34), 19.88 KiB | 701.00 KiB/s, done.
+From https://github.com/critads/critsend
+   e8ef72d..dc573ed  main       -> origin/main
+Updating e8ef72d..dc573ed
+Fast-forward
+ .replit                                            |   9 +-
+ ...-amd64-base-1-Erreurs-SMTP-ti_1778820200865.txt | 122 +++++++++++++
+ ...-amd64-base-1-Erreurs-r-cente_1778775955779.txt | 197 +++++++++++++++++++++
+ ...-amd64-base-1-R-cup-rer-le-co_1778821172489.txt |  35 ++++
+ ...-amd64-base-Ticks-PRESSURE-GU_1778820384751.txt |  56 ++++++
+ ...-amd64-base-pm2-list-pm2-desc_1778776005902.txt | 128 +++++++++++++
+ ...-amd64-base-pm2-reload-all-up_1778776207626.txt |  23 +++
+ client/src/pages/admin-pressure-queue.tsx          |  62 ++++++-
+ server/routes/pressure.ts                          |  66 ++++++-
+ server/workers/pressure-guard-worker.ts            |  65 +++++--
+ 10 files changed, 739 insertions(+), 24 deletions(-)
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-1-Erreurs-SMTP-ti_1778820200865.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-1-Erreurs-r-cente_1778775955779.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-1-R-cup-rer-le-co_1778821172489.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-Ticks-PRESSURE-GU_1778820384751.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-pm2-list-pm2-desc_1778776005902.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-pm2-reload-all-up_1778776207626.txt
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2510 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-cQu_mYcg.css     90.11 kB │ gzip:  14.70 kB
+../dist/public/assets/index-XFmKtBFh.js   1,582.71 kB │ gzip: 411.63 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.34s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 107ms
+building import worker...
+
+  dist/import-worker.cjs  640.7kb
+
+⚡ Done in 55ms
+building background worker...
+
+  dist/worker-main.cjs  1005.3kb
+
+⚡ Done in 80ms
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 52   │ online    │ 0%       │ 238.9mb  │
+│ 1  │ critsend-worker    │ fork     │ 55   │ online    │ 0%       │ 58.5mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+1|critsend | 2026-05-15 06:48:23 +02:00: 2026-05-15T04:48:23.968Z [WARN] [LOCK_RECOVERY] (worker-boot) terminated 2 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900003":1,"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+1|critsend | 2026-05-15 06:49:34 +02:00: 2026-05-15T04:49:34.408Z [ERROR] [PRESSURE_GUARD_WORKER] poll inner error: canceling statement due to lock timeout
+1|critsend | 2026-05-15 07:00:37 +02:00: 2026-05-15T05:00:37.582Z [INFO] [PRESSURE_GUARD_WORKER] Stopped
