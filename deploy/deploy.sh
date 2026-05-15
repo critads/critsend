@@ -198,19 +198,55 @@ else
 fi
 
 # ─── Step 7: PM2 reload ───────────────────────────────────────────────────────
-step "Reloading PM2 processes (zero-downtime)..."
+step "Reloading PM2 processes (zero-downtime when possible)..."
 if pm2 list | grep -q "critsend-web"; then
-    # Task #160: re-read env_production from ecosystem.config.cjs at
-    # reload time so newly-defined env vars (notably
-    # DRAIN_PROCESS_DEDICATED=true on web/worker) actually reach the
-    # processes. `pm2 reload all --update-env` ONLY re-applies the env
-    # that was saved in dump.pm2 at process-start time — it does NOT
-    # re-parse the ecosystem file, so any var added in this commit would
-    # be silently dropped. Passing the file path forces the re-parse.
+    # Task #160 (post-incident hardening): detect apps whose set of
+    # env_production keys has CHANGED since the last start (e.g. a new
+    # var was added to ecosystem.config.cjs in this commit). For those,
+    # `pm2 reload --update-env` is insufficient — PM2 merges the saved
+    # dump.pm2 env with what it re-parses and routinely drops freshly-
+    # added keys (constated 2026-05-15: DRAIN_PROCESS_DEDICATED defined
+    # in env_production was simply absent from `pm2 env <id>` after a
+    # reload). The only reliable fix is `pm2 delete <app> && pm2 start
+    # ecosystem --only <app>`, which costs ~5s downtime per affected
+    # app but guarantees the new env is fully applied. Apps whose env
+    # keys are unchanged stay on a zero-downtime soft reload.
+    _need_recreate="$(node -e '
+      const path = require("path");
+      const fs = require("fs");
+      const cfgPath = path.resolve("deploy/ecosystem.config.cjs");
+      const cfg = require(cfgPath);
+      const apps = (cfg.apps || []).filter(a => /^critsend-/.test(a.name));
+      const jlistRaw = fs.readFileSync(0, "utf8");
+      let jlist = [];
+      try { jlist = JSON.parse(jlistRaw); } catch { jlist = []; }
+      const out = [];
+      for (const app of apps) {
+        const expected = new Set(Object.keys(app.env_production || {}));
+        const running = jlist.find(p => p.name === app.name);
+        if (!running) { out.push(app.name); continue; } // not running yet
+        const actual = new Set(Object.keys(running.pm2_env || {}));
+        const missing = [...expected].filter(k => !actual.has(k));
+        if (missing.length > 0) out.push(app.name);
+      }
+      process.stdout.write(out.join(" "));
+    ' < <(pm2 jlist 2>/dev/null) 2>/dev/null || echo '')"
+
+    if [[ -n "${_need_recreate// }" ]]; then
+        echo "[deploy]   Detected new/changed env vars on: $_need_recreate"
+        echo "[deploy]   → forcing pm2 delete + start (≈5s downtime per app to inject fresh env)"
+        for app in $_need_recreate; do
+            pm2 delete "$app" 2>/dev/null || true
+            pm2 start deploy/ecosystem.config.cjs --env production --only "$app"
+        done
+    else
+        echo "[deploy]   No env_production key changes detected — using zero-downtime reload."
+    fi
+
+    # Soft-reload everything else (still re-parses the ecosystem to pick
+    # up changes to existing env values, e.g. tuning knobs).
     pm2 reload deploy/ecosystem.config.cjs --env production --update-env
-    # `pm2 reload <ecosystem>` only touches apps the daemon already
-    # knows about — a brand-new app entry like critsend-drainer is
-    # silently skipped on its first deploy. Start it explicitly.
+    # Catch any brand-new app entry the daemon didn't yet know about.
     pm2 start deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer 2>/dev/null || true
     pm2 save
     ok "PM2 processes reloaded"
