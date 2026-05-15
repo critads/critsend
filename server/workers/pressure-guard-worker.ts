@@ -29,6 +29,7 @@ import {
   pressureGuardDeferredIndexSizeBytes,
   safeIntervalLastTickAgeSeconds,
   safeIntervalTickErrorsTotal,
+  pressureDrainLastTickAgeSeconds,
 } from "../metrics";
 import { LOCK_KEYS } from "../bootstrap-lock";
 import { safeInterval, getLastTickAt, setSafeIntervalErrorListener } from "../lib/safe-interval";
@@ -130,7 +131,10 @@ function refreshTickAgeGauges() {
     const t = getLastTickAt(name);
     if (t == null) continue;
     try {
-      safeIntervalLastTickAgeSeconds.set({ name }, (Date.now() - t) / 1000);
+      const ageS = (Date.now() - t) / 1000;
+      safeIntervalLastTickAgeSeconds.set({ name }, ageS);
+      // Task #160 contract metric: dedicated drain gauge.
+      if (name === TICK_NAME_DRAIN) pressureDrainLastTickAgeSeconds.set(ageS);
     } catch {
       /* metric set is non-fatal */
     }

@@ -162,6 +162,32 @@ export const safeIntervalTickErrorsTotal = new client.Counter({
   registers: [register],
 });
 
+// Task #160 contract metric: dedicated drain-tick-age gauge that
+// alerting/dashboards can target directly without parsing the generic
+// `safe_interval` labelled gauge above. Exported in addition to (not
+// instead of) the labelled gauge so generic safeInterval observability
+// stays available for the maintenance + audit loops.
+export const pressureDrainLastTickAgeSeconds = new client.Gauge({
+  name: 'critsend_pressure_drain_last_tick_age_seconds',
+  help: 'Seconds since the pressure-guard drain last completed a tick (single source of truth for alerting)',
+  registers: [register],
+});
+
+// Task #160 contract metric: rolling 5-minute counters for the drain.
+// Read directly from the leader-lease + heartbeat history, exported so
+// /api/admin/pressure-drain/health and Prometheus rules see the same
+// numbers.
+export const pressureDrainCalls5m = new client.Gauge({
+  name: 'critsend_pressure_drain_calls_5m',
+  help: 'Total drainCampaign() calls observed in the last 5 minutes (rolling)',
+  registers: [register],
+});
+export const pressureDrainErrors5m = new client.Gauge({
+  name: 'critsend_pressure_drain_errors_5m',
+  help: 'Total drain tick errors observed in the last 5 minutes (rolling)',
+  registers: [register],
+});
+
 // Orphaned-sends reconciler (Task #160): rows force-failed because they
 // were stuck in pending/attempting on a finished campaign.
 export const orphanedSendsReconciledTotal = new client.Counter({

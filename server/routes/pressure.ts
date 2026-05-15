@@ -255,11 +255,19 @@ export function registerPressureRoutes(app: Express): void {
       const leaseExpiresInS = expiresAtMs != null ? (expiresAtMs - nowMs) / 1000 : null;
       const tickFresh = lastTickAgeS != null && lastTickAgeS < maxAgeSeconds;
 
-      // Cross-cutting deferred backlog snapshot (one cheap aggregate).
+      // Cross-cutting deferred backlog snapshot + rolling 5-minute drain
+      // activity from campaign_sends. drained_calls_5m and errors_5m are
+      // computed from real send activity (NOT the in-memory tick counter,
+      // which only reflects the most-recent tick) so the health endpoint
+      // matches the operator's mental model: "did the drain do real work
+      // in the last 5 min?". errors_5m approximates by counting failed
+      // sends in the same window — a high value means the drain is
+      // running but its sends are bouncing/erroring.
       const backlog = await pool.query<{
         deferred_pending: string;
         deferred_due: string;
         sends_5m: string;
+        failed_5m: string;
       }>(
         `SELECT
            (SELECT COUNT(*)::text FROM campaign_sends
@@ -267,11 +275,24 @@ export function registerPressureRoutes(app: Express): void {
            (SELECT COUNT(*)::text FROM campaign_sends
               WHERE status='pending' AND eligible_at IS NOT NULL AND eligible_at <= NOW()) AS deferred_due,
            (SELECT COUNT(*)::text FROM campaign_sends
-              WHERE status='sent' AND sent_at > NOW() - INTERVAL '5 min') AS sends_5m`,
+              WHERE status='sent' AND sent_at > NOW() - INTERVAL '5 min') AS sends_5m,
+           (SELECT COUNT(*)::text FROM campaign_sends
+              WHERE status='failed' AND sent_at > NOW() - INTERVAL '5 min') AS failed_5m`,
       );
       const b = backlog.rows[0];
+      const drainedCalls5m = Number(b?.sends_5m ?? 0);
+      const errors5m = Number(b?.failed_5m ?? 0);
 
-      const healthy = leaseAlive && tickFresh;
+      // Task #160 contract: error-rate guard. A drain that is firing
+      // ticks AND has a fresh lease but is producing >5 errors per 5 min
+      // is degraded — operators want healthy=false in that case so the
+      // alert page lights up before users notice.
+      const ERROR_RATE_THRESHOLD_5M = Math.max(
+        0,
+        parseInt(process.env.PRESSURE_DRAIN_HEALTH_ERROR_THRESHOLD || "5", 10) || 5,
+      );
+      const errorRateOk = errors5m < ERROR_RATE_THRESHOLD_5M;
+      const healthy = leaseAlive && tickFresh && errorRateOk;
       res.json({
         healthy,
         last_tick_age_s: lastTickAgeS,
@@ -283,12 +304,17 @@ export function registerPressureRoutes(app: Express): void {
         last_tick_eligible: row?.last_tick_eligible ?? 0,
         deferred_pending_total: Number(b?.deferred_pending ?? 0),
         deferred_due_total: Number(b?.deferred_due ?? 0),
-        sends_5m: Number(b?.sends_5m ?? 0),
+        sends_5m: drainedCalls5m,
+        // Task #160 contract: rolling-window fields.
+        drained_calls_5m: drainedCalls5m,
+        errors_5m: errors5m,
+        error_threshold_5m: ERROR_RATE_THRESHOLD_5M,
         max_age_seconds: maxAgeSeconds,
         reasons: {
           lease_alive: leaseAlive,
           tick_fresh: tickFresh,
           has_lease_row: !!row,
+          error_rate_ok: errorRateOk,
         },
       });
     } catch (err: any) {

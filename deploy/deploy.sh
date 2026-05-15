@@ -200,16 +200,13 @@ fi
 # ─── Step 7: PM2 reload ───────────────────────────────────────────────────────
 step "Reloading PM2 processes (zero-downtime)..."
 if pm2 list | grep -q "critsend-web"; then
-    # Task #160: `pm2 reload all --update-env` ensures the env_production
-    # block from ecosystem.config.cjs (notably DRAIN_PROCESS_DEDICATED and
-    # the new critsend-drainer process) is re-read on every deploy. The
-    # previous `pm2 reload deploy/ecosystem.config.cjs --env production`
-    # only restarts apps that already exist in the running daemon — a
-    # newly-defined app (critsend-drainer) is silently skipped, which is
-    # exactly the bug that lost the drain after a partial deploy.
-    pm2 reload deploy/ecosystem.config.cjs --env production --update-env
-    # Pick up newly-defined processes (the reload above only touches
-    # processes already in the daemon).
+    # Task #160: `pm2 reload all --update-env` ensures every existing
+    # process picks up freshly-defined env vars (notably
+    # DRAIN_PROCESS_DEDICATED). Followed by an explicit
+    # `pm2 start ... --only critsend-drainer` because `pm2 reload all`
+    # only touches processes the daemon already knows about — a
+    # brand-new app entry like critsend-drainer is silently skipped.
+    pm2 reload all --update-env
     pm2 start deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer 2>/dev/null || true
     pm2 save
     ok "PM2 processes reloaded"
@@ -231,8 +228,8 @@ fi
 step "Verifying PM2 processes started successfully..."
 sleep 10  # give each process time to emit its Starting line
 declare -A _expected=(
-    ["critsend-web"]="serving|listening|HTTP server"
-    ["critsend-worker"]="\\[WORKER\\] starting|startAllWorkers"
+    ["critsend-web"]="serving on port"
+    ["critsend-worker"]="\\[WORKER\\] Worker process starting"
     ["critsend-drainer"]="\\[DRAINER\\] Drainer process starting"
 )
 _verify_failed=0
