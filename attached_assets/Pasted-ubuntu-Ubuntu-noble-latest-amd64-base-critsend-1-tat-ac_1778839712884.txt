@@ -1,0 +1,102 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ # 1) État actuel du drainer (le plus important)
+pm2 logs critsend-drainer --lines 30 --nostream | grep -E "tick:|Bootstrap|bootstrap"
+# 2) Web fait-il le drain ou pas ?
+pm2 logs critsend-web --lines 200 --nostream | grep -E "DRAIN_PROCESS_DEDICATED|PRESSURE_GUARD_WORKER (Starting|tick:)" | tail -20
+# 3) Worker pareil
+pm2 logs critsend-worker --lines 200 --nostream | grep -E "DRAIN_PROCESS_DEDICATED|PRESSURE_GUARD_WORKER (Starting|tick:)" | tail -20
+2|critsend | 2026-05-15 11:49:01 +02:00: 2026-05-15T09:49:01.434Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=skipped, schema_verified=false, outcome=deferred — will retry every 15s
+2|critsend | 2026-05-15 11:52:42 +02:00: 2026-05-15T09:52:42.226Z [ERROR] [tracking_tokens] Table bootstrap failed: {"value":"Cannot use a pool after calling end on the pool"}
+2|critsend | 2026-05-15 11:54:38 +02:00: 2026-05-15T09:54:38.572Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=ran, schema_verified=false, outcome=deferred — will retry every 15s
+2|critsend | 2026-05-15 11:58:22 +02:00: 2026-05-15T09:58:22.005Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=skipped, schema_verified=false, outcome=deferred — will retry every 15s
+2|critsend | 2026-05-15 11:59:49 +02:00: 2026-05-15T09:59:49.949Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=skipped, schema_verified=false, outcome=deferred — will retry every 15s
+2|critsend | 2026-05-15 11:59:09 +02:00: 2026-05-15T09:59:09.062Z [INFO] [PRESSURE_GUARD] Another process is running bootstrap — skipping
+2|critsend | 2026-05-15 11:59:54 +02:00: 2026-05-15T09:59:54.985Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 11:59:59 +02:00: 2026-05-15T09:59:59.985Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:00:09 +02:00: 2026-05-15T10:00:09.985Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:00:19 +02:00: 2026-05-15T10:00:19.986Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:00:29 +02:00: 2026-05-15T10:00:29.985Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:00:39 +02:00: 2026-05-15T10:00:39.986Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:00:49 +02:00: 2026-05-15T10:00:49.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:00:59 +02:00: 2026-05-15T10:00:59.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:01:09 +02:00: 2026-05-15T10:01:09.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:01:19 +02:00: 2026-05-15T10:01:19.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:01:29 +02:00: 2026-05-15T10:01:29.986Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:01:39 +02:00: 2026-05-15T10:01:39.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:01:49 +02:00: 2026-05-15T10:01:49.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:01:59 +02:00: 2026-05-15T10:01:59.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:02:09 +02:00: 2026-05-15T10:02:09.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:02:19 +02:00: 2026-05-15T10:02:19.988Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:02:29 +02:00: 2026-05-15T10:02:29.987Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:02:39 +02:00: 2026-05-15T10:02:39.988Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:02:49 +02:00: 2026-05-15T10:02:49.988Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:02:59 +02:00: 2026-05-15T10:02:59.989Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+2|critsend | 2026-05-15 12:03:09 +02:00: 2026-05-15T10:03:09.989Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-15 11:56:21 +02:00: 2026-05-15T09:56:21.779Z [INFO] [WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)
+0|critsend | 2026-05-15 11:58:44 +02:00: 2026-05-15T09:58:44.158Z [INFO] [WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)
+1|critsend | 2026-05-15 12:02:59 +02:00: 2026-05-15T10:02:59.290Z [INFO] [WORKER] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ curl -s -H "Cookie: $(cat ~/.critsend_admin_cookie 2>/dev/null)" \
+  http://localhost:5000/api/admin/pressure-drain/health | jq
+Command 'jq' not found, but can be installed with:
+sudo apt install jq
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ # 1) Désactive le drain dédié → web et worker reprennent le drain embarqué
+#    (leur bootstrap a déjà flippé à 'ready', eux drainent normalement)
+cd /home/ubuntu/critsend
+pm2 set critsend-web:DRAIN_PROCESS_DEDICATED false
+pm2 set critsend-worker:DRAIN_PROCESS_DEDICATED false
+pm2 restart critsend-web critsend-worker --update-env
+
+# 2) Stoppe le drainer dédié pour pas qu'il ramasse le leader-lease 
+#    (il drainerait pas mais consommerait le slot de leader)
+pm2 stop critsend-drainer
+
+# 3) Vérifie que web reprend le drain (~10s)
+sleep 15
+pm2 logs critsend-web --lines 30 --nostream | grep -E "PRESSURE_GUARD_WORKER (Starting|tick:)" | tail -5
+
+# 4) Confirme que les sends repartent (1 min après)
+sleep 45
+psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM campaign_sends WHERE status='sent' AND sent_at > NOW() - INTERVAL '1 min';"
+
+# 5) Et la queue diff renvoie-t-elle <quelque chose> ?
+psql "$DATABASE_URL" -c "SELECT
+  (SELECT COUNT(*) FROM campaign_sends WHERE status='pending' AND eligible_at IS INTERVAL '5 min') AS sent_5m;"n_sends WHERE status='sent' AND sent_at > NOW() -
+[PM2] Module critsend-web restarted
+[PM2] Setting changed
+Module: critsend-web
+$ pm2 set critsend-web:PRESSURE_GUARD_MAX_CAMPAIGNS 20
+$ pm2 set critsend-web:PRESSURE_GUARD_BATCH 1000
+$ pm2 set critsend-web:PRESSURE_GUARD_POLL_MS 10000
+$ pm2 set critsend-web:PRESSURE_RATIO_THROTTLE_THRESHOLD 1.5
+$ pm2 set critsend-web:DRAIN_PROCESS_DEDICATED false
+[PM2] Module critsend-worker restarted
+[PM2] Setting changed
+Module: critsend-worker
+$ pm2 set critsend-worker:PRESSURE_GUARD_MAX_CAMPAIGNS 20
+$ pm2 set critsend-worker:PRESSURE_GUARD_BATCH 1000
+$ pm2 set critsend-worker:PRESSURE_GUARD_POLL_MS 10000
+$ pm2 set critsend-worker:PRESSURE_RATIO_THROTTLE_THRESHOLD 1.5
+$ pm2 set critsend-worker:DRAIN_PROCESS_DEDICATED false
+[PM2] Applying action restartProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] [critsend-web](0) ✓
+[PM2] Applying action restartProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 2  │ critsend-drainer   │ fork     │ 2    │ online    │ 0.5%     │ 73.8mb   │
+│ 0  │ critsend-web       │ fork     │ 3    │ online    │ 8.2%     │ 264.1mb  │
+│ 1  │ critsend-worker    │ fork     │ 3    │ online    │ 0%       │ 20.3mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[PM2] Applying action stopProcessId on app [critsend-drainer](ids: [ 2 ])
+[PM2] [critsend-drainer](2) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 2  │ critsend-drainer   │ fork     │ 2    │ stopped   │ 0%       │ 0b       │
+│ 0  │ critsend-web       │ fork     │ 3    │ online    │ 2.9%     │ 259.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 3    │ online    │ 3.2%     │ 90.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
