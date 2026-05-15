@@ -1,0 +1,53 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status && \
+  echo "=== BOOTSTRAP migration snowball ===" && \
+  pm2 logs --nostream --lines 500 critsend-web critsend-worker | grep -iE "bootstrap.*snowball|snowball.*bootstrap|alter table.*snowball" | head -5 && \
+  echo "=== LOCK_RECOVERY (T#152 self-heal) ===" && \
+  pm2 logs --nostream --lines 500 critsend-web critsend-worker | grep "LOCK_RECOVERY" | head -5 && \
+  echo "=== PRESSURE_GUARD_WORKER ticks ===" && \
+  pm2 logs --nostream --lines 500 critsend-worker | grep "PRESSURE_GUARD_WORKER" | tail -5 && \
+  echo "=== Snowball throttle config (T#154) ===" && \
+  pm2 logs --nostream --lines 500 critsend-worker | grep -iE "snowball.*threshold|snowball-throttle" | head -3 && \
+  echo "=== Erreurs récentes (post-reload) ===" && \
+  pm2 logs --nostream --lines 100 critsend-web critsend-worker --err | tail -20
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 58   │ online    │ 0%       │ 294.6mb  │
+│ 1  │ critsend-worker    │ fork     │ 61   │ online    │ 0%       │ 226.0mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+=== BOOTSTRAP migration snowball ===
+=== LOCK_RECOVERY (T#152 self-heal) ===
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.027Z [WARN] [LOCK_RECOVERY] (web-boot) terminate pid=19540 objid=900001 failed: terminating connection due to administrator command
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.028Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900002":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-15 08:28:07 +02:00: 2026-05-15T06:28:07.127Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 2 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900001":1,"900002":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.308Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 2 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900002":1,"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-15 08:32:02 +02:00: 2026-05-15T06:32:02.619Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+=== PRESSURE_GUARD_WORKER ticks ===
+1|critsend | 2026-05-15 09:32:56 +02:00: 2026-05-15T07:32:56.208Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-15 09:33:01 +02:00: 2026-05-15T07:33:01.209Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-15 09:33:11 +02:00: 2026-05-15T07:33:11.216Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-15 09:33:21 +02:00: 2026-05-15T07:33:21.206Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+1|critsend | 2026-05-15 09:33:31 +02:00: 2026-05-15T07:33:31.208Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+=== Snowball throttle config (T#154) ===
+=== Erreurs récentes (post-reload) ===
+0|critsend | 2026-05-15 09:32:21 +02:00: 2026-05-15T07:32:21.629Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900001":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-15 09:32:22 +02:00: 2026-05-15T07:32:22.400Z [WARN] [BOOTSTRAP_LOCK] Index campaign_stats_campaign_subscriber_type_idx exists but is INVALID — will be dropped and rebuilt
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.957Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.959Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.960Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.961Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.962Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.963Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.965Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.967Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.970Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.972Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.973Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.975Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:51 +02:00: 2026-05-15T07:32:51.976Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=4c6d144b-2f5a-4c31-a873-5f9f1fb883af
+0|critsend | 2026-05-15 09:32:53 +02:00: 2026-05-15T07:32:53.308Z [WARN] Invalid tracking signature for unsubscribe: campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=NGM2ZDE0NG, sig=d6c9146b...
+0|critsend | 2026-05-15 09:34:10 +02:00: 2026-05-15T07:34:10.977Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue","timeout":30000}
+0|critsend | 2026-05-15 09:34:21 +02:00: 2026-05-15T07:34:21.877Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: canceling statement due to statement timeout
+0|critsend | 2026-05-15 09:34:22 +02:00: 2026-05-15T07:34:22.552Z [ERROR] [TRACKING] Bootstrap migration FAILED (campaign_stats covering index): canceling statement due to statement timeout
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

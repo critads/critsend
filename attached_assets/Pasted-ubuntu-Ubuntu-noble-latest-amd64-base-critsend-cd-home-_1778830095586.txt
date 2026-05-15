@@ -1,0 +1,287 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && \
+  git --no-optional-locks status && \
+  echo "=== DIFF admin-pressure-queue.tsx ===" && \
+  git --no-optional-locks diff client/src/pages/admin-pressure-queue.tsx && \
+  echo "=== DIFF pressure.ts ===" && \
+  git --no-optional-locks diff server/routes/pressure.ts
+On branch main
+Your branch is behind 'origin/main' by 20 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   client/src/pages/admin-pressure-queue.tsx
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_0.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_1.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_10.png
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_11.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_12.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_2.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_3.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_4.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_5.jpg
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_6.png
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_7.png
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_8.png
+	modified:   images/33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_9.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_0.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_1.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_10.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_11.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_12.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_13.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_14.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_15.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_16.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_17.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_18.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_19.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_2.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_20.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_21.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_22.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_23.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_24.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_25.png
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_26.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_3.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_4.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_5.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_6.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_7.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_8.jpg
+	modified:   images/42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_9.jpg
+	modified:   server/routes/pressure.ts
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.env
+	19236
+	fix-index.js
+	images/000a78d7-7f20-4d48-b5d1-c446a9da38fd/
+	images/046e90b1-a67d-40de-8d8c-9768fe84b769/
+	images/072e6cc6-892d-4c81-982f-6b412e095891/
+	images/089f76b3-d05c-413d-b222-14f8f813994c/
+	images/0f5a2916-d65e-4f8d-836e-4b1536b119e5/
+	images/107c17fc-1377-4e81-b370-bf1f9ebc25ec/
+	images/10e8976c-7ab8-45a5-a14f-61fb566d2986/
+	images/13070ddb-9f95-4603-b68f-35c2df329e8b/
+	images/135c0667-b312-4c96-a63d-19452361b7a5/
+	images/14e55ac9-64c1-4aad-bc1a-2b3b7a71526b/
+	images/158f6959-34cb-4146-a58e-96bf1882a2cb/
+	images/1db9239e-283c-4838-b6d1-e4e34ce03cb2/
+	images/1eeb5433-2083-4f31-a81e-b6572f17846f/
+	images/1fe46691-29ed-4f67-9bfc-1fc0b9f3aa78/
+	images/1ff98d68-3d05-421c-875b-3909252d68b3/
+	images/20522604-f63a-41fc-b802-5ad43e27a72b/
+	images/2240691c-cc1e-4dad-82ec-b2b4fb587c0c/
+	images/287a4a2e-1680-43d4-b52f-9d9b67b2e27e/
+	images/28aa3d03-ba36-4f34-95f2-4e90eacb91b1/
+	images/2c5a32f1-5ad3-41e9-a931-2555dfb1f0db/
+	images/31465563-a76e-4ae5-a81d-bc03c7c331d7/
+	images/321c89ba-da91-4539-91da-30874b2a8f89/
+	images/324f2b5a-7010-4db8-80e2-a9e9c81a4103/
+	images/36d196a5-c737-4b2e-871e-3c17d602ab29/
+	images/3ad24065-5191-4259-8447-b0a8068f0120/
+	images/3b1c83c4-fc15-4f98-aa21-1bf799debd39/
+	images/3c278160-be19-4c71-bfdb-03c6b1c50525/
+	images/3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a/
+	images/3f41ba51-f679-4e7b-9d75-17609abd32c7/
+	images/41703b31-d956-4458-8969-3c6304356750/
+	images/450b72d9-7800-49b7-b3b0-025f8e828c86/
+	images/4525fb10-77fb-451b-9380-5a82304144f9/
+	images/4555c4de-e905-4d43-be84-8d1739f39d70/
+	images/4656498c-7f48-4733-9226-9ed77199808a/
+	images/486388ed-d011-49ee-a1fa-0ecb49a1592d/
+	images/49f53886-4b6b-402d-9082-fc83cc8328e3/
+	images/4c50e117-268a-4de1-be62-e0d522161c3a/
+	images/4c86da58-05d2-40ea-bfaa-7f42ec2473fa/
+	images/514f607a-bad5-43ac-9b5c-32a6b10f61f8/
+	images/5570d62a-0b19-44f8-be64-f8a9e2a78e38/
+	images/5d43a21a-6ac1-4638-b784-f6e80c865e7e/
+	images/5dc6e0dc-3975-4de1-9219-56608dfd9b1d/
+	images/5fbc7f62-f009-4cb7-a44d-f84b92f3d844/
+	images/61408098-73d9-41eb-a4d4-ccf47e4a4406/
+	images/618280c4-f077-447c-ac46-f6512f360010/
+	images/61cf4452-9b1e-4ef1-8333-7c365ebf2cad/
+	images/6559a206-fbf9-4b3b-bae0-cfc868c3d376/
+	images/67b3db54-e64c-4b7f-9d29-a97bae0457b8/
+	images/681e8c89-6664-49cd-a03f-00725079436a/
+	images/6cde83c0-5f8e-4762-9e2c-9984c17c0d4f/
+	images/6dc764cf-2d32-41b2-98de-8f4a0766db2d/
+	images/6ea25728-4d31-4b0f-8246-f910b3f018b5/
+	images/6f7fc2d0-078b-44d0-83e4-e329d41bff65/
+	images/711863c2-2a15-43ef-bf37-660901746a6b/
+	images/74c2af54-ad6f-48e5-8c24-bba4397e06d6/
+	images/76de8e58-bf65-4622-88cc-4fe6eacb35ae/
+	images/7cf061bc-1bb4-46c8-b5de-4434fd67462c/
+	images/80d6a574-9a13-41c3-ae3d-da7a8162d19c/
+	images/83fe76c7-9fcb-479c-8dbd-6fa92638f836/
+	images/8582be5f-ee44-4b2e-a4c0-5663640e4d97/
+	images/864a59c6-9c8a-409e-840b-2a595622329b/
+	images/899b3ac1-9506-420b-abac-96c33451161e/
+	images/90832b9b-dd38-48cb-9953-4f21fb2e123e/
+	images/917885f7-5018-4ca4-8169-f5e82cda26b7/
+	images/94bdbc7e-3aee-41a5-8629-d535a052e924/
+	images/95facb7d-6517-4754-9baf-721fcdea4090/
+	images/97e35efd-6bd3-4bbc-a4c0-af880f984003/
+	images/9a7d1b77-1585-46f3-a7fc-f7a9651fbb57/
+	images/9aafa320-c648-4aa2-8eda-49a12b8bc1c2/
+	images/9bc81864-4711-4d1e-84e4-ac505522b330/
+	images/a4256a18-30bc-4a3b-b723-0b97f267deb1/
+	images/a426fec3-e713-4059-a794-0d15fbe054d9/
+	images/a468d634-463f-4cc1-bc45-7e2ab03d93ae/
+	images/a6ed32bd-c690-44f5-afc1-c62c59426451/
+	images/a888d9ae-fd24-49e5-94a7-f6788cec8463/
+	images/ac5d7213-1987-4e6b-893e-68aa33125316/
+	images/b02a4896-8b7b-4a28-8ccc-0660ac7be883/
+	images/b2a713c8-31e1-4a5b-843a-ee4d8b79d9c7/
+	images/b475fc3c-b311-4baf-8203-5c3e1c05c73d/
+	images/b9d057d8-cbc9-4808-a0d1-6556281ff10a/
+	images/bc68cf95-c9a3-447e-a01b-fbde8f5e9dfb/
+	images/bdfd8517-56b2-45ff-932d-ae1ce3f44520/
+	images/bf9c95e3-8bde-4241-9cdf-1bf98da172b2/
+	images/c141a080-6674-466f-9ff2-f08155baea77/
+	images/c211240b-2858-4478-8462-e27ddf2cbc40/
+	images/c37463c2-589f-4572-916a-95a70489376b/
+	images/c38a82b5-1d61-4780-bb87-090cd53181d9/
+	images/c5c735a9-7082-476d-a4fe-78c28f10ec7c/
+	images/c65a9eca-a30a-4b82-a117-15e0c63e2353/
+	images/c6d49f70-904b-4a30-be6e-7cfa8af1b45f/
+	images/ca917de7-ad30-480b-9c3f-ee4dd2481380/
+	images/cc7d4d6a-98f9-4cb7-a6fa-97d41a8c4d00/
+	images/d2370890-0adb-4ea6-ab64-d53fdb9b02ed/
+	images/d2a52759-3503-4b86-878a-65a866db75c9/
+	images/d2f3f10d-c9c2-49d5-893a-d53a3ffc75e4/
+	images/d3a49e11-2a0e-41a8-bf4d-22c70788fd65/
+	images/d840fe6d-1251-4023-9ebb-bc505020a945/
+	images/db344119-a114-46bb-ad20-c7f36b9e2c93/
+	images/dcc31dd8-26da-4ab2-8457-8a0569b75a5b/
+	images/dd5760d9-7e6d-4dc9-bf25-8fff88e2c385/
+	images/ddb7f423-5c2c-4951-8aa8-335c1d656863/
+	images/dead6e5f-39b9-492b-b14b-3caae7a83927/
+	images/deb5632e-2757-45e5-bff9-b48ffd063ecd/
+	images/draft-0FSeoVsjQ8ie/
+	images/draft-0e4AUE1u1R5Y/
+	images/draft-0gBwHVE2hZxF/
+	images/draft-17C6aEqMjkfJ/
+	images/draft-2F9CzATjAklZ/
+	images/draft-2Gr15M6j3gwS/
+	images/draft-2Zs5Tqb2QsSk/
+	images/draft-2zIxcSt9g0IU/
+	images/draft-3yiDkywQAyqw/
+	images/draft-5cC1DFEOcjGT/
+	images/draft-63ZkIZY47BCX/
+	images/draft-6bbxQWHk9suu/
+	images/draft-6h4glvw36JlI/
+	images/draft-70HbjKim6ysr/
+	images/draft-7FTtwqkB6bJu/
+	images/draft-7G2WUVlOx8En/
+	images/draft-844PCArsrfpQ/
+	images/draft-86w5xMTxvYdV/
+	images/draft-8KiH5IBypaTy/
+	images/draft-9ZPIUCVfzjqw/
+	images/draft-AmTYLBrete6q/
+	images/draft-C37GypTBpAIk/
+	images/draft-DVVHkAyey5Fc/
+	images/draft-DlEkHXRztETc/
+	images/draft-E1U51BPUcBQi/
+	images/draft-GECTTjJKWf1j/
+	images/draft-GR6XciHzMHHD/
+	images/draft-GhchGnjfwSbV/
+	images/draft-GzgGInka2Prg/
+	images/draft-H2F1BTUsgUzj/
+	images/draft-JAxRd3aylbEC/
+	images/draft-L01T7AzIUr9N/
+	images/draft-MmKeABjwhvgn/
+	images/draft-NSpXcLcEJ7sm/
+	images/draft-P5qhQohhCuOX/
+	images/draft-Pe7eG9W5HUvz/
+	images/draft-R1RZG0BsSYMw/
+	images/draft-S7HcGWp2kjIH/
+	images/draft-T1zF4QGlvSnE/
+	images/draft-TeHq2oDgBaUg/
+	images/draft-VJYMNu3nndpU/
+	images/draft-VgmDItzSR5i0/
+	images/draft-XGnUaSdHHatS/
+	images/draft-YXO1vQiMuqqv/
+	images/draft-cu3SdZ4WxAOP/
+	images/draft-czakaa6pqsDi/
+	images/draft-glDBchnrvhGX/
+	images/draft-hegGN99A2m9n/
+	images/draft-ju6xdTMIPQSw/
+	images/draft-lSqaBzJNAHpI/
+	images/draft-mJSiRWJJgP7c/
+	images/draft-r2DpFYjtlARp/
+	images/draft-rG114BUS9mXE/
+	images/draft-rj68CQsWXusO/
+	images/draft-sw7oZQqncsi6/
+	images/draft-tQMnVfkqdzaG/
+	images/draft-v9188ACFDORq/
+	images/draft-vIfNu7XYWqnp/
+	images/draft-wLC2SB6NrO7B/
+	images/draft-xGet0TgDThsF/
+	images/draft-xstU0SPQp4yI/
+	images/e0b5c616-7b1e-4957-a19e-796a02a4906a/
+	images/e0fd4744-902a-463d-a533-2e5a2ca650ab/
+	images/e30c3b6b-1901-481b-9308-387f0473da48/
+	images/e6013303-105f-4d09-a13b-e248ee6f621a/
+	images/e734bf20-36a0-44da-acfd-09f1f1056bea/
+	images/ea6007ed-c9c2-4f7e-9cd2-383b7f63741d/
+	images/eace7970-562e-4e01-94e6-06515bef75de/
+	images/ec58581b-cc11-4115-b89d-7cd9a5b6c457/
+	images/ef060e20-7e6d-4952-844c-b52f5eaf2d6f/
+	images/f18ebbde-2b04-4d34-8a2a-6338902f9d21/
+	images/f2322e86-f63c-4f26-862f-87a1e92ed38c/
+	images/f23d810b-9872-498d-beb5-913505716228/
+	images/f47421b7-201b-4da7-8f0a-9bda6f916fdc/
+	images/f4815199-b5f5-42e1-b29a-3888af6eefcb/
+	images/f5e81037-ffc6-4917-a4e8-fa2062f0c98b/
+	images/f91d788f-acdf-4636-9322-1a85b7568511/
+	images/fdfa9d72-b20b-496b-b7ac-b229c2136769/
+	images/fee59e1b-32ff-49d4-ba40-9f8689a763c1/
+	images/ff81d0e6-9224-48af-a51b-b30abd096a39/
+	images/images/
+	uploads/imports/import-1777487273384-977724993.csv
+	uploads/imports/import-1777579099463-803280417.csv
+	uploads/imports/import-1777579894196-250549780.csv
+	uploads/imports/import-1777615015883-616598977.csv
+	uploads/imports/import-1777616993834-215880837.csv
+	uploads/imports/import-1777617460101-238141060.csv
+	uploads/imports/import-1777795818640-798523715.csv
+	uploads/imports/import-1777982146822-95900455.csv
+	uploads/imports/import-1778082407809-373825565.csv
+	uploads/imports/import-1778132836783-527412543.csv
+	uploads/imports/import-1778133098388-248468456.csv
+	uploads/imports/import-1778355663368-342282846.csv
+	uploads/imports/import-1778424997281-549667081.csv
+	uploads/imports/import-1778425364154-993505002.csv
+	uploads/imports/import-1778525186044-45182123.csv
+	uploads/imports/import-1778525939777-281762685.csv
+	uploads/imports/import-1778526134104-472290289.csv
+	uploads/imports/import-1778527628257-194903312.csv
+	uploads/imports/import-1778573001127-597337391.csv
+
+no changes added to commit (use "git add" and/or "git commit -a")
+=== DIFF admin-pressure-queue.tsx ===
+diff --git a/client/src/pages/admin-pressure-queue.tsx b/client/src/pages/admin-pressure-queue.tsx
+index 746abf9..91f3021 100644
+--- a/client/src/pages/admin-pressure-queue.tsx
++++ b/client/src/pages/admin-pressure-queue.tsx
+@@ -39,6 +39,7 @@ interface TopContactsResponse {
+ }
+ interface ThroughputResponse {
+   currentMailsPerMin: number;
++  sentLast1Min?: number;
+   sentLast5Min: number;
+   series: Array<{ minute: string; sent: number }>;
+   generatedAt: string;
+@@ -119,7 +120,7 @@ export default function AdminPressureQueue() {
+           <Stat label="Due now (drainable)" value={data?.totals?.due_now ?? "0"} testId="stat-total-due" />
+           <Stat label="Distinct contacts in cooldown" value={data?.totals?.distinct_contacts_in_cooldown ?? "0"} testId="stat-distinct-contacts" />
+           <Stat
+-            label="Purge throughput (mails/min, 5 min avg)"
++            label="Purge throughput (mails/min, last min)"
+             value={throughput ? throughput.currentMailsPerMin.toLocaleString() : "—"}
+:
