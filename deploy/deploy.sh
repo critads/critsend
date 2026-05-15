@@ -246,8 +246,16 @@ if pm2 list | grep -q "critsend-web"; then
     # Soft-reload everything else (still re-parses the ecosystem to pick
     # up changes to existing env values, e.g. tuning knobs).
     pm2 reload deploy/ecosystem.config.cjs --env production --update-env
-    # Catch any brand-new app entry the daemon didn't yet know about.
-    pm2 start deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer 2>/dev/null || true
+    # Catch a brand-new app entry the daemon doesn't yet know about
+    # (only relevant on the first deploy that introduces a new app).
+    # Without the existence check, this would issue a redundant restart
+    # on every deploy — constated 2026-05-15: drainer was SIGINT'd
+    # twice per deploy because `pm2 start --only` on an existing app
+    # triggers a restart instead of being a no-op.
+    if ! pm2 list | grep -q "critsend-drainer"; then
+        echo "[deploy]   critsend-drainer not yet in PM2 — starting it."
+        pm2 start deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer
+    fi
     pm2 save
     ok "PM2 processes reloaded"
 else
@@ -266,28 +274,47 @@ fi
 # emits at boot — its presence is proof the entrypoint executed past env
 # parsing, DB pool init, and the bootstrap call.
 step "Verifying PM2 processes started successfully..."
-sleep 10  # give each process time to emit its Starting line
-# Note: `pm2 reload` is a soft reload that re-uses the same process tree
-# without re-emitting the boot banner ("serving on port" / "[WORKER]
-# Worker process starting"). We therefore search the on-disk log files
-# (which retain history across reloads) instead of `pm2 logs --lines N`
-# which only shows the live tail. A boot line at any point in the
-# rotated log is sufficient proof the entrypoint executed at least once
-# since the last log rotation.
+sleep 15  # give every process time to finish a graceful restart + emit its Starting line
+# We search the on-disk log files directly (they retain history across
+# reloads/restarts) and retry up to 3 times with a small backoff to
+# absorb slow-booting processes (the drainer in particular runs the
+# pressure-guard bootstrap which can take up to ~2 min on a busy DB).
+# Patterns are matched as plain literals (fgrep) to avoid regex-escape
+# pitfalls.
 declare -A _expected=(
     ["critsend-web"]="serving on port"
-    ["critsend-worker"]="\\[WORKER\\] Worker process starting"
-    ["critsend-drainer"]="\\[DRAINER\\] Drainer process starting"
+    ["critsend-worker"]="[WORKER] Worker process starting"
+    ["critsend-drainer"]="[DRAINER] Drainer process starting"
+)
+declare -A _logfile=(
+    ["critsend-web"]="/var/log/critsend/web-out.log"
+    ["critsend-worker"]="/var/log/critsend/worker-out.log"
+    ["critsend-drainer"]="/var/log/critsend/drainer-out.log"
 )
 _verify_failed=0
 for proc in "${!_expected[@]}"; do
     pattern="${_expected[$proc]}"
-    if pm2 logs "$proc" --lines 200 --nostream --raw 2>/dev/null | grep -E -q "$pattern"; then
+    log="${_logfile[$proc]}"
+    found=0
+    # 3 attempts × 10 s = up to 30 s extra grace period for slow boots.
+    for _try in 1 2 3; do
+        if [[ -r "$log" ]] && grep -F -q "$pattern" "$log"; then
+            found=1
+            break
+        fi
+        # Fallback to pm2 logs (covers the case where logrotate moved the file).
+        if pm2 logs "$proc" --lines 500 --nostream --raw 2>/dev/null | grep -F -q "$pattern"; then
+            found=1
+            break
+        fi
+        sleep 10
+    done
+    if [[ "$found" == "1" ]]; then
         ok "$proc: boot line present"
     else
-        echo "[deploy] ⚠ $proc: boot line not found in recent logs (pattern: $pattern)"
+        echo "[deploy] ⚠ $proc: boot line '$pattern' not found in $log after 45 s"
         echo "[deploy]   Last 30 lines from $proc:"
-        pm2 logs "$proc" --lines 30 --nostream --raw 2>/dev/null | sed 's/^/[deploy]     /' || true
+        tail -n 30 "$log" 2>/dev/null | sed 's/^/[deploy]     /' || true
         _verify_failed=1
     fi
 done
