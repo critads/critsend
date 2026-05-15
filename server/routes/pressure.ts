@@ -438,7 +438,18 @@ export function registerPressureRoutes(app: Express): void {
         GROUP BY 1
         ORDER BY 1 ASC
       `);
-      // last-5min average is the headline KPI surfaced as the big stat.
+      // last-1min count is the headline KPI surfaced as the big stat.
+      // Rolling 60-second window so the card reflects "what's happening
+      // right now" — matches the rightmost bar of the chart instead of a
+      // smoothed 5-min average that hides recent spikes/drops.
+      const last1 = await db.execute(sql`
+        SELECT COUNT(*)::int AS sent_1min
+        FROM campaign_sends
+        WHERE status = 'sent'
+          AND sent_at >= NOW() - interval '1 minute'
+          AND sent_at IS NOT NULL
+      `);
+      const sent1 = Number((last1.rows[0] as any)?.sent_1min ?? 0);
       const last5 = await db.execute(sql`
         SELECT COUNT(*)::int AS sent_5min
         FROM campaign_sends
@@ -448,7 +459,8 @@ export function registerPressureRoutes(app: Express): void {
       `);
       const sent5 = Number((last5.rows[0] as any)?.sent_5min ?? 0);
       const payload = {
-        currentMailsPerMin: Math.round(sent5 / 5),
+        currentMailsPerMin: sent1,
+        sentLast1Min: sent1,
         sentLast5Min: sent5,
         series: series.rows.map((r: any) => ({
           minute: r.minute,

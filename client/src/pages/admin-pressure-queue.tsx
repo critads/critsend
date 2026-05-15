@@ -39,6 +39,7 @@ interface TopContactsResponse {
 }
 interface ThroughputResponse {
   currentMailsPerMin: number;
+  sentLast1Min?: number;
   sentLast5Min: number;
   series: Array<{ minute: string; sent: number }>;
   generatedAt: string;
@@ -119,7 +120,7 @@ export default function AdminPressureQueue() {
           <Stat label="Due now (drainable)" value={data?.totals?.due_now ?? "0"} testId="stat-total-due" />
           <Stat label="Distinct contacts in cooldown" value={data?.totals?.distinct_contacts_in_cooldown ?? "0"} testId="stat-distinct-contacts" />
           <Stat
-            label="Purge throughput (mails/min, 5 min avg)"
+            label="Purge throughput (mails/min, last min)"
             value={throughput ? throughput.currentMailsPerMin.toLocaleString() : "—"}
             testId="stat-purge-throughput"
             accent
