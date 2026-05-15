@@ -1,0 +1,603 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+
+cat > /tmp/pressure-headers-sent.patch << 'PATCHEOF'
+--- a/server/routes/pressure.ts
++++ b/server/routes/pressure.ts
+@@ -406,9 +406,11 @@ export function registerPressureRoutes(app: Express): void {
+         campaigns: summary.rows,
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:queue", payload, 30_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -454,9 +456,11 @@ export function registerPressureRoutes(app: Express): void {
+         })),
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:throughput", payload, 20_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/throughput failed: $pm2 status ecosystem.config.cjs --update-envs | head -60t apply /tmp/pressure-he
+=== Diff appliqué ===
+diff --git a/server/routes/pressure.ts b/server/routes/pressure.ts
+index 94d9f8a..2d5485a 100644
+--- a/server/routes/pressure.ts
++++ b/server/routes/pressure.ts
+@@ -406,9 +406,11 @@ export function registerPressureRoutes(app: Express): void {
+         campaigns: summary.rows,
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:queue", payload, 30_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -454,9 +456,11 @@ export function registerPressureRoutes(app: Express): void {
+         })),
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:throughput", payload, 20_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/throughput failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -491,9 +495,11 @@ export function registerPressureRoutes(app: Express): void {
+         defers: defers.rows,
+         flushes: flushes.rows,
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:curve", payload, 5 * 60_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/curve failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -517,9 +523,11 @@ export function registerPressureRoutes(app: Express): void {
+         ORDER BY deferred_rows DESC, next_eligible_at ASC
+         LIMIT 20
+       `);
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:top-contacts", { rows: rows.rows }, 30_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /top-contacts failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+building background worker...
+
+  dist/worker-main.cjs  1005.3kb
+
+⚡ Done in 76ms
+[PM2][ERROR] File ecosystem.config.cjs not found
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 52   │ online    │ 0%       │ 308.4mb  │
+│ 1  │ critsend-worker    │ fork     │ 55   │ online    │ 0%       │ 674.4mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+pm2 reload deploy/ecosystem.config.cjs --update-env
+sleep 3
+pm2 status
+pm2 logs critsend-web --nostream --lines 30
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 53   │ online    │ 0%       │ 253.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 56   │ online    │ 0%       │ 124.5mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.017Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.017Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.018Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.020Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:16:34 +02:00: 2026-05-15T06:16:34.420Z [WARN] Invalid tracking signature for unsubscribe: campaign=158f6959-34cb-4146-a58e-96bf1882a2cb, subscriber=4921432a-e772-45e0-a1e1-ea666fb191ba, sig=61252d45...
+0|critsend | 2026-05-15 08:17:38 +02:00: 2026-05-15T06:17:38.971Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-15 08:18:34 +02:00: 2026-05-15T06:18:34.336Z [WARN] Invalid tracking signature for unsubscribe: campaign=158f6959-34cb-4146-a58e-96bf1882a2cb, subscriber=379adf1e-3a0e-4f59-b2ba-f4555c9b536f, sig=be94dcbf...
+0|critsend | 2026-05-15 08:18:41 +02:00: 2026-05-15T06:18:41.152Z [WARN] Short unsubscribe token not found or invalid: g7kx8Q9W,
+0|critsend | 2026-05-15 08:19:27 +02:00: 2026-05-15T06:19:27.401Z [WARN] Short unsubscribe token not found or invalid: JkmRqN4h,
+0|critsend | 2026-05-15 08:20:13 +02:00: 2026-05-15T06:20:13.533Z [WARN] [503] source=load_shed method=GET path=/api/export route=/api/export rid=73733d30-d885-48ff-b61c-07e7bafa1f73 kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=1 sat=1.00 lease=0
+0|critsend | 2026-05-15 08:20:13 +02:00: 2026-05-15T06:20:13.534Z [WARN] [503] source=load_shed method=GET path=/api/segments/:id/count route=/api/segments rid=721c7f2e-9934-4287-a5c1-4262c855661f kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=3 sat=1.00 lease=0
+0|critsend | 2026-05-15 08:20:32 +02:00: 2026-05-15T06:20:32.550Z [WARN] Invalid tracking signature for unsubscribe: campaign=e0fd4744-902a-463d-a533-2e5a2ca650ab, subscriber=026662f6-b610-49bb-a2fd-abf0b25cd29c, sig=ec0cd741...
+0|critsend | 2026-05-15 08:20:33 +02:00: 2026-05-15T06:20:33.723Z [WARN] Short unsubscribe token not found or invalid: oRSx32nV,
+0|critsend | 2026-05-15 08:20:38 +02:00: 2026-05-15T06:20:38.941Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-15 08:20:40 +02:00: 2026-05-15T06:20:40.064Z [WARN] Invalid tracking signature for unsubscribe: campaign=90832b9b-dd38-48cb-9953-4f21fb2e123e, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=64389823...
+0|critsend | 2026-05-15 08:20:45 +02:00: 2026-05-15T06:20:45.699Z [WARN] Invalid tracking signature for unsubscribe: campaign=83fe76c7-9fcb-479c-8dbd-6fa92638f836, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=7a7ed26a...
+0|critsend | 2026-05-15 08:20:50 +02:00: 2026-05-15T06:20:50.943Z [WARN] Invalid tracking signature for unsubscribe: campaign=1db9239e-283c-4838-b6d1-e4e34ce03cb2, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=64420746...
+0|critsend | 2026-05-15 08:20:56 +02:00: 2026-05-15T06:20:56.013Z [WARN] Invalid tracking signature for unsubscribe: campaign=a6ed32bd-c690-44f5-afc1-c62c59426451, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=e05270ad...
+0|critsend | 2026-05-15 08:21:01 +02:00: 2026-05-15T06:21:01.757Z [WARN] Invalid tracking signature for unsubscribe: campaign=ff81d0e6-9224-48af-a51b-b30abd096a39, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=320710b9...
+0|critsend | 2026-05-15 08:21:38 +02:00: 2026-05-15T06:21:38.976Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-15 08:21:39 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+0|critsend | 2026-05-15 08:21:52 +02:00: 2026-05-15T06:21:52.239Z [WARN] Invalid tracking signature for unsubscribe: campaign=8582be5f-ee44-4b2e-a4c0-5663640e4d97, subscriber=637f40d4-6a61-49a3-9795-aecdf2a45bee, sig=ebf663d7...
+0|critsend | 2026-05-15 08:22:22 +02:00: 2026-05-15T06:22:22.239Z [WARN] Short unsubscribe token not found or invalid: hyPP5DZZ,
+0|critsend | 2026-05-15 08:22:24 +02:00: 2026-05-15T06:22:24.609Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.027Z [WARN] [LOCK_RECOVERY] (web-boot) terminate pid=19540 objid=900001 failed: terminating connection due to administrator command
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.028Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900002":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.070Z [WARN] [TRACKING QUERIES] Token cache warming failed (non-fatal): server conn crashed?
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.769Z [WARN] [BOOTSTRAP_LOCK] Index campaign_stats_campaign_subscriber_type_idx exists but is INVALID — will be dropped and rebuilt
+0|critsend | 2026-05-15 08:22:35 +02:00: 2026-05-15T06:22:35.021Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: canceling statement due to statement timeout
+0|critsend | 2026-05-15 08:22:35 +02:00: 2026-05-15T06:22:35.955Z [ERROR] [TRACKING] Bootstrap migration FAILED (campaign_stats covering index): canceling statement due to statement timeout
+
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.151Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.282Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.336Z [INFO] [TRIGRAM] campaign_subject_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.342Z [INFO] [INDEX] segment_name_lower_idx already exists — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.342Z [INFO] [TRIGRAM] campaign_name_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.342Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.343Z [INFO] [TRIGRAM] mta_hostname_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.343Z [INFO] [TRIGRAM] segment_name_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.344Z [INFO] [TRIGRAM] mta_name_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.344Z [INFO] [INDEX] campaigns_originals_created_at_idx already exists — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.361Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.707Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.735Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.741Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_campaign_type_idx — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.769Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.800Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_sent_at_idx — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.825Z [INFO] [TRACKING QUERIES] Link cache warmed: 1692 destinations loaded for active campaigns
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.830Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_import_date_idx — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.859Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_suppressed_partial_idx — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.889Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.918Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_campaign_first_open_idx — skipping
+0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.918Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+0|critsend | 2026-05-15 08:22:28 +02:00: 2026-05-15T06:22:28.339Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+0|critsend | 2026-05-15 08:22:28 +02:00: 2026-05-15T06:22:28.408Z [INFO] [PRESSURE_GUARD] Bootstrap ready (window=6h, lock=ran, schema_verified=true)
+0|critsend | 2026-05-15 08:22:30 +02:00: 2026-05-15T06:22:30.072Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-15 08:22:32 +02:00: 2026-05-15T06:22:32.422Z [INFO] Unsubscribe request: campaign=4c713d7b-ee8c-428c-b0aa-93f308af76c3, subscriber=7da500d7-4811-4fe6-abfb-2ec1774f5bcb
+0|critsend | 2026-05-15 08:22:35 +02:00: 2026-05-15T06:22:35.075Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-15 08:22:36 +02:00: 2026-05-15T06:22:36.991Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+0|critsend | 2026-05-15 08:22:42 +02:00: 2026-05-15T06:22:42.966Z [INFO] Unsubscribe request: campaign=c211240b-2858-4478-8462-e27ddf2cbc40, subscriber=d5415c84-d176-423d-817e-7ddfecfc9b87
+0|critsend | 2026-05-15 08:22:45 +02:00: 2026-05-15T06:22:45.071Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+
+cat > /tmp/throughput-last-min.patch << 'PATCHEOF'
+--- a/server/routes/pressure.ts
++++ b/server/routes/pressure.ts
+@@ -441,7 +441,17 @@ export function registerPressureRoutes(app: Express): void {
+         GROUP BY 1
+         ORDER BY 1 ASC
+       `);
+-      // last-5min average is the headline KPI surfaced as the big stat.
++      // last-1min count is the headline KPI surfaced as the big stat.
++      // Rolling 60-second window so the card reflects "what's happening
++      // right now" — matches the rightmost bar of the chart instead of a
++      // smoothed 5-min average that hides recent spikes/drops.
++      const last1 = await db.execute(sql`
++        SELECT COUNT(*)::int AS sent_1min
++        FROM campaign_sends
++        WHERE status = 'sent'
++          AND sent_at >= NOW() - interval '1 minute'
++          AND sent_at IS NOT NULL
++      `);
++      const sent1 = Number((last1.rows[0] as any)?.sent_1min ?? 0);
+       const last5 = await db.execute(sql`
+         SELECT COUNT(*)::int AS sent_5min
+         FROM campaign_sends
+@@ -451,7 +461,8 @@ export function registerPressureRoutes(app: Express): void {pm2 status deploy/ecosystem.config.cjs --update-enve rebuilt cette fois car on t
+error: corrupt patch at line 23
+=== Diff appliqué ===
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_0.jpg | Bin 7328 -> 7328 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_1.jpg | Bin 437413 -> 437413 bytes
+ .../img_10.png                                     | Bin 29987 -> 29987 bytes
+ .../img_11.jpg                                     | Bin 6380 -> 6380 bytes
+ .../img_12.jpg                                     | Bin 43 -> 43 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_2.jpg | Bin 73158 -> 73158 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_3.jpg | Bin 81863 -> 81863 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_4.jpg | Bin 65164 -> 65164 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_5.jpg | Bin 86146 -> 86146 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_6.png | Bin 1043 -> 1043 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_7.png | Bin 1497 -> 1497 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_8.png | Bin 1181 -> 1181 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_9.png | Bin 54411 -> 54411 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_0.png | Bin 12289 -> 12289 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_1.jpg | Bin 26573 -> 26573 bytes
+ .../img_10.jpg                                     | Bin 9212 -> 9212 bytes
+ .../img_11.jpg                                     | Bin 17035 -> 17035 bytes
+ .../img_12.jpg                                     | Bin 16341 -> 16341 bytes
+ .../img_13.jpg                                     | Bin 3673 -> 3673 bytes
+ .../img_14.jpg                                     | Bin 9523 -> 9523 bytes
+ .../img_15.jpg                                     | Bin 11066 -> 11066 bytes
+ .../img_16.png                                     | Bin 11063 -> 11063 bytes
+ .../img_17.png                                     | Bin 6767 -> 6767 bytes
+ .../img_18.png                                     | Bin 7696 -> 7696 bytes
+ .../img_19.png                                     | Bin 30543 -> 30543 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_2.jpg | Bin 35308 -> 35308 bytes
+ .../img_20.png                                     | Bin 3909 -> 3909 bytes
+ .../img_21.png                                     | Bin 2392 -> 2392 bytes
+ .../img_22.png                                     | Bin 3271 -> 3271 bytes
+ .../img_23.png                                     | Bin 2806 -> 2806 bytes
+ .../img_24.png                                     | Bin 3882 -> 3882 bytes
+ .../img_25.png                                     | Bin 3900 -> 3900 bytes
+ .../img_26.jpg                                     | Bin 43 -> 43 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_3.jpg | Bin 10658 -> 10658 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_4.jpg | Bin 8683 -> 8683 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_5.jpg | Bin 15528 -> 15528 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_6.jpg | Bin 12991 -> 12991 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_7.jpg | Bin 2911 -> 2911 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_8.jpg | Bin 12610 -> 12610 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_9.jpg | Bin 13409 -> 13409 bytes
+ server/routes/pressure.ts                          |   8 ++++++++
+ 41 files changed, 8 insertions(+)
+building import worker...
+
+  dist/import-worker.cjs  640.7kb
+
+⚡ Done in 64ms
+building background worker...
+
+  dist/worker-main.cjs  1005.3kb
+
+⚡ Done in 70ms
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+pm2 reload deploy/ecosystem.config.cjs --update-env
+sleep 3
+pm2 status
+pm2 logs critsend-web --nostream --lines 30
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 53   │ online    │ 0%       │ 253.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 56   │ online    │ 0%       │ 124.5mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.017Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.017Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.018Z [WARN] Inva[PM2] [critsend-web](0) ✓
+lid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.020Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+0|critsend | 2026-05-15 08:16:34 +02:00: 2026-05-15T06:16:34.420Z [WARN] Invalid tracking signature for unsubscribe: campaign=158f6959-34cb-4146-a58e-96bf1882a2cb, subscriber=4921432a-e772-45e0-a1e1-ea666fb191ba, sig=61252d45...
+0|critsend | 2026-05-15 08:17:38 +02:00: 2026-05-15T06:17:38.971Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-15 08:18:34 +02:00: 2026-05-15T06:18:34.336Z [WARN] Invalid tracking signature for unsubscribe: campaign=158f6959-34cb-4146-a58e-96bf1882a2cb, subscriber=379adf1e-3a0e-4f59-b2ba-f4555c9b536f, sig=be94dcbf...
+0|critsend | 2026-05-15 08:18:41 +02:00: 2026-05-15T06:18:41.152Z [WARN] Short unsubscribe token not found or invalid: g7kx8Q9W,
+0|critsend | 2026-05-15 08:19:27 +02:00: 2026-05-15T06:19:27.401Z [WARN] Short unsubscribe token not found or invalid: JkmRqN4h,
+0|critsend | 2026-05-15 08:20:13 +02:00: 2026-05-15T06:20:13.533Z [WARN] [503] source=load_shed method=GET path=/api/export route=/api/export rid=73733d30-d885-48ff-b61c-07e7bafa1f73 kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=1 sat=1.00 lease=0
+0|critsend | 2026-05-15 08:20:13 +02:00: 2026-05-15T06:20:13.534Z [WARN] [503] source=load_shed method=GET path=/api/segments/:id/count route=/api/segments rid=721c7f2e-9934-4287-a5c1-4262c855661f kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=3 sat=1.00 lease=0
+0|critsend | 2026-05-15 08:20:32 +02:00: 2026-05-15T06:20:32.550Z [WARN] Invalid tracking signature for unsubscribe: campaign=e0fd4744-902a-463d-a533-2e5a2ca650ab, subscriber=026662f6-b610-49bb-a2fd-abf0b25cd29c, sig=ec0cd741...
+0|critsend | 2026-05-15 08:20:33 +02:00: 20[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 54   │ online    │ 0%       │ 275.2mb  │
+│ 1  │ critsend-worker    │ fork     │ 57   │ online    │ 0%       │ 127.6mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+-bash: ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$: No such file or directory
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 reload deploy/ecosystem.config.cjs --update-env
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ sleep 3
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 55   │ online    │ 0%       │ 264.2mb  │
+│ 1  │ critsend-worker    │ fork     │ 58   │ online    │ 0%       │ 125.6mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --nostream --lines 30
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-05-15 08:24:33 +02:00: 2026-05-15T06:24:33.807Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=7df67499-8950-40fe-b1be-a87d66cd3db9
+0|critsend | 2026-05-15 08:24:33 +02:00: 2026-05-15T06:24:33.810Z [WARN] Invalid tracking signature for unsubscribe: campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=N2RmNjc0OT, sig=58146280...
+0|critsend | 2026-05-15 08:24:33 +02:00: 2026-05-15T06:24:33.812Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=7df67499-8950-40fe-b1be-a87d66cd3db9
+0|critsend | 2026-05-15 08:24:33 +02:00: 2026-05-15T06:24:33.813Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=7df67499-8950-40fe-b1be-a87d66cd3db9
+0|critsend | 2026-05-15 08:24:33 +02:00: 2026-05-15T06:24:33.813Z [WARN] Invalid tracking signature for click (lid): campaign=e6013303-105f-4d09-a13b-e248ee6f621a, subscriber=7df67499-8950-40fe-b1be-a87d66cd3db9
+0|critsend | 2026-05-15 08:25:33 +02:00: 2026-05-15T06:25:33.153Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue/top-contacts","timeout":30000}
+0|critsend | 2026-05-15 08:25:57 +02:00: 2026-05-15T06:25:57.206Z [WARN] [503] source=load_shed method=GET path=/api/admin/pressure-queue route=/api/admin rid=0a6561cf-3faa-4047-a81d-30d67319b1ff kind=saturation code=- pool active=27/30 idle=1 total=28 waiting=0 sat=0.90 lease=0
+0|critsend | 2026-05-15 08:26:33 +02:00: 2026-05-15T06:26:33.680Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue/top-contacts","timeout":30000}
+0|critsend | 2026-05-15 08:26:56 +02:00: 2026-05-15T06:26:56.285Z [WARN] Invalid tracking signature for unsubscribe: campaign=bdfabc8f-064a-4a68-be14-dea0f789988b, subscriber=69152df8-3f7c-46bb-967d-e291bb11e116, sig=617a8050...
+0|critsend | 2026-05-15 08:27:10 +02:00: 2026-05-15T06:27:10.127Z [WARN] Short unsubscribe token not found or invalid: Q4Wc3d2Y,
+0|critsend | 2026-05-15 08:28:00 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+0|critsend | 2026-05-15 08:28:03 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+0|critsend | 2026-05-15 08:28:05 +02:00: 2026-05-15T06:28:05.846Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(e0fd4744-902a-463d-a533-2e5a2ca650ab) failed: Cannot use a pool after calling end on the pool
+0|critsend | 2026-05-15 08:28:06 +02:00: 2026-05-15T06:28:06.658Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-15 08:28:07 +02:00: 2026-05-15T06:28:07.127Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 2 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900001":1,"900002":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-15 08:28:08 +02:00: 2026-05-15T06:28:08.962Z [WARN] [BOOTSTRAP_LOCK] Index campaign_stats_campaign_subscriber_type_idx exists but is INVALID — will be dropped and rebuilt
+0|critsend | 2026-05-15 08:28:17 +02:00: 2026-05-15T06:28:17.373Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: canceling statement due to statement timeout
+0|critsend | 2026-05-15 08:28:23 +02:00: 2026-05-15T06:28:23.804Z [ERROR] [PRESSURE_GUARD] DDL failed: canceling statement due to statement timeout
+0|critsend | 2026-05-15 08:28:24 +02:00: 2026-05-15T06:28:24.077Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=ran, schema_verified=true, outcome=deferred — will retry every 15s
+0|critsend | 2026-05-15 08:28:24 +02:00: 2026-05-15T06:28:24.253Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=95ad831a-5c5f-4a20-ad03-7e08b95fcfc8 kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=12 sat=1.00 lease=0
+0|critsend | 2026-05-15 08:28:39 +02:00: 2026-05-15T06:28:39.007Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaign_stats_campaign_subscriber_type_idx: canceling statement due to lock timeout
+0|critsend | 2026-05-15 08:28:39 +02:00: 2026-05-15T06:28:39.890Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.241Z [WARN] [BOOTSTRAP_LOCK] Index tracking_tokens_unique_idx exists but is INVALID — will be dropped and rebuilt
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.308Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 2 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900002":1,"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.557Z [WARN] [BOOTSTRAP_LOCK] Index campaign_stats_campaign_subscriber_type_idx exists but is INVALID — will be dropped and rebuilt
+0|critsend | 2026-05-15 08:28:50 +02:00: 2026-05-15T06:28:50.270Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for tracking_tokens_unique_idx: canceling statement due to statement timeout
+0|critsend | 2026-05-15 08:28:52 +02:00: 2026-05-15T06:28:52.372Z [ERROR] [PRESSURE_GUARD] DDL failed: canceling statement due to statement timeout
+0|critsend | 2026-05-15 08:28:52 +02:00: 2026-05-15T06:28:52.649Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=ran, schema_verified=true, outcome=deferred — will retry every 15s
+0|critsend | 2026-05-15 08:28:55 +02:00: 2026-05-15T06:28:55.551Z [WARN] Invalid tracking signature for unsubscribe: campaign=e0fd4744-902a-463d-a533-2e5a2ca650ab, subscriber=10b6bb7c-ebb6-4e01-921d-37853758ac51, sig=95271100...
+0|critsend | 2026-05-15 08:29:00 +02:00: 2026-05-15T06:29:00.299Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: canceling statement due to statement timeout
+
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.515Z [INFO] [TRACKING QUERIES] Link cache warmed: 1692 destinations loaded for active campaigns
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.528Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.558Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.614Z [INFO] [TRIGRAM] campaign_subject_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.619Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.622Z [INFO] [TRIGRAM] campaign_name_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.627Z [INFO] [TRIGRAM] mta_hostname_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.629Z [INFO] [INDEX] segment_name_lower_idx already exists — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.642Z [INFO] [TRIGRAM] mta_name_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.650Z [INFO] [INDEX] campaigns_originals_created_at_idx already exists — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.655Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.657Z [INFO] [TRIGRAM] segment_name_trgm_idx already exists — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.684Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.712Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_campaign_type_idx — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.741Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.772Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_sent_at_idx — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.802Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_import_date_idx — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.830Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_suppressed_partial_idx — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.859Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.888Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_campaign_first_open_idx — skipping
+0|critsend | 2026-05-15 08:28:40 +02:00: 2026-05-15T06:28:40.888Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+0|critsend | 2026-05-15 08:28:42 +02:00: 2026-05-15T06:28:42.226Z [INFO] [TRACKING QUERIES] Token cache warmed: 50000 tokens loaded for active campaigns
+0|critsend | 2026-05-15 08:28:42 +02:00: 2026-05-15T06:28:42.549Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+0|critsend | 2026-05-15 08:28:42 +02:00: 2026-05-15T06:28:42.672Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=4c713d7b-ee8c-428c-b0aa-93f308af76c3, subscriber=835e358c-6bf7-4f76-b08b-b5beaae3b359
+0|critsend | 2026-05-15 08:28:44 +02:00: 2026-05-15T06:28:44.311Z [INFO] Short unsubscribe: campaign=e0fd4744-902a-463d-a533-2e5a2ca650ab, subscriber=5b00cd87-2b3c-420b-9c0c-9a19ad24f6f4
+0|critsend | 2026-05-15 08:28:45 +02:00: 2026-05-15T06:28:45.354Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-15 08:28:50 +02:00: 2026-05-15T06:28:50.350Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-15 08:28:52 +02:00: 2026-05-15T06:28:52.582Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+0|critsend | 2026-05-15 08:29:00 +02:00: 2026-05-15T06:29:00.320Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+0|critsend | 2026-05-15 08:29:07 +02:00: 2026-05-15T06:29:07.766Z [INFO] [PRESSURE_GUARD] Bootstrap recovered to 'ready' via retry probe
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ [PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ [PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ [PM2] [critsend-web](0) ✓
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ [PM2] [critsend-worker](1) ✓
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ ┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ │ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+│: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ ├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ │ 0  │ critsend-web       │ fork     │ 53   │ online    │ 0%       │ 253.3mb  │
+│: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ │ 1  │ critsend-worker    │ fork     │ 56   │ online    │ 0%       │ 124.5mb  │
+│: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ └────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ [TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ /var/log/critsend/web-err.log last 30 lines:
+-bash: /var/log/critsend/web-err.log: Permission denied
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.017Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.017Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.018Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:15:53 +02:00: 2026-05-15T06:15:53.020Z [WARN] Invalid tracking signature for click (lid): campaign=b71f694c-77df-4ee3-969b-3bdc47da96f0, subscriber=697cefbc-7125-4349-9fa8-149c525ae939
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:16:34 +02:00: 2026-05-15T06:16:34.420Z [WARN] Invalid tracking signature for unsubscribe: campaign=158f6959-34cb-4146-a58e-96bf1882a2cb, subscriber=4921432a-e772-45e0-a1e1-ea666fb191ba, sig=61252d45...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:17:38 +02:00: 2026-05-15T06:17:38.971Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:18:34 +02:00: 2026-05-15T06:18:34.336Z [WARN] Invalid tracking signature for unsubscribe: campaign=158f6959-34cb-4146-a58e-96bf1882a2cb, subscriber=379adf1e-3a0e-4f59-b2ba-f4555c9b536f, sig=be94dcbf...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:18:41 +02:00: 2026-05-15T06:18:41.152Z [WARN] Short unsubscribe token not found or invalid: g7kx8Q9W,
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:19:27 +02:00: 2026-05-15T06:19:27.401Z [WARN] Short unsubscribe token not found or invalid: JkmRqN4h,
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:13 +02:00: 2026-05-15T06:20:13.533Z [WARN] [503] source=load_shed method=GET path=/api/export route=/api/export rid=73733d30-d885-48ff-b61c-07e7bafa1f73 kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=1 sat=1.00 lease=0
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:13 +02:00: 2026-05-15T06:20:13.534Z [WARN] [503] source=load_shed method=GET path=/api/segments/:id/count route=/api/segments rid=721c7f2e-9934-4287-a5c1-4262c855661f kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=3 sat=1.00 lease=0
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:32 +02:00: 2026-05-15T06:20:32.550Z [WARN] Invalid tracking signature for unsubscribe: campaign=e0fd4744-902a-463d-a533-2e5a2ca650ab, subscriber=026662f6-b610-49bb-a2fd-abf0b25cd29c, sig=ec0cd741...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:33 +02:00: 2026-05-15T06:20:33.723Z [WARN] Short unsubscribe token not found or invalid: oRSx32nV,
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:38 +02:00: 2026-05-15T06:20:38.941Z [WARN] [CAMPAIGN_GUARDIAN] Found 1 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:40 +02:00: 2026-05-15T06:20:40.064Z [WARN] Invalid tracking signature for unsubscribe: campaign=90832b9b-dd38-48cb-9953-4f21fb2e123e, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=64389823...
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:45 +02:00: 2026-05-15T06:20:45.699Z [WARN] Invalid tracking signature for unsubscribe: campaign=83fe76c7-9fcb-479c-8dbd-6fa92638f836, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=7a7ed26a...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:50 +02:00: 2026-05-15T06:20:50.943Z [WARN] Invalid tracking signature for unsubscribe: campaign=1db9239e-283c-4838-b6d1-e4e34ce03cb2, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=64420746...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:20:56 +02:00: 2026-05-15T06:20:56.013Z [WARN] Invalid tracking signature for unsubscribe: campaign=a6ed32bd-c690-44f5-afc1-c62c59426451, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=e05270ad...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:21:01 +02:00: 2026-05-15T06:21:01.757Z [WARN] Invalid tracking signature for unsubscribe: campaign=ff81d0e6-9224-48af-a51b-b30abd096a39, subscriber=948d7130-f6eb-430b-ab3a-5e06fbd1b0e4, sig=320710b9...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:21:38 +02:00: 2026-05-15T06:21:38.976Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:21:39 +02:00: Error: ENOENT: no such file or directory, stat '/home/ubuntu/critsend/dist/public/index.html'
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:21:52 +02:00: 2026-05-15T06:21:52.239Z [WARN] Invalid tracking signature for unsubscribe: campaign=8582be5f-ee44-4b2e-a4c0-5663640e4d97, subscriber=637f40d4-6a61-49a3-9795-aecdf2a45bee, sig=ebf663d7...
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:22 +02:00: 2026-05-15T06:22:22.239Z [WARN] Short unsubscribe token not found or invalid: hyPP5DZZ,
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:24 +02:00: 2026-05-15T06:22:24.609Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.027Z [WARN] [LOCK_RECOVERY] (web-boot) terminate pid=19540 objid=900001 failed: terminating connection due to administrator command
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.028Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=1, by_objid={"900002":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.070Z [WARN] [TRACKING QUERIES] Token cache warming failed (non-fatal): server conn crashed?
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.769Z [WARN] [BOOTSTRAP_LOCK] Index campaign_stats_campaign_subscriber_type_idx exists but is INVALID — will be dropped and rebuilt
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:35 +02:00: 2026-05-15T06:22:35.021Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: canceling statement due to statement timeout
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:35 +02:00: 2026-05-15T06:22:35.955Z [ERROR] [TRACKING] Bootstrap migration FAILED (campaign_stats covering index): canceling statement due to statement timeout
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ /var/log/critsend/web-out.log last 30 lines:
+-bash: /var/log/critsend/web-out.log: Permission denied
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.151Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.282Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.336Z [INFO] [TRIGRAM] campaign_subject_trgm_idx already exists — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.342Z [INFO] [INDEX] segment_name_lower_idx already exists — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.342Z [INFO] [TRIGRAM] campaign_name_trgm_idx already exists — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.342Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.343Z [INFO] [TRIGRAM] mta_hostname_trgm_idx already exists — skipping
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.343Z [INFO] [TRIGRAM] segment_name_trgm_idx already exists — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.344Z [INFO] [TRIGRAM] mta_name_trgm_idx already exists — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.344Z [INFO] [INDEX] campaigns_originals_created_at_idx already exists — skipping
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.361Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.707Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.735Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.741Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_campaign_type_idx — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.769Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.800Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_sent_at_idx — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.825Z [INFO] [TRACKING QUERIES] Link cache warmed: 1692 destinations loaded for active campaigns
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.830Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_import_date_idx — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.859Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_suppressed_partial_idx — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.889Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.918Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_campaign_first_open_idx — skipping
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:25 +02:00: 2026-05-15T06:22:25.918Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:28 +02:00: 2026-05-15T06:22:28.339Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:28 +02:00: 2026-05-15T06:22:28.408Z [INFO] [PRESSURE_GUARD] Bootstrap ready (window=6h, lock=ran, schema_verified=true)
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:30 +02:00: 2026-05-15T06:22:30.072Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:32 +02:00: 2026-05-15T06:22:32.422Z [INFO] Unsubscribe request: campaign=4c713d7b-ee8c-428c-b0aa-93f308af76c3, subscriber=7da500d7-4811-4fe6-abfb-2ec1774f5bcb
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:35 +02:00: 2026-05-15T06:22:35.075Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:36 +02:00: 2026-05-15T06:22:36.991Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+0: command not found
+critsend: command not found
+2026-05-15: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:42 +02:00: 2026-05-15T06:22:42.966Z [INFO] Unsubscribe request: campaign=c211240b-2858-4478-8462-e27ddf2cbc40, subscriber=d5415c84-d176-423d-817e-7ddfecfc9b87
+0: command not found
+2026-05-15: command not found
+critsend: command not found
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 0|critsend | 2026-05-15 08:22:45 +02:00: 2026-05-15T06:22:45.071Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+-bash: syntax error near unexpected token `('
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
+-bash: ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$: No such file or directory
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
