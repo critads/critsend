@@ -1,0 +1,41 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ # 1. Identifier le fichier qui contient la référence morteender.com" /etc/nginx/
+sudo grep -rln "server.critsender.com" /etc/nginx/
+# 2. Voir aussi quel fichier sert critsender.critads.com (le bon)
+# 2. Voir aussi quel fichier sert critsender.critads.com (le bon)
+sudo grep -rln "critsender.critads.com" /etc/nginx/
+# 3. Inspecter le fichier obsolète avant de le désactiver (remplace <fichier> pa# 3. Inspecter le fichier obsolète avant de le désactiver (remplace <fichier> par ce que tu as trouvé en (1))bled/<fichier-obsolete>
+sudo cat /etc/nginx/sites-enabled/<fichier-obsolete>
+# 4. Le désactiver (sites-enabled est une symlink vers sites-available, on enlèv# 4. Le désactiver (sites-enabled est une symlink vers sites-available, on enlève juste le lien)nx/sites-enabled/<fichier-obsolete>
+sudo rm /etc/nginx/sites-enabled/<fichier-obsolete>tc/nginx/conf.d/ ou /etc/ngin# ⚠️ Si grep -rln en (1) retourne un fichier dans /etc/nginx/conf.d/ ou /etc/nginx/nginx.conf, me prévenir, on commentera juste le server block.
+# NE PAS rm — me prévenir, on commentera juste le server block.
+# 5. Tester + redémarrer nginx
+# 5. Tester + redémarrer nginx
+sudo nginx -tl restart nginx
+sudo systemctl restart nginx--no-pager
+sudo systemctl status nginx --no-pager
+# 6. Vérifier que le site répond
+# 6. Vérifier que le site répondds.com/
+curl -I https://critsender.critads.com/
+/etc/nginx/sites-available/critsend
+-bash: syntax error near unexpected token `newline'
+-bash: syntax error near unexpected token `newline'
+2026/05/15 07:08:22 [emerg] 312803#312803: cannot load certificate "/etc/letsencrypt/live/server.critsender.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/server.critsender.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+nginx: configuration file /etc/nginx/nginx.conf test failed
+Job for nginx.service failed because the control process exited with error code.
+See "systemctl status nginx.service" and "journalctl -xeu nginx.service" for details.
+× nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: failed (Result: exit-code) since Fri 2026-05-15 07:08:22 CEST; 20ms ago
+   Duration: 2w 1d 19h 52min 41.830s
+       Docs: man:nginx(8)
+    Process: 312808 ExecStartPre=/usr/sbin/nginx -t -q -g daemon on; master_process on; (code=exited, status=1/FAILURE)
+        CPU: 6ms
+
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.ser…..
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base nginx[312808]: 2026/05/15 07:08:…
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base nginx[312808]: nginx: configur…ed
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Con…RE
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Fai…'.
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: Failed to start ng…r.
+Hint: Some lines were ellipsized, use -l to show in full.
+curl: (7) Failed to connect to critsender.critads.com port 443 after 85 ms: Couldn't connect to server
