@@ -1,0 +1,126 @@
+Last login: Fri May 15 08:41:43 on ttys000
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222
+ubuntu@37.27.117.222's password: 
+Welcome to Ubuntu 24.04.4 LTS (GNU/Linux 6.8.0-100-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Fri May 15 08:31:42 AM CEST 2026
+
+  System load:                    0.5
+  Usage of /home:                 0.1% of 1.50TB
+  Memory usage:                   3%
+  Swap usage:                     0%
+  Temperature:                    71.0 C
+  Processes:                      1098
+  Users logged in:                0
+  IPv4 address for enp193s0f0np0: 37.27.117.222
+  IPv6 address for enp193s0f0np0: 2a01:4f9:3070:28cb::2
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+9 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+Enable ESM Apps to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+
+*** System restart required ***
+Last login: Fri May 15 06:42:01 2026 from 102.209.96.7
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend
+
+cat > /tmp/throughput-last-min.patch << 'PATCHEOF'
+--- a/server/routes/pressure.ts
++++ b/server/routes/pressure.ts
+@@ -441,7 +441,17 @@ export function registerPressureRoutes(app: Express): void {
+         GROUP BY 1
+         ORDER BY 1 ASC
+       `);
+-      // last-5min average is the headline KPI surfaced as the big stat.
++      // last-1min count is the headline KPI surfaced as the big stat.
++      // Rolling 60-second window so the card reflects "what's happening
++      // right now" — matches the rightmost bar of the chart instead of a
++      // smoothed 5-min average that hides recent spikes/drops.
++      const last1 = await db.execute(sql`
++        SELECT COUNT(*)::int AS sent_1min
++        FROM campaign_sends
++        WHERE status = 'sent'
++          AND sent_at >= NOW() - interval '1 minute'
++          AND sent_at IS NOT NULL
++      `);
++      const sent1 = Number((last1.rows[0] as any)?.sent_1min ?? 0);
+       const last5 = await db.execute(sql`
+pm2 status deploy/ecosystem.config.cjs --update-env git apply /tmp/throughput-la
+error: corrupt patch at line 23
+=== Diff appliqué ===
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_0.jpg | Bin 7328 -> 7328 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_1.jpg | Bin 437413 -> 437413 bytes
+ .../img_10.png                                     | Bin 29987 -> 29987 bytes
+ .../img_11.jpg                                     | Bin 6380 -> 6380 bytes
+ .../img_12.jpg                                     | Bin 43 -> 43 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_2.jpg | Bin 73158 -> 73158 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_3.jpg | Bin 81863 -> 81863 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_4.jpg | Bin 65164 -> 65164 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_5.jpg | Bin 86146 -> 86146 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_6.png | Bin 1043 -> 1043 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_7.png | Bin 1497 -> 1497 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_8.png | Bin 1181 -> 1181 bytes
+ .../33bc0973-795b-41a3-b6a9-99d0ffac5c66/img_9.png | Bin 54411 -> 54411 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_0.png | Bin 12289 -> 12289 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_1.jpg | Bin 26573 -> 26573 bytes
+ .../img_10.jpg                                     | Bin 9212 -> 9212 bytes
+ .../img_11.jpg                                     | Bin 17035 -> 17035 bytes
+ .../img_12.jpg                                     | Bin 16341 -> 16341 bytes
+ .../img_13.jpg                                     | Bin 3673 -> 3673 bytes
+ .../img_14.jpg                                     | Bin 9523 -> 9523 bytes
+ .../img_15.jpg                                     | Bin 11066 -> 11066 bytes
+ .../img_16.png                                     | Bin 11063 -> 11063 bytes
+ .../img_17.png                                     | Bin 6767 -> 6767 bytes
+ .../img_18.png                                     | Bin 7696 -> 7696 bytes
+ .../img_19.png                                     | Bin 30543 -> 30543 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_2.jpg | Bin 35308 -> 35308 bytes
+ .../img_20.png                                     | Bin 3909 -> 3909 bytes
+ .../img_21.png                                     | Bin 2392 -> 2392 bytes
+ .../img_22.png                                     | Bin 3271 -> 3271 bytes
+ .../img_23.png                                     | Bin 2806 -> 2806 bytes
+ .../img_24.png                                     | Bin 3882 -> 3882 bytes
+ .../img_25.png                                     | Bin 3900 -> 3900 bytes
+ .../img_26.jpg                                     | Bin 43 -> 43 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_3.jpg | Bin 10658 -> 10658 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_4.jpg | Bin 8683 -> 8683 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_5.jpg | Bin 15528 -> 15528 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_6.jpg | Bin 12991 -> 12991 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_7.jpg | Bin 2911 -> 2911 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_8.jpg | Bin 12610 -> 12610 bytes
+ .../42bba684-93af-4c5a-8206-c2b1d62c8ae2/img_9.jpg | Bin 13409 -> 13409 bytes
+ server/routes/pressure.ts                          |   8 ++++++++
+ 41 files changed, 8 insertions(+)
+building import worker...
+
+  dist/import-worker.cjs  640.7kb
+
+⚡ Done in 62ms
+building background worker...
+
+  dist/worker-main.cjs  1005.3kb
+
+⚡ Done in 79ms
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 56   │ online    │ 0%       │ 271.3mb  │
+│ 1  │ critsend-worker    │ fork     │ 59   │ online    │ 0%       │ 126.3mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
