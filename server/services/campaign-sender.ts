@@ -231,10 +231,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     throw new Error(msg);
   }
 
-  // FIFO ordering by campaigns.started_at is enforced at three lower
-  // levels: (1) campaign_jobs.claimNextJob ORDER BY campaigns.started_at,
-  // (2) per-subscriber pg_advisory_xact_lock at CAS, (3) the
-  // `blocked_by_older` CTE inside pressureGuardReserveSendSlots. We
+  // FIFO ordering by campaigns.created_at (Task #153) is enforced at
+  // three lower levels: (1) campaign_jobs.claimNextJob ORDER BY
+  // campaigns.created_at, (2) per-subscriber pg_advisory_xact_lock at
+  // CAS, (3) the `blocked_by_older` CTE inside
+  // pressureGuardReserveSendSlots (also keyed on created_at). We
   // intentionally do NOT serialize all newer campaigns at the sender
   // entry point — campaigns are only contended on shared subscribers,
   // and per-subscriber serialization is sufficient. Global serialization
@@ -265,15 +266,17 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     return;
   }
 
-  // Task #152 NOTE: this rewrites campaigns.started_at on every (re)launch,
-  // including auto-resume after a PM2 restart. Multiple campaigns resumed
-  // in parallel will all get a started_at clustered in the same minute,
-  // which destroys the FIFO order for any consumer that ranks campaigns
-  // by started_at. The pressure-guard drain (server/workers/pressure-guard-
-  // worker.ts) therefore ORDER BYs campaigns.created_at instead — see the
-  // long comment around the eligibility query there. If you ever change
-  // ordering of any other consumer (campaign_jobs.claimNextJob, etc.),
-  // make the same trade-off explicitly.
+  // Task #152/#153 NOTE: this rewrites campaigns.started_at on every
+  // (re)launch, including auto-resume after a PM2 restart. Multiple
+  // campaigns resumed in parallel will all get a started_at clustered in
+  // the same minute, which would destroy the FIFO order for any consumer
+  // that ranks campaigns by started_at. As of Task #153, ALL FIFO
+  // consumers (pressure-guard drain in server/workers/pressure-guard-
+  // worker.ts, the main job claimer in server/repositories/job-repository.ts
+  // claimNextJob, and the `blocked_by_older` CTE in
+  // server/services/pressure-guard.ts) order by campaigns.created_at
+  // instead. If you add another FIFO consumer, key it on created_at too —
+  // never on started_at.
   await storage.updateCampaign(campaignId, {
     pendingCount: total,
     startedAt: new Date(),

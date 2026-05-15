@@ -380,6 +380,7 @@ export function registerPressureRoutes(app: Express): void {
           cs.campaign_id,
           c.name AS campaign_name,
           c.started_at,
+          c.created_at,
           c.deferred_count AS lifetime_defers,
           COUNT(*) AS pending_deferred,
           COUNT(*) FILTER (WHERE cs.eligible_at <= NOW()) AS due_now,
@@ -387,8 +388,8 @@ export function registerPressureRoutes(app: Express): void {
         FROM campaign_sends cs
         JOIN campaigns c ON c.id = cs.campaign_id
         WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
-        GROUP BY cs.campaign_id, c.name, c.started_at, c.deferred_count
-        ORDER BY c.started_at ASC NULLS FIRST
+        GROUP BY cs.campaign_id, c.name, c.started_at, c.created_at, c.deferred_count
+        ORDER BY c.created_at ASC NULLS FIRST
         LIMIT 500
       `);
 

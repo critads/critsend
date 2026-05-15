@@ -112,7 +112,7 @@ export default function AdminPressureQueue() {
         <CardHeader>
           <CardTitle data-testid="text-admin-queue-title">Pressure queue (all campaigns)</CardTitle>
           <CardDescription>
-            FIFO drain order: oldest started_at first. Window: {data?.windowHours ?? 6}h.
+            FIFO drain order: oldest created_at first. Window: {data?.windowHours ?? 6}h.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -76,12 +76,14 @@ export async function enqueueCampaignJobWithRetry(campaignId: string, retryCount
 }
 
 export async function claimNextJob(workerId: string): Promise<CampaignJob | null> {
-  // FIFO order is keyed on campaigns.started_at (Task #144 — Marketing
-  // Pressure Guard) so concurrent campaigns drain deterministically by
-  // the oldest started, not by job-row creation timestamp. Jobs whose
-  // campaign hasn't been started yet (started_at IS NULL — first run)
-  // sort last via NULLS LAST and tie-break on created_at to preserve the
-  // historical behavior for those edge cases.
+  // FIFO order is keyed on campaigns.created_at (Task #153). Originally
+  // (Task #144) we ordered by campaigns.started_at, but campaign-sender
+  // rewrites started_at on every (re)launch — including auto-resume after
+  // a PM2 restart that fires N campaigns in the same minute. That collapses
+  // the FIFO order into restart-order rather than launch-order. created_at
+  // is set once at row insert and never bumped, so it reliably reflects
+  // launch ancestry. We tie-break on cj.created_at to keep the historical
+  // ordering between multiple jobs of the same campaign.
   const result = await db.execute(sql`
     UPDATE campaign_jobs
     SET status = 'processing', started_at = NOW(), worker_id = ${workerId}
@@ -89,7 +91,7 @@ export async function claimNextJob(workerId: string): Promise<CampaignJob | null
       SELECT cj.id FROM campaign_jobs cj
       LEFT JOIN campaigns c ON c.id = cj.campaign_id
       WHERE cj.status = 'pending' AND (cj.next_retry_at IS NULL OR cj.next_retry_at <= NOW())
-      ORDER BY c.started_at ASC NULLS LAST, cj.created_at ASC
+      ORDER BY c.created_at ASC NULLS LAST, cj.created_at ASC
       FOR UPDATE OF cj SKIP LOCKED
       LIMIT 1
     )

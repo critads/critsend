@@ -382,7 +382,9 @@ export async function pressureGuardReserveSendSlots(
     //       executes the CAS at a time.
     //   (b) Inside the CAS, `blocked_by_older` filters subscribers that
     //       already have a pending/attempting row in any older campaign
-    //       (smaller `started_at`). Combined with the started-ordered
+    //       (smaller `created_at` — Task #153, see claimNextJob comment
+    //       in job-repository.ts for why started_at is unsafe across
+    //       restarts). Combined with the created_at-ordered
     //       `claimNextJob`, the older campaign always claims the slot
     //       first — newer senders see the existing row under the lock and
     //       get deferred.
@@ -401,7 +403,7 @@ export async function pressureGuardReserveSendSlots(
       `);
       return await tx.execute(sql`
         WITH input(id) AS (SELECT unnest(${chunkLiteral}::text[])),
-        my_started AS (SELECT started_at FROM campaigns WHERE id = ${campaignId}),
+        my_created AS (SELECT created_at FROM campaigns WHERE id = ${campaignId}),
         blocked_by_older AS (
           SELECT DISTINCT cs.subscriber_id
           FROM campaign_sends cs
@@ -409,8 +411,8 @@ export async function pressureGuardReserveSendSlots(
           WHERE cs.subscriber_id = ANY(${chunkLiteral}::text[])
             AND cs.campaign_id <> ${campaignId}
             AND cs.status IN ('pending','attempting')
-            AND c.started_at IS NOT NULL
-            AND c.started_at < (SELECT started_at FROM my_started)
+            AND c.created_at IS NOT NULL
+            AND c.created_at < (SELECT created_at FROM my_created)
         ),
         already_in_campaign AS (
           SELECT subscriber_id FROM campaign_sends
