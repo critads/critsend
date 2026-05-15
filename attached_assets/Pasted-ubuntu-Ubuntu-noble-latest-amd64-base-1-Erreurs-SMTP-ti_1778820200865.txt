@@ -1,0 +1,122 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # 1. Erreurs SMTP / timeouts récents (dernières 30 min)
+pm2 logs --nostream --lines 1000 | grep -iE "smtp|ECONN|ETIMEDOUT|EHOSTUN|421|450|451|550|connection|verify" | tail -40
+
+# 2. Activité du sender V3 dernières minutes  
+pm2 logs --nostream --lines 500 | grep -E "V3 engine|Batch.*sent|MTA verify|SMTP verification" | tail -30
+
+# 3. État pm2 (mémoire/restarts depuis tout à l'heure)
+pm2 list
+
+# 4. Erreurs critiques worker
+pm2 logs critsend-worker --nostream --err --lines 100 | tail -50
+1|critsend | 2026-05-15 06:35:13 +02:00: 2026-05-15T04:35:13.122Z [INFO] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:c7aa5f2f] SMTP verification OK
+1|critsend | 2026-05-15 06:35:18 +02:00: 2026-05-15T04:35:18.168Z [INFO] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:c7aa5f2f] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:35:54 +02:00: 2026-05-15T04:35:54.207Z [INFO] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:a28e5e85] Verifying SMTP connection to MTA 'Rndamailing'...
+1|critsend | 2026-05-15 06:35:54 +02:00: 2026-05-15T04:35:54.284Z [INFO] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:a28e5e85] SMTP verification OK
+1|critsend | 2026-05-15 06:36:27 +02:00: 2026-05-15T04:36:27.655Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:ff65f3bd] Holding 'sending' status: 39727 deferred send(s) still queued by pressure guard
+1|critsend | 2026-05-15 06:36:27 +02:00: 2026-05-15T04:36:27.725Z [INFO] [JOB_POLL] Job ff65f3bd-08de-4865-a896-49cba51d072f completed (campaign e1645451-43a4-4423-bf2b-188a269f15ba status: sending)
+1|critsend | 2026-05-15 06:36:27 +02:00: 2026-05-15T04:36:27.725Z [INFO] [JOB_POLL] Campaign e1645451-43a4-4423-bf2b-188a269f15ba finished (11/12 active)
+1|critsend | 2026-05-15 06:36:32 +02:00: 2026-05-15T04:36:32.627Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:feb64dac] Verifying SMTP connection to MTA 'Kammaspeed.com'...
+1|critsend | 2026-05-15 06:36:32 +02:00: 2026-05-15T04:36:32.720Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:feb64dac] SMTP verification OK
+1|critsend | 2026-05-15 06:36:37 +02:00: 2026-05-15T04:36:37.416Z [INFO] [RECOVERY] Re-enqueuing campaign e1645451-43a4-4423-bf2b-188a269f15ba (#2941 Jet Tours - LIST TRAVEL - verysent)
+1|critsend | 2026-05-15 06:36:41 +02:00: 2026-05-15T04:36:41.715Z [INFO] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:a28e5e85] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:36:43 +02:00: 2026-05-15T04:36:43.477Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:feb64dac] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:37:14 +02:00: 2026-05-15T04:37:14.421Z [INFO] Processed 6 tag operations in 6 bulk groups
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.788Z [INFO] [JOB_POLL] Worker worker-302333-1778776175684 started job 63a68f5a-034c-4c4f-82db-5546eb55de06 for campaign e1645451-43a4-4423-bf2b-188a269f15ba (12/12 active)
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.788Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] processCampaignInternal started
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.863Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Verifying SMTP connection to MTA 'Verysent'...
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.940Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] SMTP verification OK
+1|critsend | 2026-05-15 06:37:55 +02:00: 2026-05-15T04:37:55.608Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Segment '0d4b771a-ff36-448f-b7bc-c75e1c1e1d35' has 185232 subscribers
+1|critsend | 2026-05-15 06:37:55 +02:00: 2026-05-15T04:37:55.690Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:37:55 +02:00: 2026-05-15T04:37:55.790Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Pre-registered 7 click tracking link(s)
+1|critsend | 2026-05-15 06:38:39 +02:00: 2026-05-15T04:38:39.351Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 1: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:39:02 +02:00: 2026-05-15T04:39:02.731Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:34cd93e6] Verifying SMTP connection to MTA 'Rndaserver.com'...
+1|critsend | 2026-05-15 06:39:02 +02:00: 2026-05-15T04:39:02.808Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:34cd93e6] SMTP verification OK
+1|critsend | 2026-05-15 06:39:06 +02:00: 2026-05-15T04:39:06.042Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:34cd93e6] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:39:14 +02:00: 2026-05-15T04:39:14.781Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 2: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:39:43 +02:00: 2026-05-15T04:39:43.032Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 3: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:40:03 +02:00: 2026-05-15T04:40:03.275Z [INFO] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:4da80e87] Verifying SMTP connection to MTA 'Mayesale.com'...
+1|critsend | 2026-05-15 06:40:03 +02:00: 2026-05-15T04:40:03.352Z [INFO] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:4da80e87] SMTP verification OK
+1|critsend | 2026-05-15 06:40:10 +02:00: 2026-05-15T04:40:10.833Z [INFO] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:4da80e87] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:40:27 +02:00: 2026-05-15T04:40:27.623Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 4: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:40:58 +02:00: 2026-05-15T04:40:58.762Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 5: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:41:21 +02:00: 2026-05-15T04:41:21.950Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 6: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:41:41 +02:00: 2026-05-15T04:41:41.568Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 7: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:41:43 +02:00: 2026-05-15T04:41:43.017Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:960d76d9] Verifying SMTP connection to MTA 'Server2.mayasoldes.com'...
+1|critsend | 2026-05-15 06:41:43 +02:00: 2026-05-15T04:41:43.094Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:960d76d9] SMTP verification OK
+1|critsend | 2026-05-15 06:41:45 +02:00: 2026-05-15T04:41:45.450Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:960d76d9] Segment '9bd6638f-0ed4-422a-9e9e-fd7c2b60e8ef' has 169851 subscribers
+1|critsend | 2026-05-15 06:41:45 +02:00: 2026-05-15T04:41:45.506Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:960d76d9] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:42:02 +02:00: 2026-05-15T04:42:02.065Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 8: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:42:21 +02:00: 2026-05-15T04:42:21.380Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 9: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:42:38 +02:00: 2026-05-15T04:42:38.634Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Batch 10: All 10000 subscribers already processed, skipping
+1|critsend | 2026-05-15 06:34:22 +02:00: 2026-05-15T04:34:22.932Z [INFO] [CAMPAIGN 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a job:5575d3a2] SMTP verification OK
+1|critsend | 2026-05-15 06:34:25 +02:00: 2026-05-15T04:34:25.020Z [INFO] [CAMPAIGN 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a job:5575d3a2] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:35:13 +02:00: 2026-05-15T04:35:13.122Z [INFO] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:c7aa5f2f] SMTP verification OK
+1|critsend | 2026-05-15 06:35:18 +02:00: 2026-05-15T04:35:18.168Z [INFO] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:c7aa5f2f] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:35:54 +02:00: 2026-05-15T04:35:54.284Z [INFO] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:a28e5e85] SMTP verification OK
+1|critsend | 2026-05-15 06:36:32 +02:00: 2026-05-15T04:36:32.720Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:feb64dac] SMTP verification OK
+1|critsend | 2026-05-15 06:36:41 +02:00: 2026-05-15T04:36:41.715Z [INFO] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:a28e5e85] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:36:43 +02:00: 2026-05-15T04:36:43.477Z [INFO] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:feb64dac] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.940Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] SMTP verification OK
+1|critsend | 2026-05-15 06:37:55 +02:00: 2026-05-15T04:37:55.690Z [INFO] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:63a68f5a] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:39:02 +02:00: 2026-05-15T04:39:02.808Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:34cd93e6] SMTP verification OK
+1|critsend | 2026-05-15 06:39:06 +02:00: 2026-05-15T04:39:06.042Z [INFO] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:34cd93e6] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:40:03 +02:00: 2026-05-15T04:40:03.352Z [INFO] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:4da80e87] SMTP verification OK
+1|critsend | 2026-05-15 06:40:10 +02:00: 2026-05-15T04:40:10.833Z [INFO] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:4da80e87] Starting V3 engine - Speed: slow, Rate: 500/min, Concurrency: 5, Mode: smtp, BatchSize: 10000, FlushAt: 500
+1|critsend | 2026-05-15 06:41:43 +02:00: 2026-05-15T04:41:43.094Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:960d76d9] SMTP verification OK
+1|critsend | 2026-05-15 06:41:45 +02:00: 2026-05-15T04:41:45.506Z [INFO] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:960d76d9] Starting V3 engine - Speed: medium, Rate: 2000/min, Concurrency: 30, Mode: smtp, BatchSize: 10000, FlushAt: 500
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 50   │ online    │ 0%       │ 356.4mb  │
+│ 1  │ critsend-worker    │ fork     │ 53   │ online    │ 0%       │ 668.0mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+1|critsend | 2026-05-15 06:29:38 +02:00: 2026-05-15T04:29:38.544Z [WARN] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:63c7d64f] RECONCILIATION: 71515 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:29:38 +02:00: 2026-05-15T04:29:38.544Z [WARN] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:63c7d64f] RECONCILIATION: Campaign bdfabc8f-064a-4a68-be14-dea0f789988b completed with 853 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-05-15 06:30:01 +02:00: 2026-05-15T04:30:01.340Z [ERROR] [MAINTENANCE] Error processing rule for pending_tag_operations:
+1|critsend | 2026-05-15 06:30:01 +02:00: 2026-05-15T04:30:01.449Z [ERROR] [MAINTENANCE] Error processing rule for session:
+1|critsend | 2026-05-15 06:30:01 +02:00: 2026-05-15T04:30:01.520Z [ERROR] [MAINTENANCE] Error processing rule for tracking_tokens:
+1|critsend | 2026-05-15 06:30:30 +02:00: 2026-05-15T04:30:30.228Z [WARN] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:290f82da] RECONCILIATION: 5994 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:30:30 +02:00: 2026-05-15T04:30:30.228Z [WARN] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:290f82da] RECONCILIATION: Campaign b1e9230f-e973-4ef1-980c-04c64eed9602 completed with 185 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-05-15 06:34:15 +02:00: 2026-05-15T04:34:15.284Z [WARN] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:971bae1d] RECONCILIATION: 122623 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:34:15 +02:00: 2026-05-15T04:34:15.284Z [WARN] [CAMPAIGN f19f77d2-28e4-4faf-9635-63f0ed5d00eb job:971bae1d] RECONCILIATION: Campaign f19f77d2-28e4-4faf-9635-63f0ed5d00eb completed with 537 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-05-15 06:34:22 +02:00: 2026-05-15T04:34:22.485Z [WARN] [JOB_POLL] Skipped duplicate job d2ea3020-f78d-4601-b58e-d046010c5824 - campaign 8582be5f-ee44-4b2e-a4c0-5663640e4d97 already active
+1|critsend | 2026-05-15 06:34:22 +02:00: 2026-05-15T04:34:22.552Z [WARN] [JOB_POLL] Skipped duplicate job ad8b2fe4-91ad-42c6-8de0-a28176cae881 - campaign 6ccc2990-e4d2-41f0-9b66-de6595d53207 already active
+1|critsend | 2026-05-15 06:34:22 +02:00: 2026-05-15T04:34:22.622Z [WARN] [JOB_POLL] Skipped duplicate job ad1c490b-53f8-489f-b118-63f7c3146017 - campaign 8398c3ab-2ec2-40d1-8ec3-9190d455172e already active
+1|critsend | 2026-05-15 06:34:41 +02:00: 2026-05-15T04:34:41.837Z [WARN] [CAMPAIGN 158f6959-34cb-4146-a58e-96bf1882a2cb job:8992bd86] Batch 9: token generation failed, falling back to HMAC links: canceling statement due to statement timeout
+1|critsend | 2026-05-15 06:35:01 +02:00: 2026-05-15T04:35:01.603Z [WARN] [CAMPAIGN e6013303-105f-4d09-a13b-e248ee6f621a job:e421a35f] RECONCILIATION: 2635 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:35:17 +02:00: 2026-05-15T04:35:17.106Z [WARN] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:c7708069] RECONCILIATION: 27541 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:35:17 +02:00: 2026-05-15T04:35:17.106Z [WARN] [CAMPAIGN 73c3d3fb-a698-48d1-947f-3d39917a1a89 job:c7708069] RECONCILIATION: Campaign 73c3d3fb-a698-48d1-947f-3d39917a1a89 completed with 1353 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-05-15 06:35:48 +02:00: 2026-05-15T04:35:48.364Z [WARN] [CAMPAIGN e1645451-43a4-4423-bf2b-188a269f15ba job:ff65f3bd] Reconciliation check failed: canceling statement due to lock timeout
+1|critsend | 2026-05-15 06:35:53 +02:00: 2026-05-15T04:35:53.777Z [WARN] [CAMPAIGN 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a job:5575d3a2] pressureGuardReserve DB operation failed (attempt 1/3, kind=timeout, code=55P03), retrying in 1000ms: canceling statement due to lock timeout
+1|critsend | 2026-05-15 06:35:53 +02:00: 2026-05-15T04:35:53.778Z [WARN] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:b541486d] pressureGuardReserve DB operation failed (attempt 1/3, kind=timeout, code=55P03), retrying in 1000ms: canceling statement due to lock timeout
+1|critsend | 2026-05-15 06:35:53 +02:00: 2026-05-15T04:35:53.783Z [WARN] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:5b892b8c] pressureGuardReserve DB operation failed (attempt 1/3, kind=timeout, code=55P03), retrying in 1000ms: canceling statement due to lock timeout
+1|critsend | 2026-05-15 06:37:01 +02:00: 2026-05-15T04:37:01.568Z [ERROR] [COUNTER RECONCILER] tick failed: canceling statement due to statement timeout
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"jocelyne.carusotto@orange.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"valerie.thiesset@orange.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"s.ibos@free.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"sylvie_vicaire@orange.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"mezi.com@wanadoo.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"familledelest@wanadoo.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"emve@wanadoo.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"jean-yves.coutelard@wanadoo.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"pujol.patrick@orange.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:42 +02:00: 2026-05-15T04:37:42.235Z [WARN] Retrying email send {"email":"martinemoustacas@orange.fr","attempt":1,"maxRetries":3,"errorMessage":"Connection pool was closed"}
+1|critsend | 2026-05-15 06:37:44 +02:00: 2026-05-15T04:37:44.489Z [WARN] [CAMPAIGN c211240b-2858-4478-8462-e27ddf2cbc40 job:5b892b8c] RECONCILIATION: 68799 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.554Z [WARN] [JOB_POLL] Skipped duplicate job 83db23ea-9b75-4e17-85a3-08ac955023aa - campaign 8582be5f-ee44-4b2e-a4c0-5663640e4d97 already active
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.624Z [WARN] [JOB_POLL] Skipped duplicate job 467831ee-fdc3-432c-8e89-ea604ae1d299 - campaign 6ccc2990-e4d2-41f0-9b66-de6595d53207 already active
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.687Z [WARN] [JOB_POLL] Skipped duplicate job 82d98121-6fd4-4492-b11a-efa6e3f40ba7 - campaign 8398c3ab-2ec2-40d1-8ec3-9190d455172e already active
+1|critsend | 2026-05-15 06:37:52 +02:00: 2026-05-15T04:37:52.753Z [WARN] [JOB_POLL] Skipped duplicate job 0913dd05-3926-4f7d-9e4e-ee3f88702c8b - campaign 4c713d7b-ee8c-428c-b0aa-93f308af76c3 already active
+1|critsend | 2026-05-15 06:38:36 +02:00: 2026-05-15T04:38:36.508Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-15 06:38:57 +02:00: 2026-05-15T04:38:57.130Z [WARN] [CAMPAIGN 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a job:5575d3a2] RECONCILIATION: 4267 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:38:57 +02:00: 2026-05-15T04:38:57.130Z [WARN] [CAMPAIGN 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a job:5575d3a2] RECONCILIATION: Campaign 3dd1eeaa-0e0c-404d-bbfe-4f5938f3bd2a completed with 870 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-05-15 06:39:43 +02:00: 2026-05-15T04:39:43.003Z [WARN] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:b541486d] RECONCILIATION: 71515 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:39:43 +02:00: 2026-05-15T04:39:43.003Z [WARN] [CAMPAIGN bdfabc8f-064a-4a68-be14-dea0f789988b job:b541486d] RECONCILIATION: Campaign bdfabc8f-064a-4a68-be14-dea0f789988b completed with 853 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-05-15 06:40:23 +02:00: 2026-05-15T04:40:23.789Z [WARN] [CAMPAIGN e0fd4744-902a-463d-a533-2e5a2ca650ab job:c6af7dcb] Batch 7: token generation failed, falling back to HMAC links: canceling statement due to statement timeout
+1|critsend | 2026-05-15 06:41:08 +02:00: 2026-05-15T04:41:08.168Z [ERROR] [ANALYTICS_ROLLUP] Scheduled run failed {"error":"error: canceling statement due to statement timeout"}
+1|critsend | 2026-05-15 06:41:33 +02:00: 2026-05-15T04:41:33.217Z [WARN] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:a28e5e85] RECONCILIATION: 5994 sends still in pending/reserved status after completion
+1|critsend | 2026-05-15 06:41:33 +02:00: 2026-05-15T04:41:33.217Z [WARN] [CAMPAIGN b1e9230f-e973-4ef1-980c-04c64eed9602 job:a28e5e85] RECONCILIATION: Campaign b1e9230f-e973-4ef1-980c-04c64eed9602 completed with 185 sends stuck in 'attempting' state — possible crash during send. Manual review recommended.
+1|critsend | 2026-05-15 06:41:42 +02:00: 2026-05-15T04:41:42.668Z [WARN] [JOB_POLL] Skipped duplicate job 1fc7ba0b-7871-4281-91d8-b1905546509a - campaign 8582be5f-ee44-4b2e-a4c0-5663640e4d97 already active
+1|critsend | 2026-05-15 06:41:42 +02:00: 2026-05-15T04:41:42.771Z [WARN] [JOB_POLL] Skipped duplicate job eae084f2-fd2a-413e-814a-d072cdc9a1f8 - campaign 6ccc2990-e4d2-41f0-9b66-de6595d53207 already active
+1|critsend | 2026-05-15 06:41:42 +02:00: 2026-05-15T04:41:42.830Z [WARN] [JOB_POLL] Skipped duplicate job e7786b7e-8a1c-4c13-9af1-156bbe5faa95 - campaign 8398c3ab-2ec2-40d1-8ec3-9190d455172e already active
+1|critsend | 2026-05-15 06:41:42 +02:00: 2026-05-15T04:41:42.890Z [WARN] [JOB_POLL] Skipped duplicate job 11510cf1-881b-4dd3-bf50-74ea6a7930e2 - campaign 4c713d7b-ee8c-428c-b0aa-93f308af76c3 already active
