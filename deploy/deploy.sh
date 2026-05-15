@@ -200,13 +200,17 @@ fi
 # ─── Step 7: PM2 reload ───────────────────────────────────────────────────────
 step "Reloading PM2 processes (zero-downtime)..."
 if pm2 list | grep -q "critsend-web"; then
-    # Task #160: `pm2 reload all --update-env` ensures every existing
-    # process picks up freshly-defined env vars (notably
-    # DRAIN_PROCESS_DEDICATED). Followed by an explicit
-    # `pm2 start ... --only critsend-drainer` because `pm2 reload all`
-    # only touches processes the daemon already knows about — a
-    # brand-new app entry like critsend-drainer is silently skipped.
-    pm2 reload all --update-env
+    # Task #160: re-read env_production from ecosystem.config.cjs at
+    # reload time so newly-defined env vars (notably
+    # DRAIN_PROCESS_DEDICATED=true on web/worker) actually reach the
+    # processes. `pm2 reload all --update-env` ONLY re-applies the env
+    # that was saved in dump.pm2 at process-start time — it does NOT
+    # re-parse the ecosystem file, so any var added in this commit would
+    # be silently dropped. Passing the file path forces the re-parse.
+    pm2 reload deploy/ecosystem.config.cjs --env production --update-env
+    # `pm2 reload <ecosystem>` only touches apps the daemon already
+    # knows about — a brand-new app entry like critsend-drainer is
+    # silently skipped on its first deploy. Start it explicitly.
     pm2 start deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer 2>/dev/null || true
     pm2 save
     ok "PM2 processes reloaded"
@@ -227,6 +231,13 @@ fi
 # parsing, DB pool init, and the bootstrap call.
 step "Verifying PM2 processes started successfully..."
 sleep 10  # give each process time to emit its Starting line
+# Note: `pm2 reload` is a soft reload that re-uses the same process tree
+# without re-emitting the boot banner ("serving on port" / "[WORKER]
+# Worker process starting"). We therefore search the on-disk log files
+# (which retain history across reloads) instead of `pm2 logs --lines N`
+# which only shows the live tail. A boot line at any point in the
+# rotated log is sufficient proof the entrypoint executed at least once
+# since the last log rotation.
 declare -A _expected=(
     ["critsend-web"]="serving on port"
     ["critsend-worker"]="\\[WORKER\\] Worker process starting"
