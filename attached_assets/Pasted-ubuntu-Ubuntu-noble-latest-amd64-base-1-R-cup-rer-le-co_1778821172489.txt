@@ -1,0 +1,35 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # 1. Récupérer le code à jour
+cd /opt/critsend   # ou ton chemin de déploiement
+git pull --ff-only
+# 2. Build (TS → JS)
+npm run build
+# 3. Reload graceful PM2 (zero-downtime, pas de drop de trafic)
+pm2 reload deploy/ecosystem.config.cjs --update-env
+# 4. Vérifier que les 2 process sont en mode "online"
+pm2 list
+# 5. Vérifier que le drain redémarre proprement avec le nouveau code
+pm2 logs critsend-worker --lines 100 | grep -E "PRESSURE_GUARD_WORKER|LOCK_RECOVERY"
+# 6. Confirmer immédiatement que la query d'éligibilité passe (plus de timeout silencieux) :
+pm2 logs critsend-worker --lines 50 --nostream | grep "tick:"
+# Tu devrais voir : leader_acquired=Y, eligible_campaigns=N (>0), drained_calls=N, errors=0
+# Si errors>0 → la nouvelle ligne WARN te dira exactement pourquoi (timeout, etc.)
+-bash: cd: /opt/critsend: No such file or directory
+fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+npm error code ENOENT
+npm error syscall open
+npm error path /home/ubuntu/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/home/ubuntu/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /home/ubuntu/.npm/_logs/2026-05-15T04_59_11_770Z-debug-0.log
+[PM2][ERROR] File deploy/ecosystem.config.cjs not found
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 51   │ online    │ 0%       │ 262.0mb  │
+│ 1  │ critsend-worker    │ fork     │ 54   │ online    │ 0%       │ 1.2gb    │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+1|critsend | 2026-05-15 06:48:23 +02:00: 2026-05-15T04:48:23.968Z [WARN] [LOCK_RECOVERY] (worker-boot) terminated 2 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900003":1,"900013":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+1|critsend | 2026-05-15 06:49:34 +02:00: 2026-05-15T04:49:34.408Z [ERROR] [PRESSURE_GUARD_WORKER] poll inner error: canceling statement due to lock timeout
