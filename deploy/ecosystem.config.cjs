@@ -87,6 +87,17 @@ module.exports = {
         // the theoretical ceiling is ~80 simultaneous SMTP sends → ~24k/min
         // cluster-wide, sufficient to drain the 800k+ deferred backlog in <1h.
         PRESSURE_GUARD_SMTP_CONCURRENCY: dotenvVars.PRESSURE_GUARD_SMTP_CONCURRENCY || "20",
+        // Task #154: snowball auto-throttle. When a campaign's ratio of
+        // currently-deferred / (deferred + sent + failed) exceeds the
+        // threshold AND deferred is above the floor, the sender sleeps
+        // briefly so the pressure-guard drain can catch up before more
+        // contacts are reserved. Defaults match the task contract
+        // (threshold 0.5). Set PRESSURE_RATIO_THROTTLE_DISABLED=true to
+        // bypass entirely (operator escape hatch).
+        PRESSURE_RATIO_THROTTLE_THRESHOLD: dotenvVars.PRESSURE_RATIO_THROTTLE_THRESHOLD || "0.5",
+        PRESSURE_RATIO_THROTTLE_MIN_DEFERRED: dotenvVars.PRESSURE_RATIO_THROTTLE_MIN_DEFERRED || "1000",
+        PRESSURE_RATIO_THROTTLE_SLEEP_MS: dotenvVars.PRESSURE_RATIO_THROTTLE_SLEEP_MS || "30000",
+        PRESSURE_RATIO_THROTTLE_DISABLED: dotenvVars.PRESSURE_RATIO_THROTTLE_DISABLED || "false",
       },
 
       max_restarts: 10,
@@ -129,6 +140,12 @@ module.exports = {
         PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
         // Task #154: SMTP fan-out concurrency — same value MUST match web side.
         PRESSURE_GUARD_SMTP_CONCURRENCY: dotenvVars.PRESSURE_GUARD_SMTP_CONCURRENCY || "20",
+        // Task #154: snowball auto-throttle (same as web side; the
+        // sender runs in whichever process owns the campaign job).
+        PRESSURE_RATIO_THROTTLE_THRESHOLD: dotenvVars.PRESSURE_RATIO_THROTTLE_THRESHOLD || "0.5",
+        PRESSURE_RATIO_THROTTLE_MIN_DEFERRED: dotenvVars.PRESSURE_RATIO_THROTTLE_MIN_DEFERRED || "1000",
+        PRESSURE_RATIO_THROTTLE_SLEEP_MS: dotenvVars.PRESSURE_RATIO_THROTTLE_SLEEP_MS || "30000",
+        PRESSURE_RATIO_THROTTLE_DISABLED: dotenvVars.PRESSURE_RATIO_THROTTLE_DISABLED || "false",
       },
 
       max_restarts: 50,

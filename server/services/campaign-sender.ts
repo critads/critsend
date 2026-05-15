@@ -9,7 +9,14 @@ import {
   preregisterCampaignLinks,
 } from "../email-service";
 import { logger } from "../logger";
-import { campaignReconciliationDiscrepancy, finalizeBatchRetryTotal, finalizeFallbackTotal, finalizeFallbackRowsTotal } from "../metrics";
+import {
+  campaignReconciliationDiscrepancy,
+  finalizeBatchRetryTotal,
+  finalizeFallbackTotal,
+  finalizeFallbackRowsTotal,
+  pressureGuardSenderDeferredRatio,
+  pressureGuardSenderThrottledTotal,
+} from "../metrics";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 import { jobEvents } from "../job-events";
 import { messageQueue } from "../message-queue";
@@ -19,6 +26,52 @@ import { sql } from "drizzle-orm";
 
 const MAX_AUTO_RETRIES = 3;
 const SENDER_MAX_ATTEMPTS = 3;
+
+// ── Snowball Auto-Throttle (Task #154) ────────────────────────────────
+// When 10+ campaigns target overlapping audiences, the main sender keeps
+// reserving fresh contacts that are immediately deferred behind their own
+// 6h pressure window — faster than the drain worker can evacuate them.
+// Constated 2026-05-15: 951k deferred sends, drain at 0/min, 99.6% blocked
+// by their own freshly-bumped last_sent_at because the main sender kept
+// stamping new windows on the same shared contacts in parallel.
+//
+// Mitigation: per-campaign auto-throttle. Before each fetch of a new
+// audience batch, we compute the ratio
+//     deferred_now / (deferred_now + sent + failed)
+// using the per-campaign partial index `campaign_sends_pressure_campaign_eligible_idx`
+// and the cached `campaigns.{sent_count,failed_count}` counters (no full
+// scan). When the ratio exceeds PRESSURE_RATIO_THROTTLE_THRESHOLD AND the
+// absolute deferred count exceeds PRESSURE_RATIO_THROTTLE_MIN_DEFERRED,
+// the sender sleeps PRESSURE_RATIO_THROTTLE_SLEEP_MS, bumps the
+// `pressureGuardSenderThrottledTotal` counter, and `continue`s the loop
+// (which re-checks campaign status / heartbeat / shouldStop). The drain
+// keeps working in the background; once the ratio recovers below the
+// threshold, the sender resumes naturally.
+//
+// Disable by setting PRESSURE_RATIO_THROTTLE_DISABLED=true (operator
+// override for incident debugging or workloads where overlap is impossible).
+function envBoolDisabled(name: string): boolean {
+  const raw = (process.env[name] || "").toLowerCase().trim();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+function envFloat(name: string, defaultValue: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultValue;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < min || v > max) return defaultValue;
+  return v;
+}
+function envIntBounded(name: string, defaultValue: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultValue;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < min || v > max) return defaultValue;
+  return Math.floor(v);
+}
+const SNOWBALL_THROTTLE_DISABLED = envBoolDisabled("PRESSURE_RATIO_THROTTLE_DISABLED");
+const SNOWBALL_THROTTLE_THRESHOLD = envFloat("PRESSURE_RATIO_THROTTLE_THRESHOLD", 0.5, 0.01, 0.99);
+const SNOWBALL_THROTTLE_MIN_DEFERRED = envIntBounded("PRESSURE_RATIO_THROTTLE_MIN_DEFERRED", 1000, 1, 10_000_000);
+const SNOWBALL_THROTTLE_SLEEP_MS = envIntBounded("PRESSURE_RATIO_THROTTLE_SLEEP_MS", 30_000, 1_000, 10 * 60_000);
 
 async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxAttempts = SENDER_MAX_ATTEMPTS): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -478,6 +531,54 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     while (!shouldStop) {
       await checkStatusAndHeartbeat();
       if (shouldStop) break;
+
+      // Snowball auto-throttle (Task #154): if this campaign's currently-
+      // deferred backlog dominates its already-processed work, pause
+      // briefly to let the drain catch up before reserving more contacts
+      // (which would just deepen the same backlog).
+      if (!SNOWBALL_THROTTLE_DISABLED) {
+        try {
+          const ratioRow = await retryDbOp(
+            () => db.execute(sql`
+              SELECT
+                (SELECT COUNT(*)::bigint
+                   FROM campaign_sends
+                   WHERE campaign_id = ${campaignId}
+                     AND status = 'pending'
+                     AND eligible_at IS NOT NULL) AS deferred,
+                (SELECT COALESCE(sent_count, 0) + COALESCE(failed_count, 0)
+                   FROM campaigns WHERE id = ${campaignId}) AS processed
+            `),
+            `${logPrefix} snowballRatioCheck`,
+          );
+          const row = ratioRow.rows[0] as { deferred?: string | number; processed?: string | number } | undefined;
+          const deferredNow = Number(row?.deferred ?? 0);
+          const processedNow = Number(row?.processed ?? 0);
+          const denom = deferredNow + processedNow;
+          const ratio = denom > 0 ? deferredNow / denom : 0;
+          pressureGuardSenderDeferredRatio.set({ campaign_id: campaignId }, ratio);
+
+          if (deferredNow >= SNOWBALL_THROTTLE_MIN_DEFERRED && ratio > SNOWBALL_THROTTLE_THRESHOLD) {
+            pressureGuardSenderThrottledTotal.inc({ campaign_id: campaignId });
+            logger.warn(
+              `${logPrefix} Snowball auto-throttle engaged: deferred=${deferredNow}, processed=${processedNow}, ratio=${ratio.toFixed(3)} > ${SNOWBALL_THROTTLE_THRESHOLD} — sleeping ${SNOWBALL_THROTTLE_SLEEP_MS}ms to let pressure-guard drain catch up`,
+            );
+            const sleepUntil = Date.now() + SNOWBALL_THROTTLE_SLEEP_MS;
+            while (Date.now() < sleepUntil && !shouldStop) {
+              const wait = Math.min(5_000, sleepUntil - Date.now());
+              await new Promise(r => setTimeout(r, wait));
+              await checkStatusAndHeartbeat();
+            }
+            continue;
+          }
+        } catch (err: any) {
+          // Non-fatal: if we can't compute the ratio, fall through and let
+          // the regular send loop proceed. The drain worker is still
+          // running independently, so the worst case is we don't throttle
+          // this iteration.
+          logger.warn(`${logPrefix} Snowball ratio check failed (non-fatal, proceeding): ${err?.message || err}`);
+        }
+      }
 
       if (consecutiveSmtpFailures >= MAX_CONSECUTIVE_FAILURES && mta) {
         logger.error(`${logPrefix} ${consecutiveSmtpFailures} consecutive SMTP failures - pausing`);

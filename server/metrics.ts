@@ -119,6 +119,27 @@ export const pressureGuardDeferredIndexSizeBytes = new client.Gauge({
   registers: [register],
 });
 
+// ── Snowball Auto-Throttle (Task #154) ────────────────────────────────
+// When too many campaigns target overlapping audiences, the main sender
+// keeps reserving fresh sends that get deferred behind the 6h pressure
+// window faster than the drain worker can evacuate them. The auto-throttle
+// in server/services/campaign-sender.ts pauses a campaign's sender loop
+// when its `currently-deferred / processed` ratio crosses a threshold,
+// letting the drain catch up before the backlog grows further.
+export const pressureGuardSenderDeferredRatio = new client.Gauge({
+  name: 'critsend_pressure_sender_deferred_ratio',
+  help: 'Per-campaign ratio currently-deferred / (currently-deferred + sent + failed); throttle triggers when above PRESSURE_RATIO_THROTTLE_THRESHOLD',
+  labelNames: ['campaign_id'] as const,
+  registers: [register],
+});
+
+export const pressureGuardSenderThrottledTotal = new client.Counter({
+  name: 'critsend_pressure_sender_throttled_total',
+  help: 'Total number of times the sender auto-throttled a campaign because deferred/processed ratio exceeded the snowball threshold',
+  labelNames: ['campaign_id'] as const,
+  registers: [register],
+});
+
 export const httpRequestsTotal = new client.Counter({
   name: 'critsend_http_requests_total',
   help: 'Total HTTP requests',
