@@ -342,17 +342,60 @@ async function pollDeferredQueueInner() {
     // and the eligible_at <= NOW() bound seeks into the leading sorted
     // edge of that index. The JOIN with campaigns is cheap (390 rows
     // total) and ordered by started_at via the planner.
-    const campaignsRes = await db.execute(sql`
-      SELECT DISTINCT cs.campaign_id, c.started_at
-      FROM campaign_sends cs
-      JOIN campaigns c ON c.id = cs.campaign_id
-      WHERE cs.status = 'pending'
-        AND cs.eligible_at IS NOT NULL
-        AND cs.eligible_at <= NOW()
-        AND c.status = 'sending'
-      ORDER BY c.started_at ASC NULLS FIRST
-      LIMIT ${MAX_CAMPAIGNS_PER_TICK}
-    `);
+    //
+    // Task #155: include 'paused' campaigns. A paused campaign retains
+    // its already-deferred rows in campaign_sends — the user wants
+    // those to keep draining naturally so pausing doesn't trap thousands
+    // of contacts in cooldown indefinitely. Pause stops NEW sends only;
+    // the existing pressure-guard backlog continues. Excluded statuses
+    // are 'completed', 'cancelled', 'draft', 'failed' — those should
+    // never have a draining queue.
+    //
+    // Task #155: explicit per-statement timeout + per-tick error capture.
+    // The previous implementation ran with whatever the connection's
+    // default statement_timeout was (60s in prod), and on timeout the
+    // exception was caught by the outer poll inner-error handler which
+    // rolled the failure into a single line — operators couldn't tell
+    // if eligible_campaigns=0 meant "queue is empty" or "query timed out".
+    // We now scope a 25s timeout for THIS query only and surface a
+    // dedicated WARN line so the per-tick summary stays accurate.
+    // SET LOCAL only applies inside a transaction, so we use a dedicated
+    // pool client with explicit BEGIN/COMMIT to scope the 25s timeout to
+    // this query. Without this, the eligibility query inherits the
+    // connection's default statement_timeout (60s in prod) and on timeout
+    // the exception was swallowed by the outer poll handler — operators
+    // then saw eligible_campaigns=0 and could not distinguish "queue is
+    // empty" from "query timed out under DB pressure".
+    let campaignsRes: { rows: any[] };
+    const eligClient = await pool.connect();
+    try {
+      await eligClient.query("BEGIN");
+      await eligClient.query("SET LOCAL statement_timeout = '25s'");
+      const r = await eligClient.query<{ campaign_id: string; started_at: Date | null }>(
+        `SELECT DISTINCT cs.campaign_id, c.started_at
+         FROM campaign_sends cs
+         JOIN campaigns c ON c.id = cs.campaign_id
+         WHERE cs.status = 'pending'
+           AND cs.eligible_at IS NOT NULL
+           AND cs.eligible_at <= NOW()
+           AND c.status IN ('sending', 'paused')
+         ORDER BY c.started_at ASC NULLS FIRST
+         LIMIT $1`,
+        [MAX_CAMPAIGNS_PER_TICK],
+      );
+      await eligClient.query("COMMIT");
+      campaignsRes = { rows: r.rows };
+    } catch (err: any) {
+      try { await eligClient.query("ROLLBACK"); } catch {}
+      errorCount += 1;
+      logger.warn(
+        `[PRESSURE_GUARD_WORKER] eligibility query failed (treating as empty this tick — ` +
+        `eligible_campaigns will report 0 but errors=${errorCount}): ${err?.message || err}`,
+      );
+      campaignsRes = { rows: [] };
+    } finally {
+      eligClient.release();
+    }
 
     eligibleCampaigns = campaignsRes.rows.length;
     // Task #153: bounded-parallel drain. The previous implementation

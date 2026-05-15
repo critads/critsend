@@ -360,8 +360,20 @@ export function registerPressureRoutes(app: Express): void {
   });
 
   // ── Cross-campaign admin view ───────────────────────────────────────
+  // Task #155: 30s in-memory cache. The two queries underneath
+  // (per-campaign GROUP BY + cluster-wide DISTINCT subscriber_id) scan
+  // the entire deferred backlog, which can reach hundreds of thousands of
+  // rows during pressure events. The dashboard polls every 15s, so
+  // without caching we ran two heavy aggregations every 15s per open
+  // session — directly competing with the drain worker for the main
+  // pool's slots. With a 30s TTL the page still feels live but the DB
+  // sees at most one execution per 30s regardless of how many operators
+  // have the page open. Cache returns immediately under refresh storms
+  // (the typical case during an active incident).
   app.get("/api/admin/pressure-queue", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
+    const cached = cacheGet<any>("admin:queue");
+    if (cached) return res.json(cached);
     try {
       const summary = await db.execute(sql`
         SELECT
@@ -388,13 +400,63 @@ export function registerPressureRoutes(app: Express): void {
         FROM campaign_sends WHERE status = 'pending' AND eligible_at IS NOT NULL
       `);
 
-      res.json({
+      const payload = {
         windowHours: PRESSURE_WINDOW_HOURS,
         totals: totals.rows[0],
         campaigns: summary.rows,
-      });
+        generatedAt: new Date().toISOString(),
+      };
+      res.json(cacheSet("admin:queue", payload, 30_000));
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
+      res.status(500).json({ error: err?.message || "Internal error" });
+    }
+  });
+
+  // ── Purge throughput (mails/min currently being sent) ───────────────
+  // Task #155: minute-by-minute series of all completed sends over the
+  // last 30 minutes. We do NOT filter on eligible_at because the drain
+  // path resets eligible_at to NULL on success — so a filter would drop
+  // drain output too. Reporting total sent rate (drain + bulk sender)
+  // is what operators actually want during an incident: "is the system
+  // sending or stuck?". Filtering by sent_at hits the existing
+  // campaign_sends_sent_at_idx and stays cheap even on a 20M-row table.
+  // 20s cache shields the DB from dashboard refresh storms.
+  app.get("/api/admin/pressure-queue/throughput", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const cached = cacheGet<any>("admin:throughput");
+    if (cached) return res.json(cached);
+    try {
+      const series = await db.execute(sql`
+        SELECT date_trunc('minute', sent_at) AS minute, COUNT(*)::int AS sent
+        FROM campaign_sends
+        WHERE status = 'sent'
+          AND sent_at >= NOW() - interval '30 minutes'
+          AND sent_at IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `);
+      // last-5min average is the headline KPI surfaced as the big stat.
+      const last5 = await db.execute(sql`
+        SELECT COUNT(*)::int AS sent_5min
+        FROM campaign_sends
+        WHERE status = 'sent'
+          AND sent_at >= NOW() - interval '5 minutes'
+          AND sent_at IS NOT NULL
+      `);
+      const sent5 = Number((last5.rows[0] as any)?.sent_5min ?? 0);
+      const payload = {
+        currentMailsPerMin: Math.round(sent5 / 5),
+        sentLast5Min: sent5,
+        series: series.rows.map((r: any) => ({
+          minute: r.minute,
+          sent: Number(r.sent ?? 0),
+        })),
+        generatedAt: new Date().toISOString(),
+      };
+      res.json(cacheSet("admin:throughput", payload, 20_000));
+    } catch (err: any) {
+      logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/throughput failed: ${err?.message || err}`);
       res.status(500).json({ error: err?.message || "Internal error" });
     }
   });

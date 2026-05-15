@@ -41,13 +41,12 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "tsx server/dev-launcher.ts"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
+args = "echo '[Start application] DISABLED for prod debug. To restore: configureWorkflow with command tsx server/dev-launcher.ts and waitForPort 5000' && sleep infinity"
 
 [agent]
 integrations = ["javascript_database:1.0.0", "resend:1.0.0", "javascript_object_storage:2.0.0"]

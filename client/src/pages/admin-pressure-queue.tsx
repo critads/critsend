@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Clock, History, Users, TrendingUp } from "lucide-react";
+import { Clock, History, Users, TrendingUp, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area } from "recharts";
 
 interface AdminQueueResponse {
   windowHours: number;
@@ -36,6 +36,12 @@ interface TopContactsResponse {
     deferred_rows: string;
     next_eligible_at: string | null;
   }>;
+}
+interface ThroughputResponse {
+  currentMailsPerMin: number;
+  sentLast5Min: number;
+  series: Array<{ minute: string; sent: number }>;
+  generatedAt: string;
 }
 interface HistoryResponse {
   rows: Array<{
@@ -69,6 +75,10 @@ export default function AdminPressureQueue() {
   const { data: history } = useQuery<HistoryResponse>({
     queryKey: ["/api/admin/pressure-queue/history"],
     refetchInterval: 30_000,
+  });
+  const { data: throughput } = useQuery<ThroughputResponse>({
+    queryKey: ["/api/admin/pressure-queue/throughput"],
+    refetchInterval: 15_000,
   });
 
   const flushAll = useMutation({
@@ -104,10 +114,50 @@ export default function AdminPressureQueue() {
             FIFO drain order: oldest started_at first. Window: {data?.windowHours ?? 6}h.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Stat label="Pending deferred (total)" value={data?.totals?.pending_deferred ?? "0"} testId="stat-total-pending" />
           <Stat label="Due now (drainable)" value={data?.totals?.due_now ?? "0"} testId="stat-total-due" />
           <Stat label="Distinct contacts in cooldown" value={data?.totals?.distinct_contacts_in_cooldown ?? "0"} testId="stat-distinct-contacts" />
+          <Stat
+            label="Purge throughput (mails/min, 5 min avg)"
+            value={throughput ? throughput.currentMailsPerMin.toLocaleString() : "—"}
+            testId="stat-purge-throughput"
+            accent
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Send className="h-4 w-4" /> Live purge throughput (last 30 min)</CardTitle>
+          <CardDescription>
+            Sends per minute across the cluster.
+            {throughput?.sentLast5Min !== undefined ? ` ${throughput.sentLast5Min.toLocaleString()} sent in the last 5 min.` : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!throughput ? (
+            <Skeleton className="h-32 w-full" />
+          ) : throughput.series.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-8 text-center" data-testid="text-empty-throughput">
+              No sends in the last 30 minutes.
+            </div>
+          ) : (
+            <div style={{ width: "100%", height: 160 }} data-testid="chart-throughput">
+              <ResponsiveContainer>
+                <AreaChart data={throughput.series.map((p) => ({
+                  t: new Date(p.minute).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  sent: p.sent,
+                }))} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="t" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="sent" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.2} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -293,11 +343,11 @@ export default function AdminPressureQueue() {
   );
 }
 
-function Stat({ label, value, testId }: { label: string; value: string | number; testId: string }) {
+function Stat({ label, value, testId, accent }: { label: string; value: string | number; testId: string; accent?: boolean }) {
   return (
-    <div className="rounded-md border p-3">
+    <div className={`rounded-md border p-3 ${accent ? "bg-primary/5 border-primary/40" : ""}`}>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-semibold tabular-nums" data-testid={testId}>{value}</div>
+      <div className={`text-2xl font-semibold tabular-nums ${accent ? "text-primary" : ""}`} data-testid={testId}>{value}</div>
     </div>
   );
 }
