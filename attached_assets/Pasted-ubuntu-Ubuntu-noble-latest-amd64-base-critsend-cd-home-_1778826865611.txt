@@ -1,0 +1,63 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+
+# 1. Patch frontend avec sed (3 substitutions ciblées)
+sed -i 's|sentLast5Min: number;|sentLast1Min?: number;\n  sentLast5Min: number;|' client/src/pages/admin-pressure-queue.tsx
+
+sed -i 's|"Purge throughput (mails/min, 5 min avg)"|"Purge throughput (mails/min, last min)"|' client/src/pages/admin-pressure-queue.tsx
+
+# 2. Vérifier que les 2 modifs sont bien là
+echo "=== Vérif frontend patché ==="
+grep -n "sentLast1Min\|last min" client/src/pages/admin-pressure-queue.tsx
+
+# 3. Rebuild front (le script qu'on a lancé ne fait que les workers)
+echo "=== Build frontend (Vite) ==="
+ls -la dist/public/index.html 2>/dev/null && echo "(ancien index.html existant)" 
+cat package.json | grep -A1 '"scripts"' | head -20
+echo "=== Lance le bon script ==="
+# Sur la plupart des stacks Vite/Express, le script principal qui fait tout est: 
+npm run build 2>&1 | tail -20
+
+# Si npm run build n'a fait que les workers, force le build Vite directement:
+ls -la dist/public/index.htmlonfig.cjs --update-envte build 2>&1 | tail -10
+=== Vérif frontend patché ===
+42:  sentLast1Min?: number;
+123:            label="Purge throughput (mails/min, last min)"
+=== Build frontend (Vite) ===
+-rw-rw-r-- 1 ubuntu ubuntu 2218 May 15 08:32 dist/public/index.html
+(ancien index.html existant)
+  "scripts": {
+    "dev": "NODE_ENV=development tsx server/index.ts",
+=== Lance le bon script ===
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.28s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 95ms
+building import worker...
+
+  dist/import-worker.cjs  640.7kb
+
+⚡ Done in 61ms
+building background worker...
+
+  dist/worker-main.cjs  1005.3kb
+
+⚡ Done in 79ms
+-rw-rw-r-- 1 ubuntu ubuntu 2218 May 15 08:33 dist/public/index.html
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] [critsend-worker](1) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 57   │ online    │ 0%       │ 301.9mb  │
+│ 1  │ critsend-worker    │ fork     │ 60   │ online    │ 0%       │ 123.4mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+-rw-rw-r-- 1 ubuntu ubuntu 2218 May 15 08:33 dist/public/index.html
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
