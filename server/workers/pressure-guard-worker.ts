@@ -114,11 +114,21 @@ const TICK_NAME_DRAIN = "pressure_drain";
 const TICK_NAME_MAINT = "pressure_maintenance";
 const TICK_NAME_AUDIT = "pressure_audit_ttl";
 
-setSafeIntervalErrorListener((name) => {
+setSafeIntervalErrorListener((name, err) => {
   try {
     safeIntervalTickErrorsTotal.inc({ name });
   } catch {
     /* metric increment is non-fatal */
+  }
+  // Task #160: persist drain tick errors cross-process so the health
+  // endpoint can compute errors_5m. Best-effort: an INSERT failure here
+  // MUST NOT cascade into another tick error.
+  if (name === TICK_NAME_DRAIN) {
+    const msg = err instanceof Error ? err.message : String(err);
+    pool.query(
+      `INSERT INTO pressure_drain_tick_errors (occurred_at, holder_id, error_msg) VALUES (NOW(), $1, $2)`,
+      [LEADER_HOLDER_ID, msg.slice(0, 500)],
+    ).catch(() => { /* best-effort */ });
   }
 });
 

@@ -181,6 +181,23 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
         await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_drained int NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_errors int NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_eligible int NOT NULL DEFAULT 0`);
+        // Task #160: cross-process drain-tick error log. Each row is one
+        // caught exception inside the safeInterval-wrapped drain tick or
+        // a per-campaign drainCampaign() call. Read by
+        // /api/admin/pressure-drain/health to compute errors_5m WITHOUT
+        // depending on in-process counters (the drainer runs in a
+        // separate PM2 process whose memory the web cannot inspect).
+        // Auto-pruned to 24h via the maintenance tick — see
+        // server/workers/pressure-guard-worker.ts runMaintenanceTick.
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS pressure_drain_tick_errors (
+            id bigserial PRIMARY KEY,
+            occurred_at timestamptz NOT NULL DEFAULT NOW(),
+            holder_id text,
+            error_msg text
+          )
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS pressure_drain_tick_errors_occurred_at_idx ON pressure_drain_tick_errors (occurred_at DESC)`);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
         // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).

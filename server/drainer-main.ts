@@ -54,10 +54,6 @@ async function gracefulShutdown(signal: string) {
       "./workers/pressure-guard-worker"
     );
     stopPressureGuardWorker();
-    const { stopOrphanedSendsReconciler } = await import(
-      "./workers/orphaned-sends-reconciler"
-    );
-    stopOrphanedSendsReconciler();
     await pool.end().catch(() => {});
     logger.info("[DRAINER] Graceful shutdown complete");
   } catch (err: any) {
@@ -94,10 +90,9 @@ process.on("SIGINT", () => {
   );
   startPressureGuardWorker();
 
-  const { startOrphanedSendsReconciler } = await import(
-    "./workers/orphaned-sends-reconciler"
-  );
-  startOrphanedSendsReconciler();
+  // Note: orphaned-sends reconciler runs in the worker process only — the
+  // drainer is intentionally kept single-purpose (pressure-guard drain).
+  // See server/workers.ts for that wiring.
 
   logger.info("[DRAINER] Pressure-guard drainer running");
 })().catch((err: any) => {

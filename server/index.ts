@@ -938,6 +938,38 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     // a partial rollout (only one process drains a tick anyway).
     if (process.env.DRAIN_PROCESS_DEDICATED === 'true') {
       logger.info('[WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)');
+      // Task #160: when the drain runs in a separate PM2 process, its
+      // Prometheus registry is NOT scraped (only the web app exposes
+      // /metrics). To keep the contract metric
+      // `critsend_pressure_drain_last_tick_age_seconds` observable from
+      // the web's /metrics endpoint, poll the leader heartbeat row from
+      // the web every 10 s and mirror the age into our local gauge.
+      const { pool } = await import('./db');
+      const { pressureDrainLastTickAgeSeconds, pressureDrainCalls5m, pressureDrainErrors5m } = await import('./metrics');
+      const { LOCK_KEYS } = await import('./bootstrap-lock');
+      const pollDrainHeartbeat = async () => {
+        try {
+          const r = await pool.query<{ last_tick_at: Date | null }>(
+            `SELECT last_tick_at FROM pressure_guard_leader WHERE lock_key=$1 LIMIT 1`,
+            [`pressure_guard:${LOCK_KEYS.PRESSURE_DRAIN}`],
+          );
+          const ts = r.rows[0]?.last_tick_at;
+          if (ts) {
+            pressureDrainLastTickAgeSeconds.set(Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000));
+          }
+          const agg = await pool.query<{ sends_5m: string; errors_5m: string }>(
+            `SELECT
+               (SELECT COUNT(*)::text FROM campaign_sends
+                  WHERE status='sent' AND sent_at > NOW() - INTERVAL '5 min') AS sends_5m,
+               (SELECT COUNT(*)::text FROM pressure_drain_tick_errors
+                  WHERE occurred_at > NOW() - INTERVAL '5 min') AS errors_5m`,
+          );
+          pressureDrainCalls5m.set(Number(agg.rows[0]?.sends_5m ?? 0));
+          pressureDrainErrors5m.set(Number(agg.rows[0]?.errors_5m ?? 0));
+        } catch { /* best-effort; metric stays at last value */ }
+      };
+      void pollDrainHeartbeat();
+      setInterval(() => { void pollDrainHeartbeat(); }, 10_000).unref?.();
     } else {
       const { startPressureGuardWorker } = await import('./workers/pressure-guard-worker');
       startPressureGuardWorker();

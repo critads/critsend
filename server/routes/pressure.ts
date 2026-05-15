@@ -263,11 +263,17 @@ export function registerPressureRoutes(app: Express): void {
       // in the last 5 min?". errors_5m approximates by counting failed
       // sends in the same window — a high value means the drain is
       // running but its sends are bouncing/erroring.
+      // errors_5m is now sourced from `pressure_drain_tick_errors` —
+      // the cross-process log of drain *tick* exceptions (loop crashes,
+      // claim/finalize failures), NOT failed delivery rows. This is the
+      // semantic the contract asks for: a drain that is firing ticks
+      // but throwing inside them is degraded even if no sends are
+      // failing yet.
       const backlog = await pool.query<{
         deferred_pending: string;
         deferred_due: string;
         sends_5m: string;
-        failed_5m: string;
+        tick_errors_5m: string;
       }>(
         `SELECT
            (SELECT COUNT(*)::text FROM campaign_sends
@@ -276,12 +282,12 @@ export function registerPressureRoutes(app: Express): void {
               WHERE status='pending' AND eligible_at IS NOT NULL AND eligible_at <= NOW()) AS deferred_due,
            (SELECT COUNT(*)::text FROM campaign_sends
               WHERE status='sent' AND sent_at > NOW() - INTERVAL '5 min') AS sends_5m,
-           (SELECT COUNT(*)::text FROM campaign_sends
-              WHERE status='failed' AND sent_at > NOW() - INTERVAL '5 min') AS failed_5m`,
+           (SELECT COUNT(*)::text FROM pressure_drain_tick_errors
+              WHERE occurred_at > NOW() - INTERVAL '5 min') AS tick_errors_5m`,
       );
       const b = backlog.rows[0];
       const drainedCalls5m = Number(b?.sends_5m ?? 0);
-      const errors5m = Number(b?.failed_5m ?? 0);
+      const errors5m = Number(b?.tick_errors_5m ?? 0);
 
       // Task #160 contract: error-rate guard. A drain that is firing
       // ticks AND has a fresh lease but is producing >5 errors per 5 min
