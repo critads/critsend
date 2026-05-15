@@ -6,6 +6,7 @@ import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSch
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
+import { SNOWBALL_THROTTLE_CONFIG } from "../services/campaign-sender";
 import { logger } from "../logger";
 import { classifyDbError } from "../db-errors";
 import { emitServiceBusy } from "../middleware/service-busy";
@@ -94,6 +95,11 @@ async function ensureCampaignExcludeSegmentForeignKey(): Promise<void> {
     // AccessExclusive on campaigns) and so re-runs on existing
     // deployments are idempotent.
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS exclude_segment_id varchar`);
+    // Snowball auto-throttle counter (Task #156). Lifetime tally of throttle
+    // engagements per campaign — surfaced on the campaign detail page so
+    // operators can see at a glance that the system has been auto-regulating
+    // this campaign rather than silently stalling.
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS snowball_throttled_count integer NOT NULL DEFAULT 0`);
     await ensureCampaignExcludeSegmentForeignKey();
     await db.execute(sql`
       CREATE UNIQUE INDEX IF NOT EXISTS campaigns_parent_campaign_unique_idx
@@ -372,6 +378,62 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error fetching campaign:", error);
       res.status(500).json({ error: "Failed to fetch campaign" });
+    }
+  });
+
+  // Snowball auto-throttle status (Task #156). Returns the live deferred/
+  // processed ratio for this campaign + the configured threshold + lifetime
+  // throttle engagements, so the campaign detail page can surface a clear
+  // "Auto-throttled by pressure guard" banner instead of leaving the
+  // engagement invisible (logs / Prometheus only).
+  app.get("/api/campaigns/:id/snowball-status", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const campaignId = req.params.id;
+      // Same query the sender uses to make the throttle decision, so the
+      // UI shows the exact value the engine is reading. Cheap: hits the
+      // per-campaign partial index on campaign_sends + a single PK lookup
+      // on campaigns for the cached counters.
+      const r = await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*)::bigint
+             FROM campaign_sends
+             WHERE campaign_id = ${campaignId}
+               AND status = 'pending'
+               AND eligible_at IS NOT NULL) AS deferred,
+          (SELECT COALESCE(sent_count, 0) + COALESCE(failed_count, 0)
+             FROM campaigns WHERE id = ${campaignId}) AS processed,
+          (SELECT COALESCE(snowball_throttled_count, 0)
+             FROM campaigns WHERE id = ${campaignId}) AS throttled_count,
+          (SELECT 1 FROM campaigns WHERE id = ${campaignId}) AS exists_flag
+      `);
+      const row = r.rows[0] as { deferred?: string | number; processed?: string | number; throttled_count?: string | number; exists_flag?: number | null } | undefined;
+      if (!row || row.exists_flag == null) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      const deferred = Number(row.deferred ?? 0);
+      const processed = Number(row.processed ?? 0);
+      const throttledCount = Number(row.throttled_count ?? 0);
+      const denom = deferred + processed;
+      const ratio = denom > 0 ? deferred / denom : 0;
+      const { disabled, threshold, minDeferred, sleepMs } = SNOWBALL_THROTTLE_CONFIG;
+      const isThrottling = !disabled && deferred >= minDeferred && ratio > threshold;
+      res.json({
+        deferred,
+        processed,
+        ratio,
+        threshold,
+        minDeferred,
+        sleepMs,
+        disabled,
+        throttledCount,
+        isThrottling,
+      });
+    } catch (error: any) {
+      logger.error(`[SNOWBALL_STATUS] failed for ${req.params.id}: ${error?.message || error}`);
+      res.status(500).json({ error: "Failed to fetch snowball status" });
     }
   });
 

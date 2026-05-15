@@ -73,6 +73,18 @@ const SNOWBALL_THROTTLE_THRESHOLD = envFloat("PRESSURE_RATIO_THROTTLE_THRESHOLD"
 const SNOWBALL_THROTTLE_MIN_DEFERRED = envIntBounded("PRESSURE_RATIO_THROTTLE_MIN_DEFERRED", 1000, 1, 10_000_000);
 const SNOWBALL_THROTTLE_SLEEP_MS = envIntBounded("PRESSURE_RATIO_THROTTLE_SLEEP_MS", 30_000, 1_000, 10 * 60_000);
 
+// Exported snapshot for the UI/API (Task #156). Centralised here because
+// these are the same values the running sender uses to make throttle
+// decisions — exposing them ensures the campaign detail page shows the
+// real, currently-configured threshold rather than a hard-coded duplicate
+// that could drift from the sender behaviour.
+export const SNOWBALL_THROTTLE_CONFIG = {
+  disabled: SNOWBALL_THROTTLE_DISABLED,
+  threshold: SNOWBALL_THROTTLE_THRESHOLD,
+  minDeferred: SNOWBALL_THROTTLE_MIN_DEFERRED,
+  sleepMs: SNOWBALL_THROTTLE_SLEEP_MS,
+} as const;
+
 async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxAttempts = SENDER_MAX_ATTEMPTS): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -560,6 +572,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
           if (deferredNow >= SNOWBALL_THROTTLE_MIN_DEFERRED && ratio > SNOWBALL_THROTTLE_THRESHOLD) {
             pressureGuardSenderThrottledTotal.inc({ campaign_id: campaignId });
+            // Persist the engagement on the campaign row so the UI can
+            // render "Throttled N times" even after a process restart
+            // (Prometheus counters are in-memory and reset on pm2 reload).
+            // Best-effort: failure to persist must not abort the throttle.
+            db.execute(sql`UPDATE campaigns SET snowball_throttled_count = snowball_throttled_count + 1 WHERE id = ${campaignId}`)
+              .catch((e: any) => logger.warn(`${logPrefix} snowball counter UPDATE failed (non-fatal): ${e?.message || e}`));
             logger.warn(
               `${logPrefix} Snowball auto-throttle engaged: deferred=${deferredNow}, processed=${processedNow}, ratio=${ratio.toFixed(3)} > ${SNOWBALL_THROTTLE_THRESHOLD} — sleeping ${SNOWBALL_THROTTLE_SLEEP_MS}ms to let pressure-guard drain catch up`,
             );

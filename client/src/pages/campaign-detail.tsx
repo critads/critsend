@@ -29,8 +29,101 @@ import {
   ChevronRight,
   RotateCcw,
   Filter,
+  Gauge,
 } from "lucide-react";
 import type { Campaign, Mta, Segment } from "@shared/schema";
+
+interface SnowballStatus {
+  deferred: number;
+  processed: number;
+  ratio: number;
+  threshold: number;
+  minDeferred: number;
+  sleepMs: number;
+  disabled: boolean;
+  throttledCount: number;
+  isThrottling: boolean;
+}
+
+/** Pressure-guard auto-throttle banner (Task #156). Only renders when the
+ *  sender is currently throttling this campaign OR has throttled it at
+ *  least once during its lifetime — otherwise stays out of the way. */
+function SnowballThrottleBanner({ campaignId }: { campaignId: string }) {
+  const { data } = useQuery<SnowballStatus>({
+    queryKey: ["/api/campaigns", campaignId, "snowball-status"],
+    refetchInterval: 15_000,
+  });
+  if (!data || data.disabled) return null;
+  if (!data.isThrottling && data.throttledCount === 0) return null;
+
+  const ratioPct = (data.ratio * 100).toFixed(1);
+  const thresholdPct = (data.threshold * 100).toFixed(0);
+
+  return (
+    <Card
+      data-testid="card-snowball-throttle"
+      className={
+        data.isThrottling
+          ? "border-yellow-500/60 bg-yellow-50 dark:bg-yellow-950/20"
+          : "border-muted"
+      }
+    >
+      <CardContent className="p-4 flex items-start gap-3 flex-wrap">
+        <Gauge
+          className={
+            data.isThrottling
+              ? "h-5 w-5 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5"
+              : "h-5 w-5 text-muted-foreground shrink-0 mt-0.5"
+          }
+        />
+        <div className="flex-1 min-w-[240px]">
+          <div className="flex items-center gap-2 flex-wrap">
+            {data.isThrottling ? (
+              <Badge
+                variant="outline"
+                className="border-yellow-500 text-yellow-700 dark:text-yellow-300"
+                data-testid="badge-snowball-active"
+              >
+                Auto-throttled by pressure guard
+              </Badge>
+            ) : (
+              <Badge variant="secondary" data-testid="badge-snowball-history">
+                Pressure guard history
+              </Badge>
+            )}
+            <Badge variant="secondary" data-testid="badge-snowball-throttle-count">
+              Throttled {data.throttledCount.toLocaleString()} time
+              {data.throttledCount === 1 ? "" : "s"}
+            </Badge>
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">
+            {data.isThrottling
+              ? `Sender is pausing briefly: deferred backlog is ${ratioPct}% of processed work, above the ${thresholdPct}% threshold. Sending will resume automatically once the queue drains.`
+              : `Sender currently within healthy limits (deferred ratio ${ratioPct}%, threshold ${thresholdPct}%). The pressure guard has slowed this campaign down ${data.throttledCount.toLocaleString()} time${data.throttledCount === 1 ? "" : "s"} so far.`}
+          </p>
+          <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div data-testid="stat-snowball-ratio">
+              <div className="text-muted-foreground">Current ratio</div>
+              <div className="font-mono font-medium">{ratioPct}%</div>
+            </div>
+            <div data-testid="stat-snowball-threshold">
+              <div className="text-muted-foreground">Threshold</div>
+              <div className="font-mono font-medium">{thresholdPct}%</div>
+            </div>
+            <div data-testid="stat-snowball-deferred">
+              <div className="text-muted-foreground">Deferred now</div>
+              <div className="font-mono font-medium">{data.deferred.toLocaleString()}</div>
+            </div>
+            <div data-testid="stat-snowball-min-deferred">
+              <div className="text-muted-foreground">Min. to throttle</div>
+              <div className="font-mono font-medium">{data.minDeferred.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 /** Inject <base href> so relative image URLs (/campaigns/...) resolve against
  *  the current server instead of about:srcdoc when using srcDoc in an iframe. */
@@ -310,6 +403,11 @@ export default function CampaignDetail() {
           linked campaign data is fetched on demand so we can render concrete
           "of {parent name}" / "scheduled for {date}" labels per spec. */}
       <FollowUpLinkCard campaign={campaign} />
+
+      {/* Snowball auto-throttle status (Task #156). Hidden when the
+          pressure guard has never engaged for this campaign so the page
+          stays clean for healthy sends. */}
+      {campaignId && <SnowballThrottleBanner campaignId={campaignId} />}
 
       {/* Auto-resend (Task #56) — surface the configured-but-not-yet-spawned
           state too so users see the follow-up promise before sending. */}

@@ -155,6 +155,15 @@ export const campaigns = pgTable("campaigns", {
   // the current implementation; the column is kept for spec/contract
   // compatibility and future "skip" semantics if the policy ever changes.
   skippedPressureCount: integer("skipped_pressure_count").notNull().default(0),
+  // Snowball Auto-Throttle (Task #154/#156). Cumulative count of times the
+  // per-campaign snowball auto-throttle engaged in `campaign-sender.ts`
+  // (deferred/processed ratio crossed PRESSURE_RATIO_THROTTLE_THRESHOLD
+  // while at least PRESSURE_RATIO_THROTTLE_MIN_DEFERRED rows were
+  // deferred). Persisted on the campaign row so the UI can surface
+  // "Throttled N times" on the campaign detail page even after process
+  // restarts (Prometheus counters are in-memory and reset on each
+  // pm2 reload, and live in a different process from the API server).
+  snowballThrottledCount: integer("snowball_throttled_count").notNull().default(0),
   // ── Auto-resend to openers (36h follow-up) ──────────────────────────
   // parentCampaignId: when set, this campaign is a follow-up child sent only
   //   to subscribers who opened the parent. Audience iteration in
@@ -543,6 +552,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   failedCount: true,
   deferredCount: true,
   skippedPressureCount: true,
+  snowballThrottledCount: true,
   autoRetryCount: true,
   createdAt: true,
   startedAt: true,
@@ -570,6 +580,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   failedCount: true,
   deferredCount: true,
   skippedPressureCount: true,
+  snowballThrottledCount: true,
   autoRetryCount: true,
   createdAt: true,
   startedAt: true,
