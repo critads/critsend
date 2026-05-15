@@ -265,6 +265,15 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     return;
   }
 
+  // Task #152 NOTE: this rewrites campaigns.started_at on every (re)launch,
+  // including auto-resume after a PM2 restart. Multiple campaigns resumed
+  // in parallel will all get a started_at clustered in the same minute,
+  // which destroys the FIFO order for any consumer that ranks campaigns
+  // by started_at. The pressure-guard drain (server/workers/pressure-guard-
+  // worker.ts) therefore ORDER BYs campaigns.created_at instead — see the
+  // long comment around the eligibility query there. If you ever change
+  // ordering of any other consumer (campaign_jobs.claimNextJob, etc.),
+  // make the same trade-off explicitly.
   await storage.updateCampaign(campaignId, {
     pendingCount: total,
     startedAt: new Date(),

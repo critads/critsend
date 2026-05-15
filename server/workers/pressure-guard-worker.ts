@@ -371,15 +371,26 @@ async function pollDeferredQueueInner() {
     try {
       await eligClient.query("BEGIN");
       await eligClient.query("SET LOCAL statement_timeout = '25s'");
-      const r = await eligClient.query<{ campaign_id: string; started_at: Date | null }>(
-        `SELECT DISTINCT cs.campaign_id, c.started_at
+      // Task #152: ORDER BY c.created_at (not c.started_at). The campaign
+      // sender writes startedAt: new Date() at every (re)launch
+      // (server/services/campaign-sender.ts:270), so a PM2 restart that
+      // auto-resumes 10 campaigns in parallel rewrites all their started_at
+      // to the same minute — the FIFO order then reflects the restart
+      // order, not the real campaign age. Constated 2026-05-15: 12 active
+      // campaigns from 05-13 and 05-14 all had started_at clustered at
+      // 05-15 06:35-07:02 after a restart, so the deferred backlog of the
+      // 05-13 campaigns was draining at the same priority as the 05-14
+      // ones (essentially random). created_at is set once at row insert
+      // and is never bumped, so it reliably reflects launch ancestry.
+      const r = await eligClient.query<{ campaign_id: string; created_at: Date | null }>(
+        `SELECT DISTINCT cs.campaign_id, c.created_at
          FROM campaign_sends cs
          JOIN campaigns c ON c.id = cs.campaign_id
          WHERE cs.status = 'pending'
            AND cs.eligible_at IS NOT NULL
            AND cs.eligible_at <= NOW()
            AND c.status IN ('sending', 'paused')
-         ORDER BY c.started_at ASC NULLS FIRST
+         ORDER BY c.created_at ASC NULLS FIRST
          LIMIT $1`,
         [MAX_CAMPAIGNS_PER_TICK],
       );
