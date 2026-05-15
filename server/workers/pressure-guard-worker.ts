@@ -27,8 +27,11 @@ import {
   pressureGuardSentAfterDeferTotal,
   pressureGuardPendingDeferred,
   pressureGuardDeferredIndexSizeBytes,
+  safeIntervalLastTickAgeSeconds,
+  safeIntervalTickErrorsTotal,
 } from "../metrics";
 import { LOCK_KEYS } from "../bootstrap-lock";
+import { safeInterval, getLastTickAt, setSafeIntervalErrorListener } from "../lib/safe-interval";
 import type { Campaign, Mta, Subscriber } from "@shared/schema";
 import crypto from "crypto";
 
@@ -98,17 +101,62 @@ let maintenanceInterval: NodeJS.Timeout | null = null;
 let auditTtlInterval: NodeJS.Timeout | null = null;
 let isPolling = false;
 
+// Task #160: per-tick stats published to the leader-lease row so the
+// admin /api/admin/pressure-drain/health endpoint can answer "is the
+// drain alive?" cross-process (the dedicated drainer runs in its own
+// PM2 process, so the web cannot inspect its in-memory state).
+let lastTickStats = { drained: 0, errors: 0, eligible: 0 };
+
+// Three known safeInterval names (used by the health endpoint and by
+// the metric labels — keep in sync with the names passed to safeInterval).
+const TICK_NAME_DRAIN = "pressure_drain";
+const TICK_NAME_MAINT = "pressure_maintenance";
+const TICK_NAME_AUDIT = "pressure_audit_ttl";
+
+setSafeIntervalErrorListener((name) => {
+  try {
+    safeIntervalTickErrorsTotal.inc({ name });
+  } catch {
+    /* metric increment is non-fatal */
+  }
+});
+
+// Refresh the last-tick-age gauge in a separate cheap loop so Prometheus
+// scrape gives a continuous "seconds since last successful tick" reading
+// even when the drain itself is healthy but quiet (no eligible rows).
+let gaugeRefreshInterval: NodeJS.Timeout | null = null;
+function refreshTickAgeGauges() {
+  for (const name of [TICK_NAME_DRAIN, TICK_NAME_MAINT, TICK_NAME_AUDIT]) {
+    const t = getLastTickAt(name);
+    if (t == null) continue;
+    try {
+      safeIntervalLastTickAgeSeconds.set({ name }, (Date.now() - t) / 1000);
+    } catch {
+      /* metric set is non-fatal */
+    }
+  }
+}
+
 export function startPressureGuardWorker() {
   if (pollInterval) return;
   logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, smtp-concurrency=${SMTP_CONCURRENCY}, window=${PRESSURE_WINDOW_HOURS}h)`);
-  pollInterval = setInterval(pollDeferredQueue, POLL_INTERVAL_MS);
+  // Task #160: safeInterval wraps every tick in a top-level try/catch so
+  // a single unhandled DB error inside pollDeferredQueue can no longer
+  // silently kill the loop. Re-entrancy is also guarded by safeInterval
+  // (independent of the legacy isPolling flag, which is preserved as a
+  // defensive belt-and-braces).
+  pollInterval = safeInterval(TICK_NAME_DRAIN, pollDeferredQueue, POLL_INTERVAL_MS);
   // Kick off after a short delay to let bootstrap run first.
   setTimeout(pollDeferredQueue, 5_000);
   // R3 + R15 cadenced background jobs (also leader-elected).
-  maintenanceInterval = setInterval(runMaintenanceTick, MAINTENANCE_INTERVAL_MS);
-  auditTtlInterval = setInterval(runAuditTtlTick, AUDIT_TTL_INTERVAL_MS);
+  maintenanceInterval = safeInterval(TICK_NAME_MAINT, runMaintenanceTick, MAINTENANCE_INTERVAL_MS);
+  auditTtlInterval = safeInterval(TICK_NAME_AUDIT, runAuditTtlTick, AUDIT_TTL_INTERVAL_MS);
   setTimeout(runMaintenanceTick, 30_000);
   setTimeout(runAuditTtlTick, 60_000);
+  if (!gaugeRefreshInterval) {
+    gaugeRefreshInterval = setInterval(refreshTickAgeGauges, 5_000);
+    gaugeRefreshInterval.unref();
+  }
 }
 
 export function stopPressureGuardWorker() {
@@ -124,7 +172,27 @@ export function stopPressureGuardWorker() {
     clearInterval(auditTtlInterval);
     auditTtlInterval = null;
   }
+  if (gaugeRefreshInterval) {
+    clearInterval(gaugeRefreshInterval);
+    gaugeRefreshInterval = null;
+  }
   logger.info("[PRESSURE_GUARD_WORKER] Stopped");
+}
+
+/**
+ * Task #160: published cross-process via pressure_guard_leader (DB).
+ * Read by GET /api/admin/pressure-drain/health.
+ */
+export function getDrainTickStatsInProcess(): {
+  lastTickAt: number | null;
+  drained: number;
+  errors: number;
+  eligible: number;
+} {
+  return {
+    lastTickAt: getLastTickAt(TICK_NAME_DRAIN),
+    ...lastTickStats,
+  };
 }
 
 /**
@@ -451,6 +519,23 @@ async function pollDeferredQueueInner() {
       `[PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=${bootstrapStateLabel}, ` +
       `has_pending=${hasPending ? "Y" : "N"}, eligible_campaigns=${eligibleCampaigns}, ` +
       `drained_calls=${drainedCalls}, errors=${errorCount}`,
+    );
+    // Task #160: publish per-tick heartbeat to the leader-lease row so
+    // the cross-process /api/admin/pressure-drain/health endpoint can
+    // observe drain liveness without inspecting in-memory state of the
+    // dedicated drainer process. Best-effort: a failed UPDATE here MUST
+    // NOT break the next tick.
+    lastTickStats = { drained: drainedCalls, errors: errorCount, eligible: eligibleCampaigns };
+    pool.query(
+      `UPDATE pressure_guard_leader
+         SET last_tick_at = NOW(),
+             last_tick_drained = $1,
+             last_tick_errors = $2,
+             last_tick_eligible = $3
+       WHERE lock_key = $4 AND holder_id = $5`,
+      [drainedCalls, errorCount, eligibleCampaigns, `pressure_guard:${LOCK_KEYS.PRESSURE_DRAIN}`, LEADER_HOLDER_ID],
+    ).catch((err: any) =>
+      logger.warn(`[PRESSURE_GUARD_WORKER] heartbeat UPDATE failed (non-fatal): ${err?.message || err}`),
     );
   }
 }

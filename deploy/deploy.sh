@@ -200,13 +200,55 @@ fi
 # ─── Step 7: PM2 reload ───────────────────────────────────────────────────────
 step "Reloading PM2 processes (zero-downtime)..."
 if pm2 list | grep -q "critsend-web"; then
-    pm2 reload deploy/ecosystem.config.cjs --env production
+    # Task #160: `pm2 reload all --update-env` ensures the env_production
+    # block from ecosystem.config.cjs (notably DRAIN_PROCESS_DEDICATED and
+    # the new critsend-drainer process) is re-read on every deploy. The
+    # previous `pm2 reload deploy/ecosystem.config.cjs --env production`
+    # only restarts apps that already exist in the running daemon — a
+    # newly-defined app (critsend-drainer) is silently skipped, which is
+    # exactly the bug that lost the drain after a partial deploy.
+    pm2 reload deploy/ecosystem.config.cjs --env production --update-env
+    # Pick up newly-defined processes (the reload above only touches
+    # processes already in the daemon).
+    pm2 start deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer 2>/dev/null || true
+    pm2 save
     ok "PM2 processes reloaded"
 else
     echo "[deploy]   First deploy detected — starting PM2 processes..."
     pm2 start deploy/ecosystem.config.cjs --env production
     pm2 save
     ok "PM2 processes started and saved"
+fi
+
+# ─── Step 7b: Verify each PM2 process actually came up ───────────────────────
+# Task #160: a `pm2 reload` reports success even if a process crashes
+# in its first second (the daemon will keep restarting it). Without this
+# verification, a deploy that breaks `dist/drainer-main.cjs` would silently
+# leave the drain dead until the next manual `pm2 logs` inspection.
+# We grep the recent logs for the canonical "Starting" line each process
+# emits at boot — its presence is proof the entrypoint executed past env
+# parsing, DB pool init, and the bootstrap call.
+step "Verifying PM2 processes started successfully..."
+sleep 10  # give each process time to emit its Starting line
+declare -A _expected=(
+    ["critsend-web"]="serving|listening|HTTP server"
+    ["critsend-worker"]="\\[WORKER\\] starting|startAllWorkers"
+    ["critsend-drainer"]="\\[DRAINER\\] Drainer process starting"
+)
+_verify_failed=0
+for proc in "${!_expected[@]}"; do
+    pattern="${_expected[$proc]}"
+    if pm2 logs "$proc" --lines 200 --nostream --raw 2>/dev/null | grep -E -q "$pattern"; then
+        ok "$proc: boot line present"
+    else
+        echo "[deploy] ⚠ $proc: boot line not found in recent logs (pattern: $pattern)"
+        echo "[deploy]   Last 30 lines from $proc:"
+        pm2 logs "$proc" --lines 30 --nostream --raw 2>/dev/null | sed 's/^/[deploy]     /' || true
+        _verify_failed=1
+    fi
+done
+if [[ "$_verify_failed" == "1" ]]; then
+    fail "One or more PM2 processes did not emit their boot line — investigate above logs."
 fi
 
 # ─── Step 8: Health check ────────────────────────────────────────────────────

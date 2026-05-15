@@ -84,6 +84,15 @@ export const SNOWBALL_THROTTLE_CONFIG = {
   sleepMs: SNOWBALL_THROTTLE_SLEEP_MS,
 } as const;
 
+// Task #160: per-process 30s TTL cache for the snowball ratio query.
+// The sender loop iterates frequently; without this cache the COUNT(*)
+// FILTER scan would run on every iteration and add measurable load to
+// the main pool. The numbers don't change meaningfully on a sub-30s
+// timescale at the throttle threshold (the drain processes batches of
+// hundreds, not units, per tick).
+const SNOWBALL_CACHE_TTL_MS = envIntBounded("PRESSURE_RATIO_CACHE_TTL_MS", 30_000, 1_000, 5 * 60_000);
+const snowballCache = new Map<string, { ts: number; deferred: number; processed: number }>();
+
 async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxAttempts = SENDER_MAX_ATTEMPTS): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -549,22 +558,49 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       // (which would just deepen the same backlog).
       if (!SNOWBALL_THROTTLE_DISABLED) {
         try {
-          const ratioRow = await retryDbOp(
-            () => db.execute(sql`
-              SELECT
-                (SELECT COUNT(*)::bigint
-                   FROM campaign_sends
-                   WHERE campaign_id = ${campaignId}
-                     AND status = 'pending'
-                     AND eligible_at IS NOT NULL) AS deferred,
-                (SELECT COALESCE(sent_count, 0) + COALESCE(failed_count, 0)
-                   FROM campaigns WHERE id = ${campaignId}) AS processed
-            `),
-            `${logPrefix} snowballRatioCheck`,
-          );
-          const row = ratioRow.rows[0] as { deferred?: string | number; processed?: string | number } | undefined;
-          const deferredNow = Number(row?.deferred ?? 0);
-          const processedNow = Number(row?.processed ?? 0);
+          // Task #160: read BOTH numerator and denominator real-time from
+          // campaign_sends (single COUNT(*) FILTER scan over the
+          // composite index campaign_sends_campaign_status_idx). The
+          // previous implementation read `processed` from the cumulative
+          // `campaigns.sent_count + failed_count` — those are derived
+          // counters maintained incrementally, and any drift (constated
+          // 2026-05-15 prod incident: ratio plateaued at 0.801 even after
+          // the drain finished consuming the deferred backlog) leaves the
+          // sender sleeping forever in the throttle branch. Using the
+          // single source of truth eliminates that failure mode.
+          //
+          // 30s in-memory cache per campaign keeps the per-iteration cost
+          // bounded — the sender loop wakes ~every 250ms, the throttle
+          // branch is hit ~every iteration, but the underlying numbers
+          // don't change meaningfully on a sub-30s timescale at the
+          // throttle threshold.
+          const cached = snowballCache.get(campaignId);
+          const nowMs = Date.now();
+          let deferredNow: number;
+          let processedNow: number;
+          if (cached && nowMs - cached.ts < SNOWBALL_CACHE_TTL_MS) {
+            deferredNow = cached.deferred;
+            processedNow = cached.processed;
+          } else {
+            const ratioRow = await retryDbOp(
+              () => db.execute(sql`
+                SELECT
+                  COUNT(*) FILTER (
+                    WHERE status = 'pending' AND eligible_at IS NOT NULL
+                  )::bigint AS deferred,
+                  COUNT(*) FILTER (
+                    WHERE status IN ('sent', 'failed', 'bounced')
+                  )::bigint AS processed
+                FROM campaign_sends
+                WHERE campaign_id = ${campaignId}
+              `),
+              `${logPrefix} snowballRatioCheck`,
+            );
+            const row = ratioRow.rows[0] as { deferred?: string | number; processed?: string | number } | undefined;
+            deferredNow = Number(row?.deferred ?? 0);
+            processedNow = Number(row?.processed ?? 0);
+            snowballCache.set(campaignId, { ts: nowMs, deferred: deferredNow, processed: processedNow });
+          }
           const denom = deferredNow + processedNow;
           const ratio = denom > 0 ? deferredNow / denom : 0;
           pressureGuardSenderDeferredRatio.set({ campaign_id: campaignId }, ratio);

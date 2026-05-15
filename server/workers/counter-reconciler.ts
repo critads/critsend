@@ -61,7 +61,15 @@ export interface ReconcileResult {
  *  pool (terminating the in-flight statement_timeout) and the tick logs
  *  the offending stage. This guarantees the reconciler never holds a
  *  pool slot for the full 120 s pg statement_timeout. */
-const RECONCILE_TICK_BUDGET_MS = Number(process.env.COUNTER_RECONCILE_TICK_BUDGET_MS || 30 * 1000);
+// Task #160: tightened from 30s → 5s. The previous 30s budget meant a
+// stalled query could hold a main-pool slot for half a minute, and the
+// 2026-05-15 prod incident showed this was long enough to cascade into
+// pool starvation when several reconcile ticks coincided with a traffic
+// spike. The reconciler queries are all cheap aggregates over a recent
+// window and complete in <500 ms in normal operation; a 5s wall-clock
+// budget gives 10× headroom while ensuring a stalled query cannot
+// monopolise a connection beyond the next tick.
+const RECONCILE_TICK_BUDGET_MS = Number(process.env.COUNTER_RECONCILE_TICK_BUDGET_MS || 5 * 1000);
 
 type ReconcileStage =
   | "idle"

@@ -140,6 +140,36 @@ export const pressureGuardSenderThrottledTotal = new client.Counter({
   registers: [register],
 });
 
+// ── Bulletproof drain & deploy (Task #160) ───────────────────────────
+// Last-tick-age gauge: scraped by Prometheus to alert when the drain
+// loop has gone silent (no successful tick in N seconds). Labelled by
+// `name` so we can track the drain, the maintenance loop, and the audit
+// TTL loop independently.
+export const safeIntervalLastTickAgeSeconds = new client.Gauge({
+  name: 'critsend_safe_interval_last_tick_age_seconds',
+  help: 'Seconds since the last successful tick of a named safeInterval loop',
+  labelNames: ['name'] as const,
+  registers: [register],
+});
+
+// Tick errors counter: incremented each time a safeInterval-wrapped
+// callback throws. A sustained increase indicates the loop is degraded
+// even if it has not stopped firing.
+export const safeIntervalTickErrorsTotal = new client.Counter({
+  name: 'critsend_safe_interval_tick_errors_total',
+  help: 'Total caught exceptions raised by safeInterval-wrapped tick callbacks',
+  labelNames: ['name'] as const,
+  registers: [register],
+});
+
+// Orphaned-sends reconciler (Task #160): rows force-failed because they
+// were stuck in pending/attempting on a finished campaign.
+export const orphanedSendsReconciledTotal = new client.Counter({
+  name: 'critsend_orphaned_sends_reconciled_total',
+  help: 'Total campaign_sends rows force-failed by the orphaned-sends reconciler',
+  registers: [register],
+});
+
 export const httpRequestsTotal = new client.Counter({
   name: 'critsend_http_requests_total',
   help: 'Total HTTP requests',

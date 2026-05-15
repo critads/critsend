@@ -931,8 +931,17 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     // `pg_try_advisory_lock(LOCK_KEYS.PRESSURE_DRAIN)` inside the worker
     // keeps this safe if a real worker process is later re-enabled — only
     // one node ever drains a tick.
-    const { startPressureGuardWorker } = await import('./workers/pressure-guard-worker');
-    startPressureGuardWorker();
+    // Task #160: when DRAIN_PROCESS_DEDICATED=true, the pressure-guard
+    // drainer runs in its own PM2 process (`critsend-drainer`) — skip the
+    // embedded drain here so the web process never holds drain pool slots.
+    // The leader lease (pressure_guard_leader) keeps this safe even during
+    // a partial rollout (only one process drains a tick anyway).
+    if (process.env.DRAIN_PROCESS_DEDICATED === 'true') {
+      logger.info('[WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)');
+    } else {
+      const { startPressureGuardWorker } = await import('./workers/pressure-guard-worker');
+      startPressureGuardWorker();
+    }
 
     messageQueue.onMessage('import_jobs', () => {
       logger.info('[IMPORT_GUARDIAN] import_jobs NOTIFY received — scheduling fallback poll in 10 s');

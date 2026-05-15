@@ -172,6 +172,15 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
             expires_at timestamptz NOT NULL
           )
         `);
+        // Task #160: per-lease last-tick heartbeat — written by the
+        // drain loop on every successful (or failed) tick so a remote
+        // health endpoint can answer "is the drain still alive?" without
+        // relying on in-process state (the drainer runs in its own PM2
+        // process and the web cannot inspect its memory).
+        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_at timestamptz`);
+        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_drained int NOT NULL DEFAULT 0`);
+        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_errors int NOT NULL DEFAULT 0`);
+        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_eligible int NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
         // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).

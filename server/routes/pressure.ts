@@ -27,7 +27,8 @@
 import type { Express, Request, Response } from "express";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../db";
+import { db, pool } from "../db";
+import { LOCK_KEYS } from "../bootstrap-lock";
 import { logger } from "../logger";
 import {
   PRESSURE_WINDOW_HOURS,
@@ -207,6 +208,95 @@ function requireAdmin(req: Request, res: Response): Promise<boolean> {
 }
 
 export function registerPressureRoutes(app: Express): void {
+  // ── Drain healthcheck (Task #160) ───────────────────────────────────
+  // GET /api/admin/pressure-drain/health
+  // Reports cross-process drain liveness by reading the leader-lease row
+  // (pressure_guard_leader). Works whether the drain runs embedded in
+  // web/worker OR in the dedicated `critsend-drainer` PM2 process — the
+  // lease row is the single source of truth and the drain heartbeats
+  // into it on every tick (see server/workers/pressure-guard-worker.ts).
+  //
+  // healthy=true requires:
+  //   • a fresh leader lease (expires_at > NOW())
+  //   • a recent heartbeat (last_tick_at < drainHealthMaxAgeSeconds ago)
+  //
+  // Operators alert on healthy=false; a sustained false means the drain
+  // process is dead or stuck and the deferred queue will grow unbounded.
+  app.get("/api/admin/pressure-drain/health", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const maxAgeSeconds = Math.max(
+      10,
+      Math.min(3600, parseInt((req.query.maxAge as string) ?? "60", 10) || 60),
+    );
+    try {
+      const lockKey = `pressure_guard:${LOCK_KEYS.PRESSURE_DRAIN}`;
+      const r = await pool.query<{
+        holder_id: string | null;
+        expires_at: Date | null;
+        last_tick_at: Date | null;
+        last_tick_drained: number | null;
+        last_tick_errors: number | null;
+        last_tick_eligible: number | null;
+        now: Date;
+      }>(
+        `SELECT l.holder_id, l.expires_at, l.last_tick_at,
+                l.last_tick_drained, l.last_tick_errors, l.last_tick_eligible,
+                NOW() AS now
+         FROM pressure_guard_leader l
+         WHERE l.lock_key = $1`,
+        [lockKey],
+      );
+      const row = r.rows[0];
+      const nowMs = (row?.now ?? new Date()).getTime();
+      const expiresAtMs = row?.expires_at ? new Date(row.expires_at).getTime() : null;
+      const lastTickAtMs = row?.last_tick_at ? new Date(row.last_tick_at).getTime() : null;
+      const leaseAlive = expiresAtMs != null && expiresAtMs > nowMs;
+      const lastTickAgeS = lastTickAtMs != null ? Math.max(0, (nowMs - lastTickAtMs) / 1000) : null;
+      const leaseExpiresInS = expiresAtMs != null ? (expiresAtMs - nowMs) / 1000 : null;
+      const tickFresh = lastTickAgeS != null && lastTickAgeS < maxAgeSeconds;
+
+      // Cross-cutting deferred backlog snapshot (one cheap aggregate).
+      const backlog = await pool.query<{
+        deferred_pending: string;
+        deferred_due: string;
+        sends_5m: string;
+      }>(
+        `SELECT
+           (SELECT COUNT(*)::text FROM campaign_sends
+              WHERE status='pending' AND eligible_at IS NOT NULL) AS deferred_pending,
+           (SELECT COUNT(*)::text FROM campaign_sends
+              WHERE status='pending' AND eligible_at IS NOT NULL AND eligible_at <= NOW()) AS deferred_due,
+           (SELECT COUNT(*)::text FROM campaign_sends
+              WHERE status='sent' AND sent_at > NOW() - INTERVAL '5 min') AS sends_5m`,
+      );
+      const b = backlog.rows[0];
+
+      const healthy = leaseAlive && tickFresh;
+      res.json({
+        healthy,
+        last_tick_age_s: lastTickAgeS,
+        last_tick_at: row?.last_tick_at ?? null,
+        leader_holder_id: row?.holder_id ?? null,
+        leader_expires_in_s: leaseExpiresInS,
+        last_tick_drained: row?.last_tick_drained ?? 0,
+        last_tick_errors: row?.last_tick_errors ?? 0,
+        last_tick_eligible: row?.last_tick_eligible ?? 0,
+        deferred_pending_total: Number(b?.deferred_pending ?? 0),
+        deferred_due_total: Number(b?.deferred_due ?? 0),
+        sends_5m: Number(b?.sends_5m ?? 0),
+        max_age_seconds: maxAgeSeconds,
+        reasons: {
+          lease_alive: leaseAlive,
+          tick_fresh: tickFresh,
+          has_lease_row: !!row,
+        },
+      });
+    } catch (err: any) {
+      logger.error(`[PRESSURE_DRAIN_HEALTH] query failed: ${err?.message || err}`);
+      res.status(500).json({ healthy: false, error: String(err?.message || err) });
+    }
+  });
+
   // ── Per-campaign queue view ─────────────────────────────────────────
   app.get("/api/campaigns/:id/queue", async (req: Request, res: Response) => {
     const campaignId = req.params.id;

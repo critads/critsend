@@ -81,6 +81,13 @@ export const IMPORT_CONCURRENCY = IMPORT_POOL_MAX;
 // ── Main pool ─────────────────────────────────────────────────────────────
 
 export const MAIN_POOL_MAX = (() => {
+  // Task #160: dedicated drainer process — tiny pool, sized for the
+  // pressure-guard worker only (claim txn + finalize txn + small
+  // overhead). Default 6 leaves plenty of room within the Neon Launch
+  // 50-conn budget when the web (30) + worker (18) are also running.
+  if (processType === 'drainer') {
+    return parseInt(process.env.DRAINER_PG_POOL_MAX || '6', 10);
+  }
   if (processType === 'worker') {
     return parseInt(process.env.WORKER_PG_POOL_MAX || '18', 10);
   }

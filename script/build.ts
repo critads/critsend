@@ -90,6 +90,22 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  // Task #160: dedicated pressure-guard drainer process.
+  console.log("building drainer...");
+  await esbuild({
+    entryPoints: ["server/drainer-main.ts"],
+    platform: "node",
+    bundle: true,
+    format: "cjs",
+    outfile: "dist/drainer-main.cjs",
+    define: {
+      "process.env.NODE_ENV": '"production"',
+    },
+    minify: true,
+    external: externals,
+    logLevel: "info",
+  });
 }
 
 buildAll().catch((err) => {

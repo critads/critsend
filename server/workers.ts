@@ -1784,7 +1784,24 @@ export async function startAllWorkers() {
   // process; the lock prevents double DDL.
   runPressureGuardBootstrap()
     .catch((err: any) => logger.error(`[PRESSURE_GUARD] Bootstrap (worker) failed (non-fatal): ${err?.message || err}`))
-    .finally(() => startPressureGuardWorker());
+    .finally(() => {
+      // Task #160: when DRAIN_PROCESS_DEDICATED=true, the dedicated
+      // critsend-drainer process runs the drain — skip the embedded one
+      // here so the worker process doesn't compete for the leader lease
+      // (it would always lose, but the wasted poll still costs DB calls).
+      if (process.env.DRAIN_PROCESS_DEDICATED === 'true') {
+        logger.info('[WORKER] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)');
+      } else {
+        startPressureGuardWorker();
+      }
+    });
+  // Task #160: orphaned-sends reconciler (closes campaign_sends rows
+  // stuck in pending/attempting on completed campaigns). Always-on in
+  // the worker — tiny cost, runs hourly, guards against silent counter
+  // drift after a process kill mid-claim.
+  import("./workers/orphaned-sends-reconciler").then(({ startOrphanedSendsReconciler }) => {
+    startOrphanedSendsReconciler();
+  }).catch((err: any) => logger.error(`[ORPHANED_SENDS_RECONCILER] failed to start: ${err?.message || err}`));
   startWorkerHeartbeat();
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
@@ -1802,6 +1819,10 @@ export function stopAllBackgroundWorkers() {
   stopFollowUpSpawner();
   stopAutomationProcessor();
   stopPressureGuardWorker();
+  // Task #160
+  import("./workers/orphaned-sends-reconciler").then(({ stopOrphanedSendsReconciler }) => {
+    stopOrphanedSendsReconciler();
+  }).catch(() => { /* shutdown best-effort */ });
   closeNullsinkTransporter();
   // Close all per-MTA SMTP transporter pools to flush sockets/FDs cleanly on
   // pm2 reload. Safe here because stopJobProcessor()/stopPressureGuardWorker()

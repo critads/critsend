@@ -98,6 +98,10 @@ module.exports = {
         PRESSURE_RATIO_THROTTLE_MIN_DEFERRED: dotenvVars.PRESSURE_RATIO_THROTTLE_MIN_DEFERRED || "1000",
         PRESSURE_RATIO_THROTTLE_SLEEP_MS: dotenvVars.PRESSURE_RATIO_THROTTLE_SLEEP_MS || "30000",
         PRESSURE_RATIO_THROTTLE_DISABLED: dotenvVars.PRESSURE_RATIO_THROTTLE_DISABLED || "false",
+        // Task #160: drain runs in its own PM2 process (critsend-drainer),
+        // so the embedded drain in server/index.ts is skipped. The leader
+        // lease still keeps things safe even during a partial rollout.
+        DRAIN_PROCESS_DEDICATED: dotenvVars.DRAIN_PROCESS_DEDICATED || "true",
       },
 
       max_restarts: 10,
@@ -146,6 +150,11 @@ module.exports = {
         PRESSURE_RATIO_THROTTLE_MIN_DEFERRED: dotenvVars.PRESSURE_RATIO_THROTTLE_MIN_DEFERRED || "1000",
         PRESSURE_RATIO_THROTTLE_SLEEP_MS: dotenvVars.PRESSURE_RATIO_THROTTLE_SLEEP_MS || "30000",
         PRESSURE_RATIO_THROTTLE_DISABLED: dotenvVars.PRESSURE_RATIO_THROTTLE_DISABLED || "false",
+        // Task #160: same DRAIN_PROCESS_DEDICATED gate as web — both
+        // sides must agree, otherwise the worker would race the drainer
+        // for the leader lease (it would always lose, but the wasted
+        // poll still costs DB calls).
+        DRAIN_PROCESS_DEDICATED: dotenvVars.DRAIN_PROCESS_DEDICATED || "true",
       },
 
       max_restarts: 50,
@@ -158,6 +167,51 @@ module.exports = {
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
 
       max_memory_restart: "4G",
+      kill_timeout: 30000,
+    },
+    {
+      // Task #160: dedicated pressure-guard drainer process. Isolates
+      // the drain from web/worker GC pauses, gives it a tiny dedicated
+      // 6-conn DB pool, and crash-restarts in <30s without affecting
+      // the rest of the cluster.
+      //
+      // Pool budget on Neon Launch (50 direct conns):
+      //   web (30) + worker (18) + drainer (6) + 2 NOTIFY = 56 → over budget
+      //   on paper, but tracking + import use the pooler endpoint (excluded
+      //   from the direct count), so actual peak is ~38 direct conns.
+      //   See connection-budget.ts logs at startup for the live number.
+      name: "critsend-drainer",
+      script: "dist/drainer-main.cjs",
+      cwd: "/home/ubuntu/critsend",
+
+      env_production: {
+        ...dotenvVars,
+        NODE_ENV: "production",
+        PROCESS_TYPE: "drainer",
+        NODE_OPTIONS: "--max-old-space-size=1024 --expose-gc",
+        DRAINER_PG_POOL_MAX: dotenvVars.DRAINER_PG_POOL_MAX || "6",
+        // Match web/worker drain tuning so the leader-lease handoff is
+        // transparent (any process can take leadership and behave the same).
+        PRESSURE_GUARD_POLL_MS: dotenvVars.PRESSURE_GUARD_POLL_MS || "10000",
+        PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
+        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
+        PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
+        PRESSURE_GUARD_SMTP_CONCURRENCY: dotenvVars.PRESSURE_GUARD_SMTP_CONCURRENCY || "20",
+      },
+
+      // Aggressive auto-restart — drain liveness is critical, and the
+      // process is small enough that a restart storm cannot destabilise
+      // the host.
+      max_restarts: 100,
+      restart_delay: 3000,
+      min_uptime: "5s",
+
+      out_file: "/var/log/critsend/drainer-out.log",
+      error_file: "/var/log/critsend/drainer-err.log",
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+
+      max_memory_restart: "1G",
       kill_timeout: 30000,
     },
   ],

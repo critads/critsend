@@ -45,3 +45,39 @@ admin until you remove the env var.
 ```sql
 UPDATE users SET is_admin = false WHERE username = 'alice';
 ```
+
+## Drain healthcheck (Task #160)
+
+Once an admin exists, you can verify the dedicated `critsend-drainer`
+process is alive end-to-end via:
+
+```bash
+curl -s -b "connect.sid=<your-session-cookie>" \
+  http://localhost:5000/api/admin/pressure-drain/health | jq
+```
+
+A healthy response looks like:
+
+```json
+{
+  "healthy": true,
+  "last_tick_age_s": 4.2,
+  "leader_holder_id": "12345-abcd1234",
+  "leader_expires_in_s": 53.1,
+  "last_tick_drained": 12,
+  "last_tick_errors": 0,
+  "last_tick_eligible": 3,
+  "deferred_pending_total": 1240,
+  "deferred_due_total": 0,
+  "sends_5m": 8421,
+  "max_age_seconds": 60,
+  "reasons": { "lease_alive": true, "tick_fresh": true, "has_lease_row": true }
+}
+```
+
+`healthy=false` means either the leader lease has expired (no process is
+draining at all) or the last tick is older than `?maxAge=60` seconds
+(drain is stuck). Both are alertable conditions: check
+`pm2 logs critsend-drainer` first, then the embedded fallbacks in
+`pm2 logs critsend-web` / `pm2 logs critsend-worker` (only relevant if
+`DRAIN_PROCESS_DEDICATED=false` is set in `.env`).
