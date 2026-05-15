@@ -1,0 +1,89 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+
+cat > /tmp/pressure-headers-sent.patch << 'PATCHEOF'
+--- a/server/routes/pressure.ts
++++ b/server/routes/pressure.ts
+@@ -406,9 +406,11 @@ export function registerPressureRoutes(app: Express): void {
+         campaigns: summary.rows,
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:queue", payload, 30_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -454,9 +456,11 @@ export function registerPressureRoutes(app: Express): void {
+         })),
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:throughput", payload, 20_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/throughput failed: $pm2 status ecosystem.config.cjs --update-envs | head -60t apply /tmp/pressure-he
+=== Diff appliqué ===
+diff --git a/server/routes/pressure.ts b/server/routes/pressure.ts
+index 94d9f8a..2d5485a 100644
+--- a/server/routes/pressure.ts
++++ b/server/routes/pressure.ts
+@@ -406,9 +406,11 @@ export function registerPressureRoutes(app: Express): void {
+         campaigns: summary.rows,
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:queue", payload, 30_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -454,9 +456,11 @@ export function registerPressureRoutes(app: Express): void {
+         })),
+         generatedAt: new Date().toISOString(),
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:throughput", payload, 20_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/throughput failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -491,9 +495,11 @@ export function registerPressureRoutes(app: Express): void {
+         defers: defers.rows,
+         flushes: flushes.rows,
+       };
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:curve", payload, 5 * 60_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/curve failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+@@ -517,9 +523,11 @@ export function registerPressureRoutes(app: Express): void {
+         ORDER BY deferred_rows DESC, next_eligible_at ASC
+         LIMIT 20
+       `);
++      if (res.headersSent) return;
+       res.json(cacheSet("admin:top-contacts", { rows: rows.rows }, 30_000));
+     } catch (err: any) {
+       logger.error(`[PRESSURE_QUEUE] /top-contacts failed: ${err?.message || err}`);
++      if (res.headersSent) return;
+       res.status(500).json({ error: err?.message || "Internal error" });
+     }
+   });
+building background worker...
+
+  dist/worker-main.cjs  1005.3kb
+
+⚡ Done in 76ms
+[PM2][ERROR] File ecosystem.config.cjs not found
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 0  │ critsend-web       │ fork     │ 52   │ online    │ 0%       │ 308.4mb  │
+│ 1  │ critsend-worker    │ fork     │ 55   │ online    │ 0%       │ 674.4mb  │
