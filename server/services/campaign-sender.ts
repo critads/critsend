@@ -4,7 +4,6 @@ import {
   precomputeBaseHtml,
   sendEmailWithNullsink,
   closeTransporter,
-  closeNullsinkTransporter,
   verifyTransporter,
   preregisterCampaignLinks,
 } from "../email-service";
@@ -802,8 +801,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       logger.error(`${logPrefix} Emergency flush failed: ${flushErr.message}`);
     }
 
-    if (mta) closeTransporter(mta.id);
-    closeNullsinkTransporter();
+    // NOTE: do NOT call closeTransporter(mta.id) here. The transporterPool is
+    // a process-wide cache shared by all concurrent campaigns sending via the
+    // same MTA. Closing it on a fatal error in this campaign yanks the pool
+    // out from under every other campaign mid-sendMail() and produces a
+    // cascade of "Cannot use a pool after calling end on the pool" errors,
+    // marking 10+ campaigns failed in the same millisecond. Same reasoning
+    // for closeNullsinkTransporter(). Nodemailer's socketTimeout handles
+    // idle connection cleanup; on process exit pools die with the process.
 
     const fatalClassified = (error as any)?.senderRetriesExhausted
       ? (error as any).classification
@@ -845,10 +850,10 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   }
   await flushBuffer();
 
-  if (mta) {
-    closeTransporter(mta.id);
-  }
-  closeNullsinkTransporter();
+  // NOTE: do NOT call closeTransporter(mta.id) here on normal completion.
+  // See the long comment in the catch block above — the transporterPool is a
+  // process-wide cache shared by all concurrent campaigns on this MTA, so
+  // closing it on success kills any peer campaign mid-sendMail().
 
   // After flushBuffer() all current-run sends are finalized (sent/failed).
   // Any remaining 'pending' rows must be carry-overs from the retry-failed

@@ -3,7 +3,7 @@ import { db, pool, isPoolHealthy } from "./db";
 import { sql } from "drizzle-orm";
 import type { CampaignJob } from "@shared/schema";
 import { processCampaignInternal } from "./services/campaign-sender";
-import { verifyTransporter, closeNullsinkTransporter } from "./email-service";
+import { verifyTransporter, closeNullsinkTransporter, closeAllTransporters } from "./email-service";
 import { messageQueue } from "./message-queue";
 import { logger } from "./logger";
 import { workerRestartsTotal, flushJobsTotal } from "./metrics";
@@ -1803,6 +1803,13 @@ export function stopAllBackgroundWorkers() {
   stopAutomationProcessor();
   stopPressureGuardWorker();
   closeNullsinkTransporter();
+  // Close all per-MTA SMTP transporter pools to flush sockets/FDs cleanly on
+  // pm2 reload. Safe here because stopJobProcessor()/stopPressureGuardWorker()
+  // above (and the await waitForActiveJobsToDrain in worker-main.ts:98) have
+  // already drained in-flight sendMail() calls — no peer campaign can be mid-
+  // send when this runs. Without this, every reload leaks N socket pools (one
+  // per active MTA) until the process exits via SIGKILL after the 30s grace.
+  closeAllTransporters();
   logger.info("[SHUTDOWN] All background workers stopped");
 }
 
