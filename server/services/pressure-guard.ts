@@ -394,11 +394,35 @@ export async function pressureGuardReserveSendSlots(
   if (subscriberIds.length === 0) return [];
 
   const CHUNK_SIZE = 1000;
+  // Parallel classification (perf optim 2026-05-18): chunks are independent
+  // (disjoint subscriber sets, per-subscriber pg_advisory_xact_locks inside
+  // each tx, separate `campaign_sends` upserts) so we can fan them out.
+  // Bounded to PRESSURE_GUARD_PARALLEL_CHUNKS (default 3) to respect the
+  // worker pool budget. Sizing math:
+  //   WORKER_PG_POOL_MAX default 18 (see connection-budget.ts)
+  //   MAX_CONCURRENT_CAMPAIGNS default 8 (see workers.ts)
+  //   Worst-case concurrent reserve txns = 8 × 3 = 24 (slight oversubscription
+  //   but chunks are ~150-300ms so pool wait is short; in practice not all 8
+  //   senders are in the reserve phase simultaneously — they alternate between
+  //   fetch, reserve, SMTP push, snowball check).
+  // Operators bumping PARALLEL >3 should also bump WORKER_PG_POOL_MAX so
+  // (MAX_CONCURRENT_CAMPAIGNS × PARALLEL) ≤ WORKER_PG_POOL_MAX + ~6 headroom.
+  // The pressure semantics (6h window, blocked_by_older, CAS on last_sent_at,
+  // per-subscriber advisory locks) are STRICTLY unchanged — we only parallelize
+  // the loop. The deferred_count UPDATE is hoisted out of the loop and applied
+  // ONCE at the end with the aggregated total (was: 1 UPDATE per chunk).
+  const PARALLEL = Math.max(1, Math.min(20,
+    Number(process.env.PRESSURE_GUARD_PARALLEL_CHUNKS ?? 3)
+  ));
   const winners: string[] = [];
   let totalDeferred = 0;
 
+  const chunks: string[][] = [];
   for (let i = 0; i < subscriberIds.length; i += CHUNK_SIZE) {
-    const chunk = subscriberIds.slice(i, i + CHUNK_SIZE);
+    chunks.push(subscriberIds.slice(i, i + CHUNK_SIZE));
+  }
+
+  const processChunk = async (chunk: string[]): Promise<{ winChunk: string[]; deferredN: number; blockedN: number }> => {
     // Drizzle expands `${jsArray}` as a row constructor `($1,$2,...)` which
     // is type `record`, not `text[]`. Casting record→text[] fails with
     // 42846 ("cannot cast type record to text[]"). Serialize the array as
@@ -511,32 +535,73 @@ export async function pressureGuardReserveSendSlots(
     const winChunk: string[] = Array.isArray(row?.winners) ? row.winners : [];
     const deferredN = Number(row?.deferred_n ?? 0);
     const blockedN = Number(row?.blocked_n ?? 0);
-    if (blockedN > 0) {
-      try { pressureGuardBlockedByOlderTotal.inc({ campaign_id: campaignId }, blockedN); } catch {}
-    }
+    return { winChunk, deferredN, blockedN };
+  };
 
-    if (winChunk.length) winners.push(...winChunk);
-    if (deferredN > 0) {
-      totalDeferred += deferredN;
-      // `campaigns.pending_count` is initialized to the full audience size
-      // by the campaign-sender BEFORE the first CAS batch (see
-      // server/services/campaign-sender.ts updateCampaign({ pendingCount: total })).
-      // Deferred rows therefore already live inside `pending_count` — we MUST NOT
-      // re-increment it here or progress bars and "campaign complete" detection
-      // will overflow. Only the cumulative audit counter `deferred_count` and
-      // the Prometheus gauge are bumped per defer event.
+  // Bounded-parallelism pool: at most PARALLEL chunks in flight at once.
+  // Each chunk holds 1 transaction-pooled backend for ~150-300ms; with
+  // PARALLEL=5 and CHUNK_SIZE=1000 this drives ~5000 contacts/200ms ≈
+  // 25k contacts/sec classification throughput per sender, vs the previous
+  // serial ~5k/sec.
+  //
+  // Error-handling contract (architect-reviewed):
+  //  - Each chunk runs in its own db.transaction → atomic per chunk: either
+  //    both the reserved-inserts AND deferred-inserts commit, or neither do.
+  //  - We use Promise.allSettled (NOT Promise.all) so a single chunk failure
+  //    does NOT discard the deferred-row inserts already committed by sibling
+  //    chunks. Without this, the previous per-chunk UPDATE of deferred_count
+  //    was the only safety net; with consolidated UPDATE at the end, a
+  //    fail-fast Promise.all would leak the counter increment for committed
+  //    chunks.
+  //  - We always persist `campaigns.deferred_count += sum(successful)` BEFORE
+  //    re-throwing the first rejection. Sender's job-level retry will then
+  //    re-call us with the same audience batch; ON CONFLICT DO NOTHING
+  //    guarantees no double-counting of already-deferred subscriber rows
+  //    (the unique (campaign_id, subscriber_id) index dedups), so the
+  //    counter stays consistent even across retries.
+  let cursor = 0;
+  const firstError: { err: unknown } | null = { err: null };
+  const runWorker = async (): Promise<void> => {
+    while (true) {
+      const myIdx = cursor++;
+      if (myIdx >= chunks.length) return;
+      try {
+        const { winChunk, deferredN, blockedN } = await processChunk(chunks[myIdx]);
+        if (blockedN > 0) {
+          try { pressureGuardBlockedByOlderTotal.inc({ campaign_id: campaignId }, blockedN); } catch {}
+        }
+        if (winChunk.length) winners.push(...winChunk);
+        if (deferredN > 0) {
+          totalDeferred += deferredN;
+          try { pressureGuardDeferredTotal.inc({ campaign_id: campaignId }, deferredN); } catch {}
+        }
+      } catch (err) {
+        if (firstError.err == null) firstError.err = err;
+        // Continue draining the worker so sibling chunks complete and we can
+        // persist their committed deferred counts before re-throwing.
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks.length) }, () => runWorker()));
+
+  // Single consolidated UPDATE for the whole call (was: 1 UPDATE per chunk).
+  // `campaigns.pending_count` is initialized to the full audience size by the
+  // campaign-sender BEFORE the first CAS batch — deferred rows already live
+  // inside `pending_count`, so we ONLY bump `deferred_count` here.
+  // Persisted EVEN ON partial failure so successful chunks' counters stick.
+  if (totalDeferred > 0) {
+    try {
       await db.execute(sql`
         UPDATE campaigns
-        SET deferred_count = deferred_count + ${deferredN}
+        SET deferred_count = deferred_count + ${totalDeferred}
         WHERE id = ${campaignId}
       `);
-      try { pressureGuardDeferredTotal.inc({ campaign_id: campaignId }, deferredN); } catch {}
+    } catch (e: any) {
+      logger.warn(`[PRESSURE_GUARD] Campaign ${campaignId}: deferred_count UPDATE failed (non-fatal): ${e?.message || e}`);
     }
-  }
-
-  if (totalDeferred > 0) {
     logger.info(`[PRESSURE_GUARD] Campaign ${campaignId}: reserved ${winners.length}, deferred ${totalDeferred}`);
   }
+  if (firstError.err != null) throw firstError.err;
   return winners;
 }
 
