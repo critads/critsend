@@ -9,6 +9,7 @@ export interface CampaignProgressProps {
   status?: string;
   className?: string;
   testId?: string;
+  size?: "sm" | "lg";
 }
 
 interface ProgressBreakdown {
@@ -70,24 +71,35 @@ function computeBreakdown({
 export function CampaignProgress(props: CampaignProgressProps) {
   const b = computeBreakdown(props);
   const isEmpty = b.total === 0;
+  const isLarge = props.size === "lg";
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className={cn("flex flex-col gap-1 min-w-[100px]", props.className)}
+          className={cn(
+            "flex flex-col min-w-[100px]",
+            isLarge ? "gap-2" : "gap-1",
+            props.className,
+          )}
           data-testid={props.testId ?? "campaign-progress"}
         >
           <div className="flex items-center justify-between gap-2">
             <span
-              className="text-xs font-medium tabular-nums text-foreground"
+              className={cn(
+                "font-medium tabular-nums text-foreground",
+                isLarge ? "text-2xl" : "text-xs",
+              )}
               data-testid={`${props.testId ?? "campaign-progress"}-percent`}
             >
               {isEmpty ? "—" : `${b.percent}%`}
             </span>
             {b.deferred > 0 && (
               <span
-                className="text-[10px] font-medium text-amber-600 dark:text-amber-400 tabular-nums"
+                className={cn(
+                  "font-medium text-amber-600 dark:text-amber-400 tabular-nums",
+                  isLarge ? "text-sm" : "text-[10px]",
+                )}
                 data-testid={`${props.testId ?? "campaign-progress"}-deferred`}
                 title="Deferred by Marketing Pressure Guard"
               >
@@ -96,7 +108,10 @@ export function CampaignProgress(props: CampaignProgressProps) {
             )}
           </div>
           <div
-            className="relative h-2 w-full overflow-hidden rounded-full bg-muted"
+            className={cn(
+              "relative w-full overflow-hidden rounded-full bg-muted",
+              isLarge ? "h-4" : "h-2",
+            )}
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}

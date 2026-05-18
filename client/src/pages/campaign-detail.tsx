@@ -32,6 +32,7 @@ import {
   Gauge,
 } from "lucide-react";
 import type { Campaign, Mta, Segment } from "@shared/schema";
+import { CampaignProgress } from "@/components/campaign-progress";
 
 interface SnowballStatus {
   deferred: number;
@@ -397,6 +398,39 @@ export default function CampaignDetail() {
           </Link>
         </div>
       </div>
+
+      {/* Task #164 — mirror the campaigns-list stacked progress bar
+          prominently at the top of the detail page so users see send
+          progress at a glance without scrolling to the Statistics card. */}
+      <Card data-testid="card-campaign-progress">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              Send Progress
+            </h2>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {(campaign.sentCount + campaign.failedCount).toLocaleString()}
+              {" / "}
+              {(
+                campaign.sentCount +
+                campaign.failedCount +
+                (campaign.pendingCount ?? 0) +
+                (campaign.deferredCount ?? 0)
+              ).toLocaleString()}
+            </span>
+          </div>
+          <CampaignProgress
+            sentCount={campaign.sentCount}
+            failedCount={campaign.failedCount}
+            pendingCount={campaign.pendingCount ?? 0}
+            deferredCount={campaign.deferredCount ?? 0}
+            status={campaign.status}
+            size="lg"
+            className="w-full"
+            testId="progress-campaign-detail"
+          />
+        </CardContent>
+      </Card>
 
       {/* Auto-resend (Task #56) — show linked counterpart when present so the
           user can jump between parent and follow-up child in one click. The
