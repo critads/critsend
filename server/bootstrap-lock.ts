@@ -94,13 +94,48 @@ export async function indexExistsAndValid(indexName: string): Promise<boolean> {
     if (result.rows.length === 0) return false;
     if (!result.rows[0].valid) {
       logger.warn(`[BOOTSTRAP_LOCK] Index ${indexName} exists but is INVALID — will be dropped and rebuilt`);
-      await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS "${indexName}"`);
+      // DROP CONCURRENTLY on a large table can also exceed the global
+      // statement_timeout; run on a dedicated client with timeout=0.
+      await runIndexDdlNoTimeout(`DROP INDEX CONCURRENTLY IF EXISTS "${indexName}"`, `DROP ${indexName}`);
       return false;
     }
     return true;
   } catch (err: any) {
     logger.warn(`[BOOTSTRAP_LOCK] Failed to check index existence for ${indexName}: ${err?.message || err}`);
     return false;
+  }
+}
+
+/**
+ * Run `CREATE INDEX CONCURRENTLY` (or any single-statement DDL that cannot
+ * live in a transaction) on a dedicated client with `statement_timeout`
+ * disabled and a bounded `lock_timeout`. Required for partial/GIN indexes
+ * on large tables (campaign_sends ~11GB / 60M rows, subscribers ~1.5M GIN
+ * trigram) where the global 2-min Neon statement_timeout reliably aborts
+ * the build mid-flight and leaves the index in the INVALID state — which
+ * then poisons subsequent boots until manually dropped.
+ *
+ * Note: CONCURRENTLY itself cannot run inside a transaction block, so we
+ * issue the SETs and the DDL as separate top-level statements on the same
+ * session. `statement_timeout=0` is session-scoped and dies with the
+ * client (which we release in `finally`), so it never leaks to the pool.
+ */
+export async function runIndexDdlNoTimeout(ddl: string, label: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query(`SET statement_timeout = 0`);
+    await client.query(`SET lock_timeout = '5min'`);
+    await client.query(ddl);
+  } catch (err: any) {
+    logger.warn(`[BOOTSTRAP_LOCK] ${label} DDL failed: ${err?.message || err}`);
+    throw err;
+  } finally {
+    // Defensive: clear session-scoped SETs before returning the client to
+    // the pool. node-postgres recycles clients across consumers, and we
+    // don't want a leftover `statement_timeout=0` to bleed into the next
+    // borrower (which could be a hot-path query that should be bounded).
+    try { await client.query(`RESET statement_timeout; RESET lock_timeout`); } catch {}
+    try { client.release(); } catch {}
   }
 }
 

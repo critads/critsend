@@ -27,7 +27,7 @@ import { pool, db } from "../db";
 import { sql } from "drizzle-orm";
 import { toPgTextArray } from "../utils/pg-array";
 import { logger } from "../logger";
-import { withAdvisoryLock, LOCK_KEYS, indexExistsAndValid } from "../bootstrap-lock";
+import { withAdvisoryLock, LOCK_KEYS, indexExistsAndValid, runIndexDdlNoTimeout } from "../bootstrap-lock";
 import {
   pressureGuardDeferredTotal,
   pressureGuardBlockedByOlderTotal,
@@ -288,7 +288,12 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
       try {
         const exists = await indexExistsAndValid(name);
         if (!exists) {
-          await pool.query(ddl);
+          // Task #166: build on a dedicated client with statement_timeout=0.
+          // campaign_sends is ~11GB / 60M rows; the global Neon
+          // statement_timeout=2min reliably aborts CONCURRENTLY builds
+          // mid-flight and leaves them in the INVALID state, which then
+          // blocks every subsequent boot.
+          await runIndexDdlNoTimeout(ddl, `CREATE ${name}`);
           logger.info(`[PRESSURE_GUARD] Created partial index ${name}`);
         }
       } catch (err: any) {
