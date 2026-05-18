@@ -34,6 +34,14 @@ import {
 import type { Campaign, Mta, Segment } from "@shared/schema";
 import { CampaignProgress } from "@/components/campaign-progress";
 
+// The campaign detail endpoint returns a base Campaign row PLUS the live
+// `pressureHeldCount` subquery (same field exposed on the list endpoint —
+// rows in `campaign_sends` with `status='pending' AND eligible_at IS NOT NULL`
+// for this campaign). Typed locally because the detail endpoint hasn't been
+// promoted into shared/schema.ts as its own named row type yet; aligning the
+// shape here keeps the progress bar fully typed without `as any`.
+type CampaignWithLiveCounts = Campaign & { pressureHeldCount?: number };
+
 interface SnowballStatus {
   deferred: number;
   processed: number;
@@ -253,7 +261,7 @@ export default function CampaignDetail() {
   const [errorsPage, setErrorsPage] = useState(1);
   const ERRORS_PER_PAGE = 50;
 
-  const { data: campaign, isLoading: campaignLoading } = useQuery<Campaign>({
+  const { data: campaign, isLoading: campaignLoading } = useQuery<CampaignWithLiveCounts>({
     queryKey: ["/api/campaigns", campaignId],
     enabled: !!campaignId,
   });
@@ -415,7 +423,7 @@ export default function CampaignDetail() {
                 campaign.sentCount +
                 campaign.failedCount +
                 (campaign.pendingCount ?? 0) +
-                ((campaign as any).pressureHeldCount ?? 0)
+                (campaign.pressureHeldCount ?? 0)
               ).toLocaleString()}
             </span>
           </div>
@@ -423,7 +431,7 @@ export default function CampaignDetail() {
             sentCount={campaign.sentCount}
             failedCount={campaign.failedCount}
             pendingCount={campaign.pendingCount ?? 0}
-            heldCount={(campaign as any).pressureHeldCount ?? 0}
+            heldCount={campaign.pressureHeldCount ?? 0}
             status={campaign.status}
             size="lg"
             className="w-full"

@@ -51,9 +51,7 @@ function computeBreakdown({
   // while only 40 rows were truly in flight — bar showed 50% instead of
   // the real ~99.8%). Two impossible-state signals flag the drift:
   //   (a) failedCount < 0   — arithmetic underflow in a counter-update path
-  //   (b) pendingCount < heldCount — held is a subset of pending in DB
-  //       semantics (held rows ARE pending rows with eligible_at set), so
-  //       pending can never be strictly less than held.
+  //   (b) pendingCount < heldCount — see "held ⊂ pending" note below.
   // When either fires, the cached pending/failed counters on `campaigns`
   // are not trustworthy. Fall back to the live signals we DO have
   // (`sentCount` is close to reality, `heldCount` is a live subquery): set
@@ -63,18 +61,30 @@ function computeBreakdown({
   const counterDrift =
     (failedCount || 0) < 0 || (pendingCount || 0) < held;
   const failed = counterDrift ? 0 : Math.max(0, failedCount || 0);
-  const pending = counterDrift ? 0 : Math.max(0, pendingCount || 0);
+  const pendingRaw = counterDrift ? 0 : Math.max(0, pendingCount || 0);
 
+  // `held` is a strict subset of `pending` in DB semantics: held rows ARE
+  // pending rows with `eligible_at IS NOT NULL` (see pressure-guard.ts
+  // around L516-522: deferred rows already live inside `pending_count`,
+  // it is intentionally NOT re-incremented for the held slice). Therefore
+  // we must NOT add `held + pending` into the same denominator — that
+  // double-counts the deferred work. Split pending into its disjoint
+  // pieces:
+  //   pendingActive = pending - held  (still to be claimed / freshly inserted)
+  //   held                            (parked in pressure-guard drain queue)
+  const pendingActive = Math.max(0, pendingRaw - held);
   const finalized = sent + failed;
-  const total = finalized + pending + held;
+  const total = finalized + held + pendingActive;
 
   if (total === 0) {
-    const forcedFull = status === "completed";
+    // Zero-work neutral empty state: bar renders empty, percent reads 0%
+    // (a completed campaign with zero recipients still shows 0% — it's a
+    // truthful representation of "nothing to do, nothing was done").
     return {
-      sent, failed, pending, held, finalized,
-      total: forcedFull ? Math.max(finalized, 1) : 0,
-      percent: forcedFull ? 100 : 0,
-      sentPct: forcedFull ? 100 : 0,
+      sent, failed, pending: pendingActive, held, finalized,
+      total: 0,
+      percent: 0,
+      sentPct: 0,
       failedPct: 0,
       heldPct: 0,
       pendingPct: 0,
@@ -84,13 +94,13 @@ function computeBreakdown({
   const sentPct = (sent / total) * 100;
   const failedPct = (failed / total) * 100;
   const heldPct = (held / total) * 100;
-  const pendingPct = (pending / total) * 100;
+  const pendingPct = (pendingActive / total) * 100;
   let percent = Math.round((finalized / total) * 100);
   if (status === "completed") percent = 100;
   if (status !== "completed" && percent === 100 && finalized < total) percent = 99;
 
   return {
-    sent, failed, pending, held, finalized, total,
+    sent, failed, pending: pendingActive, held, finalized, total,
     percent,
     sentPct, failedPct, heldPct, pendingPct,
   };
@@ -116,7 +126,7 @@ export function CampaignProgress(props: CampaignProgressProps) {
               )}
               data-testid={`${props.testId ?? "campaign-progress"}-percent`}
             >
-              {isEmpty ? "—" : `${b.percent}%`}
+              {`${b.percent}%`}
             </span>
             {b.held > 0 && (
               <span
