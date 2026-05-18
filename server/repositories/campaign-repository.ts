@@ -90,10 +90,19 @@ export async function getCampaignsPaginated(opts: {
       sentCount: campaigns.sentCount,
       pendingCount: campaigns.pendingCount,
       failedCount: campaigns.failedCount,
-      // Cumulative defer count, surfaced on the campaigns list so the UI
-      // progress bar can show how many sends are currently held by the
-      // Marketing Pressure Guard (Task #163).
+      // Cumulative defer count — kept for back-compat / metrics. Do NOT use
+      // this for "currently held by pressure guard" UX, it only grows.
       deferredCount: campaigns.deferredCount,
+      // Live held count (Task #163 follow-up): rows still parked in the
+      // pressure-guard drain queue right now. Backed by the partial index
+      // `campaign_sends_pressure_held_per_campaign_idx` to keep this
+      // per-campaign COUNT cheap on the paginated list endpoint.
+      pressureHeldCount: sql<number>`(
+        SELECT COUNT(*)::int FROM ${campaignSends}
+        WHERE ${campaignSends.campaignId} = ${campaigns.id}
+          AND ${campaignSends.status} = 'pending'
+          AND ${campaignSends.eligibleAt} IS NOT NULL
+      )`,
       autoRetryCount: campaigns.autoRetryCount,
       uniqueOpensCount: campaigns.uniqueOpensCount,
       totalOpensCount: campaigns.totalOpensCount,
@@ -154,6 +163,45 @@ export async function ensureCampaignOriginalsListIndex(): Promise<LockResult | "
     logger.info("[INDEX] campaigns_originals_created_at_idx creation skipped — another process is handling it");
   } else {
     logger.warn("[INDEX] campaigns_originals_created_at_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
+/**
+ * Per-campaign partial index used by the live "held by pressure guard" count
+ * surfaced on the `/api/campaigns` list (UI progress bar — Task #163 follow-up).
+ *
+ * The existing `campaign_sends_pressure_deferred_idx` is keyed on
+ * `(eligible_at)` and is great for the FIFO drain poll, but it forces
+ * Postgres to scan every deferred row in the system when we want a
+ * per-campaign count. This index narrows that to a per-campaign lookup.
+ *
+ * `WHERE status='pending' AND eligible_at IS NOT NULL` matches exactly the
+ * predicate of the subquery in `listCampaignsPaginated`, so the planner can
+ * use this as a covering index and answer the count from the index alone.
+ */
+export async function ensureCampaignSendsPressureHeldIndex(): Promise<LockResult | "exists"> {
+  if (await indexExistsAndValid("campaign_sends_pressure_held_per_campaign_idx")) {
+    logger.info("[INDEX] campaign_sends_pressure_held_per_campaign_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGN_SENDS_PRESSURE_HELD,
+    "CAMPAIGN_SENDS_PRESSURE_HELD",
+    async (_lockClient) => {
+      await pool.query(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_pressure_held_per_campaign_idx
+           ON campaign_sends (campaign_id)
+           WHERE status = 'pending' AND eligible_at IS NOT NULL`,
+      );
+    },
+  );
+  if (result === "ran") {
+    logger.info("[INDEX] campaign_sends_pressure_held_per_campaign_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[INDEX] campaign_sends_pressure_held_per_campaign_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[INDEX] campaign_sends_pressure_held_per_campaign_idx creation encountered an error during advisory lock");
   }
   return result;
 }

@@ -678,7 +678,15 @@ export type EmailHeader = typeof emailHeaders.$inferSelect;
 export type InsertEmailHeader = z.infer<typeof insertEmailHeaderSchema>;
 
 export type Campaign = typeof campaigns.$inferSelect;
-export type CampaignListItem = Campaign & { mtaName: string | null };
+export type CampaignListItem = Campaign & {
+  mtaName: string | null;
+  // Live count of sends currently held by the Marketing Pressure Guard for
+  // this campaign — i.e. `campaign_sends` rows with `status = 'pending'`
+  // AND `eligible_at IS NOT NULL`. Computed on every list query (not a
+  // cached counter) so it drops to 0 the moment the drain queue empties,
+  // unlike the cumulative `campaigns.deferred_count`.
+  pressureHeldCount: number;
+};
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
 
 export type CampaignStat = typeof campaignStats.$inferSelect;

@@ -415,7 +415,7 @@ export default function CampaignDetail() {
                 campaign.sentCount +
                 campaign.failedCount +
                 (campaign.pendingCount ?? 0) +
-                (campaign.deferredCount ?? 0)
+                ((campaign as any).pressureHeldCount ?? 0)
               ).toLocaleString()}
             </span>
           </div>
@@ -423,7 +423,7 @@ export default function CampaignDetail() {
             sentCount={campaign.sentCount}
             failedCount={campaign.failedCount}
             pendingCount={campaign.pendingCount ?? 0}
-            deferredCount={campaign.deferredCount ?? 0}
+            heldCount={(campaign as any).pressureHeldCount ?? 0}
             status={campaign.status}
             size="lg"
             className="w-full"

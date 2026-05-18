@@ -197,10 +197,9 @@ export default function Campaigns() {
               ...newCampaign,
               sentCount: Math.max(newCampaign.sentCount || 0, oldCampaign.sentCount || 0),
               failedCount: Math.max(newCampaign.failedCount || 0, oldCampaign.failedCount || 0),
-              // Keep monotonic on deferred too — the cumulative `deferred_count`
-              // counter on `campaigns` only ever grows, so reverting it would
-              // be a regression caused by a transient lag between worker writes.
-              deferredCount: Math.max(newCampaign.deferredCount || 0, oldCampaign.deferredCount || 0),
+              // NOTE: pressureHeldCount is intentionally NOT held monotonic —
+              // it's a live snapshot of the drain queue, so it SHOULD shrink
+              // (often quickly) as the drain worker dispatches deferred sends.
             };
           }
           return newCampaign;
@@ -618,7 +617,7 @@ export default function Campaigns() {
                           sentCount={campaign.sentCount}
                           failedCount={campaign.failedCount}
                           pendingCount={campaign.pendingCount ?? 0}
-                          deferredCount={campaign.deferredCount ?? 0}
+                          heldCount={campaign.pressureHeldCount ?? 0}
                           status={campaign.status}
                           testId={`progress-campaign-${campaign.id}`}
                         />

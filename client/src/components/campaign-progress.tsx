@@ -5,127 +5,118 @@ export interface CampaignProgressProps {
   sentCount: number;
   failedCount: number;
   pendingCount: number;
-  deferredCount: number;
+  /**
+   * Live count of sends currently parked in the Marketing Pressure Guard
+   * drain queue (i.e. `campaign_sends.status = 'pending'` AND
+   * `eligible_at IS NOT NULL`).
+   *
+   * IMPORTANT: this MUST be the live snapshot count (e.g. the
+   * `pressureHeldCount` field added to the campaigns list endpoint), NOT
+   * `campaigns.deferred_count` — that column is a lifetime cumulative
+   * counter and stays inflated forever after a campaign completes.
+   */
+  heldCount: number;
   status?: string;
+  size?: "sm" | "lg";
   className?: string;
   testId?: string;
-  size?: "sm" | "lg";
 }
 
 interface ProgressBreakdown {
   sent: number;
   failed: number;
   pending: number;
-  deferred: number;
+  held: number;
   finalized: number;
   total: number;
   percent: number;
   sentPct: number;
   failedPct: number;
-  deferredPct: number;
+  heldPct: number;
   pendingPct: number;
 }
-
-// Statuses where the campaign is no longer producing live work. In these
-// states the `deferred_count` column on `campaigns` is meaningless to the
-// user: it is a cumulative lifetime counter (every pressure-guard defer
-// increments it, including subscribers that were later sent successfully),
-// so a fully-completed campaign can still report e.g. "324k held" even
-// though the actual drain queue is empty. We treat deferred = 0 for these
-// terminal statuses so the "held" badge disappears and the percentage math
-// is not polluted by historical defer attempts.
-const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "draft"]);
 
 function computeBreakdown({
   sentCount,
   failedCount,
   pendingCount,
-  deferredCount,
+  heldCount,
   status,
 }: CampaignProgressProps): ProgressBreakdown {
   const sent = Math.max(0, sentCount || 0);
   const failed = Math.max(0, failedCount || 0);
   const pending = Math.max(0, pendingCount || 0);
-  const isTerminal = status ? TERMINAL_STATUSES.has(status) : false;
-  // For terminal campaigns: ignore the cumulative deferred counter — nothing
-  // is actually held anymore. For active campaigns: trust the counter as a
-  // best-effort upper-bound until we wire a live `count(*) where eligible_at
-  // > now()` query (see follow-up).
-  const deferred = isTerminal ? 0 : Math.max(0, deferredCount || 0);
+  const held = Math.max(0, heldCount || 0);
   const finalized = sent + failed;
-  const total = finalized + pending + deferred;
+  const total = finalized + pending + held;
 
   if (total === 0) {
     const forcedFull = status === "completed";
     return {
-      sent, failed, pending, deferred, finalized,
+      sent, failed, pending, held, finalized,
       total: forcedFull ? Math.max(finalized, 1) : 0,
       percent: forcedFull ? 100 : 0,
       sentPct: forcedFull ? 100 : 0,
       failedPct: 0,
-      deferredPct: 0,
+      heldPct: 0,
       pendingPct: 0,
     };
   }
 
   const sentPct = (sent / total) * 100;
   const failedPct = (failed / total) * 100;
-  const deferredPct = (deferred / total) * 100;
+  const heldPct = (held / total) * 100;
   const pendingPct = (pending / total) * 100;
   let percent = Math.round((finalized / total) * 100);
   if (status === "completed") percent = 100;
   if (status !== "completed" && percent === 100 && finalized < total) percent = 99;
 
   return {
-    sent, failed, pending, deferred, finalized, total,
+    sent, failed, pending, held, finalized, total,
     percent,
-    sentPct, failedPct, deferredPct, pendingPct,
+    sentPct, failedPct, heldPct, pendingPct,
   };
 }
 
 export function CampaignProgress(props: CampaignProgressProps) {
   const b = computeBreakdown(props);
   const isEmpty = b.total === 0;
-  const isLarge = props.size === "lg";
+  const isLg = props.size === "lg";
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <div
-          className={cn(
-            "flex flex-col min-w-[100px]",
-            isLarge ? "gap-2" : "gap-1",
-            props.className,
-          )}
+          className={cn("flex flex-col gap-1 min-w-[100px]", props.className)}
           data-testid={props.testId ?? "campaign-progress"}
         >
           <div className="flex items-center justify-between gap-2">
             <span
               className={cn(
                 "font-medium tabular-nums text-foreground",
-                isLarge ? "text-2xl" : "text-xs",
+                isLg ? "text-2xl" : "text-xs",
               )}
               data-testid={`${props.testId ?? "campaign-progress"}-percent`}
             >
               {isEmpty ? "—" : `${b.percent}%`}
             </span>
-            {b.deferred > 0 && (
+            {b.held > 0 && (
               <span
                 className={cn(
                   "font-medium text-amber-600 dark:text-amber-400 tabular-nums",
-                  isLarge ? "text-sm" : "text-[10px]",
+                  isLg ? "text-sm" : "text-[10px]",
                 )}
-                data-testid={`${props.testId ?? "campaign-progress"}-deferred`}
-                title="Deferred by Marketing Pressure Guard"
+                data-testid={`${props.testId ?? "campaign-progress"}-held`}
+                title="Currently held by Marketing Pressure Guard"
               >
-                {b.deferred.toLocaleString()} held
+                {b.held.toLocaleString()} held
               </span>
             )}
           </div>
           <div
             className={cn(
               "relative w-full overflow-hidden rounded-full bg-muted",
-              isLarge ? "h-4" : "h-2",
+              isLg ? "h-4" : "h-2",
             )}
             role="progressbar"
             aria-valuemin={0}
@@ -147,10 +138,10 @@ export function CampaignProgress(props: CampaignProgressProps) {
                     style={{ width: `${b.failedPct}%` }}
                   />
                 )}
-                {b.deferredPct > 0 && (
+                {b.heldPct > 0 && (
                   <div
                     className="h-full bg-amber-500 dark:bg-amber-400 transition-all"
-                    style={{ width: `${b.deferredPct}%` }}
+                    style={{ width: `${b.heldPct}%` }}
                   />
                 )}
                 {b.pendingPct > 0 && (
@@ -168,7 +159,7 @@ export function CampaignProgress(props: CampaignProgressProps) {
         {isEmpty ? (
           <div>No sends queued yet</div>
         ) : (
-          <div className="space-y-1 min-w-[180px]">
+          <div className="space-y-1 min-w-[200px]">
             <div className="flex items-center justify-between gap-4">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block h-2 w-2 rounded-sm bg-emerald-500" />
@@ -185,13 +176,13 @@ export function CampaignProgress(props: CampaignProgressProps) {
                 <span className="font-mono tabular-nums">{b.failed.toLocaleString()}</span>
               </div>
             )}
-            {b.deferred > 0 && (
+            {b.held > 0 && (
               <div className="flex items-center justify-between gap-4">
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block h-2 w-2 rounded-sm bg-amber-500" />
-                  Deferred (pressure)
+                  Held (pressure)
                 </span>
-                <span className="font-mono tabular-nums">{b.deferred.toLocaleString()}</span>
+                <span className="font-mono tabular-nums">{b.held.toLocaleString()}</span>
               </div>
             )}
             <div className="flex items-center justify-between gap-4">
