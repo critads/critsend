@@ -66,6 +66,7 @@ import {
   Clipboard,
 } from "lucide-react";
 import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
+import { CampaignProgress } from "@/components/campaign-progress";
 
 function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; onClick?: () => void; campaignId?: string }) {
   const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }> = {
@@ -196,6 +197,10 @@ export default function Campaigns() {
               ...newCampaign,
               sentCount: Math.max(newCampaign.sentCount || 0, oldCampaign.sentCount || 0),
               failedCount: Math.max(newCampaign.failedCount || 0, oldCampaign.failedCount || 0),
+              // Keep monotonic on deferred too — the cumulative `deferred_count`
+              // counter on `campaigns` only ever grows, so reverting it would
+              // be a regression caused by a transient lag between worker writes.
+              deferredCount: Math.max(newCampaign.deferredCount || 0, oldCampaign.deferredCount || 0),
             };
           }
           return newCampaign;
@@ -487,6 +492,7 @@ export default function Campaigns() {
                     <TableHead><span className="flex items-center gap-1"><Filter className="h-3.5 w-3.5" />Segment</span></TableHead>
                     <TableHead>MTA</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="min-w-[140px]">Progress</TableHead>
                     <TableHead>Sent</TableHead>
                     <TableHead><span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />Opens</span></TableHead>
                     <TableHead><span className="flex items-center gap-1"><MousePointerClick className="h-3.5 w-3.5" />Clicks</span></TableHead>
@@ -605,6 +611,16 @@ export default function Campaigns() {
                           status={campaign.status}
                           campaignId={campaign.id}
                           onClick={campaign.status === "failed" ? () => setFailedInfoCampaign(campaign) : undefined}
+                        />
+                      </TableCell>
+                      <TableCell data-testid={`cell-progress-${campaign.id}`}>
+                        <CampaignProgress
+                          sentCount={campaign.sentCount}
+                          failedCount={campaign.failedCount}
+                          pendingCount={campaign.pendingCount ?? 0}
+                          deferredCount={campaign.deferredCount ?? 0}
+                          status={campaign.status}
+                          testId={`progress-campaign-${campaign.id}`}
                         />
                       </TableCell>
                       <TableCell>

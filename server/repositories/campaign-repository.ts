@@ -90,6 +90,10 @@ export async function getCampaignsPaginated(opts: {
       sentCount: campaigns.sentCount,
       pendingCount: campaigns.pendingCount,
       failedCount: campaigns.failedCount,
+      // Cumulative defer count, surfaced on the campaigns list so the UI
+      // progress bar can show how many sends are currently held by the
+      // Marketing Pressure Guard (Task #163).
+      deferredCount: campaigns.deferredCount,
       autoRetryCount: campaigns.autoRetryCount,
       uniqueOpensCount: campaigns.uniqueOpensCount,
       totalOpensCount: campaigns.totalOpensCount,
