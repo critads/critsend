@@ -170,28 +170,32 @@ export function CampaignProgress(props: CampaignProgressProps) {
           >
             {!isEmpty && (
               <div className="absolute inset-0 flex">
-                {b.sentPct > 0 && (
+                {/* Three-segment bar per spec:
+                    1. Completed (green) = sent + failed — both are
+                       terminal/finalized outcomes from the user's
+                       perspective; the per-status breakdown lives in
+                       the tooltip below.
+                    2. Held (amber)      = deferred by pressure guard.
+                    3. Pending (gray)    = waiting in claim queue. */}
+                {b.sentPct + b.failedPct > 0 && (
                   <div
                     className="h-full bg-emerald-500 dark:bg-emerald-400 transition-all"
-                    style={{ width: `${b.sentPct}%` }}
-                  />
-                )}
-                {b.failedPct > 0 && (
-                  <div
-                    className="h-full bg-destructive transition-all"
-                    style={{ width: `${b.failedPct}%` }}
+                    style={{ width: `${b.sentPct + b.failedPct}%` }}
+                    data-testid={`${props.testId ?? "campaign-progress"}-segment-completed`}
                   />
                 )}
                 {b.heldPct > 0 && (
                   <div
                     className="h-full bg-amber-500 dark:bg-amber-400 transition-all"
                     style={{ width: `${b.heldPct}%` }}
+                    data-testid={`${props.testId ?? "campaign-progress"}-segment-held`}
                   />
                 )}
                 {b.pendingPct > 0 && (
                   <div
                     className="h-full bg-muted-foreground/30 transition-all"
                     style={{ width: `${b.pendingPct}%` }}
+                    data-testid={`${props.testId ?? "campaign-progress"}-segment-pending`}
                   />
                 )}
               </div>
