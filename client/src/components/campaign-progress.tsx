@@ -207,6 +207,9 @@ export function CampaignProgress(props: CampaignProgressProps) {
         {isEmpty ? (
           <div>No sends queued yet</div>
         ) : (
+          /* Always render the full raw breakdown (zeros included) per
+             spec so the tooltip surface is consistent regardless of
+             which counters happen to be > 0 for a given campaign. */
           <div className="space-y-1 min-w-[200px]">
             <div className="flex items-center justify-between gap-4">
               <span className="flex items-center gap-1.5">
@@ -215,30 +218,26 @@ export function CampaignProgress(props: CampaignProgressProps) {
               </span>
               <span className="font-mono tabular-nums">{b.sent.toLocaleString()}</span>
             </div>
-            {b.failed > 0 && (
-              <div className="flex items-center justify-between gap-4">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-2 rounded-sm bg-destructive" />
-                  Failed
-                </span>
-                <span className="font-mono tabular-nums">{b.failed.toLocaleString()}</span>
-              </div>
-            )}
-            {b.held > 0 && (
-              <div className="flex items-center justify-between gap-4">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-2 rounded-sm bg-amber-500" />
-                  Held (pressure)
-                </span>
-                <span className="font-mono tabular-nums">{b.held.toLocaleString()}</span>
-              </div>
-            )}
+            <div className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2 w-2 rounded-sm bg-destructive" />
+                Failed
+              </span>
+              <span className="font-mono tabular-nums">{b.failed.toLocaleString()}</span>
+            </div>
             <div className="flex items-center justify-between gap-4">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block h-2 w-2 rounded-sm bg-muted-foreground/40" />
                 Pending
               </span>
               <span className="font-mono tabular-nums">{b.pending.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2 w-2 rounded-sm bg-amber-500" />
+                Deferred
+              </span>
+              <span className="font-mono tabular-nums">{b.held.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4 pt-1 border-t border-border">
               <span className="font-medium">Total</span>
