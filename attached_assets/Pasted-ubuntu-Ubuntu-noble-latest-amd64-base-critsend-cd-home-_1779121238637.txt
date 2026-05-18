@@ -1,0 +1,143 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+remote: Enumerating objects: 18, done.
+remote: Counting objects: 100% (18/18), done.
+remote: Compressing objects: 100% (1/1), done.
+remote: Total 12 (delta 11), reused 12 (delta 11), pack-reused 0 (from 0)
+Unpacking objects: 100% (12/12), 4.78 KiB | 1.59 MiB/s, done.
+From https://github.com/critads/critsend
+   a74b91f..e700d15  main       -> origin/main
+Updating a74b91f..e700d15
+Fast-forward
+ .replit                           |   1 +
+ server/bootstrap-lock.ts          |  37 ++++++++++++-
+ server/services/pressure-guard.ts | 110 +++++++++++++++++++++++++++++++-------
+ 3 files changed, 127 insertions(+), 21 deletions(-)
+[deploy] ✓ Code updated: e700d15 Improve email campaign sending performance and reliability
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+48 vulnerabilities (6 low, 28 moderate, 12 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2511 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BKSA1ZuU.css     90.92 kB │ gzip:  14.80 kB
+../dist/public/assets/index-D7B9nbwu.js   1,590.86 kB │ gzip: 413.38 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.35s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 104ms
+building import worker...
+
+  dist/import-worker.cjs  644.4kb
+
+⚡ Done in 61ms
+building background worker...
+
+  dist/worker-main.cjs  1017.1kb
+
+⚡ Done in 76ms
+building drainer...
+
+  dist/drainer-main.cjs  629.0kb
+
+⚡ Done in 59ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime when possible)...
+[deploy]   No env_production key changes detected — using zero-downtime reload.
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-web](0) ✓
+[PM2] Applying action reloadProcessId on app [critsend-drainer](ids: [ 2 ])
+[PM2] [critsend-drainer](2) ✓
+[PM2] [critsend-worker](1) ✓
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Verifying PM2 processes started successfully...
+[deploy] ✓ critsend-worker: boot line present
+[deploy] ✓ critsend-drainer: boot line present
+[deploy] ⚠ critsend-web: boot line 'serving on port' not found in /var/log/critsend/web-out.log after 45 s
+[deploy]   Last 30 lines from critsend-web:
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.338Z [INFO] [WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.375Z [INFO] [PRESSURE_GUARD] Bootstrap fast-path: schema already verified, gate opened immediately (window=6h) — heavy maintenance will run in background
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.400Z [INFO] [Redis/sse-subscriber] Connected
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.431Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.578Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.602Z [INFO] [TRACKING QUERIES] Link cache warmed: 1362 destinations loaded for active campaigns
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.604Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.631Z [INFO] [TRIGRAM] segment_name_trgm_idx already exists — skipping
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.633Z [INFO] [TRIGRAM] mta_name_trgm_idx already exists — skipping
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.634Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.665Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+[deploy]     2026-05-18 18:16:16 +02:00: 2026-05-18T16:16:16.691Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+[deploy]     2026-05-18 18:16:19 +02:00: 2026-05-18T16:16:19.372Z [INFO] [TRACKING QUERIES] Token cache warmed: 50000 tokens loaded for active campaigns
+[deploy]     2026-05-18 18:16:21 +02:00: 2026-05-18T16:16:21.890Z [INFO] Unsubscribe request: campaign=19014871-04a2-4085-8982-7852eea055a7, subscriber=bcb23a2b-fa67-4e6b-8e73-1a63c458f0ca
+[deploy]     2026-05-18 18:16:26 +02:00: 2026-05-18T16:16:26.742Z [INFO] [INDEX] segment_name_lower_idx created successfully
+[deploy]     2026-05-18 18:16:43 +02:00: 2026-05-18T16:16:43.057Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=a265e8b1-1bf7-4a01-9b04-b38dc010a2ec
+[deploy]     2026-05-18 18:16:46 +02:00: 2026-05-18T16:16:46.233Z [INFO] Short unsubscribe: campaign=c6d49f70-904b-4a30-be6e-7cfa8af1b45f, subscriber=5917e7f2-848f-41cb-b15f-b44960cec00a
+[deploy]     2026-05-18 18:16:46 +02:00: 2026-05-18T16:16:46.805Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+[deploy]     2026-05-18 18:16:46 +02:00: 2026-05-18T16:16:46.975Z [INFO] [TRIGRAM] mta_hostname_trgm_idx created successfully
+[deploy]     2026-05-18 18:16:47 +02:00: 2026-05-18T16:16:47.664Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=62ae6aae-8205-4bc1-a86c-8c9242e77954
+[deploy]     2026-05-18 18:16:52 +02:00: 2026-05-18T16:16:52.698Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=e69c0f08-4909-4d8a-8736-12f327aa21b0
+[deploy]     2026-05-18 18:16:52 +02:00: 2026-05-18T16:16:52.923Z [INFO] [TRIGRAM] campaign_name_trgm_idx created successfully
+[deploy]     2026-05-18 18:16:58 +02:00: 2026-05-18T16:16:58.088Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=14db4ed9-8199-4120-91c5-755a8cbc319b, subscriber=79a19815-36b2-4cc6-93ba-34283895c402
+[deploy]     2026-05-18 18:17:00 +02:00: 2026-05-18T16:17:00.059Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=e6f28c54-2456-499b-94a8-242b93bd05a9
+[deploy]     2026-05-18 18:17:07 +02:00: 2026-05-18T16:17:07.217Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=e6f28c54-2456-499b-94a8-242b93bd05a9
+[deploy]     2026-05-18 18:17:18 +02:00: 2026-05-18T16:17:18.802Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=56f85f18-6e46-4818-8755-fcb6dee5964f
+[deploy]     2026-05-18 18:17:21 +02:00: 2026-05-18T16:17:21.986Z [INFO] Short unsubscribe: campaign=19014871-04a2-4085-8982-7852eea055a7, subscriber=ea446fcd-3423-4fe2-a4f1-26da1d95dda4
+[deploy]     2026-05-18 18:17:23 +02:00: 2026-05-18T16:17:23.934Z [INFO] Short unsubscribe: campaign=19014871-04a2-4085-8982-7852eea055a7, subscriber=ea446fcd-3423-4fe2-a4f1-26da1d95dda4
+[deploy]     2026-05-18 18:17:24 +02:00: 2026-05-18T16:17:24.151Z [INFO] Short unsubscribe: campaign=19014871-04a2-4085-8982-7852eea055a7, subscriber=ea446fcd-3423-4fe2-a4f1-26da1d95dda4
+[deploy]     2026-05-18 18:17:24 +02:00: 2026-05-18T16:17:24.483Z [INFO] Short unsubscribe: campaign=19014871-04a2-4085-8982-7852eea055a7, subscriber=ea446fcd-3423-4fe2-a4f1-26da1d95dda4
+[deploy] ✗ One or more PM2 processes did not emit their boot line — investigate above logs.
