@@ -26,6 +26,16 @@ interface ProgressBreakdown {
   pendingPct: number;
 }
 
+// Statuses where the campaign is no longer producing live work. In these
+// states the `deferred_count` column on `campaigns` is meaningless to the
+// user: it is a cumulative lifetime counter (every pressure-guard defer
+// increments it, including subscribers that were later sent successfully),
+// so a fully-completed campaign can still report e.g. "324k held" even
+// though the actual drain queue is empty. We treat deferred = 0 for these
+// terminal statuses so the "held" badge disappears and the percentage math
+// is not polluted by historical defer attempts.
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "draft"]);
+
 function computeBreakdown({
   sentCount,
   failedCount,
@@ -36,7 +46,12 @@ function computeBreakdown({
   const sent = Math.max(0, sentCount || 0);
   const failed = Math.max(0, failedCount || 0);
   const pending = Math.max(0, pendingCount || 0);
-  const deferred = Math.max(0, deferredCount || 0);
+  const isTerminal = status ? TERMINAL_STATUSES.has(status) : false;
+  // For terminal campaigns: ignore the cumulative deferred counter — nothing
+  // is actually held anymore. For active campaigns: trust the counter as a
+  // best-effort upper-bound until we wire a live `count(*) where eligible_at
+  // > now()` query (see follow-up).
+  const deferred = isTerminal ? 0 : Math.max(0, deferredCount || 0);
   const finalized = sent + failed;
   const total = finalized + pending + deferred;
 
