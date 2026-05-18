@@ -44,9 +44,27 @@ function computeBreakdown({
   status,
 }: CampaignProgressProps): ProgressBreakdown {
   const sent = Math.max(0, sentCount || 0);
-  const failed = Math.max(0, failedCount || 0);
-  const pending = Math.max(0, pendingCount || 0);
   const held = Math.max(0, heldCount || 0);
+
+  // Counter-drift defense (observed in prod on long-running sends: e.g.
+  // campaign f19f77d2 ended up with failedCount=-897 and pendingCount=235797
+  // while only 40 rows were truly in flight — bar showed 50% instead of
+  // the real ~99.8%). Two impossible-state signals flag the drift:
+  //   (a) failedCount < 0   — arithmetic underflow in a counter-update path
+  //   (b) pendingCount < heldCount — held is a subset of pending in DB
+  //       semantics (held rows ARE pending rows with eligible_at set), so
+  //       pending can never be strictly less than held.
+  // When either fires, the cached pending/failed counters on `campaigns`
+  // are not trustworthy. Fall back to the live signals we DO have
+  // (`sentCount` is close to reality, `heldCount` is a live subquery): set
+  // the drifted counters to 0 so the bar reflects "sent + still in
+  // pressure-guard queue" — the true remaining work for a campaign whose
+  // claim phase has finished.
+  const counterDrift =
+    (failedCount || 0) < 0 || (pendingCount || 0) < held;
+  const failed = counterDrift ? 0 : Math.max(0, failedCount || 0);
+  const pending = counterDrift ? 0 : Math.max(0, pendingCount || 0);
+
   const finalized = sent + failed;
   const total = finalized + pending + held;
 
