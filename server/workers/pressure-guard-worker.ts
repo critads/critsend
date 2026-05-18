@@ -21,7 +21,7 @@ import { db, pool } from "../db";
 import { toPgTextArray } from "../utils/pg-array";
 import { logger } from "../logger";
 import { storage } from "../storage";
-import { sendEmailWithNullsink } from "../email-service";
+import { sendEmailWithNullsink, preregisterCampaignLinks } from "../email-service";
 import { PRESSURE_WINDOW_HOURS, getPressureGuardBootstrapState } from "../services/pressure-guard";
 import {
   pressureGuardSentAfterDeferTotal,
@@ -776,14 +776,88 @@ export async function drainCampaign(campaignId: string): Promise<void> {
 
   if (eligibleSubs.length === 0) return;
 
-  // Send. Tracking tokens use HMAC fallback (no batch token cache here — the
-  // deferred path is intentionally simpler than the bulk sender hot-path).
-  const trackingOpts = {
+  // Task #161: full tracking parity with the bulk sender hot-path.
+  // The previous "HMAC fallback" comment was a lie — addTrackingToHtml needs
+  // both a populated linkMap AND a non-null trackingDomain (baseUrl) to rewrite
+  // hrefs and inject the open pixel. Without them the email goes out as raw
+  // HTML with direct redirect.critads.com links → recipient clicks work
+  // (client sees traffic) but Critsend records nothing. This broke tracking
+  // on every campaign with deferred_count > 0 since pressure-guard rollout
+  // (2026-05-14 onward — see commit message + replit.md Task #161 entry).
+  const trackingOpts: {
+    trackOpens: boolean;
+    trackClicks: boolean;
+    trackingDomain?: string | null;
+    openTrackingDomain?: string | null;
+    openTag?: string | null;
+    clickTag?: string | null;
+    linkMap: Map<string, string>;
+    batchClickTokens?: Map<string, Map<string, string>>;
+    batchUnsubTokens?: Map<string, string>;
+  } = {
     trackOpens: campaign.trackOpens,
     trackClicks: campaign.trackClicks,
+    trackingDomain: mta.trackingDomain,
+    openTrackingDomain: mta.openTrackingDomain,
+    openTag: (campaign as any).openTag ?? null,
+    clickTag: (campaign as any).clickTag ?? null,
     linkMap: new Map<string, string>(),
-  } as any;
-  const customHeadersMap = new Map<string, string>();
+  };
+
+  // Pre-register click links once per drain batch (storage layer dedupes;
+  // ~1 INSERT … ON CONFLICT DO NOTHING per unique URL across the campaign).
+  if (campaign.trackClicks && mta.trackingDomain && campaign.htmlContent) {
+    try {
+      trackingOpts.linkMap = await preregisterCampaignLinks(
+        campaign.htmlContent,
+        campaignId,
+        storage.batchGetOrCreateCampaignLinks.bind(storage),
+      );
+    } catch (err: any) {
+      logger.warn(
+        `[PRESSURE_GUARD_WORKER] [TRACKING_BREAK] preregisterCampaignLinks failed for ${campaignId}: ${err?.message || err}`,
+      );
+    }
+  }
+
+  // Pre-create short tracking tokens for this drain batch — same pattern as
+  // campaign-sender.ts:694-710. Failure here is NOT silent: we log
+  // [TRACKING_BREAK] so the bug pattern is grep-able in prod logs.
+  if (mta.trackingDomain) {
+    const eligibleIds = eligibleSubs.map((s) => s.id);
+    const linkIds = [...trackingOpts.linkMap.values()];
+    try {
+      const [clickTokens, unsubTokens] = await Promise.all([
+        linkIds.length > 0 && campaign.trackClicks
+          ? storage.batchCreateClickTokens(campaignId, eligibleIds, linkIds)
+          : Promise.resolve(new Map<string, Map<string, string>>()),
+        storage.batchCreateUnsubscribeTokens(campaignId, eligibleIds),
+      ]);
+      trackingOpts.batchClickTokens = clickTokens;
+      trackingOpts.batchUnsubTokens = unsubTokens;
+    } catch (err: any) {
+      logger.warn(
+        `[PRESSURE_GUARD_WORKER] [TRACKING_BREAK] token generation failed for ${campaignId}: ${err?.message || err}`,
+      );
+    }
+  }
+
+  // Defensive guard: if trackClicks was requested but we end up with an
+  // empty linkMap AND no trackingDomain, the email will go out without any
+  // tracking at all. Log loudly so this never silently regresses again.
+  if (
+    campaign.trackClicks &&
+    trackingOpts.linkMap.size === 0 &&
+    !mta.trackingDomain
+  ) {
+    logger.warn(
+      `[PRESSURE_GUARD_WORKER] [TRACKING_BREAK] Campaign ${campaignId}: ` +
+        `trackClicks=true but linkMap empty AND mta.trackingDomain null — ` +
+        `emails will be sent without tracking. MTA id=${mta.id} name=${mta.name}`,
+    );
+  }
+
+  const customHeadersMap: Record<string, string> = {};
 
   // Task #154: bounded-parallel SMTP fan-out. Replaces the strict for-await
   // loop that capped per-campaign throughput at ~1/SMTP_RTT sends/sec.
