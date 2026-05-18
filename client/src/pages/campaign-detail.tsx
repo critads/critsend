@@ -32,7 +32,7 @@ import {
   Gauge,
 } from "lucide-react";
 import type { Campaign, Mta, Segment } from "@shared/schema";
-import { CampaignProgress } from "@/components/campaign-progress";
+import { CampaignProgress, computeProgressBreakdown } from "@/components/campaign-progress";
 
 // The campaign detail endpoint returns a base Campaign row PLUS the live
 // `pressureHeldCount` subquery (same field exposed on the list endpoint —
@@ -417,14 +417,19 @@ export default function CampaignDetail() {
               Send Progress
             </h2>
             <span className="text-xs text-muted-foreground tabular-nums">
-              {(campaign.sentCount + campaign.failedCount).toLocaleString()}
-              {" / "}
-              {(
-                campaign.sentCount +
-                campaign.failedCount +
-                (campaign.pendingCount ?? 0) +
-                (campaign.pressureHeldCount ?? 0)
-              ).toLocaleString()}
+              {/* Reuse computeProgressBreakdown so the numerator /
+                  denominator match the bar exactly — both apply the
+                  drift detector AND the held ⊂ pending de-overlap. */}
+              {(() => {
+                const b = computeProgressBreakdown({
+                  sentCount: campaign.sentCount,
+                  failedCount: campaign.failedCount,
+                  pendingCount: campaign.pendingCount ?? 0,
+                  heldCount: campaign.pressureHeldCount ?? 0,
+                  status: campaign.status,
+                });
+                return `${b.finalized.toLocaleString()} / ${b.total.toLocaleString()}`;
+              })()}
             </span>
           </div>
           <CampaignProgress

@@ -77,14 +77,17 @@ function computeBreakdown({
   const total = finalized + held + pendingActive;
 
   if (total === 0) {
-    // Zero-work neutral empty state: bar renders empty, percent reads 0%
-    // (a completed campaign with zero recipients still shows 0% — it's a
-    // truthful representation of "nothing to do, nothing was done").
+    // Zero-work edge cases:
+    //   - status='completed' with zero recipients → 100% (the campaign
+    //     legitimately finished — "all 0 of 0 done" is a successful
+    //     terminal state per product spec).
+    //   - any other status → 0% neutral empty state (bar empty, no dash).
+    const isCompleted = status === "completed";
     return {
       sent, failed, pending: pendingActive, held, finalized,
       total: 0,
-      percent: 0,
-      sentPct: 0,
+      percent: isCompleted ? 100 : 0,
+      sentPct: isCompleted ? 100 : 0,
       failedPct: 0,
       heldPct: 0,
       pendingPct: 0,
@@ -104,6 +107,19 @@ function computeBreakdown({
     percent,
     sentPct, failedPct, heldPct, pendingPct,
   };
+}
+
+/**
+ * Exposed helper so other surfaces (e.g. the detail-page "Send Progress"
+ * header) can render label text using the SAME disjoint-set math the
+ * bar uses. Reusing one source of truth avoids the held⊂pending
+ * double-counting bug that would otherwise reappear in any sibling
+ * formula written by hand.
+ */
+export function computeProgressBreakdown(
+  props: CampaignProgressProps,
+): ProgressBreakdown {
+  return computeBreakdown(props);
 }
 
 export function CampaignProgress(props: CampaignProgressProps) {

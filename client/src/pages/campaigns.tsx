@@ -178,10 +178,18 @@ export default function Campaigns() {
     },
     placeholderData: keepPreviousData,
     refetchInterval: (query) => {
-      if (isSSEConnected()) return false;
       const data = query.state.data as PaginatedCampaigns | undefined;
       const hasSending = data?.campaigns?.some((c) => c.status === "sending");
-      return hasSending ? 10000 : false;
+      if (!hasSending) return false;
+      // When SSE is connected the sent/failed/pending/deferred counters
+      // arrive in real time, so we can poll less aggressively. We still
+      // poll though — `pressureHeldCount` is a live subquery NOT carried
+      // on the SSE event stream, so without a slow refetch the amber
+      // "held" segment of the progress bar would freeze at its initial
+      // value until the user manually refreshed. 30s is rare enough not
+      // to pressure the API but frequent enough to keep the deferred
+      // segment visibly fresh while the drain worker dispatches.
+      return isSSEConnected() ? 30000 : 10000;
     },
     structuralSharing: (oldData: any, newData: any) => {
       if (!oldData || !newData || !oldData.campaigns || !newData.campaigns) return newData;
