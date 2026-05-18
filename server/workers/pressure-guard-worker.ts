@@ -32,6 +32,7 @@ import {
   pressureDrainLastTickAgeSeconds,
 } from "../metrics";
 import { LOCK_KEYS } from "../bootstrap-lock";
+import { publishJobProgress } from "../job-events";
 import { safeInterval, getLastTickAt, setSafeIntervalErrorListener } from "../lib/safe-interval";
 import type { Campaign, Mta, Subscriber } from "@shared/schema";
 import crypto from "crypto";
@@ -686,6 +687,45 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     client.release();
   }
 
+  // Task #165: running deltas + helper so EVERY path that mutates the
+  // campaign's cached counters (losers-only wave, drop-only wave, normal
+  // send wave, completion flip) publishes a consistent SSE event with
+  // the up-to-date sent/failed/pending/deferred. Counters are derived
+  // from the entry-fetched `campaign` row + in-memory deltas; no extra
+  // SELECT on the `campaigns` table in this hot path. Best-effort:
+  // a publish failure NEVER breaks the drain.
+  let sentDelta = 0;
+  let failedDelta = 0;
+  let pendingDelta = 0;
+  let deferredDelta = 0;
+  const emitProgress = (status: "sending" | "completed"): void => {
+    const newSent = (campaign.sentCount ?? 0) + sentDelta;
+    const newFailed = (campaign.failedCount ?? 0) + failedDelta;
+    const newPending = Math.max(0, (campaign.pendingCount ?? 0) + pendingDelta);
+    const newDeferred = (campaign.deferredCount ?? 0) + deferredDelta;
+    try {
+      publishJobProgress({
+        jobType: "campaign",
+        jobId: campaignId,
+        campaignId,
+        status,
+        // Campaign schema has no single `total_recipients` field; the
+        // client SSE handler ignores totalRows on campaign events (it
+        // only diffs sent/failed/pending/deferred), so the value is
+        // derived purely to satisfy the JobProgressEvent contract.
+        processedRows: newSent + newFailed,
+        totalRows: status === "completed" ? newSent + newFailed : newSent + newFailed + newPending,
+        sentCount: newSent,
+        failedCount: newFailed,
+        pendingCount: status === "completed" ? 0 : newPending,
+        deferredCount: newDeferred,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[PRESSURE_GUARD_WORKER] SSE publish failed for ${campaignId} (non-fatal): ${msg}`);
+    }
+  };
+
   // Run the global pressure CAS on subscribers.last_sent_at to honour the
   // 6h gap across all campaigns. Winners get last_sent_at = NOW().
   const casRes = await db.execute(sql`
@@ -706,7 +746,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   // (RETURNING) — never by losers.length — so re-runs of a partially-applied
   // batch (transient DB errors, retries) don't double-count.
   if (losers.length > 0) {
-    await db.transaction(async (tx) => {
+    const mutatedLosers = await db.transaction(async (tx) => {
       const upd = await tx.execute(sql`
         UPDATE campaign_sends cs
         SET status = 'pending',
@@ -724,7 +764,14 @@ export async function drainCampaign(campaignId: string): Promise<void> {
           UPDATE campaigns SET deferred_count = deferred_count + ${mutated} WHERE id = ${campaignId}
         `);
       }
+      return mutated;
     });
+    // Task #165: deferred-only waves (winnerIds.size === 0) used to be
+    // invisible to the SSE stream — the bar stalled until the next 10s
+    // poll. Bump the deferred delta and emit unconditionally so even
+    // 100%-loser waves move the amber segment in near-real-time.
+    deferredDelta += mutatedLosers;
+    emitProgress("sending");
   }
 
   if (winnerIds.size === 0) return;
@@ -772,6 +819,11 @@ export async function drainCampaign(campaignId: string): Promise<void> {
       WHERE id = ${campaignId}
     `);
     logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: dropped ${dropIds.length} unsub/suppressed at dispatch`);
+    // Task #165: drop-only-then-empty waves also mutate counters; emit
+    // so the failed/pending segments move even when no actual send fires.
+    failedDelta += dropIds.length;
+    pendingDelta -= dropIds.length;
+    emitProgress("sending");
   }
 
   if (eligibleSubs.length === 0) return;
@@ -911,6 +963,16 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   }
   logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, deferred=${losers.length}, dropped=${dropIds.length}`);
 
+  // Task #165: push a near-real-time SSE event so the campaigns-list
+  // progress bar updates within ~1s of each drain wave instead of having
+  // to wait for the next 10s TanStack poll. Bump the running deltas by
+  // the finalize-transaction mutations (which match the in-memory id
+  // lists) and emit via the shared helper.
+  sentDelta += successIds.length;
+  failedDelta += failedIds.length;
+  pendingDelta -= successIds.length + failedIds.length;
+  emitProgress("sending");
+
   // Post-drain completion check (Task #144): the campaign-sender held the
   // status at 'sending' while deferred rows were outstanding. Once the
   // pressure-guard worker drains the last deferred row, flip the campaign
@@ -928,6 +990,13 @@ export async function drainCampaign(campaignId: string): Promise<void> {
       if (flipped) {
         await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
         logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} marked completed (deferred queue drained)`);
+        // Task #165: emit a terminal SSE event so the campaigns-list
+        // progress bar (and any open detail page) flips to "completed"
+        // immediately instead of waiting for the next 10s poll. Reuses
+        // the same in-memory deltas the per-wave emit used — no extra
+        // DB read in this hot path. The helper forces pendingCount=0
+        // when status="completed".
+        emitProgress("completed");
       }
     }
   } catch (err: unknown) {

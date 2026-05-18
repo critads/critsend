@@ -1,10 +1,12 @@
 import { EventEmitter } from "events";
 import type Redis from "ioredis";
+import { redisConnection, isRedisConfigured } from "./redis";
+import { logger } from "./logger";
 
 export interface JobProgressEvent {
   jobType: "import" | "flush" | "campaign";
   jobId: string;
-  status: "pending" | "processing" | "completed" | "failed" | "cancelled" | "awaiting_confirmation" | "queued";
+  status: "pending" | "processing" | "completed" | "failed" | "cancelled" | "awaiting_confirmation" | "queued" | "sending" | "paused";
   processedRows: number;
   totalRows: number;
   newSubscribers?: number;
@@ -16,6 +18,7 @@ export interface JobProgressEvent {
   sentCount?: number;
   failedCount?: number;
   pendingCount?: number;
+  deferredCount?: number;
   errorMessage?: string;
   campaignId?: string;
   phase?: string;
@@ -33,6 +36,28 @@ class JobEventBus extends EventEmitter {
 }
 
 export const jobEvents = new JobEventBus();
+
+/**
+ * Publishes a job progress event.
+ * When Redis is available (split-process mode), publishes to the
+ * "job-progress" Redis channel so the web server's SSE bridge can forward
+ * it to connected clients. Falls back to a direct in-process emit when
+ * Redis is not configured (monolith mode).
+ *
+ * Centralised here so background workers (campaign sender, drain worker,
+ * import worker, …) can all reach the SSE pipe without each importing
+ * Redis directly.
+ */
+export function publishJobProgress(event: JobProgressEvent): void {
+  if (isRedisConfigured && redisConnection) {
+    redisConnection.publish("job-progress", JSON.stringify(event)).catch((err: any) => {
+      logger.warn("[JOB_EVENTS] Redis publish failed, falling back to direct emit", { error: err?.message });
+      jobEvents.emitProgress(event);
+    });
+  } else {
+    jobEvents.emitProgress(event);
+  }
+}
 
 /**
  * Bridges Redis pub/sub → in-process EventEmitter for the web server.

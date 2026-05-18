@@ -17,6 +17,7 @@ export interface JobProgressEvent {
   sentCount?: number;
   failedCount?: number;
   pendingCount?: number;
+  deferredCount?: number;
   errorMessage?: string;
   phase?: string;
   campaignId?: string;
@@ -240,6 +241,13 @@ function handleCampaignEvent(event: JobProgressEvent) {
         ? (event.failedCount ?? c.failedCount)
         : Math.max(event.failedCount ?? 0, c.failedCount || 0),
       pendingCount: event.pendingCount ?? c.pendingCount,
+      // Task #165: drain worker pushes the cumulative deferred_count from
+      // the campaigns row on every drain wave. Keep monotonic for the same
+      // reason the polling structuralSharing does — the counter only ever
+      // grows, so a transient lag must not roll the amber segment back.
+      deferredCount: event.deferredCount !== undefined
+        ? Math.max(event.deferredCount, c.deferredCount || 0)
+        : c.deferredCount,
     };
   };
 

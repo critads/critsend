@@ -7,7 +7,7 @@ import { verifyTransporter, closeNullsinkTransporter, closeAllTransporters } fro
 import { messageQueue } from "./message-queue";
 import { logger } from "./logger";
 import { workerRestartsTotal, flushJobsTotal } from "./metrics";
-import { jobEvents, type JobProgressEvent } from "./job-events";
+import { type JobProgressEvent, publishJobProgress } from "./job-events";
 import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
 import { classifyDbError } from "./db-errors";
@@ -69,22 +69,9 @@ export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boo
   };
 }
 
-/**
- * Publishes a job progress event.
- * When Redis is available (worker process), publishes to the "job-progress" channel
- * so the web server's SSE bridge can forward it to connected clients.
- * Falls back to direct in-process emit when Redis is not configured (monolith mode).
- */
-function publishJobProgress(event: JobProgressEvent): void {
-  if (isRedisConfigured && redisConnection) {
-    redisConnection.publish("job-progress", JSON.stringify(event)).catch((err: any) => {
-      logger.warn("[JOB_EVENTS] Redis publish failed, falling back to direct emit", { error: err.message });
-      jobEvents.emitProgress(event);
-    });
-  } else {
-    jobEvents.emitProgress(event);
-  }
-}
+// publishJobProgress now lives in ./job-events so workers outside this
+// file (e.g. pressure-guard drain worker) can publish through the same
+// SSE pipe without duplicating the Redis/EventEmitter routing logic.
 
 async function processTagQueue() {
   if (!isPoolHealthy()) return;
