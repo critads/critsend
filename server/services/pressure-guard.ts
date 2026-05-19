@@ -169,7 +169,7 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
       bootstrapState = "ready";
       stopBootstrapRetry();
       logger.info(
-        `[PRESSURE_GUARD] Bootstrap fast-path: schema already verified, gate opened immediately (window=${PRESSURE_WINDOW_HOURS}h) — heavy maintenance will run in background`,
+        `[PRESSURE_GUARD] Bootstrap fast-path: schema already verified, gate opened immediately (window=${PRESSURE_WINDOW_HOURS}h, max_defer=${PRESSURE_MAX_DEFER_HOURS}h, near_aging=${PRESSURE_NEAR_AGING_HOURS}h) — heavy maintenance will run in background`,
       );
     }
     // Background heavy maintenance — failures are non-fatal and the next
@@ -432,7 +432,7 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
   if (outcome === "ready" && (result === "ran" || schemaOk)) {
     bootstrapState = "ready";
     stopBootstrapRetry();
-    logger.info(`[PRESSURE_GUARD] Bootstrap ready (window=${PRESSURE_WINDOW_HOURS}h, lock=${result}, schema_verified=${schemaOk})`);
+    logger.info(`[PRESSURE_GUARD] Bootstrap ready (window=${PRESSURE_WINDOW_HOURS}h, max_defer=${PRESSURE_MAX_DEFER_HOURS}h, near_aging=${PRESSURE_NEAR_AGING_HOURS}h, lock=${result}, schema_verified=${schemaOk})`);
   } else {
     bootstrapState = "deferred";
     outcome = "deferred";
@@ -724,11 +724,33 @@ export async function pressureGuardForceReserveSendSlots(
 ): Promise<string[]> {
   if (subscriberIds.length === 0) return [];
   const literal = toPgTextArray(subscriberIds);
-  const result = await db.execute(sql`
-    UPDATE subscribers SET last_sent_at = NOW()
-    WHERE id = ANY(${literal}::text[])
-    RETURNING id
-  `);
+  // Mirror the normal reservation's per-subscriber pg_advisory_xact_lock
+  // discipline (see pressureGuardReserveSendSlots ~L540). Even though the
+  // drain claim already pinned these rows in 'attempting', two parallel
+  // drain processes (DRAIN_PARALLELISM > 1, or the dedicated drain PM2
+  // process plus an embedded fallback) can each surface the same
+  // subscriber across *different* campaigns whose aged sets overlap.
+  // Without the xact lock, both force-CAS calls would stamp
+  // subscribers.last_sent_at = NOW() in the same instant and both bypass
+  // the 6h check in the same window — exactly the "double aged force"
+  // hazard the code review flagged. The lock is xact-scoped (safe under
+  // PgBouncer transaction pooling) and acquired in sorted hash order so
+  // overlapping batches cannot deadlock on inverse acquisition order.
+  const result = await db.transaction(async (tx) => {
+    await tx.execute(sql`
+      SELECT pg_advisory_xact_lock(h)
+      FROM (
+        SELECT DISTINCT hashtextextended(s, 0)::bigint AS h
+        FROM unnest(${literal}::text[]) AS s
+        ORDER BY h
+      ) ordered
+    `);
+    return await tx.execute(sql`
+      UPDATE subscribers SET last_sent_at = NOW()
+      WHERE id = ANY(${literal}::text[])
+      RETURNING id
+    `);
+  });
   return result.rows.map((r) => (r as any).id as string);
 }
 

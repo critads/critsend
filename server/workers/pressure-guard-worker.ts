@@ -162,7 +162,7 @@ function refreshTickAgeGauges() {
 
 export function startPressureGuardWorker() {
   if (pollInterval) return;
-  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, smtp-concurrency=${SMTP_CONCURRENCY}, window=${PRESSURE_WINDOW_HOURS}h)`);
+  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, smtp-concurrency=${SMTP_CONCURRENCY}, window=${PRESSURE_WINDOW_HOURS}h, max_defer=${PRESSURE_MAX_DEFER_HOURS}h, near_aging=${PRESSURE_NEAR_AGING_HOURS}h)`);
   // Task #160: safeInterval wraps every tick in a top-level try/catch so
   // a single unhandled DB error inside pollDeferredQueue can no longer
   // silently kill the loop. Re-entrancy is also guarded by safeInterval

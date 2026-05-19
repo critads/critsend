@@ -126,7 +126,7 @@ export const pressureGuardDeferredIndexSizeBytes = new client.Gauge({
 // once aging hits steady-state across hundreds of campaigns); per-
 // campaign tally lives on campaigns.aged_forced_count.
 export const pressureGuardAgedForceSendsTotal = new client.Counter({
-  name: 'critsend_pressure_aged_force_sends_total',
+  name: 'critsend_pressure_guard_aged_force_sends_total',
   help: 'Total deferred sends force-dispatched after aging past PRESSURE_MAX_DEFER_HOURS',
   registers: [register],
 });
@@ -137,7 +137,7 @@ export const pressureGuardAgedForceSendsTotal = new client.Counter({
 // for sustained periods means the drain is failing to keep up and
 // aged-forced dispatches will start firing.
 export const pressureGuardNearAgingPending = new client.Gauge({
-  name: 'critsend_pressure_near_aging_pending',
+  name: 'critsend_pressure_guard_near_aging_pending',
   help: 'Currently-pending deferred rows older than PRESSURE_NEAR_AGING_HOURS (about to be force-dispatched)',
   registers: [register],
 });
