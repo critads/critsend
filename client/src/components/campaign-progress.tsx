@@ -179,7 +179,7 @@ export function CampaignProgress(props: CampaignProgressProps) {
                     3. Pending (gray)    = waiting in claim queue. */}
                 {b.sentPct + b.failedPct > 0 && (
                   <div
-                    className="h-full bg-amber-500 dark:bg-amber-400 transition-all"
+                    className="h-full bg-green-500 dark:bg-green-400 transition-all"
                     style={{ width: `${b.sentPct + b.failedPct}%` }}
                     data-testid={`${props.testId ?? "campaign-progress"}-segment-completed`}
                   />
@@ -213,7 +213,7 @@ export function CampaignProgress(props: CampaignProgressProps) {
           <div className="space-y-1 min-w-[200px]">
             <div className="flex items-center justify-between gap-4">
               <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 rounded-sm bg-amber-500" />
+                <span className="inline-block h-2 w-2 rounded-sm bg-green-500" />
                 Sent
               </span>
               <span className="font-mono tabular-nums">{b.sent.toLocaleString()}</span>
