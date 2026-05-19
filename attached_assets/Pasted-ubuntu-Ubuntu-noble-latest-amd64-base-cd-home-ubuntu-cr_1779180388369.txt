@@ -1,0 +1,164 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+remote: Enumerating objects: 52, done.
+remote: Counting objects: 100% (52/52), done.
+remote: Compressing objects: 100% (4/4), done.
+remote: Total 31 (delta 26), reused 31 (delta 26), pack-reused 0 (from 0)
+Unpacking objects: 100% (31/31), 93.01 KiB | 1.08 MiB/s, done.
+From https://github.com/critads/critsend
+   f770086..e2429c6  main       -> origin/main
+Updating f770086..e2429c6
+Fast-forward
+ ...hot_2026-05-19_at_10.37.23_AM_1779172644527.png | Bin 0 -> 111312 bytes
+ client/src/App.tsx                                 |  10 +-
+ client/src/components/bug-report-button.tsx        | 248 ---------------
+ client/src/components/bug-reports-admin.tsx        | 345 ---------------------
+ client/src/index.css                               |   7 +-
+ client/src/pages/system-metrics.tsx                |   3 -
+ server/db-zombie-killer.ts                         | 126 ++++++++
+ server/db.ts                                       |  54 ++++
+ server/drainer-main.ts                             |  11 +
+ server/middleware/route-bucket.ts                  |   1 -
+ server/routes.ts                                   |   2 -
+ server/routes/bug-reports.ts                       | 191 ------------
+ server/services/pressure-guard.ts                  |  16 +
+ server/workers.ts                                  |  13 +
+ shared/schema.ts                                   |  39 ---
+ 15 files changed, 228 insertions(+), 838 deletions(-)
+ create mode 100644 attached_assets/Screenshot_2026-05-19_at_10.37.23_AM_1779172644527.png
+ delete mode 100644 client/src/components/bug-report-button.tsx
+ delete mode 100644 client/src/components/bug-reports-admin.tsx
+ create mode 100644 server/db-zombie-killer.ts
+ delete mode 100644 server/routes/bug-reports.ts
+[deploy] ✓ Code updated: e2429c6 Improve database stability by preventing connection lockups
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+49 vulnerabilities (6 low, 29 moderate, 12 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2505 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-CYaMqs9X.css     92.82 kB │ gzip:  14.95 kB
+../dist/public/assets/index-BLtvQ3Yw.js   1,377.24 kB │ gzip: 361.60 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.11s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 103ms
+building import worker...
+
+  dist/import-worker.cjs  645.7kb
+
+⚡ Done in 59ms
+building background worker...
+
+  dist/worker-main.cjs  1023.8kb
+
+⚡ Done in 83ms
+building drainer...
+
+  dist/drainer-main.cjs  635.7kb
+
+⚡ Done in 68ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime when possible)...
+[deploy]   No env_production key changes detected — using zero-downtime reload.
+[deploy]   Reloading critsend-web first (runs bootstrap migrations)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 0 ])
+[PM2] [critsend-web](0) ✓
+[deploy]   Waiting 25s for web bootstrap to finish (CREATE INDEX CONCURRENTLY)...
+[deploy]   Reloading critsend-worker...
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 1 ])
+[PM2] [critsend-worker](1) ✓
+[deploy]   Reloading critsend-drainer...
+[PM2] Applying action reloadProcessId on app [critsend-drainer](ids: [ 2 ])
+[PM2] [critsend-drainer](2) ✓
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Verifying PM2 processes started successfully...
+[deploy] ✓ critsend-worker: boot line present
+[deploy] ✓ critsend-drainer: boot line present
+[deploy] ⚠ critsend-web: boot line 'serving on port' not found in /var/log/critsend/web-out.log after 45 s
+[deploy]   Last 30 lines from critsend-web:
+[deploy]     2026-05-19 10:41:38 +02:00: 2026-05-19T08:41:38.818Z [INFO] Database SSL enabled for external connection (Neon)
+[deploy]     2026-05-19 10:41:38 +02:00: 2026-05-19T08:41:38.818Z [INFO] PG pool configured: max=30, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.041Z [INFO] [TRACKING POOL] read pool: max=50, flush pool: max=8, connTimeout=2000ms, stmtTimeout=10000ms, jsTimeout=12000ms, external=true, mode=auto-derived pooler, pooler=true
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.044Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.177Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.181Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":409328,"nodeVersion":"v20.20.2","gcExposed":true}
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.209Z [INFO] [IMPORT] Upload dir: /var/lib/critsend/uploads/imports (chunks: /var/lib/critsend/uploads/chunks)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.209Z [INFO] [CONNECTION BUDGET] Limit: 50 | Process: web | Main pool: 30 | Tracking pool: 50 (pooler) | Import pool: 6 (pooler) (concurrency: 6) | LISTEN/NOTIFY: 1 | Total direct: 31 | External: true
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.318Z [INFO] [Redis/main] Connected
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.320Z [INFO] [Redis/bullmq] Connected
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.460Z [INFO] [TRACKING BUFFER] flusher started: interval=1500ms, counterCoalesce=8000ms, maxQueue=50000, maxBatchPerType=5000, dedupeWindow=60000ms, maxRetries=3, backoffMax=10000ms, sequential=true
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.461Z [INFO] [BOUNCE BUFFER] flusher started: interval=1500ms, maxQueue=25000, maxBatch=2000, dedupeWindow=60000ms
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.463Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes, automations
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.463Z [INFO] [SSE] Redis progress bridge started
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.466Z [INFO] [ANALYTICS] Cache invalidation subscriber started
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.467Z [INFO] [METRICS] Collector starting: first collection in 90000ms, then every 15s
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.467Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.468Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian started (polls every 30 s for stale pending jobs)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.468Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian started (polls every 60 s for stuck campaigns)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.468Z [INFO] [WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.546Z [INFO] [Redis/sse-subscriber] Connected
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.707Z [INFO] [IMPORT POOL] startup probe OK (mode=auto-derived pooler)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.762Z [INFO] [TRACKING POOL] startup probe OK (mode=auto-derived pooler)
+[deploy]     2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.803Z [INFO] NotifyQueue initialized, listening on channels {"channels":["campaign_jobs","import_jobs","tag_operations","flush_jobs"]}
+[deploy]     2026-05-19 10:41:46 +02:00: 2026-05-19T08:41:46.109Z [INFO] Short unsubscribe: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=4fffab9e-66d0-4ddc-a9dd-6f4bf795c0d4
+[deploy]     2026-05-19 10:42:02 +02:00: 2026-05-19T08:42:02.386Z [INFO] Unsubscribe request: campaign=f0451c52-e487-498a-a9ba-565fadf10632, subscriber=511c046c-7574-455d-8dfe-891bac6056bc
+[deploy]     2026-05-19 10:42:09 +02:00: 2026-05-19T08:42:09.221Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=da487a31-5e9e-42e7-98d2-694a4c5d44c3
+[deploy]     2026-05-19 10:42:22 +02:00: 2026-05-19T08:42:22.103Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=7284abdb-f691-4486-bac0-43f29f81856f
+[deploy]     2026-05-19 10:42:30 +02:00: 2026-05-19T08:42:30.192Z [INFO] [TRACKING BUFFER] flush interval restored to 1500ms
+[deploy]     2026-05-19 10:43:05 +02:00: 2026-05-19T08:43:05.272Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=d7f87862-3044-47a5-8cc8-72e503d9c745
+[deploy] ✗ One or more PM2 processes did not emit their boot line — investigate above logs.
