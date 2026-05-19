@@ -22,11 +22,19 @@ import { toPgTextArray } from "../utils/pg-array";
 import { logger } from "../logger";
 import { storage } from "../storage";
 import { sendEmailWithNullsink, preregisterCampaignLinks } from "../email-service";
-import { PRESSURE_WINDOW_HOURS, getPressureGuardBootstrapState } from "../services/pressure-guard";
+import {
+  PRESSURE_WINDOW_HOURS,
+  PRESSURE_MAX_DEFER_HOURS,
+  PRESSURE_NEAR_AGING_HOURS,
+  getPressureGuardBootstrapState,
+  pressureGuardForceReserveSendSlots,
+} from "../services/pressure-guard";
 import {
   pressureGuardSentAfterDeferTotal,
   pressureGuardPendingDeferred,
   pressureGuardDeferredIndexSizeBytes,
+  pressureGuardAgedForceSendsTotal,
+  pressureGuardNearAgingPending,
   safeIntervalLastTickAgeSeconds,
   safeIntervalTickErrorsTotal,
   pressureDrainLastTickAgeSeconds,
@@ -419,6 +427,25 @@ async function pollDeferredQueueInner() {
       logger.warn(`[PRESSURE_GUARD_WORKER] gauge refresh failed (non-fatal): ${err?.message || err}`);
     }
 
+    // Task #169: refresh the near-aging gauge. Cheap because of the
+    // partial index `campaign_sends_pressure_aging_idx` that covers the
+    // exact predicate. A non-zero value sustained across ticks is the
+    // operator's early-warning signal that aged-forced dispatches are
+    // about to fire on the next wave.
+    try {
+      const nearRes = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM campaign_sends
+         WHERE status = 'pending'
+           AND eligible_at IS NOT NULL
+           AND first_deferred_at IS NOT NULL
+           AND first_deferred_at <= NOW() - ($1::numeric || ' hours')::interval`,
+        [PRESSURE_NEAR_AGING_HOURS],
+      );
+      pressureGuardNearAgingPending.set(Number(nearRes.rows[0]?.n ?? 0));
+    } catch (err: any) {
+      logger.warn(`[PRESSURE_GUARD_WORKER] near-aging gauge refresh failed (non-fatal): ${err?.message || err}`);
+    }
+
     // Pick the next N campaigns that have eligible deferred rows, ordered FIFO.
     // The index `campaign_sends_pressure_deferred_idx` covers the
     // `WHERE status='pending' AND eligible_at IS NOT NULL` filter,
@@ -726,17 +753,72 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     }
   };
 
-  // Run the global pressure CAS on subscribers.last_sent_at to honour the
-  // 6h gap across all campaigns. Winners get last_sent_at = NOW().
-  const casRes = await db.execute(sql`
-    UPDATE subscribers s
-    SET last_sent_at = NOW()
-    WHERE s.id = ANY(${toPgTextArray(claimedSubIds)}::text[])
-      AND (s.last_sent_at IS NULL OR s.last_sent_at + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval <= NOW())
-    RETURNING s.id, s.last_sent_at
-  `);
-  const winnerIds = new Set(casRes.rows.map((r) => (r as any).id as string));
-  const losers = claimedSubIds.filter((id) => !winnerIds.has(id));
+  // Task #169 — Aging cap. Partition the claimed batch into:
+  //   • aged   = rows whose first_deferred_at has crossed
+  //              PRESSURE_MAX_DEFER_HOURS — bypass the 6h gap and
+  //              force-dispatch on this tick.
+  //   • normal = everything else — go through the standard CAS that
+  //              honours the 6h subscribers.last_sent_at gap.
+  // The split is computed against the per-campaign 'attempting' rows so
+  // a row that lost a previous CAS but was re-claimed retains its
+  // original first_deferred_at (the re-defer cascade UPDATE only touches
+  // eligible_at — see L755 below).
+  let agedIds: string[] = [];
+  try {
+    const agedRes = await pool.query<{ subscriber_id: string }>(
+      `SELECT subscriber_id FROM campaign_sends
+       WHERE campaign_id = $1
+         AND subscriber_id = ANY($2::text[])
+         AND status = 'attempting'
+         AND first_deferred_at IS NOT NULL
+         AND first_deferred_at <= NOW() - ($3::numeric || ' hours')::interval`,
+      [campaignId, claimedSubIds, PRESSURE_MAX_DEFER_HOURS],
+    );
+    agedIds = agedRes.rows.map((r) => r.subscriber_id);
+  } catch (err: any) {
+    // Non-fatal: if the aging probe fails (e.g. column missing on a
+    // brand-new boot before the bootstrap re-runs), every claimed row
+    // falls back to the normal CAS path — the guard still works, just
+    // without the cap on this tick.
+    logger.warn(`[PRESSURE_GUARD_WORKER] aging probe failed for ${campaignId} (non-fatal, no aged force this tick): ${err?.message || err}`);
+  }
+  const agedSet = new Set(agedIds);
+  const normalIds = claimedSubIds.filter((id) => !agedSet.has(id));
+
+  // Force-CAS for aged rows: stamps subscribers.last_sent_at = NOW()
+  // unconditionally so the 6h guard re-engages forward in time, even
+  // though we are bypassing it for this dispatch.
+  const agedWinners: string[] = agedIds.length > 0
+    ? await pressureGuardForceReserveSendSlots(agedIds)
+    : [];
+
+  // Normal CAS: standard 6h gap check on the remaining claimed rows.
+  // Winners get last_sent_at = NOW(); losers stay 'attempting' here and
+  // are re-deferred below.
+  const casRes = normalIds.length > 0
+    ? await db.execute(sql`
+        UPDATE subscribers s
+        SET last_sent_at = NOW()
+        WHERE s.id = ANY(${toPgTextArray(normalIds)}::text[])
+          AND (s.last_sent_at IS NULL OR s.last_sent_at + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval <= NOW())
+        RETURNING s.id, s.last_sent_at
+      `)
+    : { rows: [] as any[] };
+  const normalWinnerIds = new Set(casRes.rows.map((r) => (r as any).id as string));
+
+  // Merged winner set: aged force-wins + normal CAS wins.
+  // Losers are ONLY the normal-CAS losers (aged rows are never losers
+  // — by definition they bypass the check).
+  const winnerIds = new Set<string>([...agedWinners, ...normalWinnerIds]);
+  const losers = normalIds.filter((id) => !normalWinnerIds.has(id));
+
+  if (agedIds.length > 0) {
+    logger.warn(
+      `[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: aging cap engaged — ` +
+      `force-dispatched ${agedWinners.length}/${agedIds.length} send(s) ` +
+      `aged > ${PRESSURE_MAX_DEFER_HOURS}h`,
+    );
+  }
 
   // Losers: bump eligible_at forward and revert status back to pending.
   // Wrap the campaign_sends update + deferred_count bump in a single txn so
@@ -961,7 +1043,26 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   if (successIds.length > 0) {
     try { pressureGuardSentAfterDeferTotal.inc({ campaign_id: campaignId }, successIds.length); } catch {}
   }
-  logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, deferred=${losers.length}, dropped=${dropIds.length}`);
+
+  // Task #169: tally aged force-dispatches that actually delivered.
+  // Compare successIds (drained at SMTP) against agedSet so a hard-stop
+  // drop or SMTP failure on an aged row does NOT bump the cap counter
+  // — operators see only true "would have stayed deferred without the
+  // cap" deliveries. Single UPDATE + single counter inc per wave.
+  const agedDelivered = successIds.reduce((n, id) => n + (agedSet.has(id) ? 1 : 0), 0);
+  if (agedDelivered > 0) {
+    try { pressureGuardAgedForceSendsTotal.inc(agedDelivered); } catch {}
+    try {
+      await db.execute(sql`
+        UPDATE campaigns SET aged_forced_count = aged_forced_count + ${agedDelivered}
+        WHERE id = ${campaignId}
+      `);
+    } catch (err: any) {
+      logger.warn(`[PRESSURE_GUARD_WORKER] aged_forced_count UPDATE failed for ${campaignId} (non-fatal): ${err?.message || err}`);
+    }
+  }
+
+  logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, deferred=${losers.length}, dropped=${dropIds.length}, aged_force_delivered=${agedDelivered}`);
 
   // Task #165: push a near-real-time SSE event so the campaigns-list
   // progress bar updates within ~1s of each drain wave instead of having

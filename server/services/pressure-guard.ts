@@ -63,6 +63,46 @@ export const PRESSURE_WINDOW_HOURS = (() => {
   return parsed;
 })();
 
+// Task #169 — Aging cap. Unlike PRESSURE_WINDOW_HOURS the operator is
+// allowed to tune this in PRODUCTION because the cap is purely defensive:
+// it bounds the worst-case "stuck deferred" latency without ever
+// shortening the 6h gap (the per-recipient last_sent_at is still
+// stamped to NOW() when we force-dispatch, so the 6h guard re-engages
+// forward in time). Default 72h, range 6h..30d. Out-of-range or non-
+// finite values cause the module to throw at import time so a typo
+// can't reach the running guard.
+const PRESSURE_MAX_DEFER_MIN_HOURS = 6;
+const PRESSURE_MAX_DEFER_MAX_HOURS = 720;
+export const PRESSURE_MAX_DEFER_HOURS = (() => {
+  const raw = process.env.PRESSURE_MAX_DEFER_HOURS;
+  if (!raw) return 72;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < PRESSURE_MAX_DEFER_MIN_HOURS || parsed > PRESSURE_MAX_DEFER_MAX_HOURS) {
+    throw new Error(
+      `[PRESSURE_GUARD] PRESSURE_MAX_DEFER_HOURS=${raw} is invalid; ` +
+      `must be a finite number in [${PRESSURE_MAX_DEFER_MIN_HOURS}h, ${PRESSURE_MAX_DEFER_MAX_HOURS}h]`,
+    );
+  }
+  return parsed;
+})();
+
+// Task #169 — Near-aging gauge threshold (rows in the "about to be
+// force-dispatched" window). Default = max-defer minus 24h, clamped to
+// at least 1h before max-defer so the gauge is always meaningful.
+export const PRESSURE_NEAR_AGING_HOURS = (() => {
+  const raw = process.env.PRESSURE_NEAR_AGING_HOURS;
+  const fallback = Math.max(1, PRESSURE_MAX_DEFER_HOURS - 24);
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed >= PRESSURE_MAX_DEFER_HOURS) {
+    throw new Error(
+      `[PRESSURE_GUARD] PRESSURE_NEAR_AGING_HOURS=${raw} is invalid; ` +
+      `must be a finite number in [1h, ${PRESSURE_MAX_DEFER_HOURS}h) (strictly less than PRESSURE_MAX_DEFER_HOURS)`,
+    );
+  }
+  return parsed;
+})();
+
 let bootstrapState: "pending" | "ready" | "deferred" = "pending";
 export function getPressureGuardBootstrapState() {
   return bootstrapState;
@@ -93,13 +133,19 @@ async function verifyPressureSchemaReady(): Promise<boolean> {
         -- Task #149: lease-table for leader election (replaces session-level
         -- pg_try_advisory_lock which leaks on PgBouncer transaction-pooled endpoints).
         EXISTS(SELECT 1 FROM information_schema.tables
-               WHERE table_name='pressure_guard_leader') AS has_leader_table
+               WHERE table_name='pressure_guard_leader') AS has_leader_table,
+        -- Task #169: aging cap artefacts.
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name='campaign_sends' AND column_name='first_deferred_at') AS has_first_deferred_at,
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name='campaigns' AND column_name='aged_forced_count') AS has_aged_forced_count
     `);
     const row = r.rows[0] as Record<string, boolean>;
     return Boolean(
       row?.has_last_sent_at && row?.has_deferred_count && row?.has_eligible_at &&
       row?.has_audit && row?.has_is_admin && row?.has_maint_state &&
-      row?.has_leader_table,
+      row?.has_leader_table &&
+      row?.has_first_deferred_at && row?.has_aged_forced_count,
     );
   } catch {
     return false;
@@ -200,6 +246,12 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
         await client.query(`CREATE INDEX IF NOT EXISTS pressure_drain_tick_errors_occurred_at_idx ON pressure_drain_tick_errors (occurred_at DESC)`);
         await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
         await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
+        // Task #169: aging cap columns. ALTER TABLE … ADD COLUMN with
+        // NULLable timestamp / integer DEFAULT 0 is a metadata-only
+        // operation on PG ≥ 11 (no full table rewrite), safe to run
+        // under the advisory lock even on 60M-row campaign_sends.
+        await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS first_deferred_at timestamp`);
+        await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS aged_forced_count integer NOT NULL DEFAULT 0`);
         // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
         await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false`);
         await client.query(`
@@ -283,6 +335,16 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
               ON campaign_sends (subscriber_id, campaign_id)
               WHERE status IN ('pending', 'attempting')`,
       },
+      {
+        // Task #169: aging probe. Backs "oldest deferred" admin metric,
+        // near-aging gauge, and the per-claim aged vs normal split in
+        // drainCampaign. Partial scope = currently-pending deferred rows
+        // only, so the index stays small.
+        name: "campaign_sends_pressure_aging_idx",
+        ddl: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_sends_pressure_aging_idx
+              ON campaign_sends (first_deferred_at)
+              WHERE status = 'pending' AND eligible_at IS NOT NULL AND first_deferred_at IS NOT NULL`,
+      },
     ];
     for (const { name, ddl } of indexes) {
       try {
@@ -329,6 +391,33 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
       );
     } catch (err: any) {
       logger.warn(`[PRESSURE_GUARD] sentinel create failed (non-fatal): ${err?.message || err}`);
+    }
+
+    // Task #169: backfill first_deferred_at for any currently-pending
+    // deferred rows that pre-date this column. We default to sent_at —
+    // which is the row's insertion timestamp for deferred rows since
+    // pressureGuardReserveSendSlots writes sent_at=NOW() at INSERT and
+    // the re-defer cascade only touches eligible_at. The UPDATE is
+    // scoped by the partial index campaign_sends_pressure_deferred_idx
+    // (NULL-only filter is added so it is a no-op after the first run).
+    // Non-fatal: a transient failure here just means the next boot
+    // retries. Aged sends with NULL first_deferred_at simply won't be
+    // flagged as aged until the backfill lands — the guard still works,
+    // just without the cap for those rows.
+    try {
+      const r = await pool.query(`
+        UPDATE campaign_sends
+        SET first_deferred_at = sent_at
+        WHERE status = 'pending'
+          AND eligible_at IS NOT NULL
+          AND first_deferred_at IS NULL
+      `);
+      const n = r.rowCount ?? 0;
+      if (n > 0) {
+        logger.info(`[PRESSURE_GUARD] Task #169: backfilled first_deferred_at on ${n} pending deferred row(s)`);
+      }
+    } catch (err: any) {
+      logger.warn(`[PRESSURE_GUARD] Task #169 first_deferred_at backfill failed (non-fatal, will retry next boot): ${err?.message || err}`);
     }
   }
 
@@ -512,9 +601,15 @@ export async function pressureGuardReserveSendSlots(
             AND s.id NOT IN (SELECT subscriber_id FROM already_in_campaign)
         ),
         deferred_ins AS (
-          INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)
+          -- Task #169: stamp first_deferred_at=NOW() on every fresh defer
+          -- insert. The re-defer cascade in the drain worker (UPDATE only,
+          -- ON CONFLICT here protects against double-insert) does NOT
+          -- touch this column, so it reliably reflects the row's true
+          -- age across an unbounded cascade.
+          INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at, first_deferred_at)
           SELECT gen_random_uuid(), ${campaignId}, l.id, 'pending', NOW(),
-            COALESCE(l.last_sent_at, NOW()) + (${windowHours}::numeric || ' hours')::interval
+            COALESCE(l.last_sent_at, NOW()) + (${windowHours}::numeric || ' hours')::interval,
+            NOW()
           FROM losers l
           ON CONFLICT (campaign_id, subscriber_id) DO NOTHING
           RETURNING subscriber_id
@@ -603,6 +698,38 @@ export async function pressureGuardReserveSendSlots(
   }
   if (firstError.err != null) throw firstError.err;
   return winners;
+}
+
+/**
+ * Task #169 — Force-reserve send slots for subscribers whose deferred
+ * row has aged past PRESSURE_MAX_DEFER_HOURS. Bypasses the 6h gap check
+ * (the row has waited long enough already) but STILL stamps
+ * subscribers.last_sent_at = NOW() so the guard re-engages forward in
+ * time. Returns the subscriber ids whose last_sent_at was successfully
+ * advanced — all input ids in practice, since the row is already locked
+ * in 'attempting' status by the drain claim.
+ *
+ * Hard-stops (BCK, unsubscribe, suppressed_until) are NOT checked here —
+ * they are re-checked downstream by the drain worker at dispatch time
+ * (the same path normal CAS winners go through), so this function stays
+ * narrowly scoped to "force the slot reservation".
+ *
+ * No per-subscriber advisory_xact_lock is taken: the rows are already
+ * 'attempting' under SKIP LOCKED in the drain claim, so concurrent
+ * reservers see them via the `blocked_by_older` / `already_in_campaign`
+ * filters in pressureGuardReserveSendSlots and naturally defer.
+ */
+export async function pressureGuardForceReserveSendSlots(
+  subscriberIds: string[],
+): Promise<string[]> {
+  if (subscriberIds.length === 0) return [];
+  const literal = toPgTextArray(subscriberIds);
+  const result = await db.execute(sql`
+    UPDATE subscribers SET last_sent_at = NOW()
+    WHERE id = ANY(${literal}::text[])
+    RETURNING id
+  `);
+  return result.rows.map((r) => (r as any).id as string);
 }
 
 /**

@@ -7,13 +7,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Clock, History, Users, TrendingUp, Send } from "lucide-react";
+import { Clock, History, Users, TrendingUp, Send, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area } from "recharts";
 
 interface AdminQueueResponse {
   windowHours: number;
-  totals: { pending_deferred: string; due_now: string; distinct_contacts_in_cooldown?: string };
+  // Task #169: aging cap context — surfaced so the page can label and
+  // colour the "oldest age" + "near aging" columns correctly even if the
+  // operator has tuned PRESSURE_MAX_DEFER_HOURS away from the 72h default.
+  maxDeferHours?: number;
+  nearAgingHours?: number;
+  totals: {
+    pending_deferred: string;
+    due_now: string;
+    distinct_contacts_in_cooldown?: string;
+    oldest_deferred_age_hours?: string | number | null;
+    near_aging_count?: string | number | null;
+  };
   campaigns: Array<{
     campaign_id: string;
     campaign_name: string;
@@ -22,7 +33,23 @@ interface AdminQueueResponse {
     pending_deferred: string;
     due_now: string;
     next_eligible_at: string | null;
+    oldest_deferred_age_hours?: string | number | null;
+    near_aging_count?: string | number | null;
+    aged_forced_count?: number | null;
   }>;
+}
+
+// Format an age in fractional hours as "Nh Mm" — keeps the column narrow
+// while still being precise enough to distinguish "approaching cap" from
+// "way over". Returns "—" for null/undefined/<=0 so empty queues render
+// cleanly.
+function formatAgeHours(v: string | number | null | undefined): string {
+  if (v == null) return "—";
+  const h = typeof v === "string" ? parseFloat(v) : v;
+  if (!Number.isFinite(h) || h <= 0) return "—";
+  const whole = Math.floor(h);
+  const mins = Math.round((h - whole) * 60);
+  return mins === 0 ? `${whole}h` : `${whole}h ${mins}m`;
 }
 interface CurveResponse {
   defers: Array<{ day: string; n: string }>;
@@ -125,6 +152,18 @@ export default function AdminPressureQueue() {
             testId="stat-purge-throughput"
             accent
           />
+          {/* Task #169: aging cap totals — at-a-glance "how close to 72h?"
+              and "how many about to be force-dispatched?". */}
+          <Stat
+            label={`Oldest deferred (cap ${data?.maxDeferHours ?? 72}h)`}
+            value={formatAgeHours(data?.totals?.oldest_deferred_age_hours)}
+            testId="stat-oldest-deferred-age"
+          />
+          <Stat
+            label={`Near aging (≥${data?.nearAgingHours ?? 48}h)`}
+            value={String(data?.totals?.near_aging_count ?? "0")}
+            testId="stat-near-aging"
+          />
         </CardContent>
       </Card>
 
@@ -225,32 +264,71 @@ export default function AdminPressureQueue() {
                     <th className="p-2 text-right">Pending deferred</th>
                     <th className="p-2 text-right">Due now</th>
                     <th className="p-2 text-right">Lifetime defers</th>
+                    {/* Task #169 columns */}
+                    <th className="p-2 text-right">Oldest age</th>
+                    <th className="p-2 text-right">Near aging</th>
+                    <th className="p-2 text-right">Aged force-sent</th>
                     <th className="p-2">Next eligible</th>
                     <th className="p-2"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(data?.campaigns ?? []).map((c) => (
-                    <tr key={c.campaign_id} className="border-b hover-elevate" data-testid={`row-campaign-${c.campaign_id}`}>
-                      <td className="p-2 font-medium" data-testid={`text-campaign-name-${c.campaign_id}`}>{c.campaign_name}</td>
-                      <td className="p-2 text-xs">{c.started_at ? new Date(c.started_at).toLocaleString() : "—"}</td>
-                      <td className="p-2 text-right tabular-nums">{c.pending_deferred}</td>
-                      <td className="p-2 text-right tabular-nums">{c.due_now}</td>
-                      <td className="p-2 text-right tabular-nums">{c.lifetime_defers}</td>
-                      <td className="p-2 text-xs">
-                        {c.next_eligible_at ? (
-                          <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(c.next_eligible_at).toLocaleString()}</span>
-                        ) : "—"}
-                      </td>
-                      <td className="p-2">
-                        <Link href={`/campaigns/${c.campaign_id}/queue`}>
-                          <Button size="sm" variant="outline" data-testid={`link-open-queue-${c.campaign_id}`}>Open</Button>
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                  {(data?.campaigns ?? []).map((c) => {
+                    // Task #169: age-based colour cues. Red ≥ cap, amber ≥
+                    // near-aging threshold. Falls back gracefully when the
+                    // backend hasn't returned the aging fields yet.
+                    const oldestNum = c.oldest_deferred_age_hours == null
+                      ? null
+                      : (typeof c.oldest_deferred_age_hours === "string"
+                          ? parseFloat(c.oldest_deferred_age_hours)
+                          : c.oldest_deferred_age_hours);
+                    const cap = data?.maxDeferHours ?? 72;
+                    const near = data?.nearAgingHours ?? 48;
+                    const ageClass = oldestNum == null || !Number.isFinite(oldestNum)
+                      ? "text-muted-foreground"
+                      : oldestNum >= cap
+                        ? "text-destructive font-semibold"
+                        : oldestNum >= near
+                          ? "text-amber-600 dark:text-amber-400 font-medium"
+                          : "";
+                    const nearAging = Number(c.near_aging_count ?? 0);
+                    const agedForced = Number(c.aged_forced_count ?? 0);
+                    return (
+                      <tr key={c.campaign_id} className="border-b hover-elevate" data-testid={`row-campaign-${c.campaign_id}`}>
+                        <td className="p-2 font-medium" data-testid={`text-campaign-name-${c.campaign_id}`}>{c.campaign_name}</td>
+                        <td className="p-2 text-xs">{c.started_at ? new Date(c.started_at).toLocaleString() : "—"}</td>
+                        <td className="p-2 text-right tabular-nums">{c.pending_deferred}</td>
+                        <td className="p-2 text-right tabular-nums">{c.due_now}</td>
+                        <td className="p-2 text-right tabular-nums">{c.lifetime_defers}</td>
+                        <td className={`p-2 text-right tabular-nums ${ageClass}`} data-testid={`text-oldest-age-${c.campaign_id}`}>
+                          <span className="inline-flex items-center gap-1 justify-end">
+                            {oldestNum != null && Number.isFinite(oldestNum) && oldestNum >= near && (
+                              <AlertTriangle className="h-3 w-3" />
+                            )}
+                            {formatAgeHours(c.oldest_deferred_age_hours)}
+                          </span>
+                        </td>
+                        <td className={`p-2 text-right tabular-nums ${nearAging > 0 ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}`} data-testid={`text-near-aging-${c.campaign_id}`}>
+                          {nearAging}
+                        </td>
+                        <td className={`p-2 text-right tabular-nums ${agedForced > 0 ? "text-destructive font-medium" : "text-muted-foreground"}`} data-testid={`text-aged-forced-${c.campaign_id}`}>
+                          {agedForced}
+                        </td>
+                        <td className="p-2 text-xs">
+                          {c.next_eligible_at ? (
+                            <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(c.next_eligible_at).toLocaleString()}</span>
+                          ) : "—"}
+                        </td>
+                        <td className="p-2">
+                          <Link href={`/campaigns/${c.campaign_id}/queue`}>
+                            <Button size="sm" variant="outline" data-testid={`link-open-queue-${c.campaign_id}`}>Open</Button>
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {(data?.campaigns ?? []).length === 0 && (
-                    <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">No deferred sends pending</td></tr>
+                    <tr><td colSpan={10} className="p-6 text-center text-muted-foreground">No deferred sends pending</td></tr>
                   )}
                 </tbody>
               </table>

@@ -164,6 +164,15 @@ export const campaigns = pgTable("campaigns", {
   // restarts (Prometheus counters are in-memory and reset on each
   // pm2 reload, and live in a different process from the API server).
   snowballThrottledCount: integer("snowball_throttled_count").notNull().default(0),
+  // Marketing Pressure Guard — Aging cap (Task #169). Cumulative count of
+  // sends that were force-dispatched because their first_deferred_at had
+  // aged past PRESSURE_MAX_DEFER_HOURS (default 72h) — i.e. the 6h gap
+  // check was bypassed at the drain. Hard-stops (BCK, unsubscribe,
+  // suppressed_until) are still honoured. Persisted on the campaign row
+  // so the UI can show "force-aged: N" even after PM2 reloads (Prom
+  // counters are in-memory and reset on restart, and live in another
+  // process from the API server).
+  agedForcedCount: integer("aged_forced_count").notNull().default(0),
   // ── Auto-resend to openers (36h follow-up) ──────────────────────────
   // parentCampaignId: when set, this campaign is a follow-up child sent only
   //   to subscribers who opened the parent. Audience iteration in
@@ -269,6 +278,12 @@ export const campaignSends = pgTable("campaign_sends", {
   // eligible_at <= NOW(), ordered by campaigns.started_at ASC (FIFO).
   // NULL = not deferred (winners of the CAS race or pre-#144 rows).
   eligibleAt: timestamp("eligible_at"),
+  // Marketing Pressure Guard — Aging cap (Task #169). Stamped at the
+  // FIRST defer insert (NOT updated on re-defer cascade) so the drain
+  // can compute the row's true age and force-dispatch once it crosses
+  // PRESSURE_MAX_DEFER_HOURS (default 72h). NULL on non-deferred rows
+  // and on legacy pre-#169 rows (backfill = sent_at).
+  firstDeferredAt: timestamp("first_deferred_at"),
 }, (table) => ({
   // UNIQUE constraint ensures no email is sent twice per campaign per subscriber
   uniqueSend: uniqueIndex("campaign_sends_unique_idx").on(table.campaignId, table.subscriberId),
@@ -279,6 +294,12 @@ export const campaignSends = pgTable("campaign_sends", {
   pressureDeferredIdx: index("campaign_sends_pressure_deferred_idx")
     .on(table.eligibleAt)
     .where(sql`status = 'pending' AND eligible_at IS NOT NULL`),
+  // Task #169: aging cap probe — supports "oldest deferred", near-aging
+  // gauge, and the per-claim split aged vs normal. Partial scope keeps
+  // it tiny (only currently-pending deferred rows).
+  pressureAgingIdx: index("campaign_sends_pressure_aging_idx")
+    .on(table.firstDeferredAt)
+    .where(sql`status = 'pending' AND eligible_at IS NOT NULL AND first_deferred_at IS NOT NULL`),
 }));
 
 export const campaignSendsRelations = relations(campaignSends, ({ one }) => ({

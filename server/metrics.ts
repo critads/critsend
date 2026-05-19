@@ -119,6 +119,29 @@ export const pressureGuardDeferredIndexSizeBytes = new client.Gauge({
   registers: [register],
 });
 
+// ── Aging cap (Task #169) ─────────────────────────────────────────────
+// Cumulative counter of deferred sends that the drain force-dispatched
+// because their first_deferred_at had aged past PRESSURE_MAX_DEFER_HOURS.
+// Intentionally NOT labelled by campaign_id (would explode cardinality
+// once aging hits steady-state across hundreds of campaigns); per-
+// campaign tally lives on campaigns.aged_forced_count.
+export const pressureGuardAgedForceSendsTotal = new client.Counter({
+  name: 'critsend_pressure_aged_force_sends_total',
+  help: 'Total deferred sends force-dispatched after aging past PRESSURE_MAX_DEFER_HOURS',
+  registers: [register],
+});
+
+// Gauge of currently-pending deferred rows whose first_deferred_at is
+// older than PRESSURE_NEAR_AGING_HOURS (default = max-defer minus 24h).
+// Refreshed by the drain poll inner. An operator alert on this gauge >0
+// for sustained periods means the drain is failing to keep up and
+// aged-forced dispatches will start firing.
+export const pressureGuardNearAgingPending = new client.Gauge({
+  name: 'critsend_pressure_near_aging_pending',
+  help: 'Currently-pending deferred rows older than PRESSURE_NEAR_AGING_HOURS (about to be force-dispatched)',
+  registers: [register],
+});
+
 // ── Snowball Auto-Throttle (Task #154) ────────────────────────────────
 // When too many campaigns target overlapping audiences, the main sender
 // keeps reserving fresh sends that get deferred behind the 6h pressure

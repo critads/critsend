@@ -32,6 +32,8 @@ import { LOCK_KEYS } from "../bootstrap-lock";
 import { logger } from "../logger";
 import {
   PRESSURE_WINDOW_HOURS,
+  PRESSURE_MAX_DEFER_HOURS,
+  PRESSURE_NEAR_AGING_HOURS,
   flushDeferredSends,
 } from "../services/pressure-guard";
 
@@ -339,6 +341,10 @@ export function registerPressureRoutes(app: Express): void {
     const status = (req.query.status as string) ?? "deferred"; // deferred|sent|failed|pending|all
 
     try {
+      // Task #169: oldest_deferred_age_hours (max age of any currently
+      // pending deferred row) + near_aging count are folded into the
+      // same aggregate scan over campaign_sends so this stays a single
+      // sequential index probe instead of three.
       const counts = await db.execute(sql`
         SELECT
           COUNT(*) FILTER (WHERE status = 'sent') AS sent,
@@ -346,12 +352,19 @@ export function registerPressureRoutes(app: Express): void {
           COUNT(*) FILTER (WHERE status = 'pending' AND eligible_at IS NOT NULL) AS deferred,
           COUNT(*) FILTER (WHERE status = 'pending' AND eligible_at IS NOT NULL AND eligible_at <= NOW()) AS deferred_due,
           COUNT(*) FILTER (WHERE status = 'pending' AND eligible_at IS NULL) AS pending,
-          COUNT(*) FILTER (WHERE status = 'attempting') AS attempting
+          COUNT(*) FILTER (WHERE status = 'attempting') AS attempting,
+          EXTRACT(EPOCH FROM (NOW() - MIN(first_deferred_at) FILTER (WHERE status = 'pending' AND eligible_at IS NOT NULL AND first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
+          COUNT(*) FILTER (
+            WHERE status = 'pending'
+              AND eligible_at IS NOT NULL
+              AND first_deferred_at IS NOT NULL
+              AND first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
+          ) AS near_aging_count
         FROM campaign_sends WHERE campaign_id = ${campaignId}
       `);
 
       const campaignRow = await db.execute(sql`
-        SELECT id, name, deferred_count, sent_count, pending_count, failed_count, started_at, status
+        SELECT id, name, deferred_count, sent_count, pending_count, failed_count, started_at, status, aged_forced_count
         FROM campaigns WHERE id = ${campaignId}
       `);
       if (campaignRow.rows.length === 0) {
@@ -415,6 +428,8 @@ export function registerPressureRoutes(app: Express): void {
       res.json({
         campaign: campaignRow.rows[0],
         windowHours: PRESSURE_WINDOW_HOURS,
+        maxDeferHours: PRESSURE_MAX_DEFER_HOURS,
+        nearAgingHours: PRESSURE_NEAR_AGING_HOURS,
         counts: counts.rows[0],
         page,
         limit,
@@ -497,6 +512,10 @@ export function registerPressureRoutes(app: Express): void {
     const cached = cacheGet<any>("admin:queue");
     if (cached) return res.json(cached);
     try {
+      // Task #169: surface oldest_deferred_age_hours + near_aging_count
+      // + aged_forced_count per campaign so operators can immediately
+      // see which campaigns are approaching or hitting the 72h cap.
+      // All three fold into the existing GROUP BY scan — no extra query.
       const summary = await db.execute(sql`
         SELECT
           cs.campaign_id,
@@ -504,13 +523,19 @@ export function registerPressureRoutes(app: Express): void {
           c.started_at,
           c.created_at,
           c.deferred_count AS lifetime_defers,
+          c.aged_forced_count,
           COUNT(*) AS pending_deferred,
           COUNT(*) FILTER (WHERE cs.eligible_at <= NOW()) AS due_now,
-          MIN(cs.eligible_at) AS next_eligible_at
+          MIN(cs.eligible_at) AS next_eligible_at,
+          EXTRACT(EPOCH FROM (NOW() - MIN(cs.first_deferred_at) FILTER (WHERE cs.first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
+          COUNT(*) FILTER (
+            WHERE cs.first_deferred_at IS NOT NULL
+              AND cs.first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
+          ) AS near_aging_count
         FROM campaign_sends cs
         JOIN campaigns c ON c.id = cs.campaign_id
         WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
-        GROUP BY cs.campaign_id, c.name, c.started_at, c.created_at, c.deferred_count
+        GROUP BY cs.campaign_id, c.name, c.started_at, c.created_at, c.deferred_count, c.aged_forced_count
         ORDER BY c.created_at ASC NULLS FIRST
         LIMIT 500
       `);
@@ -519,12 +544,19 @@ export function registerPressureRoutes(app: Express): void {
         SELECT
           COUNT(*) AS pending_deferred,
           COUNT(DISTINCT subscriber_id) AS distinct_contacts_in_cooldown,
-          COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now
+          COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now,
+          EXTRACT(EPOCH FROM (NOW() - MIN(first_deferred_at) FILTER (WHERE first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
+          COUNT(*) FILTER (
+            WHERE first_deferred_at IS NOT NULL
+              AND first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
+          ) AS near_aging_count
         FROM campaign_sends WHERE status = 'pending' AND eligible_at IS NOT NULL
       `);
 
       const payload = {
         windowHours: PRESSURE_WINDOW_HOURS,
+        maxDeferHours: PRESSURE_MAX_DEFER_HOURS,
+        nearAgingHours: PRESSURE_NEAR_AGING_HOURS,
         totals: totals.rows[0],
         campaigns: summary.rows,
         generatedAt: new Date().toISOString(),
