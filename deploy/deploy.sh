@@ -373,6 +373,48 @@ else
     fi
 fi
 
+# ─── Step 9: Post-deploy fatal-error probe ────────────────────────────────────
+# Why this exists: /api/health/startup does not always exercise the same code
+# paths as real user requests. The 2026-05-19 incident (PgBouncer rejecting
+# `lock_timeout` via libpq `options`) passed both the boot-line check and the
+# startup health check, but every real request to /api/auth/* returned 500
+# because new pool connections were rejected at handshake.
+#
+# We scan the error logs written AFTER the deploy started for known fatal
+# patterns. If any appear, we fail the deploy hard so the operator can
+# investigate before walking away from a degraded prod.
+step "Scanning post-deploy error logs for fatal patterns (last 60 s)..."
+sleep 30  # let the app handle some real traffic before scanning
+DEPLOY_START_EPOCH=$(date -d "90 seconds ago" +%s 2>/dev/null || date -v-90S +%s)
+FATAL_PATTERNS='unsupported startup parameter|Too many connections attempts|ECONNREFUSED|password authentication failed|database .* does not exist|relation .* does not exist|Cannot find module|SyntaxError:|TypeError: Cannot read'
+_fatal_found=0
+_fatal_summary=""
+for log in /var/log/critsend/web-err.log /var/log/critsend/worker-err.log /var/log/critsend/drainer-err.log; do
+    [[ -r "$log" ]] || continue
+    # awk: keep lines whose first timestamp is >= deploy start (best-effort;
+    # PM2 log format starts with "YYYY-MM-DD HH:MM:SS ±ZZ:ZZ").
+    recent=$(awk -v start="$DEPLOY_START_EPOCH" '
+        match($0, /^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}/) {
+            ts = substr($0, RSTART, RLENGTH);
+            cmd = "date -d \"" ts "\" +%s 2>/dev/null"; cmd | getline epoch; close(cmd);
+            if (epoch+0 >= start+0) print;
+        }
+    ' "$log" 2>/dev/null | grep -E "$FATAL_PATTERNS" | head -20 || true)
+    if [[ -n "$recent" ]]; then
+        _fatal_found=1
+        _fatal_summary+="\n  $log:\n$(echo "$recent" | sed 's/^/    /')"
+    fi
+done
+if [[ "$_fatal_found" == "1" ]]; then
+    echo "[deploy] ✗ FATAL log patterns detected after deploy:"
+    echo -e "$_fatal_summary"
+    echo ""
+    echo "[deploy]   The app is likely degraded. Investigate before declaring deploy successful."
+    echo "[deploy]   To rollback: git reset --hard HEAD~1 && bash deploy/deploy.sh"
+    fail "Post-deploy fatal-error probe failed."
+fi
+ok "No fatal error patterns in post-deploy logs"
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "[deploy] ✓ Deploy complete!"
