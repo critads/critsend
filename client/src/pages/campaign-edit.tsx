@@ -895,7 +895,7 @@ export default function CampaignEdit() {
                     </div>
                   </div>
                   {showPreview ? (
-                    <div className="border rounded-md bg-white overflow-hidden">
+                    <div className="border rounded-md bg-[#fdfcf7] overflow-hidden">
                       <iframe
                         srcDoc={withBaseHref(formData.htmlContent)}
                         className="w-full min-h-[400px] border-0"

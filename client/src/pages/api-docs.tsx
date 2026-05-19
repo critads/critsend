@@ -226,7 +226,7 @@ const endpoints = [
 
 function MethodBadge({ method }: { method: string }) {
   const colors: Record<string, string> = {
-    GET: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+    GET: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
     POST: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
     PATCH: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",
     PUT: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",

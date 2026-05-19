@@ -78,7 +78,7 @@ function RowCountIndicator({ count }: { count: number }) {
   if (count >= 100000) {
     return <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" data-testid="indicator-yellow" />;
   }
-  return <div className="w-2.5 h-2.5 rounded-full bg-green-500" data-testid="indicator-green" />;
+  return <div className="w-2.5 h-2.5 rounded-full bg-amber-500" data-testid="indicator-green" />;
 }
 
 function StatusBadge({ status }: { status: string }) {

@@ -241,7 +241,7 @@ function ActiveJobDisplay({ job }: { job: ImportJob }) {
       </div>
       {job.processedRows > 0 && (
         <div className="flex justify-between text-xs text-muted-foreground mt-1">
-          <span className="text-green-600 font-medium">
+          <span className="text-amber-600 font-medium">
             {Math.round(rowsPerSec * 60).toLocaleString()} rows/min
           </span>
           <span>
@@ -254,7 +254,7 @@ function ActiveJobDisplay({ job }: { job: ImportJob }) {
         <div className="grid grid-cols-3 gap-3 text-xs mt-2 p-2 rounded bg-muted/50">
           <div>
             <span className="text-muted-foreground">New: </span>
-            <span className="font-medium text-green-600">+{job.newSubscribers.toLocaleString()}</span>
+            <span className="font-medium text-amber-600">+{job.newSubscribers.toLocaleString()}</span>
           </div>
           <div>
             <span className="text-muted-foreground">Updated: </span>
@@ -309,9 +309,9 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
 
       <div className={`grid gap-3 text-sm ${dupCount > 0 ? "grid-cols-2 sm:grid-cols-4" : isRemoval ? "grid-cols-2" : "grid-cols-3"}`}>
         {!isRemoval && (
-          <div className="p-2.5 rounded bg-green-50 dark:bg-green-950/20 text-center" data-testid="stat-new">
+          <div className="p-2.5 rounded bg-amber-50 dark:bg-amber-950/20 text-center" data-testid="stat-new">
             <p className="text-xs text-muted-foreground mb-0.5">New</p>
-            <p className="font-semibold text-green-600" data-testid="text-new-count">
+            <p className="font-semibold text-amber-600" data-testid="text-new-count">
               {job.newSubscribers.toLocaleString()}
             </p>
           </div>
@@ -345,7 +345,7 @@ function CompletedJobDisplay({ job }: { job: ImportJob }) {
         </div>
         <div className="flex justify-between">
           <span>{isRemoval ? "Subscribers cleaned" : "Successfully imported (new + updated)"}</span>
-          <span className="font-medium text-green-700 dark:text-green-400">
+          <span className="font-medium text-amber-700 dark:text-amber-400">
             {isRemoval ? job.updatedSubscribers.toLocaleString() : displayImported.toLocaleString()}
           </span>
         </div>
@@ -498,7 +498,7 @@ function ImportJobCard({ job, onCancel }: { job: ImportJob; onCancel: (id: strin
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "completed": return <CheckCircle2 className="h-5 w-5 text-green-600" />;
+      case "completed": return <CheckCircle2 className="h-5 w-5 text-amber-600" />;
       case "failed": return <XCircle className="h-5 w-5 text-red-600" />;
       case "cancelled": return <Ban className="h-5 w-5 text-muted-foreground" />;
       case "processing": return <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />;

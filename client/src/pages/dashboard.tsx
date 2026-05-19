@@ -70,7 +70,7 @@ function pct(num: number, den: number): number {
 function statusDot(status: string): string {
   switch (status) {
     case "sending":
-      return "bg-emerald-500";
+      return "bg-amber-500";
     case "scheduled":
       return "bg-amber-400";
     case "completed":
@@ -158,7 +158,7 @@ export default function Dashboard() {
                   className="flex-1 h-2 rounded-full bg-[repeating-linear-gradient(45deg,#d6cfa8_0_4px,transparent_4px_8px)]"
                   aria-hidden
                 />
-                <div className="px-3 py-1 rounded-full bg-white/80 border border-stone-300/50 text-stone-700 text-xs font-semibold" data-testid="badge-unsub-rate">
+                <div className="px-3 py-1 rounded-full bg-[#fdfcf7]/80 border border-stone-300/50 text-stone-700 text-xs font-semibold" data-testid="badge-unsub-rate">
                   {unsubRate}%
                 </div>
               </div>
@@ -204,12 +204,12 @@ export default function Dashboard() {
               aria-hidden
             />
             <div className="relative z-10 flex items-start justify-between">
-              <div className="p-2.5 rounded-2xl bg-white/10 backdrop-blur">
+              <div className="p-2.5 rounded-2xl bg-[#fdfcf7]/10 backdrop-blur">
                 <Mail className="h-5 w-5 text-amber-300" />
               </div>
               {heroCampaign && (
                 <Link href={`/campaigns/${heroCampaign.id}`}>
-                  <button className="p-2 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur" data-testid={`link-hero-campaign-${heroCampaign.id}`}>
+                  <button className="p-2 rounded-full bg-[#fdfcf7]/10 hover:bg-[#fdfcf7]/20 backdrop-blur" data-testid={`link-hero-campaign-${heroCampaign.id}`}>
                     <ArrowUpRight className="h-4 w-4" />
                   </button>
                 </Link>
@@ -218,13 +218,13 @@ export default function Dashboard() {
             <div className="relative z-10">
               <div className="text-xs text-stone-400 mb-2 uppercase tracking-wide">Latest campaign</div>
               {isLoading ? (
-                <Skeleton className="h-7 w-3/4 bg-white/10" />
+                <Skeleton className="h-7 w-3/4 bg-[#fdfcf7]/10" />
               ) : heroCampaign ? (
                 <>
                   <div className="text-2xl font-semibold tracking-tight mb-3 line-clamp-2" data-testid="text-hero-campaign-name">
                     {heroCampaign.name}
                   </div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur text-sm">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#fdfcf7]/10 backdrop-blur text-sm">
                     <span className={`w-2 h-2 rounded-full ${statusDot(heroCampaign.status)}`} />
                     <span className="capitalize">{heroCampaign.status}</span>
                     <span className="text-stone-400">·</span>
@@ -247,7 +247,7 @@ export default function Dashboard() {
           </div>
 
           {/* Engagement bars */}
-          <div className="rounded-3xl bg-white/80 backdrop-blur p-6 border border-white/60">
+          <div className="rounded-3xl bg-[#fdfcf7]/80 backdrop-blur p-6 border border-[#fdfcf7]/60">
             <div className="flex items-start justify-between mb-2">
               <div>
                 <div className="text-sm text-stone-600">Engagement</div>
@@ -282,7 +282,7 @@ export default function Dashboard() {
                         backgroundColor: "#1c1917",
                         border: "none",
                         borderRadius: "10px",
-                        color: "#fff",
+                        color: "#fdfcf7",
                         fontSize: 12,
                       }}
                       labelStyle={{ color: "#a8a29e" }}
@@ -303,7 +303,7 @@ export default function Dashboard() {
           </div>
 
           {/* Open rate donut */}
-          <div className="rounded-3xl bg-white/80 backdrop-blur p-6 border border-white/60 flex flex-col">
+          <div className="rounded-3xl bg-[#fdfcf7]/80 backdrop-blur p-6 border border-[#fdfcf7]/60 flex flex-col">
             <div className="flex items-start justify-between mb-2">
               <div className="text-sm text-stone-600">Open rate</div>
               <Link href="/analytics">
@@ -348,7 +348,7 @@ export default function Dashboard() {
           </div>
 
           {/* Reports / quick metrics */}
-          <div className="rounded-3xl bg-white/80 backdrop-blur p-6 border border-white/60">
+          <div className="rounded-3xl bg-[#fdfcf7]/80 backdrop-blur p-6 border border-[#fdfcf7]/60">
             <div className="flex items-start justify-between mb-4">
               <div>
                 <div className="text-sm text-stone-600">Reports</div>
@@ -370,7 +370,7 @@ export default function Dashboard() {
           </div>
 
           {/* Quick actions on hero column row 2 */}
-          <div className="md:col-span-2 lg:col-span-3 rounded-3xl bg-white/60 backdrop-blur p-6 border border-white/60 flex flex-wrap items-center gap-3">
+          <div className="md:col-span-2 lg:col-span-3 rounded-3xl bg-[#fdfcf7]/60 backdrop-blur p-6 border border-[#fdfcf7]/60 flex flex-wrap items-center gap-3">
             <div className="text-sm text-stone-600 mr-auto">Quick actions</div>
             <Link href="/campaigns/new">
               <Button className="rounded-full bg-stone-900 hover:bg-stone-800 text-white shadow-sm" data-testid="button-new-campaign">
@@ -379,19 +379,19 @@ export default function Dashboard() {
               </Button>
             </Link>
             <Link href="/import">
-              <Button variant="outline" className="rounded-full bg-white border-stone-300 hover:bg-stone-50" data-testid="button-import">
+              <Button variant="outline" className="rounded-full bg-[#fdfcf7] border-stone-300 hover:bg-stone-50" data-testid="button-import">
                 <UserPlus className="h-4 w-4 mr-2" />
                 Import
               </Button>
             </Link>
             <Link href="/segments/new">
-              <Button variant="outline" className="rounded-full bg-white border-stone-300 hover:bg-stone-50" data-testid="button-new-segment">
+              <Button variant="outline" className="rounded-full bg-[#fdfcf7] border-stone-300 hover:bg-stone-50" data-testid="button-new-segment">
                 <Filter className="h-4 w-4 mr-2" />
                 New Segment
               </Button>
             </Link>
             <Link href="/mtas/new">
-              <Button variant="outline" className="rounded-full bg-white border-stone-300 hover:bg-stone-50" data-testid="button-new-mta">
+              <Button variant="outline" className="rounded-full bg-[#fdfcf7] border-stone-300 hover:bg-stone-50" data-testid="button-new-mta">
                 <Send className="h-4 w-4 mr-2" />
                 Add MTA
               </Button>
@@ -402,7 +402,7 @@ export default function Dashboard() {
         {/* Bottom row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Left: list sections */}
-          <div className="rounded-3xl bg-white/80 backdrop-blur p-6 border border-white/60 space-y-1">
+          <div className="rounded-3xl bg-[#fdfcf7]/80 backdrop-blur p-6 border border-[#fdfcf7]/60 space-y-1">
             <SectionRow
               icon={Inbox}
               title="Recent imports"
@@ -491,7 +491,7 @@ export default function Dashboard() {
             {isLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-14 w-full bg-white/5" />
+                  <Skeleton key={i} className="h-14 w-full bg-[#fdfcf7]/5" />
                 ))}
               </div>
             ) : upcomingItems.length > 0 ? (
@@ -499,14 +499,14 @@ export default function Dashboard() {
                 {upcomingItems.map((c) => (
                   <Link key={c.id} href={`/campaigns/${c.id}`}>
                     <div
-                      className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+                      className="flex items-center gap-4 p-3 rounded-2xl bg-[#fdfcf7]/5 hover:bg-[#fdfcf7]/10 transition-colors cursor-pointer"
                       data-testid={`campaign-item-${c.id}`}
                     >
-                      <div className="p-2.5 rounded-xl bg-white/10">
+                      <div className="p-2.5 rounded-xl bg-[#fdfcf7]/10">
                         {c.status === "completed" ? (
                           <CheckCircle2 className="h-4 w-4 text-amber-300" />
                         ) : c.status === "sending" ? (
-                          <Send className="h-4 w-4 text-emerald-300" />
+                          <Send className="h-4 w-4 text-amber-300" />
                         ) : c.status === "failed" ? (
                           <AlertCircle className="h-4 w-4 text-red-400" />
                         ) : (
@@ -537,7 +537,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-10 text-center">
-                <div className="p-3 rounded-full bg-white/5 mb-3">
+                <div className="p-3 rounded-full bg-[#fdfcf7]/5 mb-3">
                   <Mail className="h-6 w-6 text-stone-500" />
                 </div>
                 <p className="text-stone-400 mb-3 text-sm">No campaigns yet</p>

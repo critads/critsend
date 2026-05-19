@@ -171,7 +171,7 @@ function CampaignStatusBadge({ status }: { status: string }) {
     draft: { variant: "secondary", icon: <Clock className="h-3 w-3" /> },
     scheduled: { variant: "outline", icon: <Clock className="h-3 w-3" />, className: "border-blue-500 text-blue-600" },
     sending: { variant: "default", icon: <Mail className="h-3 w-3" /> },
-    completed: { variant: "secondary", icon: <CheckCircle2 className="h-3 w-3" />, className: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" },
+    completed: { variant: "secondary", icon: <CheckCircle2 className="h-3 w-3" />, className: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
     paused: { variant: "outline", icon: <Pause className="h-3 w-3" />, className: "border-yellow-500 text-yellow-600" },
     failed: { variant: "destructive", icon: <AlertCircle className="h-3 w-3" /> },
   };
@@ -855,7 +855,7 @@ export default function CampaignDetail() {
         </CardHeader>
         <CardContent>
           {campaign.htmlContent ? (
-            <div className="border rounded-lg overflow-hidden bg-white">
+            <div className="border rounded-lg overflow-hidden bg-[#fdfcf7]">
               <iframe
                 srcDoc={withBaseHref(campaign.htmlContent)}
                 className="w-full min-h-[500px] border-0"

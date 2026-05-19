@@ -135,7 +135,7 @@ function formatEpoch(epoch: number): string {
 }
 
 function StatusDot({ status }: { status: "ok" | "warning" | "critical" }) {
-  const color = status === "ok" ? "bg-green-500" : status === "warning" ? "bg-yellow-500" : "bg-red-500";
+  const color = status === "ok" ? "bg-amber-500" : status === "warning" ? "bg-yellow-500" : "bg-red-500";
   return <div className={`w-2.5 h-2.5 rounded-full ${color} inline-block`} />;
 }
 
@@ -150,7 +150,7 @@ function PoolBar({ used, max, label }: { used: number; max: number; label: strin
       </div>
       <Progress
         value={pct}
-        className={`h-2 ${status === "critical" ? "[&>div]:bg-red-500" : status === "warning" ? "[&>div]:bg-yellow-500" : "[&>div]:bg-green-500"}`}
+        className={`h-2 ${status === "critical" ? "[&>div]:bg-red-500" : status === "warning" ? "[&>div]:bg-yellow-500" : "[&>div]:bg-amber-500"}`}
       />
     </div>
   );
@@ -824,7 +824,7 @@ export default function SystemMetricsPage() {
                 ))
               ) : (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <CheckCircle className="h-4 w-4 text-amber-500" />
                   No drift corrections needed
                 </div>
               )}

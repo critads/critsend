@@ -243,7 +243,7 @@ export default function TestMetrics() {
             className="gap-1"
             data-testid="badge-server-status"
           >
-            <div className={`w-2 h-2 rounded-full ${isRunning ? "bg-green-400 animate-pulse" : "bg-gray-400"}`} />
+            <div className={`w-2 h-2 rounded-full ${isRunning ? "bg-amber-400 animate-pulse" : "bg-gray-400"}`} />
             {isRunning ? "Running" : "Stopped"}
           </Badge>
           {isRunning ? (
@@ -456,7 +456,7 @@ export default function TestMetrics() {
             ) : captureDetail?.html_body ? (
               <iframe
                 srcDoc={captureDetail.html_body}
-                className="w-full h-full min-h-[400px] border rounded-md bg-white"
+                className="w-full h-full min-h-[400px] border rounded-md bg-[#fdfcf7]"
                 sandbox=""
                 title="Email preview"
                 data-testid="iframe-email-preview"

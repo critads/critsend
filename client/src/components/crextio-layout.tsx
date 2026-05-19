@@ -107,7 +107,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
             <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
               <SheetTrigger asChild>
                 <button
-                  className="md:hidden p-2 rounded-full bg-white/70 border border-stone-300/40 text-stone-700 hover:bg-white"
+                  className="md:hidden p-2 rounded-full bg-[#fdfcf7]/70 border border-stone-300/40 text-stone-700 hover:bg-[#fdfcf7]"
                   aria-label="Open navigation"
                   data-testid="button-mobile-nav"
                 >
@@ -174,7 +174,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
 
             <Link href="/">
               <div
-                className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-white/70 border border-stone-300/50 cursor-pointer hover:bg-white"
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-[#fdfcf7]/70 border border-stone-300/50 cursor-pointer hover:bg-[#fdfcf7]"
                 data-testid="link-home-logo"
               >
                 <div className="w-6 h-6 rounded-md bg-stone-900 flex items-center justify-center">
@@ -188,7 +188,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
           </div>
 
           {/* Nav pills */}
-          <nav className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-full bg-white/60 border border-stone-300/40 text-sm overflow-hidden">
+          <nav className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-full bg-[#fdfcf7]/60 border border-stone-300/40 text-sm overflow-hidden">
             {PRIMARY_NAV.map((item) => {
               const active = isActive(location, item.url);
               return (
@@ -198,7 +198,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
                       "px-3 lg:px-4 py-1.5 rounded-full cursor-pointer whitespace-nowrap transition-colors " +
                       (active
                         ? "bg-stone-900 text-white font-medium"
-                        : "text-stone-700 hover:text-stone-900 hover:bg-white/70")
+                        : "text-stone-700 hover:text-stone-900 hover:bg-[#fdfcf7]/70")
                     }
                     data-testid={navTestId(item.title)}
                   >
@@ -215,7 +215,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
                     "px-2 py-1.5 rounded-full flex items-center transition-colors " +
                     (overflowActive
                       ? "bg-stone-900 text-white"
-                      : "text-stone-700 hover:text-stone-900 hover:bg-white/70")
+                      : "text-stone-700 hover:text-stone-900 hover:bg-[#fdfcf7]/70")
                   }
                   aria-label="More navigation"
                   data-testid="button-nav-more"
@@ -252,7 +252,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="p-2 rounded-full bg-white/70 border border-stone-300/40 text-stone-700 hover:bg-white"
+                  className="p-2 rounded-full bg-[#fdfcf7]/70 border border-stone-300/40 text-stone-700 hover:bg-[#fdfcf7]"
                   aria-label="Theme"
                   data-testid="button-theme"
                 >
@@ -289,7 +289,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
 
             <Link href="/system-metrics">
               <button
-                className="p-2 rounded-full bg-white/70 border border-stone-300/40 text-stone-700 hover:bg-white"
+                className="p-2 rounded-full bg-[#fdfcf7]/70 border border-stone-300/40 text-stone-700 hover:bg-[#fdfcf7]"
                 aria-label="Settings"
                 data-testid="button-settings"
               >
@@ -299,7 +299,7 @@ export function CrextioLayout({ children }: { children: ReactNode }) {
 
             <Link href="/error-logs">
               <button
-                className="p-2 rounded-full bg-white/70 border border-stone-300/40 text-stone-700 hover:bg-white relative"
+                className="p-2 rounded-full bg-[#fdfcf7]/70 border border-stone-300/40 text-stone-700 hover:bg-[#fdfcf7] relative"
                 aria-label="Notifications"
                 data-testid="button-notifications"
               >

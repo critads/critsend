@@ -396,11 +396,11 @@ export default function MTAs() {
 
             {testResult?.success && (
               <div className="space-y-4" data-testid="test-success">
-                <div className="flex items-center gap-3 p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
-                  <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400 shrink-0" />
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                  <CheckCircle2 className="h-8 w-8 text-amber-600 dark:text-amber-400 shrink-0" />
                   <div>
-                    <p className="font-semibold text-green-800 dark:text-green-300">Connection successful</p>
-                    <p className="text-sm text-green-700 dark:text-green-400">
+                    <p className="font-semibold text-amber-800 dark:text-amber-300">Connection successful</p>
+                    <p className="text-sm text-amber-700 dark:text-amber-400">
                       SMTP server accepted the connection and credentials.
                     </p>
                   </div>

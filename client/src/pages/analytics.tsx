@@ -250,7 +250,7 @@ function LinkSummaryTable({
                   link.pct >= 30 ? "bg-red-500" :
                   link.pct >= 10 ? "bg-orange-500" :
                   link.pct >= 3  ? "bg-yellow-500" :
-                  link.clicks > 0 ? "bg-green-500" : "bg-gray-400";
+                  link.clicks > 0 ? "bg-amber-500" : "bg-gray-400";
                 return (
                   <TableRow key={`${link.url}-${index}`} data-testid={`row-heatmap-${index}`}>
                     <TableCell className="text-muted-foreground">{index + 1}</TableCell>
@@ -295,7 +295,7 @@ const BATCH_SIZE_OPTIONS = [
 ];
 
 function batchBarColor(openRate: number): string {
-  if (openRate >= 20) return "#22c55e";
+  if (openRate >= 20) return "#fbbf24";
   if (openRate >= 10) return "#eab308";
   return "#ef4444";
 }
@@ -438,7 +438,7 @@ function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
               </ResponsiveContainer>
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground justify-end">
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#22c55e]" /> ≥20%</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#fbbf24]" /> ≥20%</span>
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#eab308]" /> ≥10%</span>
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#ef4444]" /> &lt;10%</span>
             </div>
@@ -638,7 +638,7 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
                       ) : activity.type === "unsubscribe" ? (
                         <UserMinus className="h-4 w-4 text-red-500" />
                       ) : (
-                        <MousePointer2 className="h-4 w-4 text-green-500" />
+                        <MousePointer2 className="h-4 w-4 text-amber-500" />
                       )}
                       <span className="font-mono text-xs truncate max-w-[180px]">
                         {activity.email}
