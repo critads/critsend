@@ -295,7 +295,7 @@ const BATCH_SIZE_OPTIONS = [
 ];
 
 function batchBarColor(openRate: number): string {
-  if (openRate >= 20) return "#fbbf24";
+  if (openRate >= 20) return "#e9a23b";
   if (openRate >= 10) return "#eab308";
   return "#ef4444";
 }
@@ -438,7 +438,7 @@ function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
               </ResponsiveContainer>
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground justify-end">
-              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#fbbf24]" /> ≥20%</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#e9a23b]" /> ≥20%</span>
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#eab308]" /> ≥10%</span>
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-[#ef4444]" /> &lt;10%</span>
             </div>
