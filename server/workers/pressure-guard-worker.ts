@@ -795,16 +795,16 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   // Normal CAS: standard 6h gap check on the remaining claimed rows.
   // Winners get last_sent_at = NOW(); losers stay 'attempting' here and
   // are re-deferred below.
-  const casRes = normalIds.length > 0
+  const casRes: { rows: Array<{ id: string; last_sent_at: Date | null }> } = normalIds.length > 0
     ? await db.execute(sql`
         UPDATE subscribers s
         SET last_sent_at = NOW()
         WHERE s.id = ANY(${toPgTextArray(normalIds)}::text[])
           AND (s.last_sent_at IS NULL OR s.last_sent_at + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval <= NOW())
         RETURNING s.id, s.last_sent_at
-      `)
-    : { rows: [] as any[] };
-  const normalWinnerIds = new Set(casRes.rows.map((r) => (r as any).id as string));
+      `) as { rows: Array<{ id: string; last_sent_at: Date | null }> }
+    : { rows: [] };
+  const normalWinnerIds = new Set(casRes.rows.map((r) => r.id));
 
   // Merged winner set: aged force-wins + normal CAS wins.
   // Losers are ONLY the normal-CAS losers (aged rows are never losers

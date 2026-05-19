@@ -753,7 +753,7 @@ export async function pressureGuardForceReserveSendSlots(
       RETURNING id
     `);
   });
-  return result.rows.map((r) => (r as any).id as string);
+  return (result.rows as Array<{ id: string }>).map((r) => r.id);
 }
 
 /**
