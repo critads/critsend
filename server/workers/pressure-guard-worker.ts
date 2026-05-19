@@ -492,17 +492,28 @@ async function pollDeferredQueueInner() {
       // 05-13 campaigns was draining at the same priority as the 05-14
       // ones (essentially random). created_at is set once at row insert
       // and is never bumped, so it reliably reflects launch ancestry.
+      // Task #169 — Aged rows (first_deferred_at > PRESSURE_MAX_DEFER_HOURS)
+      // MUST be picked up on the next tick regardless of their future
+      // eligible_at, otherwise the cap is silently extended by up to the
+      // 6h pressure window when the contact had a recent send. The aged
+      // bypass mirrors the per-row claim relaxation in drainCampaign.
       const r = await eligClient.query<{ campaign_id: string; created_at: Date | null }>(
         `SELECT DISTINCT cs.campaign_id, c.created_at
          FROM campaign_sends cs
          JOIN campaigns c ON c.id = cs.campaign_id
          WHERE cs.status = 'pending'
            AND cs.eligible_at IS NOT NULL
-           AND cs.eligible_at <= NOW()
+           AND (
+             cs.eligible_at <= NOW()
+             OR (
+               cs.first_deferred_at IS NOT NULL
+               AND cs.first_deferred_at <= NOW() - ($2::numeric || ' hours')::interval
+             )
+           )
            AND c.status IN ('sending', 'paused')
          ORDER BY c.created_at ASC NULLS FIRST
          LIMIT $1`,
-        [MAX_CAMPAIGNS_PER_TICK],
+        [MAX_CAMPAIGNS_PER_TICK, PRESSURE_MAX_DEFER_HOURS],
       );
       await eligClient.query("COMMIT");
       campaignsRes = { rows: r.rows };
@@ -684,14 +695,25 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   let claimedSubIds: string[] = [];
   try {
     await client.query("BEGIN");
+    // Task #169 — Aged rows bypass the eligible_at gate so they actually
+    // dispatch on the next tick after crossing the cap, even if the
+    // contact's 6h window is still pending. ORDER BY first_deferred_at
+    // first puts the oldest aged rows at the head of the batch.
     const claim = await client.query(
       `SELECT subscriber_id FROM campaign_sends
        WHERE campaign_id = $1
-         AND status = 'pending' AND eligible_at IS NOT NULL AND eligible_at <= NOW()
-       ORDER BY eligible_at ASC
+         AND status = 'pending' AND eligible_at IS NOT NULL
+         AND (
+           eligible_at <= NOW()
+           OR (
+             first_deferred_at IS NOT NULL
+             AND first_deferred_at <= NOW() - ($3::numeric || ' hours')::interval
+           )
+         )
+       ORDER BY first_deferred_at ASC NULLS LAST, eligible_at ASC
        LIMIT $2
        FOR UPDATE SKIP LOCKED`,
-      [campaignId, BATCH_PER_CAMPAIGN],
+      [campaignId, BATCH_PER_CAMPAIGN, PRESSURE_MAX_DEFER_HOURS],
     );
     claimedSubIds = claim.rows.map((r) => r.subscriber_id as string);
     if (claimedSubIds.length === 0) {
