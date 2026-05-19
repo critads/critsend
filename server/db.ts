@@ -28,56 +28,33 @@ if (connectionString.includes("neon.tech")) {
 // ──────────────────────────────────────────────────────────────────────
 // PgBouncer-safe backend timeouts — campaign-job stall RCA (2026-05-19).
 //
-// Root cause of the 2026-05-19 outage: pg.Pool's `connect` event runs
-// `SET statement_timeout/lock_timeout` as plain (non-LOCAL) SETs. Under
-// Neon's PgBouncer **transaction pooling**, those session-level SETs are
-// silently discarded on every transaction boundary — the backend stays
-// at its server defaults (`lock_timeout=0`, `idle_in_transaction_session
-// _timeout=300000ms`). When a worker crashed mid-`pressureGuardReserve
-// SendSlots`, the backend kept 1000 advisory locks + row locks for the
-// full 5 min Neon timeout; every retry of the same chunk blocked on
-// those locks until `statement_timeout=120s` fired, the job timed out
-// at 30 min, was requeued, blocked again — indefinitely.
+// IMPORTANT: an earlier version of this file injected
+//   options=-c lock_timeout=... -c statement_timeout=... -c idle_in_transaction_session_timeout=...
+// into the connection string to survive PgBouncer transaction pooling.
+// THAT DOES NOT WORK on Neon: their pooler enforces a whitelist of
+// startup parameters and rejects these GUCs with:
+//   "unsupported startup parameter in options: lock_timeout.
+//    Please use unpooled connection or remove this parameter from the
+//    startup package."
+// Every connect attempt then fails → "Too many connections attempts"
+// → pool empty → 500s everywhere. This wedge took prod fully offline
+// at 10:56 UTC+2 on 2026-05-19. DO NOT re-introduce.
 //
-// The ONLY parameters that survive PgBouncer transaction pooling are
-// those passed via the `options` libpq startup parameter (pgbouncer
-// forwards them to the backend at session establishment, and they
-// become the new defaults — not session SETs that get wiped). We inject
-// `idle_in_transaction_session_timeout=60s` so a crashed worker's locks
-// auto-release in 60s instead of 5min, plus re-state lock/statement
-// timeouts at the backend level so they cannot be wiped.
-const REQUIRED_BACKEND_OPTIONS: Record<string, string> = {
-  lock_timeout: '15000',
-  statement_timeout: '120000',
-  idle_in_transaction_session_timeout: '60000',
-};
-try {
-  const url = new URL(connectionString);
-  // Code-review caveat: if the operator already set `options`, do NOT skip
-  // injection — merge instead. Otherwise the fix is silently bypassed for any
-  // env where DATABASE_URL was hand-tuned with custom GUCs (e.g. `search_path`).
-  const existing = url.searchParams.get('options') ?? '';
-  // Parse existing `-c k=v` pairs (libpq format) so we only append the ones
-  // not already explicitly overridden by the operator.
-  const overridden = new Set<string>();
-  for (const match of existing.matchAll(/-c\s+([\w.]+)\s*=/g)) {
-    overridden.add(match[1]);
-  }
-  const toAppend: string[] = [];
-  for (const [key, val] of Object.entries(REQUIRED_BACKEND_OPTIONS)) {
-    if (!overridden.has(key)) toAppend.push(`-c ${key}=${val}`);
-  }
-  if (toAppend.length > 0) {
-    const merged = existing ? `${existing} ${toAppend.join(' ')}` : toAppend.join(' ');
-    url.searchParams.set('options', merged);
-    connectionString = url.toString();
-    logger.info(`DB backend options merged: appended [${toAppend.join(', ')}]${existing ? ` to existing options [${existing}]` : ''}`);
-  } else {
-    logger.info(`DB backend options: all required GUCs already present in operator-supplied options [${existing}]`);
-  }
-} catch (err: any) {
-  logger.warn(`Could not inject backend options into connection string: ${err?.message || err}`);
-}
+// Defenses we keep instead (PgBouncer-safe):
+//   - Layer 2 (server/services/pressure-guard.ts): `SET LOCAL
+//     lock_timeout='10s'` at the start of each reserve transaction.
+//     SET LOCAL is transaction-scoped, so PgBouncer transaction pooling
+//     can't wipe it — the backend is pinned for the txn's duration.
+//   - Layer 3 (server/db-zombie-killer.ts): boot + periodic sweep
+//     (every 60 s, threshold 30 s) that pg_terminate_backend's our own
+//     idle-in-transaction backends. This covers the
+//     `idle_in_transaction_session_timeout` gap (Neon default 5 min →
+//     effective recovery 30-60 s).
+//   - pg.Pool config below sets statement_timeout/lock_timeout via the
+//     `connect` event. PgBouncer wipes these between txns, so they are
+//     NOT a primary defense — they're a best-effort fallback for
+//     queries that happen to land on a fresh session-pinned backend
+//     (e.g. inside a tx). The real protections are layers 2 & 3.
 
 export { isExternalDb };
 

@@ -1,0 +1,296 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ pm2 status
+pm2 logs critsend-web --lines 50 --nostream --err
+pm2 logs critsend-web --lines 50 --nostream
+tail -100 /var/log/critsend/web-out.log
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 2  │ critsend-drainer   │ fork     │ 14   │ online    │ 0%       │ 73.7mb   │
+│ 0  │ critsend-web       │ fork     │ 16   │ online    │ 0%       │ 270.4mb  │
+│ 1  │ critsend-worker    │ fork     │ 16   │ online    │ 0%       │ 84.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 50 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 50 lines:
+0|critsend | 05-19 10:56:41 +02:00: 2026-05-19T08:56:41.783Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.784Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.793Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.798Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.803Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.804Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.804Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.244Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.245Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.259Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.260Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.261Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.264Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.778Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.780Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.781Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.781Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.784Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.786Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.786Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.788Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.789Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.789Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.791Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.792Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.277Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.287Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.288Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.289Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.290Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.294Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.295Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.298Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.773Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.773Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.774Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.774Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.775Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.778Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.780Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+
+[TAILING] Tailing last 50 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-out.log last 50 lines:
+0|critsend | 2026-05-19 10:50:55 +02:00: 2026-05-19T08:50:55.395Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=11edbf38-0f55-4efc-9295-43932763d915
+0|critsend | 2026-05-19 10:50:58 +02:00: 2026-05-19T08:50:58.622Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=eeb86a93-a3b6-4a63-ba25-0e2a85e23597
+0|critsend | 2026-05-19 10:51:04 +02:00: 2026-05-19T08:51:04.583Z [INFO] Unsubscribe request: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=ff8f6ba9-e9d4-45bd-99d7-b89efe88b1e5
+0|critsend | 2026-05-19 10:51:43 +02:00: 2026-05-19T08:51:43.386Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=81534137-3a95-427c-999f-015a2be35aaa
+0|critsend | 2026-05-19 10:51:47 +02:00: 2026-05-19T08:51:47.372Z [INFO] Short unsubscribe: campaign=93831472-f9b2-4e17-bb88-d52cf6f1bf52, subscriber=31ae3df8-61cc-4fb6-8585-e1756ae2a097
+0|critsend | 2026-05-19 10:51:47 +02:00: 2026-05-19T08:51:47.726Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=f037a535-4ebb-4480-a704-e729801a5e5d
+0|critsend | 2026-05-19 10:52:08 +02:00: 2026-05-19T08:52:08.089Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=475230f2-0a40-444e-9e9a-a1e778c94b47
+0|critsend | 2026-05-19 10:52:11 +02:00: 2026-05-19T08:52:11.152Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=d9395dc8-c4fa-409c-97a7-5b6e7c65964f
+0|critsend | 2026-05-19 10:52:11 +02:00: 2026-05-19T08:52:11.628Z [INFO] Unsubscribe request: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=a8b7f932-e1d1-4ccc-81ee-cb62c9fa88d1
+0|critsend | 2026-05-19 10:52:15 +02:00: 2026-05-19T08:52:15.972Z [INFO] Unsubscribe request: campaign=10932000-2b15-4866-8ea3-3b7ee090a300, subscriber=11edbf38-0f55-4efc-9295-43932763d915
+0|critsend | 2026-05-19 10:52:18 +02:00: 2026-05-19T08:52:18.197Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=d20e1e25-d883-4d2e-8542-d759645145a8
+0|critsend | 2026-05-19 10:52:21 +02:00: 2026-05-19T08:52:21.877Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=d9395dc8-c4fa-409c-97a7-5b6e7c65964f
+0|critsend | 2026-05-19 10:52:24 +02:00: 2026-05-19T08:52:24.429Z [INFO] Unsubscribe request: campaign=9efe00e4-deb3-447f-a11b-4421cae2ad38, subscriber=62df04c6-cfec-4cd5-852f-68375d3857e4
+0|critsend | 2026-05-19 10:52:28 +02:00: 2026-05-19T08:52:28.222Z [INFO] Short unsubscribe: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=ff3a65b7-adbf-47e0-8bb8-316524513069
+0|critsend | 2026-05-19 10:52:29 +02:00: 2026-05-19T08:52:29.871Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=b5f338c8-3746-4a44-a8e9-779c83359826
+0|critsend | 2026-05-19 10:52:31 +02:00: 2026-05-19T08:52:31.263Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=605905f1-29d1-4310-8389-1f1af886c7f3
+0|critsend | 2026-05-19 10:52:42 +02:00: 2026-05-19T08:52:42.059Z [INFO] Unsubscribe request: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=22d9b064-d264-4ffb-86de-afab2e2d629c
+0|critsend | 2026-05-19 10:53:06 +02:00: 2026-05-19T08:53:06.271Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=8d780e71-6d97-46b3-8f1c-a44f38998c2a
+0|critsend | 2026-05-19 10:53:25 +02:00: 2026-05-19T08:53:25.183Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=f8cbff62-2ce2-4fd3-a950-c52aff39786a
+0|critsend | 2026-05-19 10:53:49 +02:00: 2026-05-19T08:53:49.296Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:53:49 +02:00: 2026-05-19T08:53:49.341Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=c344da36-53a6-49bd-8e15-86d377342622
+0|critsend | 2026-05-19 10:53:51 +02:00: 2026-05-19T08:53:51.375Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:53:51 +02:00: 2026-05-19T08:53:51.960Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:53:52 +02:00: 2026-05-19T08:53:52.049Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:54:18 +02:00: 2026-05-19T08:54:18.078Z [INFO] Short unsubscribe: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=066f04cb-9c90-4f30-a572-8c11b6b1c1b5
+0|critsend | 2026-05-19 10:54:30 +02:00: 2026-05-19T08:54:30.612Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=643a7b76-8747-4c0f-bf5d-73efdd02c0ff
+0|critsend | 2026-05-19 10:54:42 +02:00: 2026-05-19T08:54:42.869Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=e60ac591-fbde-4a78-b88f-6a697aee3e06
+0|critsend | 2026-05-19 10:54:48 +02:00: 2026-05-19T08:54:48.462Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=1e1c440f-3956-41f4-b981-da53720dc1ff
+0|critsend | 2026-05-19 10:54:49 +02:00: 2026-05-19T08:54:49.409Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=0fac6407-b733-4435-9a3f-760ff97b845c
+0|critsend | 2026-05-19 10:54:52 +02:00: 2026-05-19T08:54:52.673Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=d0e03f69-aefa-491b-9958-a9da3f6e4fca
+0|critsend | 2026-05-19 10:54:53 +02:00: 2026-05-19T08:54:53.332Z [INFO] [TRACKING BUFFER] flush interval restored to 1500ms
+0|critsend | 2026-05-19 10:55:02 +02:00: 2026-05-19T08:55:02.742Z [INFO] Short unsubscribe: campaign=90832b9b-dd38-48cb-9953-4f21fb2e123e, subscriber=66efd9b7-febe-431d-80c2-40021849e109
+0|critsend | 2026-05-19 10:55:07 +02:00: 2026-05-19T08:55:07.872Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=84356950-671d-4112-ba6e-4ef3357179e8
+0|critsend | 2026-05-19 10:55:13 +02:00: 2026-05-19T08:55:13.466Z [INFO] Short unsubscribe: campaign=ee1cc13c-7786-4a5f-8236-dd9a494d21cf, subscriber=84a61456-e433-4e8a-9f9a-050a1dd3dfd4
+0|critsend | 2026-05-19 10:55:23 +02:00: 2026-05-19T08:55:23.257Z [INFO] Short unsubscribe: campaign=551e4c71-cd89-411a-821e-eee5d5ace621, subscriber=c0827ffb-8d87-4516-a88f-e268332cf7ec
+0|critsend | 2026-05-19 10:55:23 +02:00: 2026-05-19T08:55:23.449Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=9a97f685-49f1-403c-a59d-5cc18c85dadc
+0|critsend | 2026-05-19 10:55:31 +02:00: 2026-05-19T08:55:31.768Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=9f1e8ad5-05d2-4a2a-94ca-be0f08cf83ad
+0|critsend | 2026-05-19 10:55:34 +02:00: 2026-05-19T08:55:34.980Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=84a61456-e433-4e8a-9f9a-050a1dd3dfd4
+0|critsend | 2026-05-19 10:55:41 +02:00: 2026-05-19T08:55:41.346Z [INFO] Unsubscribe request: campaign=8582be5f-ee44-4b2e-a4c0-5663640e4d97, subscriber=ea91f6c0-fca9-4ae8-a153-4553b9f13ca2
+0|critsend | 2026-05-19 10:55:49 +02:00: 2026-05-19T08:55:49.576Z [INFO] Unsubscribe request: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=5aeb095b-6f16-4ddf-a67d-f2b8a470a20b
+0|critsend | 2026-05-19 10:56:08 +02:00: 2026-05-19T08:56:08.708Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:56:09 +02:00: 2026-05-19T08:56:09.361Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=9f1e8ad5-05d2-4a2a-94ca-be0f08cf83ad
+0|critsend | 2026-05-19 10:56:10 +02:00: 2026-05-19T08:56:10.257Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:56:10 +02:00: 2026-05-19T08:56:10.613Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:56:10 +02:00: 2026-05-19T08:56:10.888Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+0|critsend | 2026-05-19 10:56:15 +02:00: 2026-05-19T08:56:15.745Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=a9ddb987-4c58-471b-993c-17df661b6ef1
+0|critsend | 2026-05-19 10:56:22 +02:00: 2026-05-19T08:56:22.340Z [INFO] Unsubscribe request: campaign=91d6dea8-7a5a-4dad-bf6e-3499d765d294, subscriber=1af5901b-0fbc-4834-9163-5dbcd72978e9
+0|critsend | 2026-05-19 10:56:34 +02:00: 2026-05-19T08:56:34.120Z [INFO] Short unsubscribe: campaign=36d7201f-55e1-4ba5-a975-146c91d9e60d, subscriber=ad221857-9e57-495c-ab62-98f9671173aa
+0|critsend | 2026-05-19 10:56:34 +02:00: 2026-05-19T08:56:34.259Z [INFO] Short unsubscribe: campaign=10932000-2b15-4866-8ea3-3b7ee090a300, subscriber=0878e906-2c94-4f36-827b-2d1fabb1ba74
+0|critsend | 2026-05-19 10:56:36 +02:00: 2026-05-19T08:56:36.674Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=f3226bcb-c26c-477f-a04a-bd8cd11928aa
+
+/var/log/critsend/web-err.log last 50 lines:
+0|critsend | nsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.803Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.804Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:41 +02:00: 2026-05-19T08:56:41.804Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.244Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.245Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.259Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.260Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.261Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:43 +02:00: 2026-05-19T08:56:43.264Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.778Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.780Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.781Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.781Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.784Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.786Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.786Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.788Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.789Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.789Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.791Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:44 +02:00: 2026-05-19T08:56:44.792Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.277Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.287Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.288Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.289Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.290Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.294Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.295Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:46 +02:00: 2026-05-19T08:56:46.298Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.773Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.773Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.774Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.774Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.775Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.778Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.780Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.782Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: Too many connections attempts
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.785Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+0|critsend | 2026-05-19 10:56:47 +02:00: 2026-05-19T08:56:47.789Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: unsupported startup parameter in options: lock_timeout. Please use unpooled connection or remove this parameter from the startup package. More details: https://neon.tech/docs/connect/connection-errors#unsupported-startup-parameter
+
+2026-05-19 10:44:17 +02:00: 2026-05-19T08:44:17.282Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=2a13d76f-3ce9-47db-a2c5-0c23ee034c38
+2026-05-19 10:44:17 +02:00: 2026-05-19T08:44:17.825Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=cdf8ead5-8168-46f0-b465-24c5f69c4ba5
+2026-05-19 10:44:19 +02:00: 2026-05-19T08:44:19.365Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=cdf8ead5-8168-46f0-b465-24c5f69c4ba5
+2026-05-19 10:44:19 +02:00: 2026-05-19T08:44:19.643Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=cdf8ead5-8168-46f0-b465-24c5f69c4ba5
+2026-05-19 10:44:19 +02:00: 2026-05-19T08:44:19.966Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=cdf8ead5-8168-46f0-b465-24c5f69c4ba5
+2026-05-19 10:44:24 +02:00: 2026-05-19T08:44:24.325Z [INFO] Short unsubscribe: campaign=1ef3aeb6-8fed-46dc-bee3-e5b4924d0d93, subscriber=906ece52-4560-48ca-8fdd-31118c1c20d2
+2026-05-19 10:44:25 +02:00: 2026-05-19T08:44:25.643Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=2e4bb85d-d02c-46e9-876b-305952210fdc
+2026-05-19 10:44:47 +02:00: 2026-05-19T08:44:47.543Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=8bbb5b6a-d2b1-472f-a7bb-298a72bb8f33
+2026-05-19 10:44:57 +02:00: 2026-05-19T08:44:57.050Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=9a30a2ff-b0f1-4b33-b0d0-304c06260e7a
+2026-05-19 10:44:58 +02:00: 2026-05-19T08:44:58.558Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=9a30a2ff-b0f1-4b33-b0d0-304c06260e7a
+2026-05-19 10:44:59 +02:00: 2026-05-19T08:44:59.114Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=9a30a2ff-b0f1-4b33-b0d0-304c06260e7a
+2026-05-19 10:44:59 +02:00: 2026-05-19T08:44:59.117Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=9a30a2ff-b0f1-4b33-b0d0-304c06260e7a
+2026-05-19 10:45:34 +02:00: 2026-05-19T08:45:34.931Z [INFO] Unsubscribe request: campaign=7d2ca889-5273-4847-ad69-bbe0c838d63e, subscriber=a4486894-7204-4e31-8fb5-45c4f98694b0
+2026-05-19 10:45:40 +02:00: 2026-05-19T08:45:40.505Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=8bbb5b6a-d2b1-472f-a7bb-298a72bb8f33
+2026-05-19 10:45:43 +02:00: 2026-05-19T08:45:43.899Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=49e38ccc-2a69-4931-ae95-3612079c684a
+2026-05-19 10:45:47 +02:00: 2026-05-19T08:45:47.037Z [INFO] Short unsubscribe: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=ddf1895f-23ae-4590-958d-aa8fc7c42f6a
+2026-05-19 10:45:47 +02:00: 2026-05-19T08:45:47.397Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=7299658c-bab6-460f-ba19-35ac688fe2d6
+2026-05-19 10:45:56 +02:00: 2026-05-19T08:45:56.250Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=8bbb5b6a-d2b1-472f-a7bb-298a72bb8f33
+2026-05-19 10:46:00 +02:00: 2026-05-19T08:46:00.130Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=d14bb77d-ba2f-462c-b9ac-a7f1f1b175dd
+2026-05-19 10:46:02 +02:00: 2026-05-19T08:46:02.438Z [INFO] Short unsubscribe: campaign=3aa8725c-aea5-4bfb-8d50-c3ae4c537ddf, subscriber=468d8594-44e6-4765-9c20-4a3ad8caf178
+2026-05-19 10:46:17 +02:00: 2026-05-19T08:46:17.311Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=36cfa1f5-9b06-4b51-8a81-bc3fdb196270
+2026-05-19 10:46:20 +02:00: 2026-05-19T08:46:20.093Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=e1d1c477-259f-41ff-8ae9-b3112cf471ea
+2026-05-19 10:46:27 +02:00: 2026-05-19T08:46:27.737Z [INFO] Short unsubscribe: campaign=ee1cc13c-7786-4a5f-8236-dd9a494d21cf, subscriber=4a79f59e-239b-47aa-9c86-c1982c6a8d81
+2026-05-19 10:46:39 +02:00: 2026-05-19T08:46:39.360Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=19049b67-eca3-4a41-b5df-456efdae17a9
+2026-05-19 10:46:44 +02:00: 2026-05-19T08:46:44.163Z [INFO] Unsubscribe request: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=8217ee94-f1c5-44cd-8528-ffe2a68129f2
+2026-05-19 10:46:49 +02:00: 2026-05-19T08:46:49.885Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=fc394270-b05d-4cd0-9855-1cc836535c48
+2026-05-19 10:46:52 +02:00: 2026-05-19T08:46:52.926Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=97b4c04d-d246-4d87-8caf-41d8c9aeda76
+2026-05-19 10:47:31 +02:00: 2026-05-19T08:47:31.025Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=268db216-c214-4003-a3c9-95c17e105276
+2026-05-19 10:47:46 +02:00: 2026-05-19T08:47:46.094Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=68d07f7c-317e-49ff-8469-e4118d173975
+2026-05-19 10:47:50 +02:00: 2026-05-19T08:47:50.865Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=37cf3fdd-7d48-4eb4-95c0-3ed77fae03ba
+2026-05-19 10:47:51 +02:00: 2026-05-19T08:47:51.861Z [INFO] Unsubscribe request: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=b8518c6b-63b2-48ac-a8a1-dda03690b08e
+2026-05-19 10:47:54 +02:00: 2026-05-19T08:47:54.316Z [INFO] Short unsubscribe: campaign=93831472-f9b2-4e17-bb88-d52cf6f1bf52, subscriber=b43a49eb-02fd-4cb3-bb5a-92103c0d4f42
+2026-05-19 10:48:17 +02:00: 2026-05-19T08:48:17.438Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=96a5d4f4-df73-47f8-b018-9395fbe87341
+2026-05-19 10:48:38 +02:00: 2026-05-19T08:48:38.318Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=853fa918-74b5-4dae-9835-7ab73f7b6122
+2026-05-19 10:48:38 +02:00: 2026-05-19T08:48:38.738Z [INFO] Short unsubscribe: campaign=10932000-2b15-4866-8ea3-3b7ee090a300, subscriber=18296ce0-7f68-4294-836a-95a8dfd868a2
+2026-05-19 10:48:44 +02:00: 2026-05-19T08:48:44.221Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=393f39f5-1776-483c-88ba-c3c9c3b4bd85
+2026-05-19 10:48:53 +02:00: 2026-05-19T08:48:53.005Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=eb5adfa5-ede4-41dd-b4cd-b03f4945afb2
+2026-05-19 10:49:04 +02:00: 2026-05-19T08:49:04.532Z [INFO] Unsubscribe request: campaign=ff81d0e6-9224-48af-a51b-b30abd096a39, subscriber=a893bbfb-737e-4d66-b1c0-77d1b8cc698d
+2026-05-19 10:49:04 +02:00: 2026-05-19T08:49:04.750Z [INFO] Short unsubscribe: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=9733eead-a977-43b7-9ba2-cb7b0732bcf7
+2026-05-19 10:49:11 +02:00: 2026-05-19T08:49:11.166Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=086f8c97-0ce8-4a4f-8edf-6f349b922c74
+2026-05-19 10:49:19 +02:00: 2026-05-19T08:49:19.245Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=90326967-b771-43f6-a775-9631efaad4f5
+2026-05-19 10:49:26 +02:00: 2026-05-19T08:49:26.071Z [INFO] Unsubscribe request: campaign=ff81d0e6-9224-48af-a51b-b30abd096a39, subscriber=a795bec4-bf7f-4d0f-9a1f-8359241438dd
+2026-05-19 10:49:41 +02:00: 2026-05-19T08:49:41.456Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=268db216-c214-4003-a3c9-95c17e105276
+2026-05-19 10:49:51 +02:00: 2026-05-19T08:49:51.072Z [INFO] Unsubscribe request: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=0de2b750-de30-4626-be97-759dfa588928
+2026-05-19 10:50:40 +02:00: 2026-05-19T08:50:40.576Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=f037a535-4ebb-4480-a704-e729801a5e5d
+2026-05-19 10:50:42 +02:00: 2026-05-19T08:50:42.492Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=f037a535-4ebb-4480-a704-e729801a5e5d
+2026-05-19 10:50:42 +02:00: 2026-05-19T08:50:42.683Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=f037a535-4ebb-4480-a704-e729801a5e5d
+2026-05-19 10:50:42 +02:00: 2026-05-19T08:50:42.734Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=f037a535-4ebb-4480-a704-e729801a5e5d
+2026-05-19 10:50:51 +02:00: 2026-05-19T08:50:51.024Z [INFO] Unsubscribe request: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=22d9b064-d264-4ffb-86de-afab2e2d629c
+2026-05-19 10:50:51 +02:00: 2026-05-19T08:50:51.635Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=94c36ce4-ae36-4f2b-9048-11816c7d6894
+2026-05-19 10:50:55 +02:00: 2026-05-19T08:50:55.395Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=11edbf38-0f55-4efc-9295-43932763d915
+2026-05-19 10:50:58 +02:00: 2026-05-19T08:50:58.622Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=eeb86a93-a3b6-4a63-ba25-0e2a85e23597
+2026-05-19 10:51:04 +02:00: 2026-05-19T08:51:04.583Z [INFO] Unsubscribe request: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=ff8f6ba9-e9d4-45bd-99d7-b89efe88b1e5
+2026-05-19 10:51:43 +02:00: 2026-05-19T08:51:43.386Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=81534137-3a95-427c-999f-015a2be35aaa
+2026-05-19 10:51:47 +02:00: 2026-05-19T08:51:47.372Z [INFO] Short unsubscribe: campaign=93831472-f9b2-4e17-bb88-d52cf6f1bf52, subscriber=31ae3df8-61cc-4fb6-8585-e1756ae2a097
+2026-05-19 10:51:47 +02:00: 2026-05-19T08:51:47.726Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=f037a535-4ebb-4480-a704-e729801a5e5d
+2026-05-19 10:52:08 +02:00: 2026-05-19T08:52:08.089Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=475230f2-0a40-444e-9e9a-a1e778c94b47
+2026-05-19 10:52:11 +02:00: 2026-05-19T08:52:11.152Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=d9395dc8-c4fa-409c-97a7-5b6e7c65964f
+2026-05-19 10:52:11 +02:00: 2026-05-19T08:52:11.628Z [INFO] Unsubscribe request: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=a8b7f932-e1d1-4ccc-81ee-cb62c9fa88d1
+2026-05-19 10:52:15 +02:00: 2026-05-19T08:52:15.972Z [INFO] Unsubscribe request: campaign=10932000-2b15-4866-8ea3-3b7ee090a300, subscriber=11edbf38-0f55-4efc-9295-43932763d915
+2026-05-19 10:52:18 +02:00: 2026-05-19T08:52:18.197Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=d20e1e25-d883-4d2e-8542-d759645145a8
+2026-05-19 10:52:21 +02:00: 2026-05-19T08:52:21.877Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=d9395dc8-c4fa-409c-97a7-5b6e7c65964f
+2026-05-19 10:52:24 +02:00: 2026-05-19T08:52:24.429Z [INFO] Unsubscribe request: campaign=9efe00e4-deb3-447f-a11b-4421cae2ad38, subscriber=62df04c6-cfec-4cd5-852f-68375d3857e4
+2026-05-19 10:52:28 +02:00: 2026-05-19T08:52:28.222Z [INFO] Short unsubscribe: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=ff3a65b7-adbf-47e0-8bb8-316524513069
+2026-05-19 10:52:29 +02:00: 2026-05-19T08:52:29.871Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=b5f338c8-3746-4a44-a8e9-779c83359826
+2026-05-19 10:52:31 +02:00: 2026-05-19T08:52:31.263Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=605905f1-29d1-4310-8389-1f1af886c7f3
+2026-05-19 10:52:42 +02:00: 2026-05-19T08:52:42.059Z [INFO] Unsubscribe request: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=22d9b064-d264-4ffb-86de-afab2e2d629c
+2026-05-19 10:53:06 +02:00: 2026-05-19T08:53:06.271Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=8d780e71-6d97-46b3-8f1c-a44f38998c2a
+2026-05-19 10:53:25 +02:00: 2026-05-19T08:53:25.183Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=f8cbff62-2ce2-4fd3-a950-c52aff39786a
+2026-05-19 10:53:49 +02:00: 2026-05-19T08:53:49.296Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:53:49 +02:00: 2026-05-19T08:53:49.341Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=c344da36-53a6-49bd-8e15-86d377342622
+2026-05-19 10:53:51 +02:00: 2026-05-19T08:53:51.375Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:53:51 +02:00: 2026-05-19T08:53:51.960Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:53:52 +02:00: 2026-05-19T08:53:52.049Z [INFO] Short unsubscribe: campaign=3d8e0e78-81ab-4915-a390-a7f877f2a1b3, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:54:18 +02:00: 2026-05-19T08:54:18.078Z [INFO] Short unsubscribe: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=066f04cb-9c90-4f30-a572-8c11b6b1c1b5
+2026-05-19 10:54:30 +02:00: 2026-05-19T08:54:30.612Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=643a7b76-8747-4c0f-bf5d-73efdd02c0ff
+2026-05-19 10:54:42 +02:00: 2026-05-19T08:54:42.869Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=e60ac591-fbde-4a78-b88f-6a697aee3e06
+2026-05-19 10:54:48 +02:00: 2026-05-19T08:54:48.462Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=1e1c440f-3956-41f4-b981-da53720dc1ff
+2026-05-19 10:54:49 +02:00: 2026-05-19T08:54:49.409Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=0fac6407-b733-4435-9a3f-760ff97b845c
+2026-05-19 10:54:52 +02:00: 2026-05-19T08:54:52.673Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=d0e03f69-aefa-491b-9958-a9da3f6e4fca
+2026-05-19 10:54:53 +02:00: 2026-05-19T08:54:53.332Z [INFO] [TRACKING BUFFER] flush interval restored to 1500ms
+2026-05-19 10:55:02 +02:00: 2026-05-19T08:55:02.742Z [INFO] Short unsubscribe: campaign=90832b9b-dd38-48cb-9953-4f21fb2e123e, subscriber=66efd9b7-febe-431d-80c2-40021849e109
+2026-05-19 10:55:07 +02:00: 2026-05-19T08:55:07.872Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=84356950-671d-4112-ba6e-4ef3357179e8
+2026-05-19 10:55:13 +02:00: 2026-05-19T08:55:13.466Z [INFO] Short unsubscribe: campaign=ee1cc13c-7786-4a5f-8236-dd9a494d21cf, subscriber=84a61456-e433-4e8a-9f9a-050a1dd3dfd4
+2026-05-19 10:55:23 +02:00: 2026-05-19T08:55:23.257Z [INFO] Short unsubscribe: campaign=551e4c71-cd89-411a-821e-eee5d5ace621, subscriber=c0827ffb-8d87-4516-a88f-e268332cf7ec
+2026-05-19 10:55:23 +02:00: 2026-05-19T08:55:23.449Z [INFO] Short unsubscribe: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=9a97f685-49f1-403c-a59d-5cc18c85dadc
+2026-05-19 10:55:31 +02:00: 2026-05-19T08:55:31.768Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=9f1e8ad5-05d2-4a2a-94ca-be0f08cf83ad
+2026-05-19 10:55:34 +02:00: 2026-05-19T08:55:34.980Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=84a61456-e433-4e8a-9f9a-050a1dd3dfd4
+2026-05-19 10:55:41 +02:00: 2026-05-19T08:55:41.346Z [INFO] Unsubscribe request: campaign=8582be5f-ee44-4b2e-a4c0-5663640e4d97, subscriber=ea91f6c0-fca9-4ae8-a153-4553b9f13ca2
+2026-05-19 10:55:49 +02:00: 2026-05-19T08:55:49.576Z [INFO] Unsubscribe request: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=5aeb095b-6f16-4ddf-a67d-f2b8a470a20b
+2026-05-19 10:56:08 +02:00: 2026-05-19T08:56:08.708Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:56:09 +02:00: 2026-05-19T08:56:09.361Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=9f1e8ad5-05d2-4a2a-94ca-be0f08cf83ad
+2026-05-19 10:56:10 +02:00: 2026-05-19T08:56:10.257Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:56:10 +02:00: 2026-05-19T08:56:10.613Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:56:10 +02:00: 2026-05-19T08:56:10.888Z [INFO] Unsubscribe request: campaign=f06ea6b4-aad2-4dac-8cfb-ba960bedbd54, subscriber=3de8083a-3d78-4efa-bab3-66f3f636927a
+2026-05-19 10:56:15 +02:00: 2026-05-19T08:56:15.745Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=a9ddb987-4c58-471b-993c-17df661b6ef1
+2026-05-19 10:56:22 +02:00: 2026-05-19T08:56:22.340Z [INFO] Unsubscribe request: campaign=91d6dea8-7a5a-4dad-bf6e-3499d765d294, subscriber=1af5901b-0fbc-4834-9163-5dbcd72978e9
+2026-05-19 10:56:34 +02:00: 2026-05-19T08:56:34.120Z [INFO] Short unsubscribe: campaign=36d7201f-55e1-4ba5-a975-146c91d9e60d, subscriber=ad221857-9e57-495c-ab62-98f9671173aa
+2026-05-19 10:56:34 +02:00: 2026-05-19T08:56:34.259Z [INFO] Short unsubscribe: campaign=10932000-2b15-4866-8ea3-3b7ee090a300, subscriber=0878e906-2c94-4f36-827b-2d1fabb1ba74
+2026-05-19 10:56:36 +02:00: 2026-05-19T08:56:36.674Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=f3226bcb-c26c-477f-a04a-bd8cd11928aa
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ curl -i http://127.0.0.1:5000/api/health 2>&1 | head -20
+curl -i http://127.0.0.1:5000/api/auth/me 2>&1 | head -30
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   795  100   795    0     0  26713      0 --:--:-- --:--:-- --:--:-- 27413
+HTTP/1.1 200 OK
+Content-Security-Policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: 60485f52-4cba-43c6-84d8-a688808fc526
+RateLimit-Policy: 200;w=60
+RateLimit-Limit: 200
+RateLimit-Remaining: 199
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    29  100    29    0     0    160      0 --:--:-- --:--:-- --:--:--   161
+HTTP/1.1 401 Unauthorized
+Content-Security-Policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: SAMEORIGIN
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 0
+x-request-id: df881ab1-9fe2-4645-a399-31b4e73e259a
+Content-Type: application/json; charset=utf-8
+Content-Length: 29
+ETag: W/"1d-TthZhBRJQAzVgIhlWqxc3frMMMg"
+Date: Tue, 19 May 2026 08:56:56 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":"Not authenticated"}ubuntu@Ubuntu-noble-latest-amd64-base:~$ 
