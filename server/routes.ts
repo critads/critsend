@@ -24,7 +24,6 @@ import { registerImportExportRoutes } from "./routes/import-export";
 import { registerHealthRoutes } from "./routes/health";
 import { registerNullsinkRoutes } from "./routes/nullsink";
 import { registerDatabaseHealthRoutes } from "./routes/database-health";
-import { registerBugReportRoutes } from "./routes/bug-reports";
 import { registerPressureRoutes } from "./routes/pressure";
 import { register503AttributionRoutes } from "./routes/admin-503";
 import { registerAdminPressureGuardLocksRoutes } from "./routes/admin-pressure-guard-locks";
@@ -121,7 +120,6 @@ export async function registerRoutes(
   registerCampaignRoutes(app, helpers, campaignLimiter);
   registerImportExportRoutes(app, helpers);
   registerDatabaseHealthRoutes(app);
-  registerBugReportRoutes(app);
   registerPressureRoutes(app);
   register503AttributionRoutes(app);
   registerAdminPressureGuardLocksRoutes(app);

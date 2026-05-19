@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CrextioLayout } from "@/components/crextio-layout";
-import { BugReportButton } from "@/components/bug-report-button";
 import AuthPage from "@/pages/auth";
 import ResetPasswordPage from "@/pages/reset-password";
 import { useAuth } from "@/hooks/use-auth";
@@ -76,12 +75,9 @@ function Router() {
 
 function AuthenticatedApp() {
   return (
-    <>
-      <CrextioLayout>
-        <Router />
-      </CrextioLayout>
-      <BugReportButton />
-    </>
+    <CrextioLayout>
+      <Router />
+    </CrextioLayout>
   );
 }
 

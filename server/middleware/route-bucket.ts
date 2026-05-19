@@ -33,7 +33,6 @@ export function routeBucket(path: string): string {
   if (path.startsWith("/api/error-logs")) return "/api/error-logs";
   if (path.startsWith("/api/export")) return "/api/export";
   if (path.startsWith("/api/admin")) return "/api/admin";
-  if (path.startsWith("/api/bug-reports")) return "/api/bug-reports";
   if (path.startsWith("/api/warmup")) return "/api/warmup";
   if (path.startsWith("/api/nullsink")) return "/api/nullsink";
   if (path.startsWith("/api/debug")) return "/api/debug";

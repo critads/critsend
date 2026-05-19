@@ -29,7 +29,6 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { BugReportsAdmin } from "@/components/bug-reports-admin";
 
 interface LabeledValue {
   labels: Record<string, string>;
@@ -634,8 +633,6 @@ export default function SystemMetricsPage() {
           </CardContent>
         </Card>
       </div>
-
-      <BugReportsAdmin />
 
       {data.errors.http5xx.length > 0 && (
         <Card className="border-red-500/30 dark:border-red-500/20">
