@@ -1,0 +1,23 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ grep -E "ERROR|500|Internal Server" /var/log/critsend/web-out.log | tail -20
+grep -E "ERROR|Internal Server" /var/log/critsend/web-error.log | tail -20
+2026-05-19 10:31:45 +02:00: 2026-05-19T08:31:45.202Z [INFO] Unsubscribe request: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=b2c8a2bd-bc7e-45c7-9e6f-c9608de2f02f
+2026-05-19 10:32:11 +02:00: 2026-05-19T08:32:11.859Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=87798c05-704d-4e7a-b5de-8f0905f35544
+2026-05-19 10:32:34 +02:00: 2026-05-19T08:32:34.896Z [INFO] Unsubscribe request: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=1582620a-b842-4316-937e-392957a569ab
+2026-05-19 10:32:44 +02:00: 2026-05-19T08:32:44.435Z [INFO] Short unsubscribe: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=021671a5-5260-4a23-9f79-a4c618ba8148
+2026-05-19 10:35:23 +02:00: 2026-05-19T08:35:23.007Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=81d457bb-b86b-410b-bba5-e247b9e6bc63
+2026-05-19 10:37:23 +02:00: 2026-05-19T08:37:23.689Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=83ca558f-b732-451e-8ab9-6a6ed1268c05
+2026-05-19 10:37:49 +02:00: 2026-05-19T08:37:49.429Z [INFO] Short unsubscribe: campaign=15f5928c-0aff-4046-b569-89ad6cf9673f, subscriber=5991500c-6283-4e11-9e1f-eeb575547366
+2026-05-19 10:38:39 +02:00: 2026-05-19T08:38:39.275Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=855888c3-9b5a-4a45-b00f-95dbca8f1fa5
+2026-05-19 10:39:00 +02:00: 2026-05-19T08:39:00.000Z [INFO] Short unsubscribe: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=ea8ede22-6de2-407a-b0aa-8308012c50e4
+2026-05-19 10:39:40 +02:00: 2026-05-19T08:39:40.988Z [INFO] Unsubscribe request: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=b2c8a2bd-bc7e-45c7-9e6f-c9608de2f02f
+2026-05-19 10:39:57 +02:00: 2026-05-19T08:39:57.091Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=22b0f234-2e09-45fd-bdb3-17636c73700f
+2026-05-19 10:41:38 +02:00: 2026-05-19T08:41:38.817Z [INFO] DB backend options merged: appended [-c lock_timeout=15000, -c statement_timeout=120000, -c idle_in_transaction_session_timeout=60000]
+2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.044Z [INFO] [IMPORT POOL] configured: max=6, connTimeout=15000ms, stmtTimeout=300000ms, external=true, mode=auto-derived pooler, pooler=true
+2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.460Z [INFO] [TRACKING BUFFER] flusher started: interval=1500ms, counterCoalesce=8000ms, maxQueue=50000, maxBatchPerType=5000, dedupeWindow=60000ms, maxRetries=3, backoffMax=10000ms, sequential=true
+2026-05-19 10:41:39 +02:00: 2026-05-19T08:41:39.461Z [INFO] [BOUNCE BUFFER] flusher started: interval=1500ms, maxQueue=25000, maxBatch=2000, dedupeWindow=60000ms
+2026-05-19 10:42:30 +02:00: 2026-05-19T08:42:30.192Z [INFO] [TRACKING BUFFER] flush interval restored to 1500ms
+2026-05-19 10:46:00 +02:00: 2026-05-19T08:46:00.130Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=d14bb77d-ba2f-462c-b9ac-a7f1f1b175dd
+2026-05-19 10:46:44 +02:00: 2026-05-19T08:46:44.163Z [INFO] Unsubscribe request: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=8217ee94-f1c5-44cd-8528-ffe2a68129f2
+2026-05-19 10:46:52 +02:00: 2026-05-19T08:46:52.926Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=97b4c04d-d246-4d87-8caf-41d8c9aeda76
+2026-05-19 10:47:51 +02:00: 2026-05-19T08:47:51.861Z [INFO] Unsubscribe request: campaign=3153505e-8256-4500-b2a1-05c3186f89b4, subscriber=b8518c6b-63b2-48ac-a8a1-dda03690b08e
+grep: /var/log/critsend/web-error.log: No such file or directory
