@@ -61,9 +61,12 @@
   --chart-5: 340 82% 52%;
   
   /* Typography */
+  /* Single typeface across the whole app — Inter for sans, serif, and
+     mono aliases. `tabular-nums` is preserved on numeric/ID elements so
+     digits still align in tables without needing a monospace font. */
   --font-sans: Inter, system-ui, sans-serif;
-  --font-serif: Georgia, serif;
-  --font-mono: 'JetBrains Mono', Menlo, monospace;
+  --font-serif: Inter, system-ui, sans-serif;
+  --font-mono: Inter, system-ui, sans-serif;
   
   /* Spacing and radius */
   --radius: .375rem;
