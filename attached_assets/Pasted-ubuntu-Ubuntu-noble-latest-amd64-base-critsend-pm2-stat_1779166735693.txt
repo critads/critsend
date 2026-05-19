@@ -1,0 +1,74 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 status && pm2 logs critsend-web --lines 30 --nostream
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 2  │ critsend-drainer   │ fork     │ 8    │ online    │ 0%       │ 77.4mb   │
+│ 0  │ critsend-web       │ fork     │ 10   │ online    │ 0%       │ 285.5mb  │
+│ 1  │ critsend-worker    │ fork     │ 10   │ online    │ 0%       │ 96.2mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-out.log last 30 lines:
+0|critsend | 2026-05-19 06:53:32 +02:00: 2026-05-19T04:53:32.168Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=667351c8-7673-4908-8542-9d8715e2288a
+0|critsend | 2026-05-19 06:53:32 +02:00: 2026-05-19T04:53:32.698Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=667351c8-7673-4908-8542-9d8715e2288a
+0|critsend | 2026-05-19 06:53:39 +02:00: 2026-05-19T04:53:39.024Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=5555112c-205e-427c-9b47-5e8a8c800a25
+0|critsend | 2026-05-19 06:53:45 +02:00: 2026-05-19T04:53:45.424Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=d03e40df-2e0c-49d3-bbb3-1ae9e726403a
+0|critsend | 2026-05-19 06:53:55 +02:00: 2026-05-19T04:53:55.882Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueuing campaign 248e7e79-162c-44aa-9917-66cb440d8675 (#2936 Ryobi - 4bv6EX - rndaserver)
+0|critsend | 2026-05-19 06:53:55 +02:00: 2026-05-19T04:53:55.968Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueuing campaign 6429e416-bbdb-49f9-b182-b87f99eb1ca3 (#2999 Air France - 4beTPA  - Kamma)
+0|critsend | 2026-05-19 06:53:56 +02:00: 2026-05-19T04:53:56.038Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=d03e40df-2e0c-49d3-bbb3-1ae9e726403a
+0|critsend | 2026-05-19 06:54:00 +02:00: 2026-05-19T04:54:00.459Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=e4455a87-88ed-458a-a2ce-d2d1b0043f3f
+0|critsend | 2026-05-19 06:54:24 +02:00: 2026-05-19T04:54:24.028Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=0c799bdd-c4ce-4d20-a26c-f3e0c98e9675
+0|critsend | 2026-05-19 06:54:34 +02:00: 2026-05-19T04:54:34.177Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=38cbd6e3-38c6-4d69-9f0f-e6c8c58e6bcd
+0|critsend | 2026-05-19 06:54:35 +02:00: 2026-05-19T04:54:35.560Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=38cbd6e3-38c6-4d69-9f0f-e6c8c58e6bcd
+0|critsend | 2026-05-19 06:54:35 +02:00: 2026-05-19T04:54:35.766Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=38cbd6e3-38c6-4d69-9f0f-e6c8c58e6bcd
+0|critsend | 2026-05-19 06:54:35 +02:00: 2026-05-19T04:54:35.813Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=38cbd6e3-38c6-4d69-9f0f-e6c8c58e6bcd
+0|critsend | 2026-05-19 06:54:41 +02:00: 2026-05-19T04:54:41.938Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=6fbd640e-0f3c-4c10-a73f-8f25af66b275
+0|critsend | 2026-05-19 06:54:44 +02:00: 2026-05-19T04:54:44.826Z [INFO] [ANALYTICS_BOOTSTRAP] Index ready: subscribers_import_date_idx (15109ms)
+0|critsend | 2026-05-19 06:54:46 +02:00: 2026-05-19T04:54:46.349Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=dea78107-677f-4f86-b804-f44ee393e110
+0|critsend | 2026-05-19 06:54:50 +02:00: 2026-05-19T04:54:50.976Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=8b66716f-f691-4f69-ad25-844943d329a8
+0|critsend | 2026-05-19 06:54:59 +02:00: 2026-05-19T04:54:59.395Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=dea78107-677f-4f86-b804-f44ee393e110
+0|critsend | 2026-05-19 06:54:59 +02:00: 2026-05-19T04:54:59.680Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=62e7d59a-edd3-4c9b-a235-5f5b99474261
+0|critsend | 2026-05-19 06:55:00 +02:00: 2026-05-19T04:55:00.868Z [INFO] Short unsubscribe: campaign=15f5928c-0aff-4046-b569-89ad6cf9673f, subscriber=5dd7bbf0-9699-498f-a646-74834c0e0c4b
+0|critsend | 2026-05-19 06:55:03 +02:00: 2026-05-19T04:55:03.926Z [INFO] Short unsubscribe: campaign=ee1cc13c-7786-4a5f-8236-dd9a494d21cf, subscriber=b8fed9f1-068c-45cb-90bb-85069c9dbcda
+0|critsend | 2026-05-19 06:55:14 +02:00: 2026-05-19T04:55:14.884Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=c618c4a9-5f21-4aa7-9cd4-06c5d5962ebb
+0|critsend | 2026-05-19 06:55:49 +02:00: 2026-05-19T04:55:49.351Z [INFO] Short unsubscribe: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=949f15e7-f4d3-4c37-a487-0e94678589e7
+0|critsend | 2026-05-19 06:56:28 +02:00: 2026-05-19T04:56:28.028Z [INFO] Short unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=f0361c4b-3eb6-4963-a7bf-9d58d6fd2a56
+0|critsend | 2026-05-19 06:56:32 +02:00: 2026-05-19T04:56:32.299Z [INFO] Short unsubscribe: campaign=ee1cc13c-7786-4a5f-8236-dd9a494d21cf, subscriber=611d95d1-11eb-4bd4-a4f4-e019e08fec22
+0|critsend | 2026-05-19 06:56:45 +02:00: 2026-05-19T04:56:45.828Z [INFO] Short unsubscribe: campaign=ee1cc13c-7786-4a5f-8236-dd9a494d21cf, subscriber=a9de10e7-46ed-40b4-ae39-55c57688c970
+0|critsend | 2026-05-19 06:57:18 +02:00: 2026-05-19T04:57:18.137Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=c91d5eec-ebb5-4d0c-a790-dfd8778004c4, subscriber=2b149ba0-3d2f-40cd-82e9-3270c46fd3a5
+0|critsend | 2026-05-19 06:57:27 +02:00: 2026-05-19T04:57:27.307Z [INFO] Short unsubscribe: campaign=ff81d0e6-9224-48af-a51b-b30abd096a39, subscriber=0e0085f4-cc93-4bea-b636-05f8caa84909
+0|critsend | 2026-05-19 06:57:59 +02:00: 2026-05-19T04:57:59.504Z [INFO] Short unsubscribe: campaign=15f5928c-0aff-4046-b569-89ad6cf9673f, subscriber=17cc0a4e-a6cd-48fa-91ef-7d2ecc136bb1
+0|critsend | 2026-05-19 06:58:18 +02:00: 2026-05-19T04:58:18.907Z [INFO] Short unsubscribe: campaign=ee1cc13c-7786-4a5f-8236-dd9a494d21cf, subscriber=9b24804d-2a6e-4a60-9500-2d657cf4728c
+
+/var/log/critsend/web-err.log last 30 lines:
+0|critsend | 2026-05-19 06:51:51 +02:00: 2026-05-19T04:51:51.723Z [WARN] [BOOTSTRAP_LOCK] CREATE campaign_sends_pressure_curve_idx DDL failed: deadlock detected
+0|critsend | 2026-05-19 06:51:51 +02:00: 2026-05-19T04:51:51.751Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_pressure_curve_idx build failed (non-fatal): deadlock detected
+0|critsend | 2026-05-19 06:52:09 +02:00: 2026-05-19T04:52:09.974Z [ERROR] [CAMPAIGNS] Bootstrap migration FAILED: canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:52:33 +02:00: 2026-05-19T04:52:33.491Z [ERROR] [PRESSURE_QUEUE] /admin/pressure-queue failed: canceling statement due to statement timeout
+0|critsend | 2026-05-19 06:52:41 +02:00: 2026-05-19T04:52:41.268Z [WARN] [BOOTSTRAP_LOCK] CREATE campaign_sends_pressure_subscriber_idx DDL failed: deadlock detected
+0|critsend | 2026-05-19 06:52:41 +02:00: 2026-05-19T04:52:41.298Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_pressure_subscriber_idx build failed (non-fatal): deadlock detected
+0|critsend | 2026-05-19 06:52:53 +02:00: 2026-05-19T04:52:53.409Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue/throughput","timeout":30000}
+0|critsend | 2026-05-19 06:53:11 +02:00: 2026-05-19T04:53:11.415Z [WARN] [BOOTSTRAP_LOCK] CREATE campaign_sends_active_subscriber_idx DDL failed: canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:53:11 +02:00: 2026-05-19T04:53:11.442Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_active_subscriber_idx build failed (non-fatal): canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:53:23 +02:00: 2026-05-19T04:53:23.774Z [WARN] Invalid tracking signature for unsubscribe: campaign=0690c1eb-7634-4eb1-9584-ecbba24784ac, subscriber=1ad1986c-2efb-4d49-81d5-99cb2c556b1b, sig=479164fe...
+0|critsend | 2026-05-19 06:53:29 +02:00: 2026-05-19T04:53:29.573Z [WARN] [ANALYTICS_BOOTSTRAP] Failed to create campaign_stats_timestamp_idx: canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:53:55 +02:00: 2026-05-19T04:53:55.882Z [WARN] [CAMPAIGN_GUARDIAN] Found 2 stuck campaign(s) in 'sending' with no active job — re-enqueuing
+0|critsend | 2026-05-19 06:54:29 +02:00: 2026-05-19T04:54:29.661Z [WARN] [ANALYTICS_BOOTSTRAP] Failed to create campaign_sends_sent_at_idx: canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:56:14 +02:00: 2026-05-19T04:56:14.265Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue/throughput","timeout":30000}
+0|critsend | 2026-05-19 06:56:57 +02:00: 2026-05-19T04:56:57.873Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:57:01 +02:00: 2026-05-19T04:57:01.874Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to statement timeout
+0|critsend | 2026-05-19 06:57:27 +02:00: 2026-05-19T04:57:27.879Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:57:27 +02:00: 2026-05-19T04:57:27.880Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:57:28 +02:00: 2026-05-19T04:57:28.880Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-19 06:57:28 +02:00: 2026-05-19T04:57:28.880Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-19 06:57:58 +02:00: 2026-05-19T04:57:58.887Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:57:58 +02:00: 2026-05-19T04:57:58.892Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:57:59 +02:00: 2026-05-19T04:57:59.843Z [ERROR] Request timed out {"method":"GET","path":"/api/admin/pressure-queue/throughput","timeout":30000}
+0|critsend | 2026-05-19 06:57:59 +02:00: 2026-05-19T04:57:59.892Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-19 06:58:00 +02:00: 2026-05-19T04:58:00.892Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-19 06:58:01 +02:00: 2026-05-19T04:58:01.893Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-19 06:58:31 +02:00: 2026-05-19T04:58:31.894Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): canceling statement due to lock timeout
+0|critsend | 2026-05-19 06:58:32 +02:00: 2026-05-19T04:58:32.894Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-19 06:58:32 +02:00: 2026-05-19T04:58:32.896Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+0|critsend | 2026-05-19 06:58:33 +02:00: 2026-05-19T04:58:33.896Z [WARN] [TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): deadlock detected
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
