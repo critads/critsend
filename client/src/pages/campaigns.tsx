@@ -64,6 +64,7 @@ import {
   Edit,
   X,
   Clipboard,
+  Square,
 } from "lucide-react";
 import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
 import { CampaignProgress } from "@/components/campaign-progress";
@@ -140,6 +141,7 @@ export default function Campaigns() {
   const [originalsOnly, setOriginalsOnly] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [endConfirm, setEndConfirm] = useState<CampaignListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
   const { toast } = useToast();
@@ -334,6 +336,30 @@ export default function Campaigns() {
   const { data: failedInfo, isLoading: isLoadingErrors } = useQuery<{ pauseReason: string | null; errors: ErrorLog[] }>({
     queryKey: ["/api/campaigns", failedInfoCampaign?.id, "errors"],
     enabled: !!failedInfoCampaign,
+  });
+
+  const endMutation = useMutation<{ deletedDeferred: number }, Error, string>({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/end`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setEndConfirm(null);
+      toast({
+        title: "Campaign ended",
+        description: data.deletedDeferred > 0
+          ? `Removed ${data.deletedDeferred.toLocaleString()} deferred recipient${data.deletedDeferred > 1 ? "s" : ""}.`
+          : "Campaign marked as ended (no deferred recipients to remove).",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to end campaign. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const requeueMutation = useMutation({
@@ -676,22 +702,16 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-sm">
-                          {campaign.startedAt && (
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                              <span className="font-medium text-foreground/70">Started</span>
-                              <span>{new Date(campaign.startedAt).toLocaleString()}</span>
-                            </div>
-                          )}
-                          {campaign.completedAt && (
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                              <span className="font-medium text-foreground/70">Ended</span>
-                              <span>{new Date(campaign.completedAt).toLocaleString()}</span>
-                            </div>
-                          )}
-                          {!campaign.startedAt && campaign.createdAt && (
-                            <div className="flex items-center gap-1 text-muted-foreground">
+                          {campaign.createdAt && (
+                            <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-created-${campaign.id}`}>
                               <span className="font-medium text-foreground/70">Created</span>
                               <span>{new Date(campaign.createdAt).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {campaign.startedAt && (
+                            <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-started-${campaign.id}`}>
+                              <span className="font-medium text-foreground/70">Started</span>
+                              <span>{new Date(campaign.startedAt).toLocaleString()}</span>
                             </div>
                           )}
                         </div>
@@ -782,6 +802,15 @@ export default function Campaigns() {
                               >
                                 <RefreshCw className="h-4 w-4 mr-2" />
                                 Requeue
+                              </DropdownMenuItem>
+                            )}
+                            {campaign.status !== "draft" && (
+                              <DropdownMenuItem
+                                onClick={() => setEndConfirm(campaign)}
+                                data-testid={`button-end-campaign-${campaign.id}`}
+                              >
+                                <Square className="h-4 w-4 mr-2" />
+                                End campaign
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />
@@ -875,6 +904,33 @@ export default function Campaigns() {
               data-testid="button-confirm-delete-campaign"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!endConfirm} onOpenChange={() => setEndConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>End Campaign</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently end "{endConfirm?.name}"? This will
+              stop the campaign immediately and remove all recipients currently held in
+              the deferred queue (6h pressure-guard). Already-sent recipients are kept
+              for stats. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEndConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => endConfirm && endMutation.mutate(endConfirm.id)}
+              disabled={endMutation.isPending}
+              data-testid="button-confirm-end-campaign"
+            >
+              {endMutation.isPending ? "Ending..." : "End campaign"}
             </Button>
           </DialogFooter>
         </DialogContent>

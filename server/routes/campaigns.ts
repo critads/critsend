@@ -929,6 +929,81 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
 
+  /**
+   * Permanently end a campaign. Stops the sender (sets status='completed' which
+   * the sender loop polls via checkStatusAndHeartbeat → shouldStop), purges all
+   * deferred sends (campaign_sends rows with status='pending' AND eligible_at
+   * IS NOT NULL) so they will never be drained, resets deferred_count to 0, and
+   * decrements pending_count by the number of rows actually deleted.
+   *
+   * Works on ANY status, including 'completed' (use-case: clean up residual
+   * deferred rows on already-completed campaigns whose deferred_count drifted).
+   *
+   * Idempotent: re-calling on an already-ended campaign is a no-op (0 rows
+   * deleted) and still returns 200.
+   */
+  app.post("/api/campaigns/:id/end", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const existing = await storage.getCampaign(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      if (existing.status === "draft") {
+        return res.status(400).json({ error: "Cannot end a draft campaign" });
+      }
+
+      // 1) Clear stuck jobs so no orphaned sender keeps running. Mirror the
+      //    /resume route which does the same defensively.
+      try {
+        await storage.clearStuckJobsForCampaign(req.params.id);
+      } catch (e: any) {
+        logger.warn(`[CAMPAIGN_END] clearStuckJobsForCampaign failed (non-fatal): ${e?.message || e}`);
+      }
+
+      // 2) Atomic transaction: delete deferred sends + update campaign row.
+      //    The sender's checkStatusAndHeartbeat() polls status every
+      //    STATUS_CHECK_INTERVAL; once it sees status != 'sending' it sets
+      //    shouldStop=true and exits the loop gracefully.
+      const { deletedDeferred, campaign } = await db.transaction(async (tx) => {
+        // Delete deferred rows in BOTH 'pending' and 'attempting' state.
+        // 'pending' = sitting in deferred queue waiting for drain pickup.
+        // 'attempting' = already claimed by drain worker but not yet
+        // dispatched. Deleting an 'attempting' row is safe: drain's later
+        // UPDATE ... WHERE id=$1 simply affects 0 rows (no-op). This closes
+        // the architect-flagged race where in-flight drained rows would still
+        // be sent after end. The sender-side race (10s STATUS_CHECK_INTERVAL)
+        // matches existing /pause semantics and is acceptable — a small
+        // residual batch (≤ BATCH_SIZE) may complete before shouldStop fires.
+        const delResult: any = await tx.execute(sql`
+          DELETE FROM campaign_sends
+          WHERE campaign_id = ${req.params.id}
+            AND status IN ('pending', 'attempting')
+            AND eligible_at IS NOT NULL
+        `);
+        const deleted = Number(delResult?.rowCount ?? 0);
+
+        const [updated] = await tx.update(campaigns).set({
+          status: "completed",
+          completedAt: existing.completedAt ?? new Date(),
+          deferredCount: 0,
+          pendingCount: sql`GREATEST(${campaigns.pendingCount} - ${deleted}, 0)` as any,
+          pauseReason: null,
+        }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
+
+        return { deletedDeferred: deleted, campaign: updated };
+      });
+
+      logger.info(`[CAMPAIGN_END] Campaign ${req.params.id} ended: deleted ${deletedDeferred} deferred sends, status→completed`);
+      res.json({ campaign, deletedDeferred });
+    } catch (error: any) {
+      logger.error("Error ending campaign:", error);
+      res.status(500).json({ error: "Failed to end campaign" });
+    }
+  });
+
   app.get("/api/campaigns/:id/errors", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {
