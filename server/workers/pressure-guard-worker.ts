@@ -1017,7 +1017,17 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   });
   await Promise.all(workers);
 
-  // Finalize: status attempting → sent/failed + clear eligible_at.
+  // Task #169: tally aged force-dispatches that actually delivered.
+  // Computed BEFORE the finalize transaction so the campaign-level
+  // counter (aged_forced_count) bumps atomically with sent_count /
+  // failed_count / pending_count — no drift possible on crash between
+  // writes. successIds ∩ agedSet so hard-stop drops and SMTP failures
+  // on aged rows do NOT count.
+  const agedDelivered = successIds.reduce((n, id) => n + (agedSet.has(id) ? 1 : 0), 0);
+
+  // Finalize: status attempting → sent/failed + clear eligible_at, and
+  // bump all campaign-level counters (sent/failed/pending + aged) in
+  // the same transaction.
   await db.transaction(async (tx) => {
     if (successIds.length > 0) {
       await tx.execute(sql`
@@ -1035,7 +1045,8 @@ export async function drainCampaign(campaignId: string): Promise<void> {
       UPDATE campaigns SET
         sent_count = sent_count + ${successIds.length},
         failed_count = failed_count + ${failedIds.length},
-        pending_count = GREATEST(pending_count - ${successIds.length + failedIds.length}, 0)
+        pending_count = GREATEST(pending_count - ${successIds.length + failedIds.length}, 0),
+        aged_forced_count = aged_forced_count + ${agedDelivered}
       WHERE id = ${campaignId}
     `);
   });
@@ -1043,23 +1054,11 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   if (successIds.length > 0) {
     try { pressureGuardSentAfterDeferTotal.inc({ campaign_id: campaignId }, successIds.length); } catch {}
   }
-
-  // Task #169: tally aged force-dispatches that actually delivered.
-  // Compare successIds (drained at SMTP) against agedSet so a hard-stop
-  // drop or SMTP failure on an aged row does NOT bump the cap counter
-  // — operators see only true "would have stayed deferred without the
-  // cap" deliveries. Single UPDATE + single counter inc per wave.
-  const agedDelivered = successIds.reduce((n, id) => n + (agedSet.has(id) ? 1 : 0), 0);
+  // Prom counter stays best-effort (telemetry, not a persisted business
+  // counter); the persisted campaigns.aged_forced_count is now bumped
+  // atomically inside the finalize tx above.
   if (agedDelivered > 0) {
     try { pressureGuardAgedForceSendsTotal.inc(agedDelivered); } catch {}
-    try {
-      await db.execute(sql`
-        UPDATE campaigns SET aged_forced_count = aged_forced_count + ${agedDelivered}
-        WHERE id = ${campaignId}
-      `);
-    } catch (err: any) {
-      logger.warn(`[PRESSURE_GUARD_WORKER] aged_forced_count UPDATE failed for ${campaignId} (non-fatal): ${err?.message || err}`);
-    }
   }
 
   logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, deferred=${losers.length}, dropped=${dropIds.length}, aged_force_delivered=${agedDelivered}`);

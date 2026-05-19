@@ -714,10 +714,12 @@ export async function pressureGuardReserveSendSlots(
  * (the same path normal CAS winners go through), so this function stays
  * narrowly scoped to "force the slot reservation".
  *
- * No per-subscriber advisory_xact_lock is taken: the rows are already
- * 'attempting' under SKIP LOCKED in the drain claim, so concurrent
- * reservers see them via the `blocked_by_older` / `already_in_campaign`
- * filters in pressureGuardReserveSendSlots and naturally defer.
+ * Takes the same per-subscriber pg_advisory_xact_lock discipline as the
+ * normal reservation path (see implementation below for the rationale):
+ * even with the drain's SKIP LOCKED claim, two parallel drain processes
+ * can surface the same subscriber across different campaigns whose aged
+ * sets overlap — without the xact lock both would stamp last_sent_at in
+ * the same window.
  */
 export async function pressureGuardForceReserveSendSlots(
   subscriberIds: string[],
