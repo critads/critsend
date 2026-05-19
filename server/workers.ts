@@ -28,6 +28,10 @@ let maintenanceInterval: NodeJS.Timeout | null = null;
 let scheduledCampaignInterval: NodeJS.Timeout | null = null;
 let workerHeartbeatInterval: NodeJS.Timeout | null = null;
 let automationPollingInterval: NodeJS.Timeout | null = null;
+let ghostCampaignSweepInterval: NodeJS.Timeout | null = null;
+
+const GHOST_SWEEP_INTERVAL_MS = Number(process.env.GHOST_SWEEP_INTERVAL_MS ?? 120_000);
+const GHOST_SWEEP_MIN_AGE_MIN = Number(process.env.GHOST_SWEEP_MIN_AGE_MIN ?? 10);
 
 // Redis key used by the web process's /api/health endpoint to discover
 // whether the (separate) worker process is alive and which sub-workers
@@ -57,7 +61,7 @@ export function getImportJobProcessorRunning(): boolean {
   return !!importJobPollingInterval;
 }
 
-export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean; maintenanceWorker: boolean; scheduledCampaignPoller: boolean; automationProcessor: boolean } {
+export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boolean; tagQueueWorker: boolean; flushProcessor: boolean; maintenanceWorker: boolean; scheduledCampaignPoller: boolean; automationProcessor: boolean; ghostCampaignSweep: boolean } {
   return {
     jobProcessor: !!jobPollingInterval,
     importProcessor: !!importJobPollingInterval,
@@ -66,7 +70,112 @@ export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boo
     maintenanceWorker: !!maintenanceInterval,
     scheduledCampaignPoller: !!scheduledCampaignInterval,
     automationProcessor: !!automationPollingInterval,
+    ghostCampaignSweep: !!ghostCampaignSweepInterval,
   };
+}
+
+/**
+ * Garde-fou A — Ghost campaign self-heal.
+ *
+ * Detects campaigns left in a half-launched state after a crash mid-enumeration:
+ *   - status='sending' (or 'queued')
+ *   - started_at IS NULL
+ *   - older than GHOST_SWEEP_MIN_AGE_MIN minutes (default 10)
+ *   - NO rows in campaign_sends
+ *
+ * Root cause: the enumeration phase increments `campaigns.deferred_count` in a
+ * separate UPDATE before INSERT-ing the per-recipient `campaign_sends` rows.
+ * If the worker crashes between the two (e.g. the 2026-05-19 10:56 Neon
+ * `options=-c` outage), the counter is committed but the rows are not, leaving
+ * the campaign permanently stuck: the single pending job, when (if) it ever
+ * gets picked, finds 0 ready sends and exits without doing anything.
+ *
+ * Self-heal: fail the orphan job, reset stale counters, insert a fresh
+ * pending job. We deliberately do NOT bump `campaigns.created_at` — that
+ * column is the immutable launch-ancestry key used by both
+ * `job-repository.claimNextJob` AND the pressure-guard FIFO drain
+ * (see docs/architecture-history.md). Mutating it would corrupt the
+ * deferred-subscriber serialization contract.
+ *
+ * Concurrency: `kill_jobs` uses `FOR UPDATE SKIP LOCKED` on
+ * `campaign_jobs` so we never block on a row a worker just claimed.
+ * `reset_counters` and the final `INSERT` chain off `kill_jobs` rather
+ * than `ghosts` — so if we couldn't kill the orphan job (because a
+ * worker held it), we do nothing this cycle and try again later. This
+ * prevents creating duplicate pending jobs for the same campaign.
+ *
+ * Idempotent and safe: only touches campaigns matching the strict
+ * pattern. The pattern requires `started_at IS NULL` AND `NOT EXISTS
+ * (campaign_sends)` — both invariants are only true between a worker
+ * crash during enumeration and the next successful enumeration pass.
+ *
+ * Trade-off: a self-healed campaign keeps its real `created_at`, so it
+ * will only be picked by `claimNextJob` once no older active campaign
+ * has a ready pending job. Under sustained load by older campaigns
+ * this can still starve. If observed, add a fairness tie-breaker in
+ * claimNextJob (e.g. promote jobs pending >15min). See production
+ * incident notes 2026-05-19.
+ */
+async function sweepGhostCampaigns(): Promise<void> {
+  if (!isPoolHealthy()) return;
+  try {
+    const result = await db.execute(sql`
+      WITH ghosts AS (
+        SELECT c.id
+        FROM campaigns c
+        WHERE c.status IN ('sending', 'queued')
+          AND c.started_at IS NULL
+          AND c.created_at < NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})
+          AND NOT EXISTS (SELECT 1 FROM campaign_sends WHERE campaign_id = c.id)
+        FOR UPDATE OF c SKIP LOCKED
+      ),
+      lockable_jobs AS (
+        SELECT cj.id, cj.campaign_id
+        FROM campaign_jobs cj
+        WHERE cj.campaign_id IN (SELECT id FROM ghosts)
+          AND cj.status IN ('pending', 'processing')
+        FOR UPDATE OF cj SKIP LOCKED
+      ),
+      kill_jobs AS (
+        UPDATE campaign_jobs
+        SET status = 'failed', completed_at = NOW(),
+            error_message = 'Ghost campaign self-heal: orphan job from crashed enumeration'
+        WHERE id IN (SELECT id FROM lockable_jobs)
+        RETURNING campaign_id
+      ),
+      reset_counters AS (
+        UPDATE campaigns
+        SET deferred_count = 0, pending_count = 0, sent_count = 0, failed_count = 0,
+            started_at = NULL
+        WHERE id IN (SELECT campaign_id FROM kill_jobs)
+        RETURNING id
+      )
+      INSERT INTO campaign_jobs (campaign_id, status, retry_count)
+      SELECT id, 'pending', 0 FROM reset_counters
+      RETURNING campaign_id
+    `);
+    if (result.rows.length > 0) {
+      const ids = result.rows.map((r: any) => r.campaign_id);
+      logger.warn(`[GHOST_SWEEP] Self-healed ${result.rows.length} ghost campaign(s): ${ids.join(', ')}`);
+    }
+  } catch (err) {
+    logger.error('[GHOST_SWEEP] Sweep failed:', err);
+  }
+}
+
+function startGhostCampaignSweep() {
+  if (ghostCampaignSweepInterval) return;
+  logger.info(`[GHOST_SWEEP] Starting ghost campaign sweep (${GHOST_SWEEP_INTERVAL_MS / 1000}s interval, min age ${GHOST_SWEEP_MIN_AGE_MIN}min)`);
+  ghostCampaignSweepInterval = setInterval(sweepGhostCampaigns, GHOST_SWEEP_INTERVAL_MS);
+  void sweepGhostCampaigns();
+}
+
+function stopGhostCampaignSweep() {
+  if (ghostCampaignSweepInterval) {
+    clearInterval(ghostCampaignSweepInterval);
+    ghostCampaignSweepInterval = null;
+    logger.info('[GHOST_SWEEP] Ghost campaign sweep stopped');
+  }
 }
 
 // publishJobProgress now lives in ./job-events so workers outside this
@@ -1776,6 +1885,7 @@ export async function startAllWorkers() {
   await startJobProcessor();
   startTagQueueWorker();
   startMaintenanceWorker();
+  startGhostCampaignSweep();
   startScheduledCampaignPoller();
   startFollowUpSpawner();
   startAutomationProcessor();
@@ -1815,6 +1925,7 @@ export function stopAllBackgroundWorkers() {
   stopJobProcessor();
   stopTagQueueWorker();
   stopMaintenanceWorker();
+  stopGhostCampaignSweep();
   stopScheduledCampaignPoller();
   stopFollowUpSpawner();
   stopAutomationProcessor();

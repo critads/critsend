@@ -51,6 +51,8 @@ async function resolveWorkerHealth(): Promise<WorkerHealthReport> {
     flushProcessor: false,
     maintenanceWorker: false,
     scheduledCampaignPoller: false,
+    automationProcessor: false,
+    ghostCampaignSweep: false,
   };
 
   if (process.env.PROCESS_TYPE !== "web") {
@@ -94,6 +96,8 @@ async function resolveWorkerHealth(): Promise<WorkerHealthReport> {
       flushProcessor: !!parsed.flushProcessor,
       maintenanceWorker: !!parsed.maintenanceWorker,
       scheduledCampaignPoller: !!parsed.scheduledCampaignPoller,
+      automationProcessor: !!parsed.automationProcessor,
+      ghostCampaignSweep: !!parsed.ghostCampaignSweep,
       source: "remote-worker",
       pid: parsed.pid,
       processType: parsed.processType,
@@ -180,11 +184,12 @@ export function registerHealthRoutes(app: Express) {
       {
         jobProcessor: false, importProcessor: false, tagQueueWorker: false,
         flushProcessor: false, maintenanceWorker: false, scheduledCampaignPoller: false,
+        automationProcessor: false, ghostCampaignSweep: false,
         source: "remote-worker-missing" as const,
       },
     );
 
-    const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor && workerHealth.scheduledCampaignPoller;
+    const allWorkersRunning = workerHealth.jobProcessor && workerHealth.importProcessor && workerHealth.tagQueueWorker && workerHealth.flushProcessor && workerHealth.scheduledCampaignPoller && workerHealth.ghostCampaignSweep;
 
     let redisStatus: "ok" | "degraded" | "disabled" = "disabled";
     if (isRedisConfigured && redisConnection) {
