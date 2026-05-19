@@ -16,8 +16,6 @@ import {
   Send,
   UserPlus,
   Filter,
-  Bell,
-  Settings,
   ChevronDown,
   ChevronUp,
   Megaphone,
@@ -126,58 +124,10 @@ export default function Dashboard() {
   const displayName = username.charAt(0).toUpperCase() + username.slice(1);
 
   return (
-    <div className="min-h-screen bg-stone-200/60 dark:bg-zinc-900 p-4 lg:p-6">
-      <div
-        className="max-w-[1400px] mx-auto rounded-[2rem] p-6 lg:p-10 shadow-2xl"
-        style={{
-          background:
-            "linear-gradient(135deg, #faf6ec 0%, #f5ecd0 55%, #f0e3b8 100%)",
-        }}
-      >
-        {/* Top bar */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="px-5 py-2 rounded-full bg-white/70 border border-stone-300/50 text-sm font-semibold text-stone-800 tracking-tight">
-            Critsend
-          </div>
-          <div className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-full bg-white/60 border border-stone-300/40 text-sm">
-            <span className="px-4 py-1.5 rounded-full bg-stone-900 text-white font-medium">Dashboard</span>
-            <Link href="/campaigns">
-              <span className="px-3 py-1.5 text-stone-700 hover:text-stone-900 cursor-pointer" data-testid="link-nav-campaigns">Campaigns</span>
-            </Link>
-            <Link href="/subscribers">
-              <span className="px-3 py-1.5 text-stone-700 hover:text-stone-900 cursor-pointer" data-testid="link-nav-subscribers">Subscribers</span>
-            </Link>
-            <Link href="/segments">
-              <span className="px-3 py-1.5 text-stone-700 hover:text-stone-900 cursor-pointer" data-testid="link-nav-segments">Segments</span>
-            </Link>
-            <Link href="/analytics">
-              <span className="px-3 py-1.5 text-stone-700 hover:text-stone-900 cursor-pointer" data-testid="link-nav-analytics">Analytics</span>
-            </Link>
-            <Link href="/mtas">
-              <span className="px-3 py-1.5 text-stone-700 hover:text-stone-900 cursor-pointer" data-testid="link-nav-mtas">MTAs</span>
-            </Link>
-            <Link href="/automation">
-              <span className="px-3 py-1.5 text-stone-700 hover:text-stone-900 cursor-pointer" data-testid="link-nav-automation">Automation</span>
-            </Link>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/system-metrics">
-              <button className="p-2 rounded-full bg-white/70 border border-stone-300/40 text-stone-700 hover:bg-white" data-testid="button-settings">
-                <Settings className="h-4 w-4" />
-              </button>
-            </Link>
-            <button className="p-2 rounded-full bg-white/70 border border-stone-300/40 text-stone-700 hover:bg-white relative" data-testid="button-notifications">
-              <Bell className="h-4 w-4" />
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />
-            </button>
-            <div className="w-9 h-9 rounded-full bg-stone-900 text-white flex items-center justify-center text-sm font-semibold" data-testid="text-user-initial">
-              {displayName.charAt(0)}
-            </div>
-          </div>
-        </div>
-
+    <div className="px-4 lg:px-6 py-2">
+      <div className="space-y-8">
         {/* Hero header */}
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
           <div className="flex-1 min-w-0">
             <h1
               className="text-4xl lg:text-5xl font-semibold tracking-tight text-stone-900"

@@ -1,13 +1,10 @@
-import { useEffect, useState } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
+import { CrextioLayout } from "@/components/crextio-layout";
 import { BugReportButton } from "@/components/bug-report-button";
 import AuthPage from "@/pages/auth";
 import ResetPasswordPage from "@/pages/reset-password";
@@ -77,58 +74,14 @@ function Router() {
   );
 }
 
-const SIDEBAR_OPEN_STORAGE_KEY = "sidebar:open";
-
 function AuthenticatedApp() {
-  const sidebarStyle = {
-    "--sidebar-width": "14rem",
-    "--sidebar-width-icon": "3rem",
-  };
-
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      const stored = window.localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY);
-      if (stored === null) return false;
-      return stored === "true";
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(sidebarOpen));
-    } catch {
-      // ignore storage failures (e.g. private mode)
-    }
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== SIDEBAR_OPEN_STORAGE_KEY || event.newValue === null) return;
-      setSidebarOpen(event.newValue === "true");
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
-
   return (
-    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} style={sidebarStyle as React.CSSProperties}>
-      <div className="flex h-screen w-full">
-        <AppSidebar />
-        <div className="flex flex-col flex-1 min-w-0 bg-background">
-          <header className="flex items-center justify-between gap-4 h-12 px-6 bg-card border-b border-border sticky top-0 z-50">
-            <SidebarTrigger data-testid="button-sidebar-toggle" className="text-muted-foreground hover:text-foreground" />
-            <ThemeToggle />
-          </header>
-          <main className="flex-1 overflow-auto">
-            <Router />
-          </main>
-        </div>
-        <BugReportButton />
-      </div>
-    </SidebarProvider>
+    <>
+      <CrextioLayout>
+        <Router />
+      </CrextioLayout>
+      <BugReportButton />
+    </>
   );
 }
 
