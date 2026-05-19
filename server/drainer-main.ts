@@ -76,6 +76,17 @@ process.on("SIGINT", () => {
   );
   validateConnectionBudget();
 
+  // campaign-job stall RCA (2026-05-19) — Zombie sweeper also runs in the drainer process. The
+  // drainer issues its own UPDATE...SKIP LOCKED queries against
+  // campaign_sends + holds locks during the force-reserve cascade. A
+  // crashed drainer would otherwise leave its own stranded backends.
+  try {
+    const { startZombieCleanup } = await import("./db-zombie-killer");
+    startZombieCleanup();
+  } catch (err: any) {
+    logger.warn(`[DRAINER] Failed to start DB zombie cleanup (non-fatal): ${err?.message || err}`);
+  }
+
   const { runPressureGuardBootstrap } = await import(
     "./services/pressure-guard"
   );

@@ -1023,6 +1023,19 @@ async function startJobProcessor() {
 
   logger.info(`[JOB_POLL] Starting job processor with worker ID: ${WORKER_ID}, max concurrent campaigns: ${MAX_CONCURRENT_CAMPAIGNS}`);
 
+  // campaign-job stall RCA (2026-05-19) — Boot-time + periodic cleanup of stranded
+  // idle-in-transaction backends from a prior crashed worker. Without
+  // this, the first poll cycle blocks on advisory/row locks held by
+  // dead backends until Neon's idle_in_transaction_session_timeout
+  // fires (now 60s via injected backend options, was 5min). See
+  // db-zombie-killer.ts for the full RCA from the 2026-05-19 outage.
+  try {
+    const { startZombieCleanup } = await import("./db-zombie-killer");
+    startZombieCleanup();
+  } catch (err: any) {
+    logger.warn(`[JOB_POLL] Failed to start DB zombie cleanup (non-fatal): ${err?.message || err}`);
+  }
+
   jobPollingInterval = setInterval(pollForJobs, 10000);
 
   messageQueue.onMessage("campaign_jobs", (payload) => {

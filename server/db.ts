@@ -25,6 +25,60 @@ if (connectionString.includes("neon.tech")) {
   } catch {}
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// PgBouncer-safe backend timeouts — campaign-job stall RCA (2026-05-19).
+//
+// Root cause of the 2026-05-19 outage: pg.Pool's `connect` event runs
+// `SET statement_timeout/lock_timeout` as plain (non-LOCAL) SETs. Under
+// Neon's PgBouncer **transaction pooling**, those session-level SETs are
+// silently discarded on every transaction boundary — the backend stays
+// at its server defaults (`lock_timeout=0`, `idle_in_transaction_session
+// _timeout=300000ms`). When a worker crashed mid-`pressureGuardReserve
+// SendSlots`, the backend kept 1000 advisory locks + row locks for the
+// full 5 min Neon timeout; every retry of the same chunk blocked on
+// those locks until `statement_timeout=120s` fired, the job timed out
+// at 30 min, was requeued, blocked again — indefinitely.
+//
+// The ONLY parameters that survive PgBouncer transaction pooling are
+// those passed via the `options` libpq startup parameter (pgbouncer
+// forwards them to the backend at session establishment, and they
+// become the new defaults — not session SETs that get wiped). We inject
+// `idle_in_transaction_session_timeout=60s` so a crashed worker's locks
+// auto-release in 60s instead of 5min, plus re-state lock/statement
+// timeouts at the backend level so they cannot be wiped.
+const REQUIRED_BACKEND_OPTIONS: Record<string, string> = {
+  lock_timeout: '15000',
+  statement_timeout: '120000',
+  idle_in_transaction_session_timeout: '60000',
+};
+try {
+  const url = new URL(connectionString);
+  // Code-review caveat: if the operator already set `options`, do NOT skip
+  // injection — merge instead. Otherwise the fix is silently bypassed for any
+  // env where DATABASE_URL was hand-tuned with custom GUCs (e.g. `search_path`).
+  const existing = url.searchParams.get('options') ?? '';
+  // Parse existing `-c k=v` pairs (libpq format) so we only append the ones
+  // not already explicitly overridden by the operator.
+  const overridden = new Set<string>();
+  for (const match of existing.matchAll(/-c\s+([\w.]+)\s*=/g)) {
+    overridden.add(match[1]);
+  }
+  const toAppend: string[] = [];
+  for (const [key, val] of Object.entries(REQUIRED_BACKEND_OPTIONS)) {
+    if (!overridden.has(key)) toAppend.push(`-c ${key}=${val}`);
+  }
+  if (toAppend.length > 0) {
+    const merged = existing ? `${existing} ${toAppend.join(' ')}` : toAppend.join(' ');
+    url.searchParams.set('options', merged);
+    connectionString = url.toString();
+    logger.info(`DB backend options merged: appended [${toAppend.join(', ')}]${existing ? ` to existing options [${existing}]` : ''}`);
+  } else {
+    logger.info(`DB backend options: all required GUCs already present in operator-supplied options [${existing}]`);
+  }
+} catch (err: any) {
+  logger.warn(`Could not inject backend options into connection string: ${err?.message || err}`);
+}
+
 export { isExternalDb };
 
 const poolConfig: pg.PoolConfig = {

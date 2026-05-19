@@ -533,6 +533,20 @@ export async function pressureGuardReserveSendSlots(
     //       first — newer senders see the existing row under the lock and
     //       get deferred.
     const result = await db.transaction(async (tx) => {
+      // campaign-job stall RCA (2026-05-19) — Fast-fail on lock contention. SET LOCAL survives the
+      // transaction and is the only timeout-set form that survives Neon
+      // PgBouncer transaction pooling on a per-statement basis. Without
+      // this, a single zombie backend (from a prior worker crash) holding
+      // overlapping advisory locks would block the lock acquisition below
+      // for the full statement_timeout (120s), starving 8 concurrent
+      // senders and triggering the 30-min job-level "worker may have
+      // crashed" timeout cascade observed on 2026-05-19. With lock_timeout
+      // at 10s, contention surfaces as a fast retryable error → the
+      // sender's per-chunk catch path re-throws, the job is re-queued
+      // with exponential backoff, and by then the zombie is gone (the
+      // 60s idle_in_transaction_session_timeout injected via DB
+      // connection options has fired).
+      await tx.execute(sql`SET LOCAL lock_timeout = '10s'`);
       // pg_advisory_xact_lock per subscriber, taken in sorted hash order
       // so concurrent transactions reserving overlapping subscriber sets
       // cannot deadlock on inverse acquisition order. Locks are released
@@ -739,6 +753,8 @@ export async function pressureGuardForceReserveSendSlots(
   // PgBouncer transaction pooling) and acquired in sorted hash order so
   // overlapping batches cannot deadlock on inverse acquisition order.
   const result = await db.transaction(async (tx) => {
+    // campaign-job stall RCA (2026-05-19) — fast-fail on lock contention (see pressureGuardReserveSendSlots).
+    await tx.execute(sql`SET LOCAL lock_timeout = '10s'`);
     await tx.execute(sql`
       SELECT pg_advisory_xact_lock(h)
       FROM (
