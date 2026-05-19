@@ -243,9 +243,24 @@ if pm2 list | grep -q "critsend-web"; then
         echo "[deploy]   No env_production key changes detected — using zero-downtime reload."
     fi
 
-    # Soft-reload everything else (still re-parses the ecosystem to pick
-    # up changes to existing env values, e.g. tuning knobs).
-    pm2 reload deploy/ecosystem.config.cjs --env production --update-env
+    # Sequential per-process reload (was: single parallel `pm2 reload` of
+    # all apps). Constated 2026-05-19 incident: a single reload restarts
+    # web + worker + drainer simultaneously; all three then run the
+    # bootstrap CREATE INDEX CONCURRENTLY migrations on `campaign_sends`
+    # concurrently. Despite `withAdvisoryLock` guarding the DDL, two
+    # backends got into a `ShareUpdateExclusiveLock` deadlock that
+    # blocked the worker for 25s+, caused 90 jobs to fail, and required
+    # manual `pg_cancel_backend()`. Reloading web FIRST lets it complete
+    # its bootstrap (index builds) under the advisory lock; by the time
+    # worker/drainer restart, all migrations have already succeeded and
+    # they short-circuit on the "index exists" check — no lock fight.
+    echo "[deploy]   Reloading critsend-web first (runs bootstrap migrations)..."
+    pm2 reload deploy/ecosystem.config.cjs --env production --update-env --only critsend-web
+    echo "[deploy]   Waiting 25s for web bootstrap to finish (CREATE INDEX CONCURRENTLY)..."
+    sleep 25
+    echo "[deploy]   Reloading critsend-worker..."
+    pm2 reload deploy/ecosystem.config.cjs --env production --update-env --only critsend-worker
+    sleep 5
     # Catch a brand-new app entry the daemon doesn't yet know about
     # (only relevant on the first deploy that introduces a new app).
     # Without the existence check, this would issue a redundant restart
@@ -255,6 +270,9 @@ if pm2 list | grep -q "critsend-web"; then
     if ! pm2 list | grep -q "critsend-drainer"; then
         echo "[deploy]   critsend-drainer not yet in PM2 — starting it."
         pm2 start deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer
+    else
+        echo "[deploy]   Reloading critsend-drainer..."
+        pm2 reload deploy/ecosystem.config.cjs --env production --update-env --only critsend-drainer
     fi
     pm2 save
     ok "PM2 processes reloaded"
