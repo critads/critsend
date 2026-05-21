@@ -1,0 +1,31 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ sudo cp /etc/nginx/sites-available/critsend /etc/nginx/sites-enabled/critsend
+sudo nginx -t && sudo systemctl restart nginx
+sudo ss -tlnp | grep :443
+curl -I https://critsender.critads.com/
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+LISTEN 0      511          0.0.0.0:443       0.0.0.0:*    users:(("nginx",pid=450278,fd=7),("nginx",pid=450277,fd=7),("nginx",pid=450276,fd=7),("nginx",pid=450275,fd=7),("nginx",pid=450274,fd=7),("nginx",pid=450273,fd=7),("nginx",pid=450271,fd=7),("nginx",pid=450270,fd=7),("nginx",pid=450269,fd=7),("nginx",pid=450267,fd=7),("nginx",pid=450266,fd=7),("nginx",pid=450265,fd=7),("nginx",pid=450264,fd=7),("nginx",pid=450263,fd=7),("nginx",pid=450262,fd=7),("nginx",pid=450261,fd=7),("nginx",pid=450260,fd=7),("nginx",pid=450259,fd=7),("nginx",pid=450258,fd=7),("nginx",pid=450257,fd=7),("nginx",pid=450256,fd=7),("nginx",pid=450255,fd=7),("nginx",pid=450254,fd=7),("nginx",pid=450253,fd=7),("nginx",pid=450252,fd=7),("nginx",pid=450251,fd=7),("nginx",pid=450250,fd=7),("nginx",pid=450249,fd=7),("nginx",pid=450248,fd=7),("nginx",pid=450247,fd=7),("nginx",pid=450246,fd=7),("nginx",pid=450244,fd=7),("nginx",pid=450243,fd=7),("nginx",pid=450241,fd=7),("nginx",pid=450240,fd=7),("nginx",pid=450239,fd=7),("nginx",pid=450238,fd=7),("nginx",pid=450237,fd=7),("nginx",pid=450236,fd=7),("nginx",pid=450235,fd=7),("nginx",pid=450234,fd=7),("nginx",pid=450233,fd=7),("nginx",pid=450232,fd=7),("nginx",pid=450231,fd=7),("nginx",pid=450230,fd=7),("nginx",pid=450229,fd=7),("nginx",pid=450228,fd=7),("nginx",pid=450226,fd=7),("nginx",pid=450225,fd=7),("nginx",pid=450224,fd=7),("nginx",pid=450223,fd=7),("nginx",pid=450222,fd=7),("nginx",pid=450221,fd=7),("nginx",pid=450220,fd=7),("nginx",pid=450219,fd=7),("nginx",pid=450218,fd=7),("nginx",pid=450217,fd=7),("nginx",pid=450216,fd=7),("nginx",pid=450215,fd=7),("nginx",pid=450214,fd=7),("nginx",pid=450213,fd=7),("nginx",pid=450212,fd=7))
+LISTEN 0      511             [::]:443          [::]:*    users:(("nginx",pid=450278,fd=8),("nginx",pid=450277,fd=8),("nginx",pid=450276,fd=8),("nginx",pid=450275,fd=8),("nginx",pid=450274,fd=8),("nginx",pid=450273,fd=8),("nginx",pid=450271,fd=8),("nginx",pid=450270,fd=8),("nginx",pid=450269,fd=8),("nginx",pid=450267,fd=8),("nginx",pid=450266,fd=8),("nginx",pid=450265,fd=8),("nginx",pid=450264,fd=8),("nginx",pid=450263,fd=8),("nginx",pid=450262,fd=8),("nginx",pid=450261,fd=8),("nginx",pid=450260,fd=8),("nginx",pid=450259,fd=8),("nginx",pid=450258,fd=8),("nginx",pid=450257,fd=8),("nginx",pid=450256,fd=8),("nginx",pid=450255,fd=8),("nginx",pid=450254,fd=8),("nginx",pid=450253,fd=8),("nginx",pid=450252,fd=8),("nginx",pid=450251,fd=8),("nginx",pid=450250,fd=8),("nginx",pid=450249,fd=8),("nginx",pid=450248,fd=8),("nginx",pid=450247,fd=8),("nginx",pid=450246,fd=8),("nginx",pid=450244,fd=8),("nginx",pid=450243,fd=8),("nginx",pid=450241,fd=8),("nginx",pid=450240,fd=8),("nginx",pid=450239,fd=8),("nginx",pid=450238,fd=8),("nginx",pid=450237,fd=8),("nginx",pid=450236,fd=8),("nginx",pid=450235,fd=8),("nginx",pid=450234,fd=8),("nginx",pid=450233,fd=8),("nginx",pid=450232,fd=8),("nginx",pid=450231,fd=8),("nginx",pid=450230,fd=8),("nginx",pid=450229,fd=8),("nginx",pid=450228,fd=8),("nginx",pid=450226,fd=8),("nginx",pid=450225,fd=8),("nginx",pid=450224,fd=8),("nginx",pid=450223,fd=8),("nginx",pid=450222,fd=8),("nginx",pid=450221,fd=8),("nginx",pid=450220,fd=8),("nginx",pid=450219,fd=8),("nginx",pid=450218,fd=8),("nginx",pid=450217,fd=8),("nginx",pid=450216,fd=8),("nginx",pid=450215,fd=8),("nginx",pid=450214,fd=8),("nginx",pid=450213,fd=8),("nginx",pid=450212,fd=8))
+HTTP/2 200 
+server: nginx/1.24.0 (Ubuntu)
+date: Thu, 21 May 2026 06:27:35 GMT
+content-type: text/html; charset=UTF-8
+content-length: 2218
+vary: Accept-Encoding
+content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: blob: https:;connect-src 'self' wss: ws:;base-uri 'self';form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+origin-agent-cluster: ?1
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-xss-protection: 0
+accept-ranges: bytes
+cache-control: public, max-age=31536000, immutable
+last-modified: Wed, 20 May 2026 04:53:42 GMT
+etag: W/"8aa-19e43bb82e2"
+strict-transport-security: max-age=63072000; includeSubDomains; preload
