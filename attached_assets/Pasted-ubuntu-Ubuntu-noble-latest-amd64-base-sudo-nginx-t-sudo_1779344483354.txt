@@ -1,0 +1,306 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ sudo nginx -t
+sudo journalctl -xeu nginx.service -n 50 --no-pager
+2026/05/21 08:20:38 [emerg] 449710#449710: invalid number of arguments in "server_name" directive in /etc/nginx/sites-enabled/critsend:14
+nginx: configuration file /etc/nginx/nginx.conf test failed
+Apr 29 11:35:07 Ubuntu-noble-latest-amd64-base systemd[1]: Reloaded nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A reload job for unit nginx.service has finished
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A reload job for unit nginx.service has finished.
+░░ 
+░░ The job identifier is 7496 and the job result is done.
+Apr 29 11:41:23 Ubuntu-noble-latest-amd64-base systemd[1]: Reloading nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A reload job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A reload job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 7630.
+Apr 29 11:41:23 Ubuntu-noble-latest-amd64-base nginx[22168]: 2026/04/29 11:41:23 [notice] 22168#22168: signal process started
+Apr 29 11:41:23 Ubuntu-noble-latest-amd64-base systemd[1]: Reloaded nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A reload job for unit nginx.service has finished
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A reload job for unit nginx.service has finished.
+░░ 
+░░ The job identifier is 7630 and the job result is done.
+May 15 06:58:51 Ubuntu-noble-latest-amd64-base systemd[1]: Stopping nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A stop job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A stop job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 351888.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Deactivated successfully.
+░░ Subject: Unit succeeded
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has successfully entered the 'dead' state.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: Stopped nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A stop job for unit nginx.service has finished
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A stop job for unit nginx.service has finished.
+░░ 
+░░ The job identifier is 351888 and the job result is done.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Consumed 15h 32min 27.837s CPU time, 1.0G memory peak, 0B memory swap peak.
+░░ Subject: Resources consumed by unit runtime
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service completed and consumed the indicated resources.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A start job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 351888.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base nginx[311960]: 2026/05/15 06:58:56 [emerg] 311960#311960: cannot load certificate "/etc/letsencrypt/live/server.critsender.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/server.critsender.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base nginx[311960]: nginx: configuration file /etc/nginx/nginx.conf test failed
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ An ExecStartPre= process belonging to unit nginx.service has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 1.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has entered the 'failed' state with result 'exit-code'.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: Failed to start nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A start job for unit nginx.service has failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has finished with a failure.
+░░ 
+░░ The job identifier is 351888 and the job result is failed.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A start job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 352022.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base nginx[311982]: 2026/05/15 06:58:56 [emerg] 311982#311982: cannot load certificate "/etc/letsencrypt/live/server.critsender.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/server.critsender.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base nginx[311982]: nginx: configuration file /etc/nginx/nginx.conf test failed
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ An ExecStartPre= process belonging to unit nginx.service has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 1.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has entered the 'failed' state with result 'exit-code'.
+May 15 06:58:56 Ubuntu-noble-latest-amd64-base systemd[1]: Failed to start nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A start job for unit nginx.service has failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has finished with a failure.
+░░ 
+░░ The job identifier is 352022 and the job result is failed.
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A start job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 352422.
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base nginx[312808]: 2026/05/15 07:08:22 [emerg] 312808#312808: cannot load certificate "/etc/letsencrypt/live/server.critsender.com/fullchain.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/letsencrypt/live/server.critsender.com/fullchain.pem, r) error:10000080:BIO routines::no such file)
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base nginx[312808]: nginx: configuration file /etc/nginx/nginx.conf test failed
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ An ExecStartPre= process belonging to unit nginx.service has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 1.
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has entered the 'failed' state with result 'exit-code'.
+May 15 07:08:22 Ubuntu-noble-latest-amd64-base systemd[1]: Failed to start nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A start job for unit nginx.service has failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has finished with a failure.
+░░ 
+░░ The job identifier is 352422 and the job result is failed.
+May 15 07:13:46 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A start job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 352688.
+May 15 07:13:46 Ubuntu-noble-latest-amd64-base systemd[1]: Started nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A start job for unit nginx.service has finished successfully
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has finished successfully.
+░░ 
+░░ The job identifier is 352688.
+May 15 07:14:54 Ubuntu-noble-latest-amd64-base systemd[1]: Stopping nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A stop job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A stop job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 352821.
+May 15 07:14:59 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Deactivated successfully.
+░░ Subject: Unit succeeded
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has successfully entered the 'dead' state.
+May 15 07:14:59 Ubuntu-noble-latest-amd64-base systemd[1]: Stopped nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A stop job for unit nginx.service has finished
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A stop job for unit nginx.service has finished.
+░░ 
+░░ The job identifier is 352821 and the job result is done.
+May 15 07:14:59 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Consumed 2.527s CPU time, 47.6M memory peak, 0B memory swap peak.
+░░ Subject: Resources consumed by unit runtime
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service completed and consumed the indicated resources.
+May 15 07:14:59 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A start job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 352821.
+May 15 07:14:59 Ubuntu-noble-latest-amd64-base systemd[1]: Started nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A start job for unit nginx.service has finished successfully
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has finished successfully.
+░░ 
+░░ The job identifier is 352821.
+May 21 06:24:11 Ubuntu-noble-latest-amd64-base systemd[1]: Stopping nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A stop job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A stop job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 481261.
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Deactivated successfully.
+░░ Subject: Unit succeeded
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has successfully entered the 'dead' state.
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base systemd[1]: Stopped nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A stop job for unit nginx.service has finished
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A stop job for unit nginx.service has finished.
+░░ 
+░░ The job identifier is 481261 and the job result is done.
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Consumed 4h 21min 16.188s CPU time, 789.5M memory peak, 0B memory swap peak.
+░░ Subject: Resources consumed by unit runtime
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service completed and consumed the indicated resources.
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A start job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 481261.
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base nginx[441840]: 2026/05/21 06:24:16 [emerg] 441840#441840: invalid number of arguments in "server_name" directive in /etc/nginx/sites-enabled/critsend:14
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base nginx[441840]: nginx: configuration file /etc/nginx/nginx.conf test failed
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ An ExecStartPre= process belonging to unit nginx.service has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 1.
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has entered the 'failed' state with result 'exit-code'.
+May 21 06:24:16 Ubuntu-noble-latest-amd64-base systemd[1]: Failed to start nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A start job for unit nginx.service has failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has finished with a failure.
+░░ 
+░░ The job identifier is 481261 and the job result is failed.
+May 21 08:19:49 Ubuntu-noble-latest-amd64-base systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+░░ Subject: A start job for unit nginx.service has begun execution
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has begun execution.
+░░ 
+░░ The job identifier is 483128.
+May 21 08:19:49 Ubuntu-noble-latest-amd64-base nginx[449672]: 2026/05/21 08:19:49 [emerg] 449672#449672: invalid number of arguments in "server_name" directive in /etc/nginx/sites-enabled/critsend:14
+May 21 08:19:49 Ubuntu-noble-latest-amd64-base nginx[449672]: nginx: configuration file /etc/nginx/nginx.conf test failed
+May 21 08:19:49 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Control process exited, code=exited, status=1/FAILURE
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ An ExecStartPre= process belonging to unit nginx.service has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 1.
+May 21 08:19:49 Ubuntu-noble-latest-amd64-base systemd[1]: nginx.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ The unit nginx.service has entered the 'failed' state with result 'exit-code'.
+May 21 08:19:49 Ubuntu-noble-latest-amd64-base systemd[1]: Failed to start nginx.service - A high performance web server and a reverse proxy server.
+░░ Subject: A start job for unit nginx.service has failed
+░░ Defined-By: systemd
+░░ Support: http://www.ubuntu.com/support
+░░ 
+░░ A start job for unit nginx.service has finished with a failure.
+░░ 
+░░ The job identifier is 483128 and the job result is failed.
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 
