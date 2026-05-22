@@ -80,6 +80,40 @@ export async function withAdvisoryLock(
   }
 }
 
+/**
+ * Probe whether an index exists and is VALID (i.e. usable by the planner).
+ *
+ * Historical behaviour (pre 2026-05-22): on encountering an INVALID
+ * index, this function would auto-issue `DROP INDEX CONCURRENTLY` and
+ * return false so the caller's `CREATE INDEX CONCURRENTLY IF NOT EXISTS`
+ * would rebuild it. That looked fine in isolation but turned out to be
+ * catastrophic in production: any PM2 restart during business hours
+ * could trigger a multi-minute DROP+CREATE on a 60M-row index that the
+ * hot-path SELECT/CAS queries depend on, causing the planner to fall
+ * back to a 27GB sequential scan per query → pool saturation → 503s on
+ * /api/campaigns → drain stalls → send rate yo-yos 0↔3000/min for the
+ * full duration of the rebuild (~10-15min). Incident 2026-05-22.
+ *
+ * New behaviour (default): when an index is INVALID, log loudly, emit a
+ * Prometheus counter, and return `true` so the caller treats it as
+ * "present, don't rebuild" — i.e. bootstrap is a no-op and a human
+ * operator can choose when (off-hours) to:
+ *   - `REINDEX INDEX CONCURRENTLY "name"` (preferred, no double-name),
+ *   - or `DROP INDEX CONCURRENTLY "name"` then let the next bootstrap
+ *     recreate it via `CREATE INDEX CONCURRENTLY IF NOT EXISTS`.
+ *
+ * Opt-in legacy behaviour via env `BOOTSTRAP_AUTO_DROP_INVALID_INDEXES=true`
+ * if you really want the old auto-rebuild (e.g. on a fresh staging DB
+ * where the operational risk is acceptable). Never set this in prod.
+ *
+ * Note on returning `true` for an INVALID index: the planner won't use
+ * the index until indisvalid flips back, so the SELECTs will fall back
+ * to whatever next-best plan the planner has — typically a seq scan,
+ * which is bad but no worse than the auto-drop+rebuild window. The
+ * critical difference is that the bad period is now bounded by the
+ * operator's manual REINDEX (which they can schedule for low-traffic
+ * hours), instead of being triggered unpredictably by a random restart.
+ */
 export async function indexExistsAndValid(indexName: string): Promise<boolean> {
   try {
     const result = await pool.query<{ valid: boolean }>(
@@ -93,11 +127,28 @@ export async function indexExistsAndValid(indexName: string): Promise<boolean> {
     );
     if (result.rows.length === 0) return false;
     if (!result.rows[0].valid) {
-      logger.warn(`[BOOTSTRAP_LOCK] Index ${indexName} exists but is INVALID — will be dropped and rebuilt`);
-      // DROP CONCURRENTLY on a large table can also exceed the global
-      // statement_timeout; run on a dedicated client with timeout=0.
-      await runIndexDdlNoTimeout(`DROP INDEX CONCURRENTLY IF EXISTS "${indexName}"`, `DROP ${indexName}`);
-      return false;
+      const autoDrop = String(process.env.BOOTSTRAP_AUTO_DROP_INVALID_INDEXES || "").toLowerCase() === "true";
+      if (autoDrop) {
+        logger.warn(`[BOOTSTRAP_LOCK] Index ${indexName} is INVALID and BOOTSTRAP_AUTO_DROP_INVALID_INDEXES=true — will DROP+rebuild (legacy behaviour, DANGEROUS in prod during business hours)`);
+        await runIndexDdlNoTimeout(`DROP INDEX CONCURRENTLY IF EXISTS "${indexName}"`, `DROP ${indexName}`);
+        return false;
+      }
+      // Default: do NOT auto-drop. Log + signal "present so don't
+      // rebuild" so caller skips the CREATE. Operator must REINDEX
+      // CONCURRENTLY manually off-hours.
+      logger.error(
+        `[BOOTSTRAP_LOCK] Index ${indexName} is INVALID — REFUSING to auto-drop (set BOOTSTRAP_AUTO_DROP_INVALID_INDEXES=true to override). ` +
+        `Operator action required: run \`REINDEX INDEX CONCURRENTLY "${indexName}"\` during a low-traffic window. ` +
+        `Until then, planner will fall back to alternative plans (likely seq scans on hot paths).`,
+      );
+      try {
+        const { invalidIndexesGauge } = await import("./services/metrics");
+        invalidIndexesGauge?.inc({ index_name: indexName });
+      } catch { /* metrics import optional */ }
+      // Return true so the caller treats it as "already present" and
+      // skips CREATE. The INVALID index occupies the name; CREATE
+      // CONCURRENTLY IF NOT EXISTS would no-op anyway.
+      return true;
     }
     return true;
   } catch (err: any) {
