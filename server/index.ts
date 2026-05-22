@@ -958,8 +958,24 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
       // the web's /metrics endpoint, poll the leader heartbeat row from
       // the web every 10 s and mirror the age into our local gauge.
       const { pool } = await import('./db');
-      const { pressureDrainLastTickAgeSeconds, pressureDrainCalls5m, pressureDrainErrors5m } = await import('./metrics');
+      const { pressureDrainLastTickAgeSeconds, pressureDrainErrors5m } = await import('./metrics');
       const { LOCK_KEYS } = await import('./bootstrap-lock');
+      // 2026-05-22 DB-CPU audit: this poll used to run every 10s and ran
+      // `SELECT COUNT(*) FROM campaign_sends WHERE status='sent' AND
+      // sent_at > NOW() - INTERVAL '5 min'`, which has no covering index
+      // (the only sent_at index is partial WHERE eligible_at IS NOT NULL).
+      // The planner fell back to a Parallel Seq Scan of the 67M-row /
+      // 12 GB table — EXPLAIN ANALYZE measured 5.3s and 1.6M block reads.
+      // At a 10s cadence that single query was burning ~53% of one Neon
+      // CU continuously and dwarfed every other DB consumer in the
+      // cluster. We dropped it entirely: drain liveness is already proven
+      // by `last_tick_at` on the leader lease (same query, microseconds),
+      // and the `pressureDrainCalls5m` gauge is not the operator's
+      // primary signal — Grafana derives drain throughput from the
+      // per-send counter `pressureGuardDeferredDrained` (incremented
+      // in-process by the worker on every successful drain) instead.
+      // Interval also bumped 10s → 30s — the lease's expires_at TTL is
+      // 60s, so a 30s poll still detects a dead lease before it expires.
       const pollDrainHeartbeat = async () => {
         try {
           const r = await pool.query<{ last_tick_at: Date | null }>(
@@ -970,19 +986,18 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
           if (ts) {
             pressureDrainLastTickAgeSeconds.set(Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000));
           }
-          const agg = await pool.query<{ sends_5m: string; errors_5m: string }>(
-            `SELECT
-               (SELECT COUNT(*)::text FROM campaign_sends
-                  WHERE status='sent' AND sent_at > NOW() - INTERVAL '5 min') AS sends_5m,
-               (SELECT COUNT(*)::text FROM pressure_drain_tick_errors
-                  WHERE occurred_at > NOW() - INTERVAL '5 min') AS errors_5m`,
+          // Cheap — pressure_drain_tick_errors stays tiny (5-min
+          // rolling, errors only). Kept because it gates the health
+          // endpoint's `errorRateOk` decision in pressure.ts.
+          const err = await pool.query<{ errors_5m: string }>(
+            `SELECT COUNT(*)::text AS errors_5m FROM pressure_drain_tick_errors
+              WHERE occurred_at > NOW() - INTERVAL '5 min'`,
           );
-          pressureDrainCalls5m.set(Number(agg.rows[0]?.sends_5m ?? 0));
-          pressureDrainErrors5m.set(Number(agg.rows[0]?.errors_5m ?? 0));
+          pressureDrainErrors5m.set(Number(err.rows[0]?.errors_5m ?? 0));
         } catch { /* best-effort; metric stays at last value */ }
       };
       void pollDrainHeartbeat();
-      setInterval(() => { void pollDrainHeartbeat(); }, 10_000).unref?.();
+      setInterval(() => { void pollDrainHeartbeat(); }, 30_000).unref?.();
     } else {
       const { startPressureGuardWorker } = await import('./workers/pressure-guard-worker');
       startPressureGuardWorker();

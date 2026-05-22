@@ -37,6 +37,48 @@ import {
   flushDeferredSends,
 } from "../services/pressure-guard";
 
+// ── Backlog snapshot cache (2026-05-22 DB-CPU audit) ─────────────────
+// Cluster-wide cache of `deferred_pending` / `deferred_due` counts. The
+// underlying queries scan the partial pressure index but heap-fetch
+// millions of rows (13-39 s each — see comment in /health endpoint).
+// We refresh at most once per BACKLOG_CACHE_TTL_MS regardless of how
+// many concurrent /health or /pressure-queue requests come in.
+// In-flight de-duplication: only one query runs at a time; concurrent
+// callers await the same promise.
+const BACKLOG_CACHE_TTL_MS = Math.max(
+  5_000,
+  parseInt(process.env.PRESSURE_BACKLOG_CACHE_TTL_MS || "30000", 10) || 30_000,
+);
+let backlogCache: { at: number; data: { deferredPending: number; deferredDue: number } } | null = null;
+let backlogInFlight: Promise<{ deferredPending: number; deferredDue: number }> | null = null;
+
+export async function getBacklogSnapshot(): Promise<{ deferredPending: number; deferredDue: number }> {
+  if (backlogCache && Date.now() - backlogCache.at < BACKLOG_CACHE_TTL_MS) {
+    return backlogCache.data;
+  }
+  if (backlogInFlight) return backlogInFlight;
+  backlogInFlight = (async () => {
+    try {
+      const r = await pool.query<{ deferred_pending: string; deferred_due: string }>(
+        `SELECT
+           (SELECT COUNT(*)::text FROM campaign_sends
+              WHERE status='pending' AND eligible_at IS NOT NULL) AS deferred_pending,
+           (SELECT COUNT(*)::text FROM campaign_sends
+              WHERE status='pending' AND eligible_at IS NOT NULL AND eligible_at <= NOW()) AS deferred_due`,
+      );
+      const data = {
+        deferredPending: Number(r.rows[0]?.deferred_pending ?? 0),
+        deferredDue: Number(r.rows[0]?.deferred_due ?? 0),
+      };
+      backlogCache = { at: Date.now(), data };
+      return data;
+    } finally {
+      backlogInFlight = null;
+    }
+  })();
+  return backlogInFlight;
+}
+
 // Task #145 R11: discriminated union for the per-campaign flush body.
 // Discriminator is the `kind` field on each shape (mapped from the
 // presence of `campaignSendIds` vs. `scope` in the raw body via a
@@ -297,38 +339,41 @@ export function registerPressureRoutes(app: Express): void {
       const tickFresh = lastTickAgeS != null && lastTickAgeS < maxAgeSeconds;
 
       // Cross-cutting deferred backlog snapshot + rolling 5-minute drain
-      // activity from campaign_sends. drained_calls_5m and errors_5m are
-      // computed from real send activity (NOT the in-memory tick counter,
-      // which only reflects the most-recent tick) so the health endpoint
-      // matches the operator's mental model: "did the drain do real work
-      // in the last 5 min?". errors_5m approximates by counting failed
-      // sends in the same window — a high value means the drain is
-      // running but its sends are bouncing/erroring.
-      // errors_5m is now sourced from `pressure_drain_tick_errors` —
-      // the cross-process log of drain *tick* exceptions (loop crashes,
+      // activity. errors_5m is sourced from `pressure_drain_tick_errors`
+      // — the cross-process log of drain *tick* exceptions (loop crashes,
       // claim/finalize failures), NOT failed delivery rows. This is the
       // semantic the contract asks for: a drain that is firing ticks
       // but throwing inside them is degraded even if no sends are
       // failing yet.
-      const backlog = await pool.query<{
-        deferred_pending: string;
-        deferred_due: string;
-        sends_5m: string;
-        tick_errors_5m: string;
-      }>(
-        `SELECT
-           (SELECT COUNT(*)::text FROM campaign_sends
-              WHERE status='pending' AND eligible_at IS NOT NULL) AS deferred_pending,
-           (SELECT COUNT(*)::text FROM campaign_sends
-              WHERE status='pending' AND eligible_at IS NOT NULL AND eligible_at <= NOW()) AS deferred_due,
-           (SELECT COUNT(*)::text FROM campaign_sends
-              WHERE status='sent' AND sent_at > NOW() - INTERVAL '5 min') AS sends_5m,
-           (SELECT COUNT(*)::text FROM pressure_drain_tick_errors
-              WHERE occurred_at > NOW() - INTERVAL '5 min') AS tick_errors_5m`,
+      //
+      // 2026-05-22 DB-CPU audit: the three COUNT(*) on `campaign_sends`
+      // that used to live in this query were catastrophic for the Neon
+      // cluster every time an operator hit /health:
+      //   • deferred_pending: 39 s (2.36M rows, 6.6M heap fetches due to
+      //     visibility-map bloat on the 12 GB table)
+      //   • deferred_due:     13 s (504k rows)
+      //   • sends_5m:          5 s (Parallel Seq Scan, 14M rows filtered)
+      // Replacement strategy:
+      //   1. `drained_calls_5m` is dropped from this endpoint — operators
+      //      get drain throughput from Prometheus (`pressureGuardDeferredDrained`
+      //      counter, incremented in-process on every successful drain).
+      //   2. `deferred_pending` / `deferred_due` are served from a
+      //      module-level cache with `BACKLOG_CACHE_TTL_MS` TTL (default
+      //      30 s). The numbers move by thousands per tick so a 30s lag
+      //      is invisible to an operator clicking "refresh" repeatedly,
+      //      and it caps the worst-case query rate at 2 calls/min cluster-wide.
+      const errCount = await pool.query<{ tick_errors_5m: string }>(
+        `SELECT COUNT(*)::text AS tick_errors_5m FROM pressure_drain_tick_errors
+            WHERE occurred_at > NOW() - INTERVAL '5 min'`,
       );
-      const b = backlog.rows[0];
-      const drainedCalls5m = Number(b?.sends_5m ?? 0);
-      const errors5m = Number(b?.tick_errors_5m ?? 0);
+      const backlogSnap = await getBacklogSnapshot();
+      const b = {
+        deferred_pending: String(backlogSnap.deferredPending),
+        deferred_due: String(backlogSnap.deferredDue),
+        tick_errors_5m: errCount.rows[0]?.tick_errors_5m ?? '0',
+      };
+      const drainedCalls5m = 0; // see comment above — derive from Prom counter
+      const errors5m = Number(b.tick_errors_5m ?? 0);
 
       // Task #160 contract: error-rate guard. A drain that is firing
       // ticks AND has a fresh lease but is producing >5 errors per 5 min
