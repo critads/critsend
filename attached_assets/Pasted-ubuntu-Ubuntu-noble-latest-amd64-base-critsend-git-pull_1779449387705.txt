@@ -1,0 +1,159 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ git pull && bash deploy/deploy.sh && pm2 restart all
+remote: Enumerating objects: 51, done.
+remote: Counting objects: 100% (51/51), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 32 (delta 28), reused 32 (delta 28), pack-reused 0 (from 0)
+Unpacking objects: 100% (32/32), 14.50 KiB | 44.00 KiB/s, done.
+From https://github.com/critads/critsend
+   f320998..4535cf3  main       -> origin/main
+Updating f320998..4535cf3
+Fast-forward
+ client/src/pages/campaigns.tsx             |  82 ++++++++++++++
+ server/bootstrap-lock.ts                   |  61 +++++++++-
+ server/metrics.ts                          |  14 +++
+ server/repositories/campaign-repository.ts |  12 +-
+ server/routes/campaigns.ts                 | 186 ++++++++++++++++++++++++++++++-
+ server/services/campaign-sender.ts         |   4 +-
+ server/services/pressure-guard.ts          |  28 ++++-
+ server/workers/pressure-guard-worker.ts    |  93 ++++++++++++----
+ shared/schema.ts                           |  16 +++
+ 9 files changed, 462 insertions(+), 34 deletions(-)
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: 4535cf3 Improve urgent campaign sending and prevent race conditions
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 840 packages, and audited 841 packages in 6s
+
+133 packages are looking for funding
+  run `npm fund` for details
+
+49 vulnerabilities (3 low, 32 moderate, 13 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2505 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-K3FM_fFU.css     93.68 kB │ gzip:  15.10 kB
+../dist/public/assets/index-DXTkQYFl.js   1,380.24 kB │ gzip: 362.49 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.10s
+building server...
+
+  dist/index.cjs  1.9mb ⚠️
+
+⚡ Done in 113ms
+building import worker...
+
+  dist/import-worker.cjs  653.0kb
+
+⚡ Done in 72ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 71ms
+building drainer...
+
+  dist/drainer-main.cjs  640.2kb
+
+⚡ Done in 71ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Pushing database schema changes (drizzle-kit push)...
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/home/ubuntu/critsend/drizzle.config.ts'
+Using 'pg' driver for database querying
+[✓] Pulling schema from database...
+[✓] Changes applied
+[deploy] ✓ Database schema up to date
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime when possible)...
+[deploy]   No env_production key changes detected — using zero-downtime reload.
+[deploy]   Reloading critsend-web first (runs bootstrap migrations)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 4 ])
+[PM2] [critsend-web](4) ✓
+[deploy]   Waiting 25s for web bootstrap to finish (CREATE INDEX CONCURRENTLY)...
+[deploy]   Reloading critsend-worker...
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 5 ])
+[PM2] [critsend-worker](5) ✓
+[deploy]   Reloading critsend-drainer...
+[PM2] Applying action reloadProcessId on app [critsend-drainer](ids: [ 6 ])
+[PM2] [critsend-drainer](6) ✓
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Verifying PM2 processes started successfully...
+[deploy] ✓ critsend-worker: boot line present
+[deploy] ✓ critsend-drainer: boot line present
+[deploy] ⚠ critsend-web: boot line 'serving on port' not found in /var/log/critsend/web-out.log after 45 s
+[deploy]   Last 30 lines from critsend-web:
+[deploy]     2026-05-22 13:27:23 +02:00: 2026-05-22T11:27:23.591Z [INFO] Unsubscribe request: campaign=964d0c28-2b9b-44ac-b4f6-31cb0939ff61, subscriber=aebc144a-f4e9-421c-a457-554b77cb2eb2
+[deploy]     2026-05-22 13:27:27 +02:00: 2026-05-22T11:27:27.357Z [INFO] Unsubscribe request: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=9435a434-7510-43cf-b170-44dfd6ea2f16
+[deploy]     2026-05-22 13:27:27 +02:00: 2026-05-22T11:27:27.624Z [INFO] Short unsubscribe: campaign=7b0c4591-5e9e-4a06-8513-dbab5ef700f3, subscriber=e95fa21e-5b99-435e-86a5-8b2fc49b85bc
+[deploy]     2026-05-22 13:27:27 +02:00: 2026-05-22T11:27:27.754Z [INFO] [TRACKING QUERIES] Link cache warmed: 1707 destinations loaded for active campaigns
+[deploy]     2026-05-22 13:27:28 +02:00: 2026-05-22T11:27:28.355Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+[deploy]     2026-05-22 13:27:28 +02:00: 2026-05-22T11:27:28.356Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+[deploy]     2026-05-22 13:27:28 +02:00: 2026-05-22T11:27:28.617Z [INFO] Unsubscribe request: campaign=2801a1a3-7bd7-47b5-bab6-ea741f89231e, subscriber=2212fa61-ef26-41e7-8fc2-9687bce4fe5f
+[deploy]     2026-05-22 13:27:28 +02:00: 2026-05-22T11:27:28.807Z [INFO] [TRACKING QUERIES] Token cache warmed: 49999 tokens loaded for active campaigns
+[deploy]     2026-05-22 13:27:31 +02:00: 2026-05-22T11:27:31.102Z [INFO] Short unsubscribe: campaign=acbe4eb7-9c1e-4c4e-bbfa-822c3358fe5b, subscriber=f39fa484-680f-419e-bdb5-49e123574086
+[deploy]     2026-05-22 13:27:32 +02:00: 2026-05-22T11:27:32.663Z [INFO] Short unsubscribe: campaign=acbe4eb7-9c1e-4c4e-bbfa-822c3358fe5b, subscriber=f39fa484-680f-419e-bdb5-49e123574086
+[deploy]     2026-05-22 13:27:32 +02:00: 2026-05-22T11:27:32.883Z [INFO] Short unsubscribe: campaign=acbe4eb7-9c1e-4c4e-bbfa-822c3358fe5b, subscriber=f39fa484-680f-419e-bdb5-49e123574086
+[deploy]     2026-05-22 13:27:33 +02:00: 2026-05-22T11:27:33.343Z [INFO] Short unsubscribe: campaign=acbe4eb7-9c1e-4c4e-bbfa-822c3358fe5b, subscriber=f39fa484-680f-419e-bdb5-49e123574086
+[deploy]     2026-05-22 13:27:37 +02:00: 2026-05-22T11:27:37.332Z [INFO] Short unsubscribe: campaign=d96b449b-7734-463c-a7aa-f9f88e5b81ed, subscriber=30f0cca5-372a-4822-a661-fd64c23104f2
+[deploy]     2026-05-22 13:27:38 +02:00: 2026-05-22T11:27:38.858Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=2463db84-ef6c-4d2a-abfe-a0d6b5dcf31b, subscriber=f9accfeb-fb3c-4649-9df0-8c529b8d4e1f
+[deploy]     2026-05-22 13:27:39 +02:00: 2026-05-22T11:27:39.729Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=638b5906-21b7-4a65-b522-3c192e899227, subscriber=f9accfeb-fb3c-4649-9df0-8c529b8d4e1f
+[deploy]     2026-05-22 13:27:51 +02:00: 2026-05-22T11:27:51.478Z [INFO] Short unsubscribe: campaign=2801a1a3-7bd7-47b5-bab6-ea741f89231e, subscriber=b26ff456-595c-4c46-b8c6-44302e5854c3
+[deploy]     2026-05-22 13:27:58 +02:00: 2026-05-22T11:27:58.443Z [INFO] [TRIGRAM] mta_name_trgm_idx created successfully
+[deploy]     2026-05-22 13:27:58 +02:00: 2026-05-22T11:27:58.444Z [INFO] [TRIGRAM] segment_name_trgm_idx created successfully
+[deploy]     2026-05-22 13:27:58 +02:00: 2026-05-22T11:27:58.444Z [INFO] [INDEX] campaigns_originals_created_at_idx created successfully
+[deploy]     2026-05-22 13:28:16 +02:00: 2026-05-22T11:28:16.888Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=32b6f3ac-6e8d-4e54-8b7b-90671ca00eea, subscriber=150d6119-429d-443c-acd3-df17ff7e947f
+[deploy]     2026-05-22 13:28:17 +02:00: 2026-05-22T11:28:17.719Z [INFO] Unsubscribe request: campaign=016b9d6c-00ff-4054-92b4-b006fafc9206, subscriber=56a69555-adf7-4f84-b16b-869bfcb05c9c
+[deploy]     2026-05-22 13:28:18 +02:00: 2026-05-22T11:28:18.141Z [INFO] [INDEX] campaign_sends_pressure_held_per_campaign_idx created successfully
+[deploy]     2026-05-22 13:28:27 +02:00: 2026-05-22T11:28:27.503Z [INFO] [TRACKING] Bootstrap migration: campaign_stats(campaign_id, subscriber_id, type) covering index ready
+[deploy]     2026-05-22 13:28:29 +02:00: 2026-05-22T11:28:29.469Z [INFO] Short unsubscribe: campaign=6d7f297c-2de6-4c77-ba21-f7472d91e32e, subscriber=b26ff456-595c-4c46-b8c6-44302e5854c3
+[deploy]     2026-05-22 13:28:35 +02:00: 2026-05-22T11:28:35.773Z [INFO] Unsubscribe request: campaign=ebfdc42b-0d41-4faa-acc9-8c5320c3d948, subscriber=8e4a0fbf-3074-4c15-8a12-6dd7d58e51c2
+[deploy]     2026-05-22 13:28:41 +02:00: 2026-05-22T11:28:41.457Z [INFO] Short unsubscribe: campaign=2801a1a3-7bd7-47b5-bab6-ea741f89231e, subscriber=c941c7d8-0e8b-48b6-95e9-f7b5a3885ccb
+[deploy]     2026-05-22 13:28:47 +02:00: 2026-05-22T11:28:47.507Z [INFO] Unsubscribe request: campaign=964d0c28-2b9b-44ac-b4f6-31cb0939ff61, subscriber=ac7f88cb-cfe3-4827-a63c-71ea0e72f632
+[deploy]     2026-05-22 13:29:00 +02:00: 2026-05-22T11:29:00.746Z [INFO] Unsubscribe request: campaign=4210618c-7b17-4100-aa61-f55570fc37d7, subscriber=f3ce2d9b-7f8b-485b-a113-8f8506b11162
+[deploy]     2026-05-22 13:29:02 +02:00: 2026-05-22T11:29:02.533Z [INFO] Short unsubscribe: campaign=b8d86def-4b59-4180-b780-103dcd69181d, subscriber=f3ce2d9b-7f8b-485b-a113-8f8506b11162
+[deploy]     2026-05-22 13:29:07 +02:00: 2026-05-22T11:29:07.387Z [INFO] Unsubscribe request: campaign=d3ba1fc5-3d61-4d04-9472-f0d914ef98cf, subscriber=b68acad4-df66-47a1-acef-6e220dfab2e0
+[deploy] ✗ One or more PM2 processes did not emit their boot line — investigate above logs.
