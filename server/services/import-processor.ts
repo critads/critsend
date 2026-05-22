@@ -18,30 +18,116 @@ function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fileExistsWithRetry(filePath: string, jobId: string, retries = 3, delayMs = 2000): Promise<boolean> {
+/**
+ * Probe a file for read-readiness with retry. Handles the chunked-upload race
+ * where the import job can be enqueued a few seconds before the chunk
+ * assembler finishes writing the final CSV to disk.
+ *
+ * Behaviour per attempt:
+ *   - fs.statSync(): authoritative existence + size check (no false negatives
+ *     from existsSync on some FSes, and surfaces EACCES/EPERM vs ENOENT).
+ *   - If `expectedSize` is provided and the current on-disk size is smaller,
+ *     treat as "not ready yet" and keep retrying (partial chunked write).
+ *
+ * Defaults: 10 attempts × 3s = up to 30s. Sized to cover assembly of a 50MB
+ * chunked upload on a slow disk; short enough that genuine 404s don't block
+ * the worker for long.
+ *
+ * On final failure, emits a structured diagnostic line covering errno code,
+ * dir contents, similar-name matches, cwd, pid, and uid — exactly what
+ * post-mortem investigations need.
+ */
+async function fileExistsWithRetry(
+  filePath: string,
+  jobId: string,
+  retries = 10,
+  delayMs = 3000,
+  expectedSize?: number,
+): Promise<boolean> {
+  let lastErrno: string | undefined;
+  let lastError: string | undefined;
+  let lastSize: number | undefined;
+
   for (let attempt = 1; attempt <= retries; attempt++) {
-    if (fs.existsSync(filePath)) return true;
-    if (attempt < retries) {
-      logger.warn(`[IMPORT] ${jobId}: fs.existsSync returned false for ${filePath} (attempt ${attempt}/${retries}), retrying in ${delayMs}ms...`);
-      await waitMs(delayMs);
+    try {
+      const st = fs.statSync(filePath);
+      lastSize = st.size;
+      // File present. If we know the expected size and the on-disk size is
+      // still short, the chunk assembler hasn't finished — keep waiting.
+      if (expectedSize && st.size < expectedSize) {
+        if (attempt < retries) {
+          logger.warn(
+            `[IMPORT] ${jobId}: file present but partial (${st.size}/${expectedSize} bytes) for ${filePath} ` +
+            `(attempt ${attempt}/${retries}), retrying in ${delayMs}ms...`,
+          );
+          await waitMs(delayMs);
+          continue;
+        }
+        // Last attempt and still partial — fall through to error diagnostic.
+        lastErrno = "EPARTIAL";
+        lastError = `file size ${st.size} < expected ${expectedSize}`;
+        break;
+      }
+      return true;
+    } catch (err: any) {
+      lastErrno = err?.code || "UNKNOWN";
+      lastError = err?.message ?? String(err);
+      if (attempt < retries) {
+        logger.warn(
+          `[IMPORT] ${jobId}: fs.statSync failed (${lastErrno}) for ${filePath} ` +
+          `(attempt ${attempt}/${retries}), retrying in ${delayMs}ms...`,
+        );
+        await waitMs(delayMs);
+      }
     }
   }
+
+  // Final failure — emit rich diagnostic so the next post-mortem has answers.
   try {
     const dir = path.dirname(filePath);
     const basename = path.basename(filePath);
     const dirContents = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
     const matches = dirContents.filter((f: string) => f.includes(basename.slice(0, 20)));
-    logger.error(`[IMPORT] ${jobId}: File not found after ${retries} retries: ${filePath}`, {
-      dirExists: fs.existsSync(dir),
-      dirFileCount: dirContents.length,
-      similarFiles: matches.slice(0, 5),
-      cwd: process.cwd(),
-      pid: process.pid,
-    });
+    let uid: number | undefined;
+    let gid: number | undefined;
+    try { uid = process.getuid?.(); gid = process.getgid?.(); } catch {}
+    logger.error(
+      `[IMPORT] ${jobId}: File not ready after ${retries} retries (~${(retries * delayMs) / 1000}s): ${filePath}`,
+      {
+        errno: lastErrno,
+        error: lastError,
+        onDiskSize: lastSize,
+        expectedSize,
+        dirExists: fs.existsSync(dir),
+        dirFileCount: dirContents.length,
+        similarFiles: matches.slice(0, 5),
+        cwd: process.cwd(),
+        pid: process.pid,
+        uid,
+        gid,
+      },
+    );
   } catch (diagErr: any) {
-    logger.error(`[IMPORT] ${jobId}: File not found and diagnostics failed: ${diagErr.message}`);
+    logger.error(`[IMPORT] ${jobId}: File not ready and diagnostics failed: ${diagErr.message}`);
   }
   return false;
+}
+
+/**
+ * Build a human-friendly error message for a CSV-not-found failure. Includes
+ * the queue-recorded expected size so operators can immediately tell whether
+ * the upload was incomplete (size mismatch) vs the file genuinely vanished.
+ */
+function csvNotFoundError(csvFilePath: string, expectedSize?: number): string {
+  const sizeHint = expectedSize
+    ? ` (queue recorded ${Math.round(expectedSize / 1024)}KB at upload)`
+    : "";
+  return (
+    `CSV file not found or not fully written after retry: ${csvFilePath}${sizeHint}. ` +
+    `This usually means the chunked upload didn't finish assembling on disk, ` +
+    `or the server was restarted/redeployed between upload and processing. ` +
+    `Please re-upload the file.`
+  );
 }
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
@@ -619,6 +705,12 @@ async function processImport(
 ): Promise<void> {
   logger.info(`[IMPORT] ${importJobId}: Processing from file: ${csvFilePath}`);
 
+  // Single source of truth for queue metadata (fileSizeBytes for readiness
+  // detection, lastCheckpointLine for resume). Both branches below + the
+  // post-readiness logic reuse this single fetch instead of round-tripping
+  // the DB multiple times.
+  const queueItem = await storage.getImportQueueItem(queueId);
+
   const isObjectStorage = csvFilePath.startsWith("/objects/");
   let fileSizeBytes: number;
   let fileStream: NodeJS.ReadableStream;
@@ -645,11 +737,13 @@ async function processImport(
       );
     }
     fileStream = await objectStorageService.getObjectStream(csvFilePath);
-    const queueItemForSize = await storage.getImportQueueItem(queueId);
-    fileSizeBytes = queueItemForSize?.fileSizeBytes || 0;
+    fileSizeBytes = queueItem?.fileSizeBytes || 0;
     logger.info(`[IMPORT] ${importJobId}: Using object storage, size from queue: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
   } else {
-    if (!(await fileExistsWithRetry(csvFilePath, importJobId))) {
+    // Pass expected size from queue so fileExistsWithRetry can detect a
+    // partial chunked-upload assembly (file present but still being written).
+    const expectedSize = queueItem?.fileSizeBytes || undefined;
+    if (!(await fileExistsWithRetry(csvFilePath, importJobId, 10, 3000, expectedSize))) {
       const existingJob = await storage.getImportJob(importJobId);
       if (existingJob?.status === "completed") {
         logger.info(`[IMPORT] ${importJobId}: CSV file already cleaned up from previous successful run — skipping re-processing`);
@@ -664,9 +758,7 @@ async function processImport(
         });
         return;
       }
-      throw new Error(
-        `CSV file not found: ${csvFilePath}. This can happen if the server was restarted or redeployed after uploading the file. Please re-upload the file.`
-      );
+      throw new Error(csvNotFoundError(csvFilePath, expectedSize));
     }
     const fileStat = fs.statSync(csvFilePath);
     fileSizeBytes = fileStat.size;
@@ -674,7 +766,6 @@ async function processImport(
     logger.info(`[IMPORT] ${importJobId}: Using local filesystem (legacy), size: ${Math.round(fileSizeBytes / 1024 / 1024)}MB`);
   }
 
-  const queueItem = await storage.getImportQueueItem(queueId);
   const resumeFromLine = queueItem?.lastCheckpointLine || 0;
   const importJob = await storage.getImportJob(importJobId);
   const tagMode = (importJob?.tagMode as "merge" | "override") || "merge";
@@ -1298,7 +1389,7 @@ async function processRefsImportPhase1(
         }
         return;
       }
-      throw new Error(`CSV file not found: ${csvFilePath}`);
+      throw new Error(csvNotFoundError(csvFilePath));
     }
     fileStream = fs.createReadStream(csvFilePath, { encoding: "utf-8", highWaterMark: 256 * 1024 });
   }
@@ -1513,7 +1604,7 @@ async function processRefsImportPhase2(
         }
         return;
       }
-      throw new Error(`CSV file not found: ${resolvedCsvPath}`);
+      throw new Error(csvNotFoundError(resolvedCsvPath));
     }
     fileStream = fs.createReadStream(resolvedCsvPath, { encoding: "utf-8", highWaterMark: 256 * 1024 });
   }
