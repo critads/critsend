@@ -699,6 +699,15 @@ export function registerCampaignRoutes(app: Express, helpers: {
         normalizedBody = { ...parsed };
       } else {
         normalizedBody = { ...req.body };
+        // urgent_mode is reserved for the dedicated POST /urgent endpoint
+        // (which performs the accompanying NULL/flush/audit work in one
+        // transaction). Stripping it here prevents callers from flipping
+        // the CAS bypass via a generic PATCH and skipping the audit trail
+        // + held-row flush. To clear urgent mode on an active campaign,
+        // /end is the supported path (it sets urgentMode=false as part
+        // of the terminal transaction).
+        delete normalizedBody.urgentMode;
+        delete normalizedBody.urgent_mode;
         if ('mtaId' in normalizedBody && !normalizedBody.mtaId) {
           normalizedBody.mtaId = null;
         }
@@ -991,6 +1000,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
           deferredCount: 0,
           pendingCount: sql`GREATEST(${campaigns.pendingCount} - ${deleted}, 0)` as any,
           pauseReason: null,
+          // Terminal state — always clear the urgent-mode bypass so the
+          // flag cannot survive into a future requeue/retry-failed flow
+          // that reopens this campaign. The audit row in
+          // pressure_flush_audit remains for forensic review.
+          urgentMode: false,
         }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
 
         return { deletedDeferred: deleted, campaign: updated };
@@ -1001,6 +1015,169 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error: any) {
       logger.error("Error ending campaign:", error);
       res.status(500).json({ error: "Failed to end campaign" });
+    }
+  });
+
+  /**
+   * POST /api/campaigns/:id/urgent — Operator-grade pressure-guard bypass
+   * for one campaign. Mirrors the manual SQL incident playbook
+   * (NULL last_sent_at + flush eligible_at + flip urgent_mode flag) so
+   * it can be triggered from the UI without DB shell access.
+   *
+   * What it does, in one transaction:
+   *   1. campaigns.urgent_mode := true            (CAS bypass enabled,
+   *                                                survives PM2 restarts)
+   *   2. subscribers.last_sent_at := NULL          for every subscriber
+   *                                                currently pending in
+   *                                                this campaign (lets
+   *                                                them win the very
+   *                                                next CAS round even
+   *                                                if their last_sent_at
+   *                                                was <6h ago)
+   *   3. campaign_sends.eligible_at := NOW()       for every pending row
+   *                                                with eligible_at in
+   *                                                the future
+   *   4. campaigns.deferred_count := 0             (live cache resync —
+   *                                                no more held rows
+   *                                                after this txn)
+   *   5. INSERT INTO pressure_flush_audit          (paper trail)
+   *
+   * Body: none. Idempotent — calling twice is a no-op for #1 and #4,
+   * and #2/#3 update 0 rows on the second call (everything is already
+   * NULL / DUE NOW).
+   *
+   * RISKS the caller is opting into:
+   *   - Double-send window: a contact who received another campaign's
+   *     email <6h ago can be hit again immediately by this campaign.
+   *   - FIFO starvation: older campaigns with overlapping audiences
+   *     lose their `blocked_by_older` priority over this one until
+   *     the urgent flag is cleared.
+   * The UI gates this behind a destructive-styled confirm dialog.
+   */
+  app.post("/api/campaigns/:id/urgent", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      // Auth + per-campaign ownership gate (mirrors pressure.ts pattern).
+      // /urgent is operator-grade — it bypasses cross-campaign pressure
+      // protections — so we deliberately enforce a stricter check than
+      // /end: authenticated AND (admin OR owner of this campaign).
+      const sess = (req as any).session;
+      const uid: string | undefined = sess?.userId;
+      if (!uid) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const ownerRow: any = await db.execute(sql`SELECT user_id, status FROM campaigns WHERE id = ${req.params.id}`);
+      if (!ownerRow.rows?.length) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      const { user_id: ownerId, status: campaignStatus } = ownerRow.rows[0] as { user_id: string | null; status: string };
+      // Admin bypass: check users.is_admin (the same DB-backed flag the
+      // pressure admin routes use). We inline the check here rather than
+      // exporting requireAdmin from pressure.ts to keep that module's
+      // internals private; the query is one row by PK so cost is trivial.
+      const adminRow: any = await db.execute(sql`SELECT is_admin FROM users WHERE id = ${uid}`);
+      const isAdmin = adminRow.rows?.[0]?.is_admin === true;
+      if (!isAdmin && ownerId && ownerId !== uid) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      // Eligibility: only campaigns actively trying to deliver can be
+      // marked urgent. Draft has no sends to flush; completed/failed/
+      // scheduled would either re-arm a finished campaign or pre-stamp
+      // urgency on something the sender hasn't even claimed yet.
+      if (campaignStatus !== "sending" && campaignStatus !== "paused") {
+        return res.status(400).json({
+          error: `Urgent mode only available for campaigns in 'sending' or 'paused' status (current: ${campaignStatus})`,
+        });
+      }
+      // Live held check: deferredCount is cumulative-lifetime, not a
+      // live queue depth. Compute the real held count from the partial
+      // index that backs CampaignListItem.pressureHeldCount so we don't
+      // diverge from what the UI shows.
+      const heldRow: any = await db.execute(sql`
+        SELECT COUNT(*)::int AS held
+        FROM campaign_sends
+        WHERE campaign_id = ${req.params.id}
+          AND status = 'pending'
+          AND eligible_at IS NOT NULL
+          AND eligible_at > NOW()
+      `);
+      const liveHeld = Number(heldRow.rows?.[0]?.held ?? 0);
+      if (liveHeld === 0) {
+        return res.status(400).json({ error: "No held sends — nothing to flush" });
+      }
+
+      const { nulledSubscribers, flushedHeld } = await db.transaction(async (tx) => {
+        // 1. Enable the CAS bypass flag — survives across PM2 restarts.
+        //    Cleared on /end (terminal) and stripped from /copy + PATCH
+        //    so it can't leak to other campaigns. NOT auto-cleared on
+        //    natural completion: the worker transitions status via
+        //    `updateCampaign(..., status: "completed")` which does not
+        //    touch urgent_mode; this is intentional so the audit row
+        //    survives forensic review post-completion.
+        await tx.execute(sql`UPDATE campaigns SET urgent_mode = true WHERE id = ${req.params.id}`);
+
+        // 2. NULL last_sent_at — scoped to subscribers whose held row
+        //    has eligible_at IS NOT NULL (i.e. actually parked by the
+        //    pressure guard). This avoids touching subscribers whose
+        //    current row is pre-CAS (no eligible_at yet) or already
+        //    drained, both of which would unnecessarily widen the
+        //    bypass window for *other* campaigns racing for the same
+        //    contact. The CAS will re-stamp NOW() at dispatch,
+        //    restoring forward integrity for future campaigns.
+        const nulled: any = await tx.execute(sql`
+          UPDATE subscribers
+          SET last_sent_at = NULL
+          WHERE id IN (
+            SELECT DISTINCT subscriber_id
+            FROM campaign_sends
+            WHERE campaign_id = ${req.params.id}
+              AND status = 'pending'
+              AND eligible_at IS NOT NULL
+          )
+          AND last_sent_at IS NOT NULL
+        `);
+        const nulledN = Number(nulled?.rowCount ?? 0);
+
+        // 3. Flush all held campaign_sends to DUE NOW so the drain
+        //    worker can sweep them up immediately on its next tick.
+        const flushed: any = await tx.execute(sql`
+          UPDATE campaign_sends
+          SET eligible_at = NOW()
+          WHERE campaign_id = ${req.params.id}
+            AND status = 'pending'
+            AND eligible_at > NOW()
+        `);
+        const flushedN = Number(flushed?.rowCount ?? 0);
+
+        // 4. Resync the cached counter (was the source of the "still
+        //    shows 124k held" UX confusion before).
+        await tx.execute(sql`UPDATE campaigns SET deferred_count = 0 WHERE id = ${req.params.id}`);
+
+        // 5. Audit trail (admin pressure-queue page reads this).
+        await tx.execute(sql`
+          INSERT INTO pressure_flush_audit (campaign_id, user_id, scope, count, reason)
+          VALUES (
+            ${req.params.id},
+            ${uid},
+            'urgent',
+            ${nulledN + flushedN},
+            ${`URGENT MODE enabled — NULLed last_sent_at for ${nulledN} subscribers + flushed ${flushedN} held rows to DUE NOW. CAS will bypass 6h gap and blocked_by_older for this campaign until urgent_mode is cleared.`}
+          )
+        `);
+
+        return { nulledSubscribers: nulledN, flushedHeld: flushedN };
+      });
+
+      logger.info(
+        `[CAMPAIGN_URGENT] Campaign ${req.params.id} marked URGENT — ` +
+        `nulled=${nulledSubscribers}, flushed=${flushedHeld}`,
+      );
+      res.json({ ok: true, nulledSubscribers, flushedHeld });
+    } catch (error: any) {
+      logger.error("[CAMPAIGN_URGENT] Failed:", error);
+      res.status(500).json({ error: "Failed to mark campaign urgent" });
     }
   });
 

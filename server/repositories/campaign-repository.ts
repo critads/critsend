@@ -312,6 +312,11 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     parentCampaignId: _p,
     followUpCampaignId: _fc,
     followUpScheduledAt: _fs,
+    // Urgent mode is an operator-scoped bypass on a specific live send;
+    // copying must NEVER inherit it. A copied draft starts in normal
+    // pressure-guard mode and the operator can re-enable urgent on the
+    // new campaign explicitly if needed.
+    urgentMode: _um,
     ...copyData
   } = original;
   return createCampaign({

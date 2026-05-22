@@ -45,6 +45,20 @@ export const jobProcessingDuration = new client.Histogram({
   registers: [register],
 });
 
+// Bootstrap-time detection of INVALID indexes (see indexExistsAndValid in
+// bootstrap-lock.ts). Set to 1 when the bootstrap probe encounters an
+// index in INVALID state on the campaign_sends table (or any other table)
+// instead of auto-dropping it. Operator must manually REINDEX CONCURRENTLY
+// off-hours; this gauge stays at 1 until the next bootstrap probe finds
+// it VALID (the gauge is not auto-reset — a manual /metrics scrape after
+// REINDEX + restart is the source of truth).
+export const invalidIndexesGauge = new client.Gauge({
+  name: 'critsend_invalid_indexes',
+  help: 'Indexes detected in INVALID state at bootstrap; 1 = invalid, requires operator REINDEX CONCURRENTLY',
+  labelNames: ['index_name'] as const,
+  registers: [register],
+});
+
 export const activeCampaigns = new client.Gauge({
   name: 'critsend_active_campaigns',
   help: 'Number of currently sending campaigns',

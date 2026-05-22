@@ -142,8 +142,8 @@ export async function indexExistsAndValid(indexName: string): Promise<boolean> {
         `Until then, planner will fall back to alternative plans (likely seq scans on hot paths).`,
       );
       try {
-        const { invalidIndexesGauge } = await import("./services/metrics");
-        invalidIndexesGauge?.inc({ index_name: indexName });
+        const { invalidIndexesGauge } = await import("./metrics");
+        invalidIndexesGauge?.set({ index_name: indexName }, 1);
       } catch { /* metrics import optional */ }
       // Return true so the caller treats it as "already present" and
       // skips CREATE. The INVALID index occupies the name; CREATE

@@ -173,6 +173,22 @@ export const campaigns = pgTable("campaigns", {
   // counters are in-memory and reset on restart, and live in another
   // process from the API server).
   agedForcedCount: integer("aged_forced_count").notNull().default(0),
+  // ── Urgent mode (2026-05-22) ────────────────────────────────────────
+  // When TRUE, `pressureGuardReserveSendSlots` bypasses BOTH the 6h
+  // marketing-pressure check (subscribers.last_sent_at + window <= NOW())
+  // AND the `blocked_by_older` FIFO check across campaigns. Every
+  // pending row in this campaign becomes immediately eligible and the
+  // CAS stamps last_sent_at = NOW() unconditionally. Set via
+  //   POST /api/campaigns/:id/urgent
+  // (which also NULLs subscribers.last_sent_at for all pending rows
+  // and flushes eligible_at -> NOW() in one transaction).
+  // RISK: opens a window where this campaign can double-send a contact
+  // that just received another campaign's email <6h ago, and starves
+  // older campaigns of their FIFO claim. Reserved for operator
+  // intervention on time-critical sends. Persisted on the row so the
+  // bypass survives PM2 restarts until the operator explicitly clears
+  // it (or the campaign completes).
+  urgentMode: boolean("urgent_mode").notNull().default(false),
   // ── Auto-resend to openers (36h follow-up) ──────────────────────────
   // parentCampaignId: when set, this campaign is a follow-up child sent only
   //   to subscribers who opened the parent. Audience iteration in

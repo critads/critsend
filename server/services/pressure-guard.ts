@@ -273,6 +273,10 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
     // operation on PG ≥ 11 (no full table rewrite).
     { label: "campaign_sends.first_deferred_at", sql: `ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS first_deferred_at timestamp` },
     { label: "campaigns.aged_forced_count", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS aged_forced_count integer NOT NULL DEFAULT 0` },
+    // 2026-05-22: Urgent mode bypass column. See `urgentMode` comment in
+    // shared/schema.ts. Default false → all existing campaigns continue
+    // to honour the 6h pressure window and `blocked_by_older` FIFO.
+    { label: "campaigns.urgent_mode", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS urgent_mode boolean NOT NULL DEFAULT false` },
     // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
     { label: "users.is_admin", sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false` },
     { label: "pressure_flush_audit", sql: `
@@ -611,8 +615,14 @@ export async function pressureGuardReserveSendSlots(
       `);
       return await tx.execute(sql`
         WITH input(id) AS (SELECT unnest(${chunkLiteral}::text[])),
-        my_created AS (SELECT created_at FROM campaigns WHERE id = ${campaignId}),
+        -- pressure-guard gates below can be flipped off for a single
+        -- campaign without touching other in-flight sends. Default
+        -- false on every existing row, so behaviour is unchanged unless
+        -- an operator explicitly toggles it via /api/campaigns/:id/urgent.
+        my_meta AS (SELECT created_at, urgent_mode FROM campaigns WHERE id = ${campaignId}),
         blocked_by_older AS (
+          -- Empty set when urgent_mode is on → this campaign no longer
+          -- yields to older campaigns claiming the same subscriber.
           SELECT DISTINCT cs.subscriber_id
           FROM campaign_sends cs
           JOIN campaigns c ON c.id = cs.campaign_id
@@ -620,7 +630,8 @@ export async function pressureGuardReserveSendSlots(
             AND cs.campaign_id <> ${campaignId}
             AND cs.status IN ('pending','attempting')
             AND c.created_at IS NOT NULL
-            AND c.created_at < (SELECT created_at FROM my_created)
+            AND c.created_at < (SELECT created_at FROM my_meta)
+            AND NOT (SELECT urgent_mode FROM my_meta)
         ),
         already_in_campaign AS (
           SELECT subscriber_id FROM campaign_sends
@@ -631,12 +642,23 @@ export async function pressureGuardReserveSendSlots(
           -- already exist for (campaign, subscriber) — re-runs, retries,
           -- resumed campaigns — would otherwise consume a 6h slot they
           -- already claimed, distorting the guard.
+          --
+          -- 2026-05-22: urgent_mode short-circuits the 6h gap check so the
+          -- CAS succeeds for every subscriber regardless of how recently
+          -- they were last hit. The stamp last_sent_at = NOW() still
+          -- fires, which preserves the guard forward-integrity for
+          -- future campaigns (i.e. urgent mode burns through the backlog
+          -- now, but the 6h clock restarts immediately after).
           UPDATE subscribers s SET last_sent_at = NOW()
           FROM input i
           WHERE s.id = i.id
             AND i.id NOT IN (SELECT subscriber_id FROM blocked_by_older)
             AND i.id NOT IN (SELECT subscriber_id FROM already_in_campaign)
-            AND (s.last_sent_at IS NULL OR s.last_sent_at + (${windowHours}::numeric || ' hours')::interval <= NOW())
+            AND (
+              (SELECT urgent_mode FROM my_meta)
+              OR s.last_sent_at IS NULL
+              OR s.last_sent_at + (${windowHours}::numeric || ' hours')::interval <= NOW()
+            )
           RETURNING s.id
         ),
         existing_winners AS (

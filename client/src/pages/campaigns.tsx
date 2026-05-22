@@ -65,6 +65,7 @@ import {
   X,
   Clipboard,
   Square,
+  Zap,
 } from "lucide-react";
 import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
 import { CampaignProgress } from "@/components/campaign-progress";
@@ -142,6 +143,7 @@ export default function Campaigns() {
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [endConfirm, setEndConfirm] = useState<CampaignListItem | null>(null);
+  const [urgentConfirm, setUrgentConfirm] = useState<CampaignListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
   const { toast } = useToast();
@@ -357,6 +359,28 @@ export default function Campaigns() {
       toast({
         title: "Error",
         description: "Failed to end campaign. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const urgentMutation = useMutation<{ ok: boolean; nulledSubscribers: number; flushedHeld: number }, Error, string>({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/urgent`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setUrgentConfirm(null);
+      toast({
+        title: "Mode urgent activé",
+        description: `${data.flushedHeld.toLocaleString()} envois en attente débloqués, garde 6h contournée pour ${data.nulledSubscribers.toLocaleString()} contacts.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'activer le mode urgent.",
         variant: "destructive",
       });
     },
@@ -804,6 +828,17 @@ export default function Campaigns() {
                                 Requeue
                               </DropdownMenuItem>
                             )}
+                            {(campaign.status === "sending" || campaign.status === "paused") &&
+                              (campaign.pressureHeldCount ?? 0) > 0 && (
+                              <DropdownMenuItem
+                                onClick={() => setUrgentConfirm(campaign)}
+                                className="text-orange-600 dark:text-orange-400 focus:text-orange-600 dark:focus:text-orange-400"
+                                data-testid={`button-urgent-${campaign.id}`}
+                              >
+                                <Zap className="h-4 w-4 mr-2" />
+                                Urgent — flush held now
+                              </DropdownMenuItem>
+                            )}
                             {campaign.status !== "draft" && (
                               <DropdownMenuItem
                                 onClick={() => setEndConfirm(campaign)}
@@ -931,6 +966,53 @@ export default function Campaigns() {
               data-testid="button-confirm-end-campaign"
             >
               {endMutation.isPending ? "Ending..." : "End campaign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!urgentConfirm} onOpenChange={() => setUrgentConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+              Activer le mode urgent ?
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  Campagne <strong>"{urgentConfirm?.name}"</strong> — {(urgentConfirm?.pressureHeldCount ?? 0).toLocaleString()} contacts actuellement en attente.
+                </p>
+                <p className="text-foreground">
+                  Cette action va <strong>contourner toutes les protections marketing pressure</strong> pour cette campagne uniquement et pousser tous les envois en attente au MTA immédiatement.
+                </p>
+                <div className="rounded-md border border-orange-500/30 bg-orange-500/10 p-3 text-foreground">
+                  <p className="font-semibold mb-2">⚠️ Conséquences :</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>La règle des <strong>6h entre deux emails</strong> au même contact est ignorée pour cette campagne.</li>
+                    <li>La priorité <strong>FIFO inter-campagnes</strong> (campagnes plus anciennes d'abord) est ignorée.</li>
+                    <li>Un contact ayant reçu un autre email il y a moins de 6h <strong>recevra celui-ci en doublon</strong>.</li>
+                    <li>Le flag reste actif jusqu'à la fin de la campagne (survit aux redémarrages).</li>
+                  </ul>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  À réserver aux envois critiques (alertes, transactionnel urgent). Action auditée.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUrgentConfirm(null)} data-testid="button-cancel-urgent">
+              Annuler
+            </Button>
+            <Button
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              onClick={() => urgentConfirm && urgentMutation.mutate(urgentConfirm.id)}
+              disabled={urgentMutation.isPending}
+              data-testid="button-confirm-urgent"
+            >
+              <Zap className="h-4 w-4 mr-2" />
+              {urgentMutation.isPending ? "Activation…" : "Activer le mode urgent"}
             </Button>
           </DialogFooter>
         </DialogContent>
