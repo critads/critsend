@@ -35,6 +35,8 @@ import {
   pressureGuardDeferredIndexSizeBytes,
   pressureGuardAgedForceSendsTotal,
   pressureGuardNearAgingPending,
+  pressureGuardWindingDownCampaigns,
+  pressureGuardBackPressuredLastTick,
   safeIntervalLastTickAgeSeconds,
   safeIntervalTickErrorsTotal,
   pressureDrainLastTickAgeSeconds,
@@ -93,6 +95,21 @@ const DRAIN_PARALLELISM = envInt("PRESSURE_GUARD_DRAIN_PARALLELISM", 1, 1, 16);
 // which fits comfortably in typical Nodemailer pool sizes (5-10 per MTA × 7 MTAs).
 // Cap of 100 prevents runaway resource exhaustion if misconfigured.
 const SMTP_CONCURRENCY = envInt("PRESSURE_GUARD_SMTP_CONCURRENCY", 20, 1, 100);
+// Task #173: fairness slot ratio. After ordering the eligibility query by
+// drainable_count DESC (volume priority), reserve this % of slots for the
+// OLDEST campaigns (created_at ASC) regardless of drainable_count. This
+// prevents a giant fresh launch from starving a 3-day-old trickle.
+// 0 = pure volume priority, 100 = pure FIFO (legacy behavior).
+const FAIRNESS_PCT = envInt("PRESSURE_GUARD_FAIRNESS_PCT", 20, 0, 100);
+// Task #173: winding-down detection thresholds. A campaign is flagged
+// winding_down when its cached pending_count < N AND its ready-to-drain
+// row count < M for at least PERSISTENCE_MS continuously. Flagged
+// campaigns are drained 1 tick out of every TICKS_GAP so they cannot
+// permanently squat MAX_CAMPAIGNS slots with tiny trickles.
+const WINDING_DOWN_PENDING_MAX = envInt("PRESSURE_GUARD_WINDING_DOWN_PENDING_MAX", 100, 1, 10_000);
+const WINDING_DOWN_DRAINABLE_MAX = envInt("PRESSURE_GUARD_WINDING_DOWN_DRAINABLE_MAX", 50, 1, 10_000);
+const WINDING_DOWN_PERSISTENCE_MS = envInt("PRESSURE_GUARD_WINDING_DOWN_PERSISTENCE_MS", 24 * 60 * 60_000, 60_000, 30 * 24 * 60 * 60_000);
+const WINDING_DOWN_TICKS_GAP = envInt("PRESSURE_GUARD_WINDING_DOWN_TICKS_GAP", 4, 1, 100);
 // Task #145 R3: refresh the index-size gauge hourly, but only run the
 // expensive VACUUM (ANALYZE) + REINDEX policy once per day during the
 // configured off-peak hour (default 03:00 server-local). Min 60s
@@ -116,6 +133,22 @@ let isPolling = false;
 // drain alive?" cross-process (the dedicated drainer runs in its own
 // PM2 process, so the web cannot inspect its in-memory state).
 let lastTickStats = { drained: 0, errors: 0, eligible: 0 };
+
+// Task #173 — in-memory state for winding-down back-pressure scheduling.
+// `tickCounter` increments once per pollDeferredQueue invocation (whether
+// or not we are leader). `windingDownSinceByCampaign` records the
+// timestamp at which a campaign FIRST met the winding-down criteria
+// continuously — it's cleared the moment the criteria stop being met,
+// so a campaign needs PERSISTENCE_MS of uninterrupted "winding down"
+// before back-pressure engages. `lastDrainTickByCampaign` tracks the
+// tick number on which we last actually picked the campaign for drain;
+// winding-down campaigns are skipped if they were picked < TICKS_GAP
+// ticks ago. All three maps are bounded by the number of distinct
+// campaigns that have ever been drained by this process — a process
+// restart resets them harmlessly (next tick re-derives the state).
+let tickCounter = 0;
+const windingDownSinceByCampaign = new Map<string, number>();
+const lastDrainTickByCampaign = new Map<string, number>();
 
 // Three known safeInterval names (used by the health endpoint and by
 // the metric labels — keep in sync with the names passed to safeInterval).
@@ -373,6 +406,15 @@ async function pollDeferredQueueInner() {
   let eligibleCampaigns = 0;
   let drainedCalls = 0;
   let errorCount = 0;
+  // Task #173: per-tick observability for the volume/fairness/back-pressure
+  // pipeline. Declared at the outer scope so the finally-block log line can
+  // still surface them even when the try block bails early (e.g. eligibility
+  // query timeout — winding-down/back-pressure are 0 in that case, which is
+  // the correct value to report).
+  let backPressuredCount = 0;
+  let pickedVolume = 0;
+  let pickedFairness = 0;
+  let windingDownActive = 0;
   try {
     const bs = getPressureGuardBootstrapState();
     bootstrapStateLabel = bs;
@@ -497,23 +539,63 @@ async function pollDeferredQueueInner() {
       // eligible_at, otherwise the cap is silently extended by up to the
       // 6h pressure window when the contact had a recent send. The aged
       // bypass mirrors the per-row claim relaxation in drainCampaign.
-      const r = await eligClient.query<{ campaign_id: string; created_at: Date | null }>(
-        `SELECT DISTINCT cs.campaign_id, c.created_at
-         FROM campaign_sends cs
-         JOIN campaigns c ON c.id = cs.campaign_id
-         WHERE cs.status = 'pending'
-           AND cs.eligible_at IS NOT NULL
-           AND (
-             cs.eligible_at <= NOW()
-             OR (
-               cs.first_deferred_at IS NOT NULL
-               AND cs.first_deferred_at <= NOW() - ($2::numeric || ' hours')::interval
+      // Task #173 — volume-priority + fairness ordering with per-campaign
+      // drainable_count. The legacy `SELECT DISTINCT campaign_id … ORDER BY
+      // created_at ASC LIMIT 20` produced head-of-line blocking: with 45+
+      // active campaigns each contributing a tiny trickle to the deferred
+      // queue, the top-20 FIFO slice in prod held only ~9 ready_now rows
+      // (5.8% of the configured 8k/min ceiling) while 200k+ rows on younger
+      // campaigns waited behind. Counting drainable rows per campaign and
+      // ordering DESC steers the drain to the campaigns where the batched
+      // SMTP fan-out (SMTP_CONCURRENCY=20) and the 25s claim+finalize txn
+      // actually amortize. The fairness slice (FAIRNESS_PCT, applied in JS
+      // post-processing below) keeps oldest-FIFO contributions alive so a
+      // giant fresh launch can't starve a 3-day-old trickle.
+      //
+      // We fetch up to MAX_CAMPAIGNS_PER_TICK * 3 candidates so the JS
+      // back-pressure filter (winding_down + recently-drained) can drop
+      // a substantial fraction without leaving slots empty. *3 is a
+      // pragmatic heuristic — pathological case (most candidates back-
+      // pressured) is bounded by the # of distinct campaigns with
+      // eligible rows, which in prod is ~45-100 anyway, so the LIMIT
+      // essentially never caps the candidate pool. drainable_count is COUNT(*) over
+      // the `campaign_sends_pressure_deferred_idx` partial index — cheap
+      // because the index covers status='pending' AND eligible_at IS NOT NULL
+      // and the eligible_at <= NOW() bound seeks into the leading sorted
+      // edge. pending_count is the cached counter on campaigns, used for
+      // winding-down detection.
+      const r = await eligClient.query<{
+        campaign_id: string;
+        created_at: Date | null;
+        drainable_count: string;
+        pending_count: number;
+        sent_count: number;
+      }>(
+        `WITH per_campaign AS (
+           SELECT cs.campaign_id, COUNT(*)::bigint AS drainable_count
+           FROM campaign_sends cs
+           WHERE cs.status = 'pending'
+             AND cs.eligible_at IS NOT NULL
+             AND (
+               cs.eligible_at <= NOW()
+               OR (
+                 cs.first_deferred_at IS NOT NULL
+                 AND cs.first_deferred_at <= NOW() - ($2::numeric || ' hours')::interval
+               )
              )
-           )
-           AND c.status IN ('sending', 'paused')
-         ORDER BY c.created_at ASC NULLS FIRST
+           GROUP BY cs.campaign_id
+         )
+         SELECT pc.campaign_id,
+                c.created_at,
+                pc.drainable_count,
+                c.pending_count,
+                c.sent_count
+         FROM per_campaign pc
+         JOIN campaigns c ON c.id = pc.campaign_id
+         WHERE c.status IN ('sending', 'paused')
+         ORDER BY pc.drainable_count DESC, c.created_at ASC NULLS FIRST
          LIMIT $1`,
-        [MAX_CAMPAIGNS_PER_TICK, PRESSURE_MAX_DEFER_HOURS],
+        [MAX_CAMPAIGNS_PER_TICK * 3, PRESSURE_MAX_DEFER_HOURS],
       );
       await eligClient.query("COMMIT");
       campaignsRes = { rows: r.rows };
@@ -530,6 +612,102 @@ async function pollDeferredQueueInner() {
     }
 
     eligibleCampaigns = campaignsRes.rows.length;
+
+    // ── Task #173: winding-down detection + back-pressure scheduling ──
+    // The SQL already ordered rows by drainable_count DESC, created_at ASC
+    // (volume-priority). Now in JS we:
+    //   1. Update per-campaign winding-down state (sticky timestamp; reset
+    //      the moment the criteria no longer hold).
+    //   2. Skip campaigns whose winding-down state has persisted >= the
+    //      configured PERSISTENCE_MS AND that we drained < TICKS_GAP ticks
+    //      ago. This means they get drained ~1 tick out of every TICKS_GAP,
+    //      freeing slots for younger campaigns with real backlog.
+    //   3. Apply a fairness slice: take volume_slots from the front of the
+    //      ordered list, then take fairness_slots additional campaigns
+    //      re-sorted by created_at ASC (oldest first). This guarantees a
+    //      3-day-old trickle gets at least FAIRNESS_PCT of every tick's
+    //      slots even when a fresh launch dominates drainable_count.
+    tickCounter += 1;
+    const nowMs = Date.now();
+    type EligRow = (typeof campaignsRes.rows)[number] & {
+      drainable_count: string | number;
+      pending_count: number;
+      created_at: Date | null;
+    };
+    const rows = campaignsRes.rows as EligRow[];
+
+    // (1) winding-down state update for every eligible row this tick.
+    for (const row of rows) {
+      const drainable = Number(row.drainable_count) || 0;
+      const meets = (row.pending_count ?? 0) < WINDING_DOWN_PENDING_MAX
+                    && drainable < WINDING_DOWN_DRAINABLE_MAX;
+      if (meets) {
+        if (!windingDownSinceByCampaign.has(row.campaign_id)) {
+          windingDownSinceByCampaign.set(row.campaign_id, nowMs);
+        }
+      } else {
+        windingDownSinceByCampaign.delete(row.campaign_id);
+      }
+    }
+
+    // (2) back-pressure filter. A campaign is back-pressured ONLY if the
+    // winding-down state has been persistent for >= PERSISTENCE_MS AND we
+    // drained it in the last (TICKS_GAP - 1) ticks. New winding-down
+    // campaigns (just-flagged) still drain normally for the first 24h
+    // window so a temporary trickle isn't immediately throttled.
+    const eligibleForDrain: EligRow[] = [];
+    for (const row of rows) {
+      const since = windingDownSinceByCampaign.get(row.campaign_id);
+      const isWindingDown = since !== undefined && (nowMs - since) >= WINDING_DOWN_PERSISTENCE_MS;
+      const lastTick = lastDrainTickByCampaign.get(row.campaign_id) ?? -Infinity;
+      if (isWindingDown && (tickCounter - lastTick) < WINDING_DOWN_TICKS_GAP) {
+        backPressuredCount += 1;
+        continue;
+      }
+      eligibleForDrain.push(row);
+    }
+
+    // (3) volume + fairness split. Volume-picks come from the front of the
+    // (already drainable_count DESC, created_at ASC) ordered list. Fairness
+    // picks are the OLDEST remaining campaigns by created_at ASC, regardless
+    // of drainable_count.
+    const fairnessSlots = Math.floor((MAX_CAMPAIGNS_PER_TICK * FAIRNESS_PCT) / 100);
+    const volumeSlots = Math.max(0, MAX_CAMPAIGNS_PER_TICK - fairnessSlots);
+    const volumePicks = eligibleForDrain.slice(0, volumeSlots);
+    const volumePickIds = new Set(volumePicks.map((r) => r.campaign_id));
+    const fairnessCandidates = eligibleForDrain
+      .filter((r) => !volumePickIds.has(r.campaign_id))
+      .sort((a, b) => {
+        const ta = a.created_at ? a.created_at.getTime() : 0;
+        const tb = b.created_at ? b.created_at.getTime() : 0;
+        return ta - tb;
+      });
+    const fairnessPicks = fairnessCandidates.slice(0, fairnessSlots);
+    const finalPicks = [...volumePicks, ...fairnessPicks];
+
+    // Record drain ticks for every campaign we actually picked.
+    for (const row of finalPicks) {
+      lastDrainTickByCampaign.set(row.campaign_id, tickCounter);
+    }
+
+    // Refresh winding-down gauges. We count campaigns whose state has been
+    // persistent past PERSISTENCE_MS (i.e. that the back-pressure schedule
+    // is actually applied to). Assigned to the outer-scope counter so the
+    // finally-block tick log line and the heartbeat UPDATE both see it.
+    for (const since of windingDownSinceByCampaign.values()) {
+      if ((nowMs - since) >= WINDING_DOWN_PERSISTENCE_MS) windingDownActive += 1;
+    }
+    try {
+      pressureGuardWindingDownCampaigns.set(windingDownActive);
+      pressureGuardBackPressuredLastTick.set(backPressuredCount);
+    } catch {
+      /* metric set is non-fatal */
+    }
+
+    // Track for the per-tick log + heartbeat publication.
+    pickedVolume = volumePicks.length;
+    pickedFairness = fairnessPicks.length;
+
     // Task #153: bounded-parallel drain. The previous implementation
     // awaited each drainCampaign sequentially, which capped per-tick
     // throughput at ~1 campaign × BATCH rows / drain-duration. With 8-10
@@ -541,7 +719,7 @@ async function pollDeferredQueueInner() {
     // without saturating the main pool. JS is single-threaded so the
     // drainedCalls/errorCount increments inside the worker functions are
     // race-free even though the surrounding awaits interleave.
-    const queue = campaignsRes.rows.slice();
+    const queue = finalPicks.slice();
     const workers: Promise<void>[] = [];
     const parallelism = Math.min(DRAIN_PARALLELISM, queue.length);
     for (let i = 0; i < parallelism; i++) {
@@ -571,7 +749,8 @@ async function pollDeferredQueueInner() {
     logger.info(
       `[PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=${bootstrapStateLabel}, ` +
       `has_pending=${hasPending ? "Y" : "N"}, eligible_campaigns=${eligibleCampaigns}, ` +
-      `drained_calls=${drainedCalls}, errors=${errorCount}`,
+      `picked=${pickedVolume}+${pickedFairness}, winding_down=${windingDownActive}, ` +
+      `back_pressured=${backPressuredCount}, drained_calls=${drainedCalls}, errors=${errorCount}`,
     );
     // Task #160: publish per-tick heartbeat to the leader-lease row so
     // the cross-process /api/admin/pressure-drain/health endpoint can

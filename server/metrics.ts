@@ -142,6 +142,26 @@ export const pressureGuardNearAgingPending = new client.Gauge({
   registers: [register],
 });
 
+// Task #173: campaigns the drain considers "winding down" (small pending
+// tail + small ready-to-drain count, observed continuously for >= 24h).
+// These campaigns are back-pressured to 1 tick out of every 4 so they
+// can't permanently squat MAX_CAMPAIGNS slots while younger campaigns
+// with large drainable backlogs starve.
+export const pressureGuardWindingDownCampaigns = new client.Gauge({
+  name: 'critsend_pressure_guard_winding_down_campaigns',
+  help: 'Number of campaigns currently in winding-down state (back-pressured to 1 drain tick out of 4)',
+  registers: [register],
+});
+
+// Task #173: how many campaigns were skipped on the last drain tick due
+// to the winding-down back-pressure schedule. Sustained non-zero values
+// mean fairness ordering is actively unblocking younger campaigns.
+export const pressureGuardBackPressuredLastTick = new client.Gauge({
+  name: 'critsend_pressure_guard_back_pressured_last_tick',
+  help: 'Campaigns skipped on the most recent drain tick by the winding-down back-pressure schedule',
+  registers: [register],
+});
+
 // ── Snowball Auto-Throttle (Task #154) ────────────────────────────────
 // When too many campaigns target overlapping audiences, the main sender
 // keeps reserving fresh sends that get deferred behind the 6h pressure

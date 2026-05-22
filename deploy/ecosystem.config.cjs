@@ -79,8 +79,21 @@ module.exports = {
         // verifying main-pool headroom (see CONNECTION BUDGET log line).
         PRESSURE_GUARD_POLL_MS: dotenvVars.PRESSURE_GUARD_POLL_MS || "10000",
         PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
-        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
+        // Task #173: bumped 20 → 60. With MAX_CAMPAIGNS=20 and 45+ active
+        // campaigns each contributing a few drainable rows per tick, the
+        // FIFO ORDER BY created_at picked 20 oldest campaigns regardless of
+        // how much they actually had to drain (head-of-line blocking). The
+        // top-20 slice in prod held only ~9 ready rows total (5.8% of
+        // capacity) while 200k+ rows on younger campaigns waited behind.
+        // 60 covers the full active fleet so volume-priority ordering
+        // (drainable_count DESC) can actually pick the campaigns where the
+        // batched send is full and amortizes the 25s claim+finalize txn.
+        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "60",
         PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
+        // Task #173: reserve N% of slots for the oldest-FIFO campaigns so
+        // a fresh launch with a giant deferred queue can't permanently
+        // starve a 3-day-old trickle. Set to 0 to disable fairness.
+        PRESSURE_GUARD_FAIRNESS_PCT: dotenvVars.PRESSURE_GUARD_FAIRNESS_PCT || "20",
         // Task #154: SMTP fan-out concurrency INSIDE drainCampaign. Replaces
         // the strict for-await loop that capped per-campaign throughput at
         // ~10 sends/sec (~600/min). With SMTP_CONCURRENCY=20 × DRAIN_PARALLELISM=4
@@ -140,8 +153,10 @@ module.exports = {
         // The drain leader can be either side; values MUST match.
         PRESSURE_GUARD_POLL_MS: dotenvVars.PRESSURE_GUARD_POLL_MS || "10000",
         PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
-        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
+        // Task #173: 20 → 60. See web env block for rationale.
+        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "60",
         PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
+        PRESSURE_GUARD_FAIRNESS_PCT: dotenvVars.PRESSURE_GUARD_FAIRNESS_PCT || "20",
         // Task #154: SMTP fan-out concurrency — same value MUST match web side.
         PRESSURE_GUARD_SMTP_CONCURRENCY: dotenvVars.PRESSURE_GUARD_SMTP_CONCURRENCY || "20",
         // Task #154: snowball auto-throttle (same as web side; the
@@ -194,8 +209,10 @@ module.exports = {
         // transparent (any process can take leadership and behave the same).
         PRESSURE_GUARD_POLL_MS: dotenvVars.PRESSURE_GUARD_POLL_MS || "10000",
         PRESSURE_GUARD_BATCH: dotenvVars.PRESSURE_GUARD_BATCH || "1000",
-        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "20",
+        // Task #173: 20 → 60. See web env block for rationale.
+        PRESSURE_GUARD_MAX_CAMPAIGNS: dotenvVars.PRESSURE_GUARD_MAX_CAMPAIGNS || "60",
         PRESSURE_GUARD_DRAIN_PARALLELISM: dotenvVars.PRESSURE_GUARD_DRAIN_PARALLELISM || "4",
+        PRESSURE_GUARD_FAIRNESS_PCT: dotenvVars.PRESSURE_GUARD_FAIRNESS_PCT || "20",
         PRESSURE_GUARD_SMTP_CONCURRENCY: dotenvVars.PRESSURE_GUARD_SMTP_CONCURRENCY || "20",
       },
 
