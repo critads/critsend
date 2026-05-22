@@ -27,6 +27,7 @@ import { registerDatabaseHealthRoutes } from "./routes/database-health";
 import { registerPressureRoutes } from "./routes/pressure";
 import { register503AttributionRoutes } from "./routes/admin-503";
 import { registerAdminPressureGuardLocksRoutes } from "./routes/admin-pressure-guard-locks";
+import { registerAdminStuckCampaignsRoutes } from "./routes/admin-stuck-campaigns";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -123,6 +124,7 @@ export async function registerRoutes(
   registerPressureRoutes(app);
   register503AttributionRoutes(app);
   registerAdminPressureGuardLocksRoutes(app);
+  registerAdminStuckCampaignsRoutes(app);
 
   return httpServer;
 }

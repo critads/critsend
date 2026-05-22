@@ -77,3 +77,31 @@ The pressure-guard drain worker (`server/workers/pressure-guard-worker.ts::drain
 
 ---
 
+## Task #181 — Stuck-Pending Self-Heal
+
+Production incident: ~20-30 campaigns sat for **hours to days** in `status='sending'` (or `'scheduled'`) without any user-facing pause reason and without the legacy `runCampaignGuardianPoll` rescuing them. Root-cause analysis surfaced **five** distinct stall patterns the old guardian (which only matched "sending with no active job in the last 2min") could not see. Steps 1-2 were operational (manual rescue + DB forensic queries on prod). Steps 3-7 are the code self-heal landed here.
+
+**Diagnosis surface** (`server/services/stuck-campaign-diagnosis.ts`). Single read-only classifier shared between guardian + admin endpoint + Prometheus gauge so all three sources agree. Each campaign is classified at most once; branches are priority-ordered:
+1. `scheduled_past_due_no_job` — `status='scheduled'` and `scheduled_at < NOW() - STUCK_SCHEDULED_MIN` (default 10min) with no pending/processing `campaign_jobs`. The scheduled-campaign poller missed it.
+2. `sending_no_active_job` — legacy branch. `status='sending'` with no `pending`/`processing`/recently-`failed` (< STUCK_SENDING_NO_JOB_MIN, default 2min) job.
+3. `sending_stale_heartbeat` — `status='sending'` with only a `processing` job whose `heartbeat` (or `started_at`) is older than STUCK_HEARTBEAT_STALE_MIN (default 5min). Worker is dead but `cleanupStaleJobs`' 30-min sweep hasn't fired yet. **Critical**: the legacy "no active job" branch never matched these because a `processing` row still satisfies "active" — campaigns could sit wedged for the full 30min window per worker death.
+4. `sending_retry_budget_exceeded` — `status='sending'` with a `failed` job whose `retry_count >= STUCK_MAX_JOB_RETRIES` (default 10) and no successor. `handleJobError`/`handleJobCompletion` stop re-enqueuing once `retry_until` expires but leave the campaign in `sending` — invisible to operators. Now auto-pauses with `pause_reason='retry_budget_exceeded: <detail>'`.
+5. `mid_flight_crash` — `status='sending'`, `started_at NOT NULL`, `campaign_sends` rows exist, but `max(sent_at) < NOW() - STUCK_NO_PROGRESS_MIN` (default 10min) AND no active/recent job. Ghost-sweep branch A only handled the `started_at IS NULL` pre-enumeration crash. This new branch handles a sender crashing mid-stream — sends partially written, no job alive to resume them.
+
+**Guardian action map** (`runCampaignGuardianPoll`): `reenqueue` (1,2,5 — re-enqueue + NOTIFY; promotes scheduled→sending first), `fail_job_and_reenqueue` (3 — completeJob('failed', diagnosis) + enqueueCampaignJobWithRetry with bumped retry_count + 5s backoff), `pause_retry_budget_exceeded` (4 — sets `status='paused'` with the diagnostic detail truncated to 500 chars).
+
+**Ghost-sweep parity** (`server/workers.ts::sweepGhostCampaigns`). Branch A unchanged. New branch B mirrors `mid_flight_crash` so whichever loop ticks first heals the campaign — defense in depth for the production incident. Never touches counters or `started_at`; the resume logic in `campaign-sender.ts` reconciles state from the existing `campaign_sends` rows.
+
+**Operator surface**:
+- `GET /api/admin/stuck-campaigns` (`server/routes/admin-stuck-campaigns.ts`) — admin-gated (same `requireAdmin` resolution order as `/api/admin/pressure-queue`: `users.is_admin` → `ADMIN_USER_IDS` env → dev fallback → fail-closed in prod). Returns thresholds, per-reason totals, full per-campaign diagnosis. Read-only; safe to poll.
+- Prometheus gauge `critsend_campaigns_stuck_total{reason="..."}` (`server/metrics.ts`). Refreshed every guardian tick; **set unconditionally** including 0 for absent labels so dashboards don't retain stale non-zero readings. Labels match the `StuckReason` union exactly.
+- Campaigns list UI (`client/src/pages/campaigns.tsx`) — `pause_reason` rendered inline under the status badge for `paused`/`failed` campaigns (truncated 180px + `title` tooltip). Failure dialog continues to show the full reason.
+
+**Tunables** (all env-overridable with safe bounds; out-of-range → default): `STUCK_SCHEDULED_MIN=10`, `STUCK_SENDING_NO_JOB_MIN=2`, `STUCK_HEARTBEAT_STALE_MIN=5`, `STUCK_NO_PROGRESS_MIN=10`, `STUCK_MAX_JOB_RETRIES=10`.
+
+**Regression coverage** — `tests/stuck-campaign-diagnosis.test.ts` seeds one campaign per stuck pattern (plus a healthy control with fresh heartbeat) and asserts each gets the correct `reason`/`action`, that the control is never flagged, and that classifications are mutually exclusive (no campaign appears in two branches).
+
+**Forensic note** — the dev DB used during this task was missing `campaign_jobs.heartbeat` (added in prod via an earlier bootstrap migration not captured in `shared/schema.ts`'s migration history). The diagnosis SQL references `heartbeat`, so any dev environment must apply `ALTER TABLE campaign_jobs ADD COLUMN IF NOT EXISTS heartbeat timestamp` before the guardian's stale-heartbeat branch will return rows. Production is unaffected.
+
+---
+

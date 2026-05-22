@@ -253,6 +253,19 @@ export const orphanedSendsReconciledTotal = new client.Counter({
   registers: [register],
 });
 
+// Task #181: per-reason gauge of campaigns the expanded campaign-guardian
+// classifies as silently stuck (no progress, no explicit pause reason).
+// Labels match the StuckReason union in
+// server/services/stuck-campaign-diagnosis.ts. Sustained non-zero
+// values for any label are the operator's early-warning signal that
+// campaigns are stalling before users complain.
+export const campaignsStuckTotal = new client.Gauge({
+  name: 'critsend_campaigns_stuck_total',
+  help: 'Number of campaigns currently flagged as stuck by the campaign guardian, labelled by diagnosed reason',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
 export const httpRequestsTotal = new client.Counter({
   name: 'critsend_http_requests_total',
   help: 'Total HTTP requests',

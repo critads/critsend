@@ -664,11 +664,26 @@ export default function Campaigns() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <CampaignStatusBadge
-                          status={campaign.status}
-                          campaignId={campaign.id}
-                          onClick={campaign.status === "failed" ? () => setFailedInfoCampaign(campaign) : undefined}
-                        />
+                        <div className="flex flex-col gap-1">
+                          <CampaignStatusBadge
+                            status={campaign.status}
+                            campaignId={campaign.id}
+                            onClick={campaign.status === "failed" ? () => setFailedInfoCampaign(campaign) : undefined}
+                          />
+                          {/* Task #181: surface pauseReason inline on the list row so
+                              operators see *why* a campaign is paused/failed without
+                              opening the failure dialog. Truncated + tooltip keeps the
+                              cell compact for long diagnostic messages. */}
+                          {campaign.pauseReason && (campaign.status === "paused" || campaign.status === "failed") && (
+                            <span
+                              className="text-xs text-muted-foreground truncate max-w-[180px]"
+                              title={campaign.pauseReason}
+                              data-testid={`text-pause-reason-${campaign.id}`}
+                            >
+                              {campaign.pauseReason}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell data-testid={`cell-progress-${campaign.id}`}>
                         <CampaignProgress

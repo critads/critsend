@@ -119,6 +119,9 @@ export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boo
 async function sweepGhostCampaigns(): Promise<void> {
   if (!isPoolHealthy()) return;
   try {
+    // Branch A — original ghost case: status='sending'/'queued',
+    // started_at IS NULL, no campaign_sends rows. Worker crashed during
+    // audience enumeration, before any send was attempted.
     const result = await db.execute(sql`
       WITH ghosts AS (
         SELECT c.id
@@ -157,6 +160,57 @@ async function sweepGhostCampaigns(): Promise<void> {
     if (result.rows.length > 0) {
       const ids = result.rows.map((r: any) => r.campaign_id);
       logger.warn(`[GHOST_SWEEP] Self-healed ${result.rows.length} ghost campaign(s): ${ids.join(', ')}`);
+    }
+
+    // Branch B — Task #181 mid-flight crash: started_at NOT NULL, sends
+    // exist, but the cached campaign_sends max(sent_at) hasn't moved in
+    // GHOST_SWEEP_MIN_AGE_MIN minutes AND no active/recent job is in
+    // flight. Branch A would never fire (started_at not null + sends
+    // exist), the legacy guardian's no-active-job branch would not fire
+    // either (a processing job with a stale heartbeat still satisfies
+    // "active"). The expanded campaign-guardian also detects this, but
+    // running it here too means the recovery happens on whichever loop
+    // fires next — defense in depth for the production incident that
+    // motivated this task. We never touch counters or started_at: the
+    // mid-flight state may be partly correct and the sender's resume
+    // logic will reconcile from where it left off.
+    const midFlight = await db.execute(sql`
+      WITH stuck AS (
+        SELECT c.id
+        FROM campaigns c
+        WHERE c.status = 'sending'
+          AND c.started_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM campaign_sends cs WHERE cs.campaign_id = c.id)
+          AND NOT EXISTS (
+            SELECT 1 FROM campaign_jobs cj
+            WHERE cj.campaign_id = c.id
+              AND (
+                cj.status = 'pending'
+                OR (cj.status = 'processing' AND (cj.heartbeat IS NULL OR cj.heartbeat > NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})))
+                OR (cj.status = 'failed' AND cj.completed_at > NOW() - INTERVAL '2 minutes')
+              )
+          )
+          AND COALESCE(
+            (SELECT MAX(cs.sent_at) FROM campaign_sends cs WHERE cs.campaign_id = c.id),
+            c.started_at
+          ) < NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})
+        FOR UPDATE OF c SKIP LOCKED
+      ),
+      kill_stale AS (
+        UPDATE campaign_jobs
+        SET status = 'failed', completed_at = NOW(),
+            error_message = 'Ghost sweep mid-flight: stale processing job (heartbeat expired)'
+        WHERE campaign_id IN (SELECT id FROM stuck)
+          AND status = 'processing'
+        RETURNING campaign_id
+      )
+      INSERT INTO campaign_jobs (campaign_id, status, retry_count)
+      SELECT id, 'pending', 0 FROM stuck
+      RETURNING campaign_id
+    `);
+    if (midFlight.rows.length > 0) {
+      const ids = midFlight.rows.map((r: any) => r.campaign_id);
+      logger.warn(`[GHOST_SWEEP] Mid-flight self-healed ${midFlight.rows.length} stuck campaign(s) (no progress, no active job): ${ids.join(', ')}`);
     }
   } catch (err) {
     logger.error('[GHOST_SWEEP] Sweep failed:', err);
@@ -1591,26 +1645,76 @@ let campaignGuardianInterval: NodeJS.Timeout | null = null;
 
 async function runCampaignGuardianPoll(): Promise<void> {
   try {
-    const stuckCampaigns = await db.execute(sql`
-      SELECT c.id, c.name FROM campaigns c
-      WHERE c.status = 'sending'
-      AND NOT EXISTS (
-        SELECT 1 FROM campaign_jobs cj
-        WHERE cj.campaign_id = c.id
-        AND (
-          cj.status IN ('pending', 'processing')
-          OR (cj.status = 'failed' AND cj.completed_at > NOW() - INTERVAL '2 minutes')
-        )
-      )
-    `);
+    // Task #181: full-spectrum stuck-campaign self-heal. The legacy
+    // implementation only caught `status='sending'` with no active job.
+    // Production showed at least four other ways a campaign could
+    // silently stall (see docs/architecture-history.md Task #181) — all
+    // of them now live in `diagnoseStuckCampaigns`. We act on every
+    // detected pattern here and also refresh the per-reason Prometheus
+    // gauge so dashboards see the same picture as the admin endpoint.
+    const { diagnoseStuckCampaigns, countByReason } = await import("./services/stuck-campaign-diagnosis");
+    const { campaignsStuckTotal } = await import("./metrics");
 
-    const campaigns = stuckCampaigns.rows as Array<{ id: string; name: string }>;
-    if (campaigns.length > 0) {
-      logger.warn(`[CAMPAIGN_GUARDIAN] Found ${campaigns.length} stuck campaign(s) in 'sending' with no active job — re-enqueuing`);
-      for (const campaign of campaigns) {
-        logger.info(`[CAMPAIGN_GUARDIAN] Re-enqueuing campaign ${campaign.id} (${campaign.name})`);
-        await storage.enqueueCampaignJob(campaign.id);
-        await messageQueue.notify("campaign_jobs", { campaignId: campaign.id });
+    const stuck = await diagnoseStuckCampaigns();
+
+    // Refresh the gauge unconditionally — labels missing from this tick
+    // must drop back to 0, not retain the previous tick's value.
+    const counts = countByReason(stuck);
+    for (const [reason, n] of Object.entries(counts)) {
+      campaignsStuckTotal.set({ reason }, n);
+    }
+
+    if (stuck.length === 0) return;
+
+    logger.warn(`[CAMPAIGN_GUARDIAN] Diagnosed ${stuck.length} stuck campaign(s): ${
+      Object.entries(counts).filter(([, n]) => n > 0).map(([r, n]) => `${r}=${n}`).join(", ")
+    }`);
+
+    for (const c of stuck) {
+      try {
+        switch (c.action) {
+          case "reenqueue": {
+            // Covers: scheduled_past_due_no_job, sending_no_active_job,
+            // mid_flight_crash. Promote scheduled→sending if needed so
+            // the worker actually picks the job up.
+            if (c.status === "scheduled") {
+              await storage.updateCampaign(c.id, { status: "sending", pauseReason: null });
+            }
+            await storage.enqueueCampaignJob(c.id);
+            await messageQueue.notify("campaign_jobs", { campaignId: c.id });
+            logger.info(`[CAMPAIGN_GUARDIAN] Re-enqueued ${c.id} (${c.name}) [reason=${c.reason}]`);
+            break;
+          }
+          case "fail_job_and_reenqueue": {
+            // Stale heartbeat: the previous worker is dead. Mark the
+            // stuck job failed (with the diagnosis as the error message
+            // so it shows up in error logs) and queue a successor with
+            // bumped retry_count + short backoff.
+            if (c.jobId) {
+              await storage.completeJob(c.jobId, "failed",
+                `Stale heartbeat self-heal (${c.detail})`).catch((e) => {
+                  logger.warn(`[CAMPAIGN_GUARDIAN] completeJob(${c.jobId}) failed: ${e?.message}`);
+                });
+            }
+            const nextRetry = (c.retryCount ?? 0) + 1;
+            await storage.enqueueCampaignJobWithRetry(c.id, nextRetry, 5);
+            await messageQueue.notify("campaign_jobs", { campaignId: c.id });
+            logger.warn(`[CAMPAIGN_GUARDIAN] Failed stale job ${c.jobId} and re-enqueued ${c.id} (retry #${nextRetry}) [reason=${c.reason}]`);
+            break;
+          }
+          case "pause_retry_budget_exceeded": {
+            // Stop auto-retrying and surface the diagnosis to the
+            // operator. Manual resume re-enters the normal sender path.
+            await storage.updateCampaign(c.id, {
+              status: "paused",
+              pauseReason: `retry_budget_exceeded: ${c.detail}`.slice(0, 500),
+            });
+            logger.error(`[CAMPAIGN_GUARDIAN] Paused ${c.id} (${c.name}) — retry budget exceeded after ${c.retryCount} retries`);
+            break;
+          }
+        }
+      } catch (actionErr: any) {
+        logger.error(`[CAMPAIGN_GUARDIAN] Action '${c.action}' for ${c.id} failed: ${actionErr?.message}`);
       }
     }
   } catch (err: any) {
