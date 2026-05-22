@@ -828,8 +828,21 @@ export default function Campaigns() {
                                 Requeue
                               </DropdownMenuItem>
                             )}
-                            {(campaign.status === "sending" || campaign.status === "paused") &&
-                              (campaign.pressureHeldCount ?? 0) > 0 && (
+                            {(campaign.status === "sending" || campaign.status === "paused") && (
+                              // 2026-05-22: gating relaxed to status only.
+                              // The previous (pressureHeldCount > 0) guard
+                              // hid the button on campaigns where the live
+                              // subquery hadn't surfaced yet in the list
+                              // response (race between SSE counter update
+                              // and the polled list refetch), leaving the
+                              // operator unable to flush 100k+ visibly-held
+                              // queues. The server-side endpoint already
+                              // returns a clean 400 ("No held sends —
+                              // nothing to flush") when held=0, and the
+                              // confirm dialog shows the live count anyway
+                              // — so making the button always-visible on
+                              // sending/paused is both safer UX and
+                              // resistant to UI/data drift.
                               <DropdownMenuItem
                                 onClick={() => setUrgentConfirm(campaign)}
                                 className="text-orange-600 dark:text-orange-400 focus:text-orange-600 dark:focus:text-orange-400"
