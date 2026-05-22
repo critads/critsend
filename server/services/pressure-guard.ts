@@ -220,6 +220,12 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
   const stmts: Array<{ sql: string; label: string }> = [
     { label: "subscribers.last_sent_at", sql: `ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_sent_at timestamp` },
     { label: "campaigns.deferred_count", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS deferred_count integer NOT NULL DEFAULT 0` },
+    // Cached MAX(campaign_sends.sent_at) per campaign — replaces the
+    // catastrophic correlated subquery that scanned the 67M-row
+    // campaign_sends table once per active campaign on every dashboard /
+    // ghost-sweep call. Maintained live by bulkFinalizeSends /
+    // finalizeSend in campaign-repository.ts.
+    { label: "campaigns.last_send_at", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS last_send_at timestamp` },
     // R3: tiny single-row state table so cluster-wide once/day
     // maintenance is idempotent across multiple worker processes.
     { label: "pressure_maintenance_state", sql: `

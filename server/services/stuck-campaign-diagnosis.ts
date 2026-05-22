@@ -233,7 +233,7 @@ export async function diagnoseStuckCampaigns(): Promise<StuckCampaign[]> {
   const midFlight = await db.execute(sql`
     SELECT c.id, c.name, c.status, c.pause_reason,
            c.started_at,
-           (SELECT MAX(cs.sent_at) FROM campaign_sends cs WHERE cs.campaign_id = c.id) AS last_send_at
+           c.last_send_at
     FROM campaigns c
     WHERE c.status = 'sending'
       AND c.started_at IS NOT NULL
@@ -247,10 +247,8 @@ export async function diagnoseStuckCampaigns(): Promise<StuckCampaign[]> {
             OR (cj.status = 'failed' AND cj.completed_at > NOW() - (${STUCK_SENDING_NO_JOB_MIN} || ' minutes')::interval)
           )
       )
-      AND COALESCE(
-        (SELECT MAX(cs.sent_at) FROM campaign_sends cs WHERE cs.campaign_id = c.id),
-        c.started_at
-      ) < NOW() - (${STUCK_NO_PROGRESS_MIN} || ' minutes')::interval
+      AND COALESCE(c.last_send_at, c.started_at)
+          < NOW() - (${STUCK_NO_PROGRESS_MIN} || ' minutes')::interval
   `);
   for (const r of midFlight.rows as Array<any>) {
     if (seen.has(r.id)) continue;

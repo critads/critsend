@@ -124,6 +124,18 @@ export const campaigns = pgTable("campaigns", {
   sentCount: integer("sent_count").notNull().default(0),
   pendingCount: integer("pending_count").notNull().default(0),
   failedCount: integer("failed_count").notNull().default(0),
+  // Cached timestamp of the most recent successful send for this campaign,
+  // maintained by `bulkFinalizeSends` / `finalizeSend`. Replaces the
+  // catastrophic correlated subquery `(SELECT MAX(sent_at) FROM campaign_sends
+  // WHERE campaign_id = c.id)` that scanned the 67M-row `campaign_sends`
+  // table once per active campaign on every dashboard / ghost-sweep call.
+  // The ghost-sweep mid-flight reaper and the stuck-campaign diagnosis
+  // endpoint both read this column instead. Drift-tolerant: if the column
+  // lags slightly behind a live send, the mid-flight reaper just retries
+  // the check on its next 60s tick — it's only used as a "no progress for
+  // N minutes" signal, never as authoritative analytics. Bootstrap
+  // migration is in server/index.ts.
+  lastSendAt: timestamp("last_send_at"),
   autoRetryCount: integer("auto_retry_count").notNull().default(0),
   // Cached engagement counters — maintained by the tracking-buffer flush
   // transaction (live increments) and re-derived by the counter-drift

@@ -589,7 +589,8 @@ export async function finalizeSend(campaignId: string, subscriberId: string, suc
       UPDATE campaigns SET
         sent_count = CASE WHEN ${success} THEN sent_count + 1 ELSE sent_count END,
         failed_count = CASE WHEN NOT ${success} THEN failed_count + 1 ELSE failed_count END,
-        pending_count = GREATEST(pending_count - 1, 0)
+        pending_count = GREATEST(pending_count - 1, 0),
+        last_send_at = CASE WHEN ${success} THEN NOW() ELSE last_send_at END
       WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM updated_send) > 0
       RETURNING id
     )
@@ -794,7 +795,8 @@ export async function bulkFinalizeSends(campaignId: string, successIds: string[]
       UPDATE campaigns SET
         sent_count = sent_count + ${sentCount},
         failed_count = failed_count + ${failCount},
-        pending_count = GREATEST(pending_count - ${totalProcessed}, 0)
+        pending_count = GREATEST(pending_count - ${totalProcessed}, 0),
+        last_send_at = CASE WHEN ${sentCount} > 0 THEN NOW() ELSE last_send_at END
       WHERE id = ${campaignId}
     `);
   });

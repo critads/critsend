@@ -190,10 +190,8 @@ async function sweepGhostCampaigns(): Promise<void> {
                 OR (cj.status = 'failed' AND cj.completed_at > NOW() - INTERVAL '2 minutes')
               )
           )
-          AND COALESCE(
-            (SELECT MAX(cs.sent_at) FROM campaign_sends cs WHERE cs.campaign_id = c.id),
-            c.started_at
-          ) < NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})
+          AND COALESCE(c.last_send_at, c.started_at)
+              < NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})
         FOR UPDATE OF c SKIP LOCKED
       ),
       kill_stale AS (
