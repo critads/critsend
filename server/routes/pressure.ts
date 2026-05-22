@@ -76,18 +76,57 @@ const adminFlushBodySchema = z.object({ reason: flushReason });
 // endpoints (R6/R7/R8 mitigation): both queries scan large slices of
 // campaign_sends and are polled by the dashboard every 30-60s. Caching
 // for 30s (top) and 5min (curve) shields the DB from refresh storms.
-type CacheEntry<T> = { value: T; expiresAt: number };
+//
+// Task #178: entries are NEVER auto-deleted on TTL expiry. `cacheGet`
+// still returns null past expiresAt (so callers refresh from DB on the
+// fast path), but `cacheGetStale` returns the last value regardless of
+// age — used by the error handlers to serve a "stale" payload when the
+// DB times out, instead of going blank on the dashboard.
+type CacheEntry<T> = { value: T; expiresAt: number; storedAt: number };
 const cache = new Map<string, CacheEntry<any>>();
 function cacheGet<T>(key: string): T | null {
   const e = cache.get(key);
   if (!e) return null;
-  if (e.expiresAt <= Date.now()) { cache.delete(key); return null; }
+  if (e.expiresAt <= Date.now()) return null;
   return e.value as T;
 }
+function cacheGetStale<T>(key: string): { value: T; storedAt: number } | null {
+  const e = cache.get(key);
+  if (!e) return null;
+  return { value: e.value as T, storedAt: e.storedAt };
+}
 function cacheSet<T>(key: string, value: T, ttlMs: number): T {
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  const now = Date.now();
+  cache.set(key, { value, expiresAt: now + ttlMs, storedAt: now });
   return value;
 }
+
+// Task #178: run a read-only block under a tight per-query
+// statement_timeout. When the main pool is saturated, the heavy
+// aggregations on `campaign_sends` (20M+ rows) would otherwise sit on
+// pool slots until the 30s HTTP request timeout fires, blocking the
+// drain worker and other requests. With an ~8s timeout we fail fast,
+// the error handler serves the last cached payload (see
+// `cacheGetStale`), and pool slots are returned promptly.
+async function withStmtTimeout<T>(ms: number, fn: (tx: any) => Promise<T>): Promise<T> {
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${ms}`));
+    return await fn(tx);
+  });
+}
+
+// Task #178: shared shape returned when an endpoint falls back to its
+// last cached payload after a DB error. UI badges the response as
+// "stale" using `generatedAt`.
+function staleEnvelope<T extends Record<string, any>>(payload: T, storedAt: number): T & { stale: true; generatedAt: string } {
+  return {
+    ...payload,
+    stale: true as const,
+    generatedAt: new Date(storedAt).toISOString(),
+  };
+}
+
+const ADMIN_PRESSURE_STMT_TIMEOUT_MS = 8_000;
 
 function requireAuth(req: Request, res: Response): boolean {
   if (!req.session?.userId) {
@@ -516,42 +555,49 @@ export function registerPressureRoutes(app: Express): void {
       // + aged_forced_count per campaign so operators can immediately
       // see which campaigns are approaching or hitting the 72h cap.
       // All three fold into the existing GROUP BY scan — no extra query.
-      const summary = await db.execute(sql`
-        SELECT
-          cs.campaign_id,
-          c.name AS campaign_name,
-          c.started_at,
-          c.created_at,
-          c.deferred_count AS lifetime_defers,
-          c.aged_forced_count,
-          COUNT(*) AS pending_deferred,
-          COUNT(*) FILTER (WHERE cs.eligible_at <= NOW()) AS due_now,
-          MIN(cs.eligible_at) AS next_eligible_at,
-          EXTRACT(EPOCH FROM (NOW() - MIN(cs.first_deferred_at) FILTER (WHERE cs.first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
-          COUNT(*) FILTER (
-            WHERE cs.first_deferred_at IS NOT NULL
-              AND cs.first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
-          ) AS near_aging_count
-        FROM campaign_sends cs
-        JOIN campaigns c ON c.id = cs.campaign_id
-        WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
-        GROUP BY cs.campaign_id, c.name, c.started_at, c.created_at, c.deferred_count, c.aged_forced_count
-        ORDER BY c.created_at ASC NULLS FIRST
-        LIMIT 500
-      `);
+      // Task #178: wrap in a tight statement_timeout so the request
+      // releases its pool slot quickly under saturation; on failure the
+      // error handler below serves the last cached payload as `stale`.
+      const { summary, totals } = await withStmtTimeout(ADMIN_PRESSURE_STMT_TIMEOUT_MS, async (tx) => {
+        const summary = await tx.execute(sql`
+          SELECT
+            cs.campaign_id,
+            c.name AS campaign_name,
+            c.started_at,
+            c.created_at,
+            c.deferred_count AS lifetime_defers,
+            c.aged_forced_count,
+            COUNT(*) AS pending_deferred,
+            COUNT(*) FILTER (WHERE cs.eligible_at <= NOW()) AS due_now,
+            MIN(cs.eligible_at) AS next_eligible_at,
+            EXTRACT(EPOCH FROM (NOW() - MIN(cs.first_deferred_at) FILTER (WHERE cs.first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
+            COUNT(*) FILTER (
+              WHERE cs.first_deferred_at IS NOT NULL
+                AND cs.first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
+            ) AS near_aging_count
+          FROM campaign_sends cs
+          JOIN campaigns c ON c.id = cs.campaign_id
+          WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
+          GROUP BY cs.campaign_id, c.name, c.started_at, c.created_at, c.deferred_count, c.aged_forced_count
+          ORDER BY c.created_at ASC NULLS FIRST
+          LIMIT 500
+        `);
 
-      const totals = await db.execute(sql`
-        SELECT
-          COUNT(*) AS pending_deferred,
-          COUNT(DISTINCT subscriber_id) AS distinct_contacts_in_cooldown,
-          COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now,
-          EXTRACT(EPOCH FROM (NOW() - MIN(first_deferred_at) FILTER (WHERE first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
-          COUNT(*) FILTER (
-            WHERE first_deferred_at IS NOT NULL
-              AND first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
-          ) AS near_aging_count
-        FROM campaign_sends WHERE status = 'pending' AND eligible_at IS NOT NULL
-      `);
+        const totals = await tx.execute(sql`
+          SELECT
+            COUNT(*) AS pending_deferred,
+            COUNT(DISTINCT subscriber_id) AS distinct_contacts_in_cooldown,
+            COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now,
+            EXTRACT(EPOCH FROM (NOW() - MIN(first_deferred_at) FILTER (WHERE first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
+            COUNT(*) FILTER (
+              WHERE first_deferred_at IS NOT NULL
+                AND first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
+            ) AS near_aging_count
+          FROM campaign_sends WHERE status = 'pending' AND eligible_at IS NOT NULL
+        `);
+
+        return { summary, totals };
+      });
 
       const payload = {
         windowHours: PRESSURE_WINDOW_HOURS,
@@ -566,6 +612,9 @@ export function registerPressureRoutes(app: Express): void {
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
       if (res.headersSent) return;
+      // Task #178: serve stale cache rather than blanking the dashboard.
+      const stale = cacheGetStale<any>("admin:queue");
+      if (stale) return res.json(staleEnvelope(stale.value, stale.storedAt));
       res.status(500).json({ error: err?.message || "Internal error" });
     }
   });
@@ -579,48 +628,56 @@ export function registerPressureRoutes(app: Express): void {
   // sending or stuck?". Filtering by sent_at hits the existing
   // campaign_sends_sent_at_idx and stays cheap even on a 20M-row table.
   // 20s cache shields the DB from dashboard refresh storms.
+  //
+  // Task #178: collapse the three separate aggregations (30-min series,
+  // last-1-min count, last-5-min count) into a SINGLE scan over the
+  // last 30 minutes. `sent_1min` / `sent_5min` are derived as filtered
+  // COUNTs over the same row set. This cuts DB work + pool slot
+  // occupancy by ~3× and makes the headline KPI succeed/fail atomically
+  // with the chart — fixing the "Purge throughput stays empty" symptom
+  // where the third query was the one that hit the 30s request timeout
+  // first under pool saturation.
   app.get("/api/admin/pressure-queue/throughput", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     const cached = cacheGet<any>("admin:throughput");
     if (cached) return res.json(cached);
     try {
-      const series = await db.execute(sql`
-        SELECT date_trunc('minute', sent_at) AS minute, COUNT(*)::int AS sent
-        FROM campaign_sends
-        WHERE status = 'sent'
-          AND sent_at >= NOW() - interval '30 minutes'
-          AND sent_at IS NOT NULL
-        GROUP BY 1
-        ORDER BY 1 ASC
-      `);
-      // last-1min count is the headline KPI surfaced as the big stat.
-      // Rolling 60-second window so the card reflects "what's happening
-      // right now" — matches the rightmost bar of the chart instead of a
-      // smoothed 5-min average that hides recent spikes/drops.
-      const last1 = await db.execute(sql`
-        SELECT COUNT(*)::int AS sent_1min
-        FROM campaign_sends
-        WHERE status = 'sent'
-          AND sent_at >= NOW() - interval '1 minute'
-          AND sent_at IS NOT NULL
-      `);
-      const sent1 = Number((last1.rows[0] as any)?.sent_1min ?? 0);
-      const last5 = await db.execute(sql`
-        SELECT COUNT(*)::int AS sent_5min
-        FROM campaign_sends
-        WHERE status = 'sent'
-          AND sent_at >= NOW() - interval '5 minutes'
-          AND sent_at IS NOT NULL
-      `);
-      const sent5 = Number((last5.rows[0] as any)?.sent_5min ?? 0);
+      // Task #178: single statement, single scan. GROUPING SETS yields
+      // 30 per-minute rows (minute IS NOT NULL, sent populated) plus
+      // one grand-total row (minute IS NULL) carrying the filtered
+      // sent_1min / sent_5min counts. One bounded scan over the last
+      // 30 minutes derives the series + both headline KPIs together,
+      // so the "purge throughput (last min)" stat now succeeds/fails
+      // atomically with the chart.
+      const rowsRes = await withStmtTimeout(ADMIN_PRESSURE_STMT_TIMEOUT_MS, async (tx) =>
+        tx.execute(sql`
+          SELECT
+            date_trunc('minute', sent_at) AS minute,
+            COUNT(*)::int AS sent,
+            COUNT(*) FILTER (WHERE sent_at >= NOW() - interval '1 minute')::int AS sent_1min,
+            COUNT(*) FILTER (WHERE sent_at >= NOW() - interval '5 minutes')::int AS sent_5min
+          FROM campaign_sends
+          WHERE status = 'sent'
+            AND sent_at >= NOW() - interval '30 minutes'
+            AND sent_at IS NOT NULL
+          GROUP BY GROUPING SETS ((date_trunc('minute', sent_at)), ())
+          ORDER BY minute ASC NULLS LAST
+        `)
+      );
+      // Partition the result: rows with minute=null hold the rollup
+      // totals; rows with minute set form the series.
+      const rows = rowsRes.rows as any[];
+      const totals = rows.find((r) => r.minute == null);
+      const series = rows
+        .filter((r) => r.minute != null)
+        .map((r) => ({ minute: r.minute, sent: Number(r.sent ?? 0) }));
+      const sent1 = Number(totals?.sent_1min ?? 0);
+      const sent5 = Number(totals?.sent_5min ?? 0);
       const payload = {
         currentMailsPerMin: sent1,
         sentLast1Min: sent1,
         sentLast5Min: sent5,
-        series: series.rows.map((r: any) => ({
-          minute: r.minute,
-          sent: Number(r.sent ?? 0),
-        })),
+        series,
         generatedAt: new Date().toISOString(),
       };
       if (res.headersSent) return;
@@ -628,6 +685,8 @@ export function registerPressureRoutes(app: Express): void {
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/throughput failed: ${err?.message || err}`);
       if (res.headersSent) return;
+      const stale = cacheGetStale<any>("admin:throughput");
+      if (stale) return res.json(staleEnvelope(stale.value, stale.storedAt));
       res.status(500).json({ error: err?.message || "Internal error" });
     }
   });
@@ -644,29 +703,35 @@ export function registerPressureRoutes(app: Express): void {
       // caching that's a 7-day group-by hitting the DB 60x/hr per session.
       const cached = cacheGet<any>("admin:curve");
       if (cached) return res.json(cached);
-      const defers = await db.execute(sql`
-        SELECT date_trunc('day', sent_at) AS day, COUNT(*) AS n
-        FROM campaign_sends
-        WHERE eligible_at IS NOT NULL
-          AND sent_at >= NOW() - interval '7 days'
-        GROUP BY 1 ORDER BY 1 ASC
-      `);
-      const flushes = await db.execute(sql`
-        SELECT date_trunc('day', created_at) AS day, COALESCE(SUM(count),0) AS n
-        FROM pressure_flush_audit
-        WHERE created_at >= NOW() - interval '7 days'
-        GROUP BY 1 ORDER BY 1 ASC
-      `);
+      const { defers, flushes } = await withStmtTimeout(ADMIN_PRESSURE_STMT_TIMEOUT_MS, async (tx) => {
+        const defers = await tx.execute(sql`
+          SELECT date_trunc('day', sent_at) AS day, COUNT(*) AS n
+          FROM campaign_sends
+          WHERE eligible_at IS NOT NULL
+            AND sent_at >= NOW() - interval '7 days'
+          GROUP BY 1 ORDER BY 1 ASC
+        `);
+        const flushes = await tx.execute(sql`
+          SELECT date_trunc('day', created_at) AS day, COALESCE(SUM(count),0) AS n
+          FROM pressure_flush_audit
+          WHERE created_at >= NOW() - interval '7 days'
+          GROUP BY 1 ORDER BY 1 ASC
+        `);
+        return { defers, flushes };
+      });
       const payload = {
         windowHours: PRESSURE_WINDOW_HOURS,
         defers: defers.rows,
         flushes: flushes.rows,
+        generatedAt: new Date().toISOString(),
       };
       if (res.headersSent) return;
       res.json(cacheSet("admin:curve", payload, 5 * 60_000));
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue/curve failed: ${err?.message || err}`);
       if (res.headersSent) return;
+      const stale = cacheGetStale<any>("admin:curve");
+      if (stale) return res.json(staleEnvelope(stale.value, stale.storedAt));
       res.status(500).json({ error: err?.message || "Internal error" });
     }
   });
@@ -679,22 +744,27 @@ export function registerPressureRoutes(app: Express): void {
       // GROUP BY across all currently-deferred rows.
       const cached = cacheGet<any>("admin:top-contacts");
       if (cached) return res.json(cached);
-      const rows = await db.execute(sql`
-        SELECT cs.subscriber_id, s.email, s.last_sent_at,
-               COUNT(*) AS deferred_rows,
-               MIN(cs.eligible_at) AS next_eligible_at
-        FROM campaign_sends cs
-        JOIN subscribers s ON s.id = cs.subscriber_id
-        WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
-        GROUP BY cs.subscriber_id, s.email, s.last_sent_at
-        ORDER BY deferred_rows DESC, next_eligible_at ASC
-        LIMIT 20
-      `);
+      const rows = await withStmtTimeout(ADMIN_PRESSURE_STMT_TIMEOUT_MS, async (tx) =>
+        tx.execute(sql`
+          SELECT cs.subscriber_id, s.email, s.last_sent_at,
+                 COUNT(*) AS deferred_rows,
+                 MIN(cs.eligible_at) AS next_eligible_at
+          FROM campaign_sends cs
+          JOIN subscribers s ON s.id = cs.subscriber_id
+          WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
+          GROUP BY cs.subscriber_id, s.email, s.last_sent_at
+          ORDER BY deferred_rows DESC, next_eligible_at ASC
+          LIMIT 20
+        `)
+      );
       if (res.headersSent) return;
-      res.json(cacheSet("admin:top-contacts", { rows: rows.rows }, 30_000));
+      const payload = { rows: rows.rows, generatedAt: new Date().toISOString() };
+      res.json(cacheSet("admin:top-contacts", payload, 30_000));
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /top-contacts failed: ${err?.message || err}`);
       if (res.headersSent) return;
+      const stale = cacheGetStale<any>("admin:top-contacts");
+      if (stale) return res.json(staleEnvelope(stale.value, stale.storedAt));
       res.status(500).json({ error: err?.message || "Internal error" });
     }
   });
@@ -710,21 +780,25 @@ export function registerPressureRoutes(app: Express): void {
     const hit = cacheGet<{ rows: unknown[] }>(cacheKey);
     if (hit) return res.json(hit);
     try {
-      const rows = await db.execute(sql`
-        SELECT a.id, a.created_at, a.scope, a.count, a.reason,
-               a.user_id, u.username AS user_name,
-               a.campaign_id, c.name AS campaign_name
-        FROM pressure_flush_audit a
-        LEFT JOIN users u ON u.id = a.user_id
-        LEFT JOIN campaigns c ON c.id = a.campaign_id
-        ORDER BY a.created_at DESC
-        LIMIT ${limit}
-      `);
-      const payload = { rows: rows.rows };
+      const rows = await withStmtTimeout(ADMIN_PRESSURE_STMT_TIMEOUT_MS, async (tx) =>
+        tx.execute(sql`
+          SELECT a.id, a.created_at, a.scope, a.count, a.reason,
+                 a.user_id, u.username AS user_name,
+                 a.campaign_id, c.name AS campaign_name
+          FROM pressure_flush_audit a
+          LEFT JOIN users u ON u.id = a.user_id
+          LEFT JOIN campaigns c ON c.id = a.campaign_id
+          ORDER BY a.created_at DESC
+          LIMIT ${limit}
+        `)
+      );
+      const payload = { rows: rows.rows, generatedAt: new Date().toISOString() };
       cacheSet(cacheKey, payload, 15_000);
       res.json(payload);
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /history failed: ${err?.message || err}`);
+      const stale = cacheGetStale<any>(cacheKey);
+      if (stale) return res.json(staleEnvelope(stale.value, stale.storedAt));
       res.status(500).json({ error: err?.message || "Internal error" });
     }
   });

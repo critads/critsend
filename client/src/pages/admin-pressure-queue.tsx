@@ -11,7 +11,16 @@ import { Clock, History, Users, TrendingUp, Send, AlertTriangle } from "lucide-r
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area } from "recharts";
 
-interface AdminQueueResponse {
+// Task #178: every admin endpoint can return its last cached payload
+// with `stale: true` + the original `generatedAt` when the live query
+// times out under pool pressure. The page renders a small "stale (Xs
+// ago)" badge instead of going blank.
+interface StaleMeta {
+  stale?: boolean;
+  generatedAt?: string;
+}
+
+interface AdminQueueResponse extends StaleMeta {
   windowHours: number;
   // Task #169: aging cap context — surfaced so the page can label and
   // colour the "oldest age" + "near aging" columns correctly even if the
@@ -43,6 +52,22 @@ interface AdminQueueResponse {
 // while still being precise enough to distinguish "approaching cap" from
 // "way over". Returns "—" for null/undefined/<=0 so empty queues render
 // cleanly.
+// Task #178: small muted indicator rendered next to any card whose
+// payload came back with `stale: true`. Shows seconds-since the cached
+// payload was generated so operators can tell at a glance how out-of-
+// date the values are. Returns null when payload is fresh.
+function StaleBadge({ payload, testId }: { payload: StaleMeta | undefined; testId: string }) {
+  if (!payload?.stale || !payload?.generatedAt) return null;
+  const ageMs = Date.now() - new Date(payload.generatedAt).getTime();
+  const ageSec = Math.max(0, Math.round(ageMs / 1000));
+  const label = ageSec < 60 ? `${ageSec}s ago` : `${Math.round(ageSec / 60)}m ago`;
+  return (
+    <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground border-muted-foreground/30" data-testid={testId}>
+      stale ({label})
+    </Badge>
+  );
+}
+
 function formatAgeHours(v: string | number | null | undefined): string {
   if (v == null) return "—";
   const h = typeof v === "string" ? parseFloat(v) : v;
@@ -51,11 +76,11 @@ function formatAgeHours(v: string | number | null | undefined): string {
   const mins = Math.round((h - whole) * 60);
   return mins === 0 ? `${whole}h` : `${whole}h ${mins}m`;
 }
-interface CurveResponse {
+interface CurveResponse extends StaleMeta {
   defers: Array<{ day: string; n: string }>;
   flushes: Array<{ day: string; n: string }>;
 }
-interface TopContactsResponse {
+interface TopContactsResponse extends StaleMeta {
   rows: Array<{
     subscriber_id: string;
     email: string;
@@ -64,14 +89,14 @@ interface TopContactsResponse {
     next_eligible_at: string | null;
   }>;
 }
-interface ThroughputResponse {
+interface ThroughputResponse extends StaleMeta {
   currentMailsPerMin: number;
   sentLast1Min?: number;
   sentLast5Min: number;
   series: Array<{ minute: string; sent: number }>;
   generatedAt: string;
 }
-interface HistoryResponse {
+interface HistoryResponse extends StaleMeta {
   rows: Array<{
     id: string;
     created_at: string;
@@ -137,7 +162,10 @@ export default function AdminPressureQueue() {
     <div className="container mx-auto p-6 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle data-testid="text-admin-queue-title">Pressure queue (all campaigns)</CardTitle>
+          <CardTitle data-testid="text-admin-queue-title" className="flex items-center gap-2">
+            Pressure queue (all campaigns)
+            <StaleBadge payload={data} testId="badge-stale-queue" />
+          </CardTitle>
           <CardDescription>
             FIFO drain order: oldest created_at first. Window: {data?.windowHours ?? 6}h.
           </CardDescription>
@@ -169,7 +197,10 @@ export default function AdminPressureQueue() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><Send className="h-4 w-4" /> Live purge throughput (last 30 min)</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Send className="h-4 w-4" /> Live purge throughput (last 30 min)
+            <StaleBadge payload={throughput} testId="badge-stale-throughput" />
+          </CardTitle>
           <CardDescription>
             Sends per minute across the cluster.
             {throughput?.sentLast5Min !== undefined ? ` ${throughput.sentLast5Min.toLocaleString()} sent in the last 5 min.` : ""}
@@ -203,7 +234,10 @@ export default function AdminPressureQueue() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><TrendingUp className="h-4 w-4" /> 7-day curve</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" /> 7-day curve
+            <StaleBadge payload={curve} testId="badge-stale-curve" />
+          </CardTitle>
           <CardDescription>Daily defer events vs flush events.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -339,7 +373,10 @@ export default function AdminPressureQueue() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4" /> Top 20 most-deferred contacts</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4" /> Top 20 most-deferred contacts
+            <StaleBadge payload={top} testId="badge-stale-top" />
+          </CardTitle>
           <CardDescription>Across all campaigns, currently pending.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -379,7 +416,10 @@ export default function AdminPressureQueue() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><History className="h-4 w-4" /> Flush history</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <History className="h-4 w-4" /> Flush history
+            <StaleBadge payload={history} testId="badge-stale-history" />
+          </CardTitle>
           <CardDescription>Latest 50 manual reprogram operations.</CardDescription>
         </CardHeader>
         <CardContent>
