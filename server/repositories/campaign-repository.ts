@@ -657,11 +657,16 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
       RETURNING id
     ),
     campaign_update AS (
+      -- 2026-05-22: urgent_mode cleared on auto-requeue (failed → sending).
+      -- Same rationale as the manual /retry-failed and /requeue routes:
+      -- a past urgent flush must not silently resurrect on a fresh
+      -- automated retry. Operator can re-click /urgent if needed.
       UPDATE campaigns
       SET status = 'sending',
           failed_count = 0,
           retry_until = NULL,
-          auto_retry_count = ${newAutoRetryCount}
+          auto_retry_count = ${newAutoRetryCount},
+          urgent_mode = false
       WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM reset) > 0
       RETURNING id
     ),

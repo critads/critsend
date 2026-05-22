@@ -349,7 +349,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   if (total === 0) {
     logger.warn(`${logPrefix} Segment has 0 subscribers - marking as completed`);
     await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
-    await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
+    await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false });
     return;
   }
 
@@ -1187,7 +1187,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
     const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
     if (wasCompleted) {
-      await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
+      await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false });
       const finalCampaign = await storage.getCampaign(campaignId);
       logger.info(`${logPrefix} COMPLETED: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
       // Auto-resend (Task #56): an ORIGINAL parent that has follow-up enabled

@@ -570,6 +570,7 @@ async function pollDeferredQueueInner() {
         drainable_count: string;
         pending_count: number;
         sent_count: number;
+        urgent_mode: boolean;
       }>(
         `WITH per_campaign AS (
            SELECT cs.campaign_id, COUNT(*)::bigint AS drainable_count
@@ -589,7 +590,8 @@ async function pollDeferredQueueInner() {
                 c.created_at,
                 pc.drainable_count,
                 c.pending_count,
-                c.sent_count
+                c.sent_count,
+                COALESCE(c.urgent_mode, false) AS urgent_mode
          FROM per_campaign pc
          JOIN campaigns c ON c.id = pc.campaign_id
          WHERE c.status IN ('sending', 'paused')
@@ -633,6 +635,7 @@ async function pollDeferredQueueInner() {
       drainable_count: string | number;
       pending_count: number;
       created_at: Date | null;
+      urgent_mode?: boolean;
     };
     const rows = campaignsRes.rows as EligRow[];
 
@@ -660,7 +663,13 @@ async function pollDeferredQueueInner() {
       const since = windingDownSinceByCampaign.get(row.campaign_id);
       const isWindingDown = since !== undefined && (nowMs - since) >= WINDING_DOWN_PERSISTENCE_MS;
       const lastTick = lastDrainTickByCampaign.get(row.campaign_id) ?? -Infinity;
-      if (isWindingDown && (tickCounter - lastTick) < WINDING_DOWN_TICKS_GAP) {
+      // 2026-05-22: urgent_mode campaigns ALWAYS bypass the winding-down
+      // throttle. The operator clicked "Flush held now" specifically to
+      // escape every back-pressure mechanism; honouring 1-tick-in-4
+      // throttling on a urgent flush would silently extend the flush
+      // duration by 4×, defeating the feature.
+      const isUrgent = row.urgent_mode === true;
+      if (!isUrgent && isWindingDown && (tickCounter - lastTick) < WINDING_DOWN_TICKS_GAP) {
         backPressuredCount += 1;
         continue;
       }
@@ -986,26 +995,60 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   const agedSet = new Set(agedIds);
   const normalIds = claimedSubIds.filter((id) => !agedSet.has(id));
 
-  // Force-CAS for aged rows: stamps subscribers.last_sent_at = NOW()
-  // unconditionally so the 6h guard re-engages forward in time, even
-  // though we are bypassing it for this dispatch.
-  const agedWinners: string[] = agedIds.length > 0
-    ? await pressureGuardForceReserveSendSlots(agedIds)
-    : [];
+  // 2026-05-22: urgent_mode bypass at dispatch time.
+  // The drain runs its OWN CAS at dispatch (the normal-CAS UPDATE below)
+  // — completely independent from `pressureGuardReserveSendSlots`. That
+  // initial CAS only fires when the sender enqueues NEW rows; once a row
+  // is parked in the deferred queue, all subsequent dispatch attempts go
+  // through THIS code path. So the urgent flag on the campaign row must
+  // ALSO be honoured here, otherwise the held-row flush triggered by
+  // POST /api/campaigns/:id/urgent would lose any subscriber whose 6h
+  // window was re-armed by a competing campaign in the few seconds
+  // between /urgent commit and this drain tick — exactly the race the
+  // operator is trying to escape. We route urgent campaigns through the
+  // same force-CAS path that aged rows use: unconditional stamp of
+  // subscribers.last_sent_at = NOW(), which restores forward integrity
+  // of the 6h guard immediately after dispatch.
+  const isUrgent = (campaign as any).urgentMode === true;
+  let agedWinners: string[];
+  let normalWinnerIds: Set<string>;
+  if (isUrgent) {
+    // Treat every claimed row as if it were aged — force-CAS bypasses
+    // the 6h window for ALL of them in a single round-trip. Aged rows
+    // (if any) are already in this set; we union them so the force call
+    // sees one canonical subscriber list (no double-CAS, no
+    // double-stamp).
+    const forcedIds = Array.from(new Set<string>([...agedIds, ...normalIds]));
+    const forced = forcedIds.length > 0
+      ? await pressureGuardForceReserveSendSlots(forcedIds)
+      : [];
+    const forcedSet = new Set(forced);
+    // Distribute winners back across the original aged/normal split so
+    // the existing log + metric paths below stay accurate.
+    agedWinners = agedIds.filter((id) => forcedSet.has(id));
+    normalWinnerIds = new Set(normalIds.filter((id) => forcedSet.has(id)));
+  } else {
+    // Force-CAS for aged rows: stamps subscribers.last_sent_at = NOW()
+    // unconditionally so the 6h guard re-engages forward in time, even
+    // though we are bypassing it for this dispatch.
+    agedWinners = agedIds.length > 0
+      ? await pressureGuardForceReserveSendSlots(agedIds)
+      : [];
 
-  // Normal CAS: standard 6h gap check on the remaining claimed rows.
-  // Winners get last_sent_at = NOW(); losers stay 'attempting' here and
-  // are re-deferred below.
-  const casRes: { rows: Array<{ id: string; last_sent_at: Date | null }> } = normalIds.length > 0
-    ? await db.execute(sql`
-        UPDATE subscribers s
-        SET last_sent_at = NOW()
-        WHERE s.id = ANY(${toPgTextArray(normalIds)}::text[])
-          AND (s.last_sent_at IS NULL OR s.last_sent_at + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval <= NOW())
-        RETURNING s.id, s.last_sent_at
-      `) as { rows: Array<{ id: string; last_sent_at: Date | null }> }
-    : { rows: [] };
-  const normalWinnerIds = new Set(casRes.rows.map((r) => r.id));
+    // Normal CAS: standard 6h gap check on the remaining claimed rows.
+    // Winners get last_sent_at = NOW(); losers stay 'attempting' here and
+    // are re-deferred below.
+    const casRes: { rows: Array<{ id: string; last_sent_at: Date | null }> } = normalIds.length > 0
+      ? await db.execute(sql`
+          UPDATE subscribers s
+          SET last_sent_at = NOW()
+          WHERE s.id = ANY(${toPgTextArray(normalIds)}::text[])
+            AND (s.last_sent_at IS NULL OR s.last_sent_at + (${PRESSURE_WINDOW_HOURS}::numeric || ' hours')::interval <= NOW())
+          RETURNING s.id, s.last_sent_at
+        `) as { rows: Array<{ id: string; last_sent_at: Date | null }> }
+      : { rows: [] };
+    normalWinnerIds = new Set(casRes.rows.map((r) => r.id));
+  }
 
   // Merged winner set: aged force-wins + normal CAS wins.
   // Losers are ONLY the normal-CAS losers (aged rows are never losers
@@ -1289,7 +1332,13 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     if (n === 0) {
       const flipped = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
       if (flipped) {
-        await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0 });
+        // 2026-05-22 urgent-mode audit: clear the flag on natural drain
+        // completion (mirrors the two completion sites in campaign-sender).
+        // Without this, a campaign that finishes its queue in urgent mode
+        // would retain urgent_mode=true post-completion, and any future
+        // reopen path that does not explicitly clear (e.g. an internal
+        // sender path we haven't audited) would resurrect the bypass.
+        await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false });
         logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} marked completed (deferred queue drained)`);
         // Task #165: emit a terminal SSE event so the campaigns-list
         // progress bar (and any open detail page) flips to "completed"

@@ -1108,40 +1108,33 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "No held sends — nothing to flush" });
       }
 
-      const { nulledSubscribers, flushedHeld } = await db.transaction(async (tx) => {
+      const { flushedHeld } = await db.transaction(async (tx) => {
         // 1. Enable the CAS bypass flag — survives across PM2 restarts.
-        //    Cleared on /end (terminal) and stripped from /copy + PATCH
-        //    so it can't leak to other campaigns. NOT auto-cleared on
-        //    natural completion: the worker transitions status via
-        //    `updateCampaign(..., status: "completed")` which does not
-        //    touch urgent_mode; this is intentional so the audit row
-        //    survives forensic review post-completion.
+        //    The flag is honoured in BOTH CAS paths:
+        //      - pressureGuardReserveSendSlots (sender enqueue)
+        //      - drainCampaign's force-CAS branch (drain dispatch)
+        //    Cleared on /end (terminal), on natural completion (both
+        //    `updateCampaign(..., status: "completed")` call sites in
+        //    campaign-sender), on reopen routes (/retry-failed,
+        //    /requeue), and stripped from /copy + generic PATCH so it
+        //    can't leak to other campaigns.
+        //
+        //    2026-05-22 audit: removed the previous step that NULLed
+        //    `subscribers.last_sent_at` for held contacts. That
+        //    cross-campaign mutation opened a window where ANY other
+        //    non-urgent campaign racing for the same subscriber could
+        //    pass the 6h CAS prematurely (last_sent_at IS NULL clause).
+        //    With urgent_mode now read at dispatch time by drainCampaign
+        //    via pressureGuardForceReserveSendSlots, the flag alone
+        //    fully achieves the bypass without touching shared state.
         await tx.execute(sql`UPDATE campaigns SET urgent_mode = true WHERE id = ${req.params.id}`);
 
-        // 2. NULL last_sent_at — scoped to subscribers whose held row
-        //    has eligible_at IS NOT NULL (i.e. actually parked by the
-        //    pressure guard). This avoids touching subscribers whose
-        //    current row is pre-CAS (no eligible_at yet) or already
-        //    drained, both of which would unnecessarily widen the
-        //    bypass window for *other* campaigns racing for the same
-        //    contact. The CAS will re-stamp NOW() at dispatch,
-        //    restoring forward integrity for future campaigns.
-        const nulled: any = await tx.execute(sql`
-          UPDATE subscribers
-          SET last_sent_at = NULL
-          WHERE id IN (
-            SELECT DISTINCT subscriber_id
-            FROM campaign_sends
-            WHERE campaign_id = ${req.params.id}
-              AND status = 'pending'
-              AND eligible_at IS NOT NULL
-          )
-          AND last_sent_at IS NOT NULL
-        `);
-        const nulledN = Number(nulled?.rowCount ?? 0);
-
-        // 3. Flush all held campaign_sends to DUE NOW so the drain
+        // 2. Flush all held campaign_sends to DUE NOW so the drain
         //    worker can sweep them up immediately on its next tick.
+        //    The drain's force-CAS will stamp last_sent_at = NOW() per
+        //    subscriber at dispatch time, restoring forward integrity
+        //    of the 6h guard for OTHER campaigns without ever leaving
+        //    a NULL window open.
         const flushed: any = await tx.execute(sql`
           UPDATE campaign_sends
           SET eligible_at = NOW()
@@ -1151,30 +1144,29 @@ export function registerCampaignRoutes(app: Express, helpers: {
         `);
         const flushedN = Number(flushed?.rowCount ?? 0);
 
-        // 4. Resync the cached counter (was the source of the "still
+        // 3. Resync the cached counter (was the source of the "still
         //    shows 124k held" UX confusion before).
         await tx.execute(sql`UPDATE campaigns SET deferred_count = 0 WHERE id = ${req.params.id}`);
 
-        // 5. Audit trail (admin pressure-queue page reads this).
+        // 4. Audit trail (admin pressure-queue page reads this).
         await tx.execute(sql`
           INSERT INTO pressure_flush_audit (campaign_id, user_id, scope, count, reason)
           VALUES (
             ${req.params.id},
             ${uid},
             'urgent',
-            ${nulledN + flushedN},
-            ${`URGENT MODE enabled — NULLed last_sent_at for ${nulledN} subscribers + flushed ${flushedN} held rows to DUE NOW. CAS will bypass 6h gap and blocked_by_older for this campaign until urgent_mode is cleared.`}
+            ${flushedN},
+            ${`URGENT MODE enabled — flushed ${flushedN} held rows to DUE NOW. CAS will bypass 6h gap and blocked_by_older for this campaign until urgent_mode is cleared (completion / /end / /retry-failed / /requeue).`}
           )
         `);
 
-        return { nulledSubscribers: nulledN, flushedHeld: flushedN };
+        return { flushedHeld: flushedN };
       });
 
       logger.info(
-        `[CAMPAIGN_URGENT] Campaign ${req.params.id} marked URGENT — ` +
-        `nulled=${nulledSubscribers}, flushed=${flushedHeld}`,
+        `[CAMPAIGN_URGENT] Campaign ${req.params.id} marked URGENT — flushed=${flushedHeld}`,
       );
-      res.json({ ok: true, nulledSubscribers, flushedHeld });
+      res.json({ ok: true, flushedHeld });
     } catch (error: any) {
       logger.error("[CAMPAIGN_URGENT] Failed:", error);
       res.status(500).json({ error: "Failed to mark campaign urgent" });
@@ -1265,7 +1257,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
         //    12-hour window and the auto-retry counter resets to 0 (giving 3 more attempts).
         const [updated] = await tx
           .update(campaigns)
-          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null, autoRetryCount: 0 })
+          // 2026-05-22: clear urgent_mode on reopen. The operator
+          // toggled urgent for a specific past flush; resurrecting the
+          // bypass on a fresh retry would silently push the new wave
+          // ahead of every other campaign's pressure window. They can
+          // re-click /urgent if they actually want that.
+          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null, autoRetryCount: 0, urgentMode: false })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
         if (!updated) return { campaign: null, resetCount };
@@ -1320,6 +1317,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
           pauseReason: null,
           sentCount: 0,
           failedCount: 0,
+          // 2026-05-22: see /retry-failed comment — urgent_mode must
+          // not survive a requeue of a failed campaign.
+          urgentMode: false,
         }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
         if (!updated) return null;
         await tx.insert(campaignJobs).values({
@@ -1379,6 +1379,13 @@ export function registerCampaignRoutes(app: Express, helpers: {
       
       const updateData = { ...req.body };
       delete updateData.status;
+      // 2026-05-22 urgent-mode audit: /api/campaigns/:id/send is a generic
+      // pre-launch save+send. Allowing urgent_mode through here would let
+      // a client toggle the CAS bypass without going through the dedicated
+      // /urgent endpoint (which has its own auth, ownership check, held
+      // count check, and audit-row insert). Strip both casings.
+      delete updateData.urgentMode;
+      delete updateData.urgent_mode;
       if (updateData.scheduledAt && typeof updateData.scheduledAt === 'string') {
         updateData.scheduledAt = new Date(updateData.scheduledAt);
       }
