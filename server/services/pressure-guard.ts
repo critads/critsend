@@ -186,104 +186,153 @@ export async function runPressureGuardBootstrap(): Promise<"ready" | "deferred">
   return await runPressureGuardHeavyMaintenance();
 }
 
+/**
+ * Idempotent essential-schema DDL for pressure-guard. Every statement is
+ * `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE … ADD COLUMN IF NOT EXISTS`
+ * / `INSERT … ON CONFLICT DO NOTHING` / `CREATE INDEX IF NOT EXISTS`, so
+ * concurrent boots from multiple processes are safe — PG serialises at
+ * the catalog level and the second runner is a no-op on every line.
+ *
+ * Historical bug (production incident 2026-05-22): this block used to
+ * live inside `withAdvisoryLock(LOCK_KEYS.PRESSURE_GUARD, …)` which uses
+ * `pg_try_advisory_lock` (session-level). On Neon's PgBouncer
+ * transaction-pooled URL each statement on a `pool.connect()` client is
+ * routed to a *different* PG backend, so:
+ *   1. The lock is acquired on backend A but never released by it (the
+ *      `pg_advisory_unlock` runs on backend Z → returns false → backend
+ *      A leaks the lock until that physical connection dies).
+ *   2. Every subsequent boot grabs a different backend B/C/D from the
+ *      PgBouncer pool. If it happens to land on backend A (or any other
+ *      leaked-lock holder), `pg_try_advisory_lock` returns false and we
+ *      silently bail with "Another process is running bootstrap" — the
+ *      DDL never executes, the tables are never created, and the worker
+ *      drainer fails to acquire its leader-lease on every tick (drain
+ *      goes to zero with no obvious error).
+ *
+ * Fix: run the essential DDL directly via `pool.query()` (one connection
+ * per statement; idempotency from PG catalog serialisation is enough).
+ * The advisory lock is preserved for the HEAVY work below (CREATE INDEX
+ * CONCURRENTLY + backfills) where serialising concurrent runners still
+ * matters, but the DDL section that gates the entire drain path now
+ * runs unconditionally on every boot.
+ */
+export async function ensurePressureGuardEssentialSchema(): Promise<void> {
+  const stmts: Array<{ sql: string; label: string }> = [
+    { label: "subscribers.last_sent_at", sql: `ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_sent_at timestamp` },
+    { label: "campaigns.deferred_count", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS deferred_count integer NOT NULL DEFAULT 0` },
+    // R3: tiny single-row state table so cluster-wide once/day
+    // maintenance is idempotent across multiple worker processes.
+    { label: "pressure_maintenance_state", sql: `
+        CREATE TABLE IF NOT EXISTS pressure_maintenance_state (
+          id boolean PRIMARY KEY DEFAULT true,
+          last_heavy_run_date date,
+          CONSTRAINT pressure_maintenance_state_singleton CHECK (id = true)
+        )` },
+    { label: "pressure_maintenance_state seed", sql: `INSERT INTO pressure_maintenance_state (id) VALUES (true) ON CONFLICT (id) DO NOTHING` },
+    // Task #149: lease-table for cross-cluster leader election.
+    // Replaces `pg_try_advisory_lock` (session-level) which leaks
+    // indefinitely on Neon PgBouncer transaction-pooled endpoints.
+    // Each row is acquired/refreshed/released by atomic single-statement
+    // ops, so it is fully compatible with transaction pooling and
+    // self-recovers after a node crash via the TTL on `expires_at`.
+    { label: "pressure_guard_leader", sql: `
+        CREATE TABLE IF NOT EXISTS pressure_guard_leader (
+          lock_key text PRIMARY KEY,
+          holder_id text NOT NULL,
+          expires_at timestamptz NOT NULL
+        )` },
+    // Task #160: per-lease last-tick heartbeat — written by the
+    // drain loop on every successful (or failed) tick so a remote
+    // health endpoint can answer "is the drain still alive?" without
+    // relying on in-process state (the drainer runs in its own PM2
+    // process and the web cannot inspect its memory).
+    { label: "pressure_guard_leader.last_tick_at", sql: `ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_at timestamptz` },
+    { label: "pressure_guard_leader.last_tick_drained", sql: `ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_drained int NOT NULL DEFAULT 0` },
+    { label: "pressure_guard_leader.last_tick_errors", sql: `ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_errors int NOT NULL DEFAULT 0` },
+    { label: "pressure_guard_leader.last_tick_eligible", sql: `ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_eligible int NOT NULL DEFAULT 0` },
+    // Task #160: cross-process drain-tick error log. Each row is one
+    // caught exception inside the safeInterval-wrapped drain tick or
+    // a per-campaign drainCampaign() call. Read by
+    // /api/admin/pressure-drain/health to compute errors_5m WITHOUT
+    // depending on in-process counters (the drainer runs in a
+    // separate PM2 process whose memory the web cannot inspect).
+    // Auto-pruned to 24h via the maintenance tick — see
+    // server/workers/pressure-guard-worker.ts runMaintenanceTick.
+    { label: "pressure_drain_tick_errors", sql: `
+        CREATE TABLE IF NOT EXISTS pressure_drain_tick_errors (
+          id bigserial PRIMARY KEY,
+          occurred_at timestamptz NOT NULL DEFAULT NOW(),
+          holder_id text,
+          error_msg text
+        )` },
+    { label: "pressure_drain_tick_errors idx", sql: `CREATE INDEX IF NOT EXISTS pressure_drain_tick_errors_occurred_at_idx ON pressure_drain_tick_errors (occurred_at DESC)` },
+    { label: "campaigns.skipped_pressure_count", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0` },
+    { label: "campaign_sends.eligible_at", sql: `ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp` },
+    // Task #169: aging cap columns. ALTER TABLE … ADD COLUMN with
+    // NULLable timestamp / integer DEFAULT 0 is a metadata-only
+    // operation on PG ≥ 11 (no full table rewrite).
+    { label: "campaign_sends.first_deferred_at", sql: `ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS first_deferred_at timestamp` },
+    { label: "campaigns.aged_forced_count", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS aged_forced_count integer NOT NULL DEFAULT 0` },
+    // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
+    { label: "users.is_admin", sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false` },
+    { label: "pressure_flush_audit", sql: `
+        CREATE TABLE IF NOT EXISTS pressure_flush_audit (
+          id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+          campaign_id varchar,
+          user_id varchar,
+          scope text NOT NULL,
+          count integer NOT NULL DEFAULT 0,
+          reason text NOT NULL DEFAULT '',
+          created_at timestamp NOT NULL DEFAULT NOW()
+        )` },
+    { label: "pressure_flush_audit campaign idx", sql: `CREATE INDEX IF NOT EXISTS pressure_flush_audit_campaign_idx ON pressure_flush_audit(campaign_id)` },
+    { label: "pressure_flush_audit created idx", sql: `CREATE INDEX IF NOT EXISTS pressure_flush_audit_created_idx ON pressure_flush_audit(created_at)` },
+  ];
+  for (const { sql, label } of stmts) {
+    try {
+      await pool.query(sql);
+    } catch (err: any) {
+      // Surface but don't abort: a single ALTER failing (e.g. permission
+      // race on a parent ALTER) must not prevent the remaining DDL from
+      // running. The post-DDL `verifyPressureSchemaReady()` check is the
+      // authoritative gate.
+      logger.error(`[PRESSURE_GUARD] essential DDL failed (${label}): ${err?.message || err}`);
+    }
+  }
+}
+
 async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred"> {
   let outcome: "ready" | "deferred" = "ready";
+
+  // (1) Essential schema first, unconditionally and without any advisory
+  // lock — see ensurePressureGuardEssentialSchema's banner comment for
+  // why withAdvisoryLock is incompatible with Neon PgBouncer transaction
+  // pooling. Idempotent across concurrent boots.
+  await ensurePressureGuardEssentialSchema();
+
+  // (2) Heavy maintenance under advisory lock — only the CREATE INDEX
+  // CONCURRENTLY and the first_deferred_at backfill below depend on
+  // serialisation across processes, and they all live OUTSIDE the
+  // withAdvisoryLock client (CONCURRENTLY can't run in a transaction
+  // block anyway). The wrapper now only owns the gate: returns "ran" if
+  // we won leadership, "skipped" if another node owns it, "error" on
+  // pool issues. We don't run any DDL inside it anymore.
   const result = await withAdvisoryLock(
     LOCK_KEYS.PRESSURE_GUARD,
     "PRESSURE_GUARD",
-    async (client) => {
-      try {
-        await client.query(`ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS last_sent_at timestamp`);
-        await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS deferred_count integer NOT NULL DEFAULT 0`);
-        // R3: tiny single-row state table so cluster-wide once/day
-        // maintenance is idempotent across multiple worker processes.
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS pressure_maintenance_state (
-            id boolean PRIMARY KEY DEFAULT true,
-            last_heavy_run_date date,
-            CONSTRAINT pressure_maintenance_state_singleton CHECK (id = true)
-          )
-        `);
-        await client.query(`INSERT INTO pressure_maintenance_state (id) VALUES (true) ON CONFLICT (id) DO NOTHING`);
-        // Task #149: lease-table for cross-cluster leader election.
-        // Replaces `pg_try_advisory_lock` (session-level) which leaks
-        // indefinitely on Neon PgBouncer transaction-pooled endpoints.
-        // Each row is acquired/refreshed/released by atomic single-statement
-        // ops, so it is fully compatible with transaction pooling and
-        // self-recovers after a node crash via the TTL on `expires_at`.
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS pressure_guard_leader (
-            lock_key text PRIMARY KEY,
-            holder_id text NOT NULL,
-            expires_at timestamptz NOT NULL
-          )
-        `);
-        // Task #160: per-lease last-tick heartbeat — written by the
-        // drain loop on every successful (or failed) tick so a remote
-        // health endpoint can answer "is the drain still alive?" without
-        // relying on in-process state (the drainer runs in its own PM2
-        // process and the web cannot inspect its memory).
-        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_at timestamptz`);
-        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_drained int NOT NULL DEFAULT 0`);
-        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_errors int NOT NULL DEFAULT 0`);
-        await client.query(`ALTER TABLE pressure_guard_leader ADD COLUMN IF NOT EXISTS last_tick_eligible int NOT NULL DEFAULT 0`);
-        // Task #160: cross-process drain-tick error log. Each row is one
-        // caught exception inside the safeInterval-wrapped drain tick or
-        // a per-campaign drainCampaign() call. Read by
-        // /api/admin/pressure-drain/health to compute errors_5m WITHOUT
-        // depending on in-process counters (the drainer runs in a
-        // separate PM2 process whose memory the web cannot inspect).
-        // Auto-pruned to 24h via the maintenance tick — see
-        // server/workers/pressure-guard-worker.ts runMaintenanceTick.
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS pressure_drain_tick_errors (
-            id bigserial PRIMARY KEY,
-            occurred_at timestamptz NOT NULL DEFAULT NOW(),
-            holder_id text,
-            error_msg text
-          )
-        `);
-        await client.query(`CREATE INDEX IF NOT EXISTS pressure_drain_tick_errors_occurred_at_idx ON pressure_drain_tick_errors (occurred_at DESC)`);
-        await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0`);
-        await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp`);
-        // Task #169: aging cap columns. ALTER TABLE … ADD COLUMN with
-        // NULLable timestamp / integer DEFAULT 0 is a metadata-only
-        // operation on PG ≥ 11 (no full table rewrite), safe to run
-        // under the advisory lock even on 60M-row campaign_sends.
-        await client.query(`ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS first_deferred_at timestamp`);
-        await client.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS aged_forced_count integer NOT NULL DEFAULT 0`);
-        // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
-        await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false`);
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS pressure_flush_audit (
-            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
-            campaign_id varchar,
-            user_id varchar,
-            scope text NOT NULL,
-            count integer NOT NULL DEFAULT 0,
-            reason text NOT NULL DEFAULT '',
-            created_at timestamp NOT NULL DEFAULT NOW()
-          )
-        `);
-        await client.query(`CREATE INDEX IF NOT EXISTS pressure_flush_audit_campaign_idx ON pressure_flush_audit(campaign_id)`);
-        await client.query(`CREATE INDEX IF NOT EXISTS pressure_flush_audit_created_idx ON pressure_flush_audit(created_at)`);
-
-        // Partial index for the deferred-drain poll. CONCURRENTLY can't run
-        // inside the lock client (which is in an implicit txn after errors).
-        // We close the txn first via a no-op COMMIT; pg_try_advisory_lock is
-        // session-level so the lock is preserved.
-      } catch (err: any) {
-        logger.error(`[PRESSURE_GUARD] DDL failed: ${err?.message || err}`);
-        bootstrapState = "deferred";
-        outcome = "deferred";
-        return;
-      }
-    },
+    async (_client) => { /* DDL was hoisted out — see ensurePressureGuardEssentialSchema() */ },
   );
 
   // Build the partial index outside the advisory lock client (CREATE INDEX
-  // CONCURRENTLY can't run in a transaction block).
-  if (result === "ran" || result === "skipped") {
+  // CONCURRENTLY can't run in a transaction block). We run on BOTH "ran"
+  // and "skipped" (essential schema is already in place from the
+  // unconditional ensurePressureGuardEssentialSchema() above, and the
+  // CONCURRENTLY builds are themselves idempotent via
+  // `IF NOT EXISTS` + `indexExistsAndValid` guard), but skip on "error"
+  // to avoid piling expensive CONCURRENTLY work onto a pool that is
+  // already failing — the bootstrap-retry timer will re-attempt the
+  // whole sequence in 15s.
+  if (result !== "error") {
     // Task #145 R6/R7/R8: 3 additional partial indexes that back the
     // per-campaign queue page, the admin /curve sparkline, and the
     // top-20 most-deferred-contacts query. Each is built CONCURRENTLY
@@ -421,15 +470,16 @@ async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred">
     }
   }
 
-  // Lock-result-aware readiness: 'ran' is only authoritative if the inner
-  // DDL didn't trip our `outcome='deferred'` branch. 'skipped' / 'error'
-  // mean another node owns the bootstrap (or the lock query failed) — we
-  // verify the schema artefacts are observably present before flipping
-  // ready, otherwise we leave the state unchanged and a retry timer
-  // (started below) will re-probe until ready, so a bootstrap-skip on
-  // one node does not permanently block sending.
+  // Readiness gate. Now that `ensurePressureGuardEssentialSchema()` runs
+  // unconditionally above (no lock, idempotent), the authoritative signal
+  // is `schemaOk` from the post-DDL verify. The `result` value is only
+  // informational here — it tells us whether THIS process owned the
+  // CONCURRENTLY/backfill heavy-section gate, but it does NOT need to be
+  // "ran" for readiness because the schema check is what truly matters.
+  // This breaks the historical "skipped → not ready" pitfall where a
+  // leaked PgBouncer advisory lock would permanently keep the gate shut.
   const schemaOk = await verifyPressureSchemaReady();
-  if (outcome === "ready" && (result === "ran" || schemaOk)) {
+  if (outcome === "ready" && schemaOk) {
     bootstrapState = "ready";
     stopBootstrapRetry();
     logger.info(`[PRESSURE_GUARD] Bootstrap ready (window=${PRESSURE_WINDOW_HOURS}h, max_defer=${PRESSURE_MAX_DEFER_HOURS}h, near_aging=${PRESSURE_NEAR_AGING_HOURS}h, lock=${result}, schema_verified=${schemaOk})`);
