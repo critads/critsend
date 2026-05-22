@@ -1,0 +1,61 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # 1. Le dossier existe-t-il et qu'y a-t-il dedans?
+ls -la /var/lib/critsend/uploads/imports/ 2>&1 | head -20
+sudo ls -la /var/lib/critsend/uploads/imports/ 2>&1 | head -20
+
+# 2. Permissions / propriétaire du dossier parent
+ls -ld /var/lib/critsend /var/lib/critsend/uploads /var/lib/critsend/uploads/imports
+
+# 3. Disque plein?
+df -h /var/lib/critsend
+
+# 4. Quel STORAGE_BACKEND est utilisé?
+grep -E "STORAGE_BACKEND|UPLOAD" /home/ubuntu/critsend/.env 2>/dev/null
+
+# 5. Y a-t-il un cleanup cron qui les efface?
+sudo crontab -l 2>/dev/null; ls /etc/cron.* 2>/dev/null | xargs -I {} echo {}
+sudo find /etc/cron.* /etc/systemd/system -name "*critsend*" -o -name "*cleanup*" 2>/dev/null
+total 26084
+drwxr-xr-x 2 ubuntu ubuntu    4096 May 21 21:17 .
+drwxr-xr-x 4 ubuntu ubuntu    4096 May 13 06:51 ..
+-rw-rw-r-- 1 ubuntu ubuntu 6774410 May 15 20:21 import-1778869313369-291937519.csv
+-rw-rw-r-- 1 ubuntu ubuntu 6414860 May 19 19:21 import-1779211279752-787087299.csv
+-rw-rw-r-- 1 ubuntu ubuntu 4713426 May 20 19:01 import-1779296502802-92417920.csv
+-rw-rw-r-- 1 ubuntu ubuntu 4339390 May 20 20:15 import-1779300941610-274991817.csv
+-rw-rw-r-- 1 ubuntu ubuntu      45 May 21 12:12 import-1779358363864-717207226.csv
+-rw-rw-r-- 1 ubuntu ubuntu      45 May 21 12:16 import-1779358583411-341953459.csv
+-rw-rw-r-- 1 ubuntu ubuntu 4440683 May 21 21:17 import-1779391028244-4189691.csv
+[sudo] password for ubuntu: 
+total 26084
+drwxr-xr-x 2 ubuntu ubuntu    4096 May 21 21:17 .
+drwxr-xr-x 4 ubuntu ubuntu    4096 May 13 06:51 ..
+-rw-rw-r-- 1 ubuntu ubuntu 6774410 May 15 20:21 import-1778869313369-291937519.csv
+-rw-rw-r-- 1 ubuntu ubuntu 6414860 May 19 19:21 import-1779211279752-787087299.csv
+-rw-rw-r-- 1 ubuntu ubuntu 4713426 May 20 19:01 import-1779296502802-92417920.csv
+-rw-rw-r-- 1 ubuntu ubuntu 4339390 May 20 20:15 import-1779300941610-274991817.csv
+-rw-rw-r-- 1 ubuntu ubuntu      45 May 21 12:12 import-1779358363864-717207226.csv
+-rw-rw-r-- 1 ubuntu ubuntu      45 May 21 12:16 import-1779358583411-341953459.csv
+-rw-rw-r-- 1 ubuntu ubuntu 4440683 May 21 21:17 import-1779391028244-4189691.csv
+drwxr-xr-x 3 ubuntu ubuntu 4096 May 13 06:51 /var/lib/critsend
+drwxr-xr-x 4 ubuntu ubuntu 4096 May 13 06:51 /var/lib/critsend/uploads
+drwxr-xr-x 2 ubuntu ubuntu 4096 May 21 21:17 /var/lib/critsend/uploads/imports
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/md2        2.0T  5.7G  1.9T   1% /
+STORAGE_BACKEND=local
+IMPORT_UPLOAD_DIR=/var/lib/critsend/uploads/imports
+/etc/cron.d:
+certbot
+e2scrub_all
+sysstat
+/etc/cron.daily:
+apport
+apt-compat
+dpkg
+logrotate
+man-db
+sysstat
+/etc/cron.hourly:
+/etc/cron.monthly:
+/etc/cron.weekly:
+man-db
+/etc/cron.yearly:
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 
