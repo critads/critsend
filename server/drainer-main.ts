@@ -76,6 +76,21 @@ process.on("SIGINT", () => {
   );
   validateConnectionBudget();
 
+  // 2026-05-22: proactive INVALID-index reaper. Advisory-locked so only
+  // one of web/worker/drainer does the work. The drainer is usually
+  // last to boot (after web + worker) so it normally observes "skipped",
+  // but if web/worker fail to start the drainer still self-heals.
+  try {
+    const { releaseStuckBootstrapLocks } = await import("./bootstrap-lock-recovery");
+    await releaseStuckBootstrapLocks("drainer-boot");
+    const { reapInvalidIndexes } = await import("./bootstrap-lock");
+    reapInvalidIndexes("drainer-boot").catch((err: any) =>
+      logger.warn(`[INVALID_INDEX_REAPER] drainer-boot scan failed (non-fatal): ${err?.message || err}`)
+    );
+  } catch (err: any) {
+    logger.warn(`[DRAINER] Invalid-index reaper bootstrap skipped: ${err?.message || err}`);
+  }
+
   // campaign-job stall RCA (2026-05-19) — Zombie sweeper also runs in the drainer process. The
   // drainer issues its own UPDATE...SKIP LOCKED queries against
   // campaign_sends + holds locks during the force-reserve cascade. A

@@ -155,6 +155,19 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   validateConnectionBudget();
 
+  // 2026-05-22: proactive INVALID-index reaper. Advisory-locked so only
+  // one of web/worker/drainer does the work. See bootstrap-lock.ts.
+  try {
+    const { releaseStuckBootstrapLocks } = await import("./bootstrap-lock-recovery");
+    await releaseStuckBootstrapLocks("worker-boot");
+    const { reapInvalidIndexes } = await import("./bootstrap-lock");
+    reapInvalidIndexes("worker-boot").catch((err: any) =>
+      logger.warn(`[INVALID_INDEX_REAPER] worker-boot scan failed (non-fatal): ${err?.message || err}`)
+    );
+  } catch (err: any) {
+    logger.warn(`[WORKER] Invalid-index reaper bootstrap skipped: ${err?.message || err}`);
+  }
+
   const { probeImportPool } = await import("./import-pool");
   probeImportPool();
 

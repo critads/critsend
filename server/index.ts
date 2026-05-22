@@ -791,6 +791,17 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   const { releaseStuckBootstrapLocks } = await import("./bootstrap-lock-recovery");
   await releaseStuckBootstrapLocks("web-boot");
 
+  // 2026-05-22: proactive INVALID-index reaper. Runs BEFORE any
+  // ensureXxxIndex helper so the bootstrap chain can recreate freshly.
+  // Idempotent + advisory-locked (only one of web/worker/drainer does
+  // the work, others observe skipped). Never throws. See
+  // server/bootstrap-lock.ts → reapInvalidIndexes() for the full
+  // rationale (v3 history note).
+  const { reapInvalidIndexes } = await import("./bootstrap-lock");
+  reapInvalidIndexes("web-boot").catch((err: any) => {
+    logger.warn(`[INVALID_INDEX_REAPER] web-boot scan failed (non-fatal): ${err?.message || err}`);
+  });
+
   const { probeTrackingPool } = await import("./tracking-pool");
   const { probeImportPool } = await import("./import-pool");
   probeTrackingPool().catch(() => {});
