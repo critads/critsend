@@ -1710,6 +1710,45 @@ async function runCampaignGuardianPoll(): Promise<void> {
             logger.error(`[CAMPAIGN_GUARDIAN] Paused ${c.id} (${c.name}) — retry budget exceeded after ${c.retryCount} retries`);
             break;
           }
+          case "extend_retry_budget_transient": {
+            // 2026-05-23 incident (campaign #3050): all of the last N
+            // failures carry the `transient=true` marker, meaning the
+            // root cause is an infrastructure incident (pool / lock /
+            // network), NOT a campaign-specific fault. Pausing here
+            // would strand the campaign indefinitely. Rewind
+            // retry_count short of the cap (so a fresh round of normal
+            // exponential backoff fires) and re-enqueue with max
+            // backoff (15 min) — by then either the incident has
+            // cleared and the job succeeds, or another N failures
+            // accumulate and we re-enter this branch (idempotent).
+            //
+            // We do NOT reset retry_count to 0: that would mask a
+            // genuine fault loop where the infrastructure keeps
+            // crashing the sender. Keeping retry_count high preserves
+            // the long backoff (15min cap) the sender already uses
+            // and means a persistent infra outage still surfaces in
+            // Prometheus as `sending_retry_budget_extended_transient`
+            // for on-call to see, instead of looking healthy.
+            const { STUCK_MAX_JOB_RETRIES: cap, STUCK_TRANSIENT_REWIND: rewind } =
+              await import("./services/stuck-campaign-diagnosis");
+            const newRetryCount = Math.max(0, cap - rewind);
+            const MAX_BACKOFF_S = 15 * 60;
+            try {
+              // Stamp the diagnosis on the prior failed job so audit
+              // trail shows "guardian extended" rather than a silent
+              // re-enqueue. Best-effort.
+              if (c.jobId) {
+                await storage.completeJob(c.jobId, "failed",
+                  `Guardian extended transient retry budget (${c.detail})`).catch(() => {});
+              }
+              await storage.enqueueCampaignJobWithRetry(c.id, newRetryCount, MAX_BACKOFF_S);
+              await messageQueue.notify("campaign_jobs", { campaignId: c.id });
+              logger.warn(`[CAMPAIGN_GUARDIAN] Extended retry budget for ${c.id} (${c.name}) — last ${(c.retryCount ?? 0) + 1} failures all transient (infra), rewound retry_count to ${newRetryCount}, next attempt in ${MAX_BACKOFF_S}s`);
+            } catch (extErr: any) {
+              logger.error(`[CAMPAIGN_GUARDIAN] extend_retry_budget_transient for ${c.id} failed: ${extErr?.message}`);
+            }
+            break;
+          }
         }
       } catch (actionErr: any) {
         logger.error(`[CAMPAIGN_GUARDIAN] Action '${c.action}' for ${c.id} failed: ${actionErr?.message}`);
