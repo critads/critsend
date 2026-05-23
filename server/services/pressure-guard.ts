@@ -1,15 +1,15 @@
 /**
  * Marketing Pressure Guard — Task #144
  *
- * Enforces a hard 6h gap between any two emails to the same contact across
- * ALL campaigns. Implementation contract:
+ * Enforces a hard 4h gap (was 6h until 2026-05-23) between any two emails
+ * to the same contact across ALL campaigns. Implementation contract:
  *
  *   1. Atomic CAS (`pressureGuardReserveSendSlots`):
  *      Single SQL statement that updates `subscribers.last_sent_at = NOW()`
  *      for every `id` in the batch *iff* the contact is currently eligible
- *      (`last_sent_at IS NULL OR last_sent_at + 6h <= NOW()`). Returns the
+ *      (`last_sent_at IS NULL OR last_sent_at + 4h <= NOW()`). Returns the
  *      winners. Losers are written into `campaign_sends` with
- *      `status='pending'` and `eligible_at = last_sent_at + 6h` so the
+ *      `status='pending'` and `eligible_at = last_sent_at + 4h` so the
  *      deferred-drain worker can retry them later. Cumulative
  *      `campaigns.deferred_count` is bumped per defer event.
  *
@@ -18,9 +18,13 @@
  *      Idempotent: every statement is `IF NOT EXISTS`. Indexes use
  *      `CREATE INDEX CONCURRENTLY` so we never block live sends.
  *
- *   3. Window override (`PRESSURE_WINDOW_HOURS` env, default 6):
+ *   3. Window override (`PRESSURE_WINDOW_HOURS` env, default 4):
  *      Used ONLY for the nullsink concurrency test (set to 0 / very large)
  *      and ops drills. Production code paths must always use the default.
+ *      In-prod retroactive change 6h→4h on 2026-05-23 also shifted the
+ *      ~2.3M existing deferred rows back by 2h via:
+ *        UPDATE campaign_sends SET eligible_at = eligible_at - INTERVAL '2 hours'
+ *         WHERE status='pending' AND eligible_at > NOW();
  */
 
 import { pool, db } from "../db";
@@ -35,10 +39,12 @@ import {
   pressureGuardBackfillInProgress,
 } from "../metrics";
 
-// Production hard-locks the window to 6h per task contract. The
-// `PRESSURE_WINDOW_HOURS` env override is honoured ONLY in non-prod
-// environments (development/test) where the nullsink suite needs to
-// validate guard mechanics over a much shorter window.
+// Production hard-locks the window to 4h per task contract (was 6h
+// until 2026-05-23 — business decision to tighten delivery cadence
+// while keeping deliverability safe). The `PRESSURE_WINDOW_HOURS`
+// env override is honoured ONLY in non-prod environments
+// (development/test) where the nullsink suite needs to validate
+// guard mechanics over a much shorter window.
 //
 // Task #145 R14: strict bounds [5min, 7d]. Out-of-range values cause
 // the module to throw at import time so misconfiguration cannot reach
@@ -49,9 +55,9 @@ import {
 const PRESSURE_WINDOW_MIN_MINUTES = 5;
 const PRESSURE_WINDOW_MAX_MINUTES = 168 * 60; // 7 days
 export const PRESSURE_WINDOW_HOURS = (() => {
-  if (process.env.NODE_ENV === "production") return 6;
+  if (process.env.NODE_ENV === "production") return 4;
   const raw = process.env.PRESSURE_WINDOW_HOURS;
-  if (!raw) return 6;
+  if (!raw) return 4;
   const parsed = Number(raw);
   const minutes = Math.round(parsed * 60);
   if (!Number.isFinite(parsed) || minutes < PRESSURE_WINDOW_MIN_MINUTES || minutes > PRESSURE_WINDOW_MAX_MINUTES) {

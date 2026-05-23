@@ -57,7 +57,7 @@ export default function CampaignQueue() {
       apiRequest("POST", `/api/campaigns/${id}/queue/flush`, body),
     onSuccess: async (res: any) => {
       const json = await res.json();
-      toast({ title: "Reprogrammed", description: `${json.reprogrammed ?? json.flushed} deferred send(s) advanced to NOW(). The 6h gap is still re-checked at dispatch.` });
+      toast({ title: "Reprogrammed", description: `${json.reprogrammed ?? json.flushed} deferred send(s) advanced to NOW(). The 4h gap is still re-checked at dispatch.` });
       setSelected(new Set());
       setReason("");
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", id, "queue"] });
