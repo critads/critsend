@@ -853,26 +853,51 @@ export function registerPressureRoutes(app: Express): void {
   app.get("/api/admin/pressure-queue/top-contacts", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     try {
-      // R8: 30-second cache. Top-contacts is polled every 30s and runs a
-      // GROUP BY across all currently-deferred rows.
+      // 2026-05-23 DB-CPU audit: original query GROUPed BY
+      // (subscriber_id, email, last_sent_at) directly on the JOIN of
+      // campaign_sends × subscribers, forcing a ~189 MB on-disk sort
+      // over the 2.1M-row deferred backlog. Measured ~27 s — always
+      // breached the 8s ADMIN_PRESSURE_STMT_TIMEOUT_MS, so the page
+      // showed nothing but stale or 500.
+      //
+      // Two changes:
+      //   (1) Aggregate on (subscriber_id) ONLY in a CTE, then top-N +
+      //       join to subscribers only for the 20 winning rows. The
+      //       hash join over subscribers and the wide GROUP key are
+      //       both gone. Measured ~11 s (still a 121 MB sort on the
+      //       2.1M row scan — fundamental, no index avoids it given
+      //       we need COUNT per subscriber across millions of rows).
+      //   (2) Dedicated 20s timeout (well above the ~11s execution)
+      //       and 5min cache TTL — "top deferred contacts" is a
+      //       human-eyeballed list, not an operational signal that
+      //       needs sub-minute freshness. At 1 query / 5 min the DB
+      //       cost is negligible regardless of dashboard refresh rate.
       const cached = cacheGet<any>("admin:top-contacts");
       if (cached) return res.json(cached);
-      const rows = await withStmtTimeout(ADMIN_PRESSURE_STMT_TIMEOUT_MS, async (tx) =>
+      const TOP_CONTACTS_TIMEOUT_MS = 20_000;
+      const TOP_CONTACTS_CACHE_TTL_MS = 5 * 60_000;
+      const rows = await withStmtTimeout(TOP_CONTACTS_TIMEOUT_MS, async (tx) =>
         tx.execute(sql`
-          SELECT cs.subscriber_id, s.email, s.last_sent_at,
-                 COUNT(*) AS deferred_rows,
-                 MIN(cs.eligible_at) AS next_eligible_at
-          FROM campaign_sends cs
-          JOIN subscribers s ON s.id = cs.subscriber_id
-          WHERE cs.status = 'pending' AND cs.eligible_at IS NOT NULL
-          GROUP BY cs.subscriber_id, s.email, s.last_sent_at
-          ORDER BY deferred_rows DESC, next_eligible_at ASC
-          LIMIT 20
+          WITH top_subs AS (
+            SELECT subscriber_id,
+                   COUNT(*) AS deferred_rows,
+                   MIN(eligible_at) AS next_eligible_at
+            FROM campaign_sends
+            WHERE status = 'pending' AND eligible_at IS NOT NULL
+            GROUP BY subscriber_id
+            ORDER BY deferred_rows DESC, next_eligible_at ASC
+            LIMIT 20
+          )
+          SELECT t.subscriber_id, s.email, s.last_sent_at,
+                 t.deferred_rows, t.next_eligible_at
+          FROM top_subs t
+          JOIN subscribers s ON s.id = t.subscriber_id
+          ORDER BY t.deferred_rows DESC, t.next_eligible_at ASC
         `)
       );
       if (res.headersSent) return;
       const payload = { rows: rows.rows, generatedAt: new Date().toISOString() };
-      res.json(cacheSet("admin:top-contacts", payload, 30_000));
+      res.json(cacheSet("admin:top-contacts", payload, TOP_CONTACTS_CACHE_TTL_MS));
     } catch (err: any) {
       logger.error(`[PRESSURE_QUEUE] /top-contacts failed: ${err?.message || err}`);
       if (res.headersSent) return;

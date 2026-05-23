@@ -1,0 +1,71 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ git log -1 --oneline      # doit afficher a8abe216 "Improve pressure queue page performance..."
+git pull
+npm run build
+pm2 reload critsend-web   # seul critsend-web sert /api/admin/pressure-queue
+pm2 logs critsend-web --lines 30 | grep PRESSURE_QUEUE
+f2f86d7 (HEAD -> main, origin/main, origin/HEAD) Optimize database queries for health and backlog endpoints
+remote: Enumerating objects: 20, done.
+remote: Counting objects: 100% (20/20), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 15 (delta 12), reused 15 (delta 12), pack-reused 0 (from 0)
+Unpacking objects: 100% (15/15), 316.24 KiB | 2.70 MiB/s, done.
+From https://github.com/critads/critsend
+   f2f86d7..d31dcfd  main       -> origin/main
+Updating f2f86d7..d31dcfd
+Fast-forward
+ attached_assets/Critsend_-_Email_Marketing_Platform_1779504169481.pdf               | Bin 0 -> 732165 bytes
+ ...Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1779503595511.txt |  30 +++++++++
+ attached_assets/pressue-queue_1779503680978.pdf                                     | Bin 0 -> 721614 bytes
+ server/routes/pressure.ts                                                           | 132 ++++++++++++++++++++++++++++++----------
+ 4 files changed, 130 insertions(+), 32 deletions(-)
+ create mode 100644 attached_assets/Critsend_-_Email_Marketing_Platform_1779504169481.pdf
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-pm2-logs_1779503595511.txt
+ create mode 100644 attached_assets/pressue-queue_1779503680978.pdf
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (8) src/lib/queryClient.ts
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 2505 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BAY_OPMi.css     93.75 kB │ gzip:  15.10 kB
+../dist/public/assets/index-CpVK5Oa2.js   1,381.19 kB │ gzip: 362.75 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.14s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 120ms
+building import worker...
+
+  dist/import-worker.cjs  653.8kb
+
+⚡ Done in 72ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 78ms
+building drainer...
+
+  dist/drainer-main.cjs  646.1kb
+
+⚡ Done in 66ms
+Use --update-env to update environment variables
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 4 ])
+[PM2] [critsend-web](4) ✓
+4|critsend-web  | 2026-05-23 04:48:26 +02:00: 2026-05-23T02:48:26.355Z [ERROR] [PRESSURE_QUEUE] /top-contacts failed: canceling statement due to statement timeout
+4|critsend-web  | 2026-05-23 04:50:05 +02:00: 2026-05-23T02:50:05.090Z [ERROR] [PRESSURE_QUEUE] /top-contacts failed: canceling statement due to statement timeout
+4|critsend-web  | 2026-05-23 04:51:14 +02:00: 2026-05-23T02:51:14.135Z [ERROR] [PRESSURE_QUEUE] /top-contacts failed: canceling statement due to statement timeout
+
