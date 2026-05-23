@@ -283,6 +283,14 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
     // shared/schema.ts. Default false → all existing campaigns continue
     // to honour the 6h pressure window and `blocked_by_older` FIFO.
     { label: "campaigns.urgent_mode", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS urgent_mode boolean NOT NULL DEFAULT false` },
+    // 2026-05-23: campaigns.user_id owner column. Referenced by
+    // `/api/campaigns/:id/urgent` and `/api/campaigns/:id/queue` for
+    // the admin-or-owner gate. Nullable on purpose — historical rows
+    // pre-date the column and have no recorded owner; the route guards
+    // treat NULL as "no enforced owner" (admin still enforced). Added
+    // here after a production incident where the route returned 500
+    // because Postgres raised `column "user_id" does not exist`.
+    { label: "campaigns.user_id", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS user_id varchar` },
     // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
     { label: "users.is_admin", sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false` },
     { label: "pressure_flush_audit", sql: `

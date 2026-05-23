@@ -94,6 +94,22 @@ export const emailHeaders = pgTable("email_headers", {
 // Campaigns
 export const campaigns = pgTable("campaigns", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Owner of the campaign. Nullable for historical rows created before
+  // this column existed (the original schema had no per-campaign owner
+  // and ownership was implicit / single-tenant). Referenced by:
+  //   - POST /api/campaigns/:id/urgent (server/routes/campaigns.ts) —
+  //     admin-or-owner gate for the operator-grade pressure bypass.
+  //   - GET  /api/campaigns/:id/queue   (server/routes/pressure.ts) —
+  //     same gate for the per-campaign pressure-queue inspector.
+  // When NULL, the routes treat the campaign as "no enforced owner"
+  // and only the admin check applies (a non-admin authenticated user
+  // is NOT blocked, which matches the legacy single-tenant behaviour).
+  // 2026-05-23: column added to the schema after a production incident
+  // where `/urgent` returned 500 because the prod DB lacked the column
+  // referenced by the route. Bootstrap migration in
+  // `ensurePressureGuardEssentialSchema` (pressure-guard.ts) creates
+  // it idempotently on any DB that's still missing it.
+  userId: varchar("user_id"),
   name: text("name").notNull(),
   mtaId: varchar("mta_id").references(() => mtas.id),
   segmentId: varchar("segment_id").references(() => segments.id),
