@@ -595,16 +595,42 @@ export function registerPressureRoutes(app: Express): void {
     if (!(await requireAdmin(req, res))) return;
     const cached = cacheGet<any>("admin:queue");
     if (cached) return res.json(cached);
+
+    // 2026-05-23 DB-CPU audit + production incident: the prior version
+    // ran summary + totals inside a single 8s statement_timeout. Post-
+    // VACUUM, EXPLAIN ANALYZE measured:
+    //   • totals:  8.1 s — `COUNT(DISTINCT subscriber_id)` triggers an
+    //              external 138 MB disk sort over 2.1M rows. ALWAYS
+    //              breached the 8s timeout.
+    //   • summary: 4.4 s — GroupAggregate over the same 2.1M rows.
+    // Because both ran in the same transaction, ANY breach blanked the
+    // entire payload, and since the cache is only written on success
+    // the page rendered all-zeros forever post-restart (no cache to
+    // serve stale from).
+    //
+    // New strategy — three independent best-effort queries, each with
+    // its own timeout and its own cache lane. If any sub-query fails the
+    // others still populate. The page degrades gracefully: a field may
+    // be `null` for one cycle instead of the entire dashboard going to
+    // zero. `pending_deferred` / `due_now` are served from the shared
+    // `getBacklogSnapshot()` cache — already populated by the /health
+    // endpoint, so under normal traffic this endpoint pays ZERO DB cost
+    // for those two fields.
+    const SUMMARY_TIMEOUT_MS = 12_000;
+    const EXTRAS_TIMEOUT_MS = 12_000;
+
+    let summaryRows: any[] | null = null;
+    let extras: {
+      distinct_contacts_in_cooldown: number | null;
+      oldest_deferred_age_hours: number | null;
+      near_aging_count: number | null;
+    } | null = null;
+    const errors: string[] = [];
+
+    // Per-campaign GROUP BY (4.4s post-VACUUM, well under 12s timeout).
     try {
-      // Task #169: surface oldest_deferred_age_hours + near_aging_count
-      // + aged_forced_count per campaign so operators can immediately
-      // see which campaigns are approaching or hitting the 72h cap.
-      // All three fold into the existing GROUP BY scan — no extra query.
-      // Task #178: wrap in a tight statement_timeout so the request
-      // releases its pool slot quickly under saturation; on failure the
-      // error handler below serves the last cached payload as `stale`.
-      const { summary, totals } = await withStmtTimeout(ADMIN_PRESSURE_STMT_TIMEOUT_MS, async (tx) => {
-        const summary = await tx.execute(sql`
+      const r = await withStmtTimeout(SUMMARY_TIMEOUT_MS, async (tx) =>
+        tx.execute(sql`
           SELECT
             cs.campaign_id,
             c.name AS campaign_name,
@@ -626,41 +652,83 @@ export function registerPressureRoutes(app: Express): void {
           GROUP BY cs.campaign_id, c.name, c.started_at, c.created_at, c.deferred_count, c.aged_forced_count
           ORDER BY c.created_at ASC NULLS FIRST
           LIMIT 500
-        `);
+        `),
+      );
+      summaryRows = r.rows as any[];
+      cacheSet("admin:queue:summary", summaryRows, 30_000);
+    } catch (err: any) {
+      errors.push(`summary: ${err?.message || err}`);
+      const stale = cacheGetStale<any[]>("admin:queue:summary");
+      if (stale) summaryRows = stale.value;
+    }
 
-        const totals = await tx.execute(sql`
+    // distinct_contacts + oldest_age + near_aging. The 138 MB disk sort
+    // for COUNT(DISTINCT subscriber_id) was the original killer; we keep
+    // it but with a longer dedicated timeout and a 60s cache so even on
+    // failure operators see the most recent successful number.
+    try {
+      const r = await withStmtTimeout(EXTRAS_TIMEOUT_MS, async (tx) =>
+        tx.execute(sql`
           SELECT
-            COUNT(*) AS pending_deferred,
             COUNT(DISTINCT subscriber_id) AS distinct_contacts_in_cooldown,
-            COUNT(*) FILTER (WHERE eligible_at <= NOW()) AS due_now,
             EXTRACT(EPOCH FROM (NOW() - MIN(first_deferred_at) FILTER (WHERE first_deferred_at IS NOT NULL))) / 3600.0 AS oldest_deferred_age_hours,
             COUNT(*) FILTER (
               WHERE first_deferred_at IS NOT NULL
                 AND first_deferred_at <= NOW() - (${PRESSURE_NEAR_AGING_HOURS}::numeric || ' hours')::interval
             ) AS near_aging_count
           FROM campaign_sends WHERE status = 'pending' AND eligible_at IS NOT NULL
-        `);
-
-        return { summary, totals };
-      });
-
-      const payload = {
-        windowHours: PRESSURE_WINDOW_HOURS,
-        maxDeferHours: PRESSURE_MAX_DEFER_HOURS,
-        nearAgingHours: PRESSURE_NEAR_AGING_HOURS,
-        totals: totals.rows[0],
-        campaigns: summary.rows,
-        generatedAt: new Date().toISOString(),
+        `),
+      );
+      const row = (r.rows[0] ?? {}) as any;
+      extras = {
+        distinct_contacts_in_cooldown: row.distinct_contacts_in_cooldown != null ? Number(row.distinct_contacts_in_cooldown) : null,
+        oldest_deferred_age_hours: row.oldest_deferred_age_hours != null ? Number(row.oldest_deferred_age_hours) : null,
+        near_aging_count: row.near_aging_count != null ? Number(row.near_aging_count) : null,
       };
-      if (res.headersSent) return;
-      res.json(cacheSet("admin:queue", payload, 30_000));
+      cacheSet("admin:queue:extras", extras, 60_000);
     } catch (err: any) {
-      logger.error(`[PRESSURE_QUEUE] /admin/pressure-queue failed: ${err?.message || err}`);
-      if (res.headersSent) return;
-      // Task #178: serve stale cache rather than blanking the dashboard.
-      const stale = cacheGetStale<any>("admin:queue");
-      if (stale) return res.json(staleEnvelope(stale.value, stale.storedAt));
-      res.status(500).json({ error: err?.message || "Internal error" });
+      errors.push(`extras: ${err?.message || err}`);
+      const stale = cacheGetStale<typeof extras>("admin:queue:extras");
+      if (stale) extras = stale.value;
+    }
+
+    // Cheap totals from the shared backlog snapshot cache.
+    let backlogSnap: { deferredPending: number; deferredDue: number } | null = null;
+    try {
+      backlogSnap = await getBacklogSnapshot();
+    } catch (err: any) {
+      errors.push(`backlog: ${err?.message || err}`);
+    }
+
+    if (errors.length > 0) {
+      logger.warn(`[PRESSURE_QUEUE] /admin/pressure-queue degraded: ${errors.join(' | ')}`);
+    }
+
+    const totals = {
+      pending_deferred: backlogSnap?.deferredPending ?? null,
+      due_now: backlogSnap?.deferredDue ?? null,
+      distinct_contacts_in_cooldown: extras?.distinct_contacts_in_cooldown ?? null,
+      oldest_deferred_age_hours: extras?.oldest_deferred_age_hours ?? null,
+      near_aging_count: extras?.near_aging_count ?? null,
+    };
+
+    const payload = {
+      windowHours: PRESSURE_WINDOW_HOURS,
+      maxDeferHours: PRESSURE_MAX_DEFER_HOURS,
+      nearAgingHours: PRESSURE_NEAR_AGING_HOURS,
+      totals,
+      campaigns: summaryRows ?? [],
+      generatedAt: new Date().toISOString(),
+      degraded: errors.length > 0 ? errors : undefined,
+    };
+    if (res.headersSent) return;
+    // Only cache the assembled payload if everything succeeded — that
+    // way a partial-failure response is never returned to the next
+    // caller; they get a fresh re-try instead.
+    if (errors.length === 0 && summaryRows && extras && backlogSnap) {
+      res.json(cacheSet("admin:queue", payload, 30_000));
+    } else {
+      res.json(payload);
     }
   });
 
