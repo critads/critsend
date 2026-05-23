@@ -5,12 +5,18 @@
  * maintained incrementally by the live send/track paths:
  *
  *   campaigns.sent_count            ← bumped by bulkFinalizeSends
+ *   campaigns.pending_count         ← decremented at every send/skip/drop
+ *   campaigns.deferred_count        ← live "held queue depth" cache
+ *   campaigns.failed_count          ← bumped on permanent send failures
  *   campaign_sends.first_open_at    ← marked by tracking-buffer flush
  *   campaign_sends.first_click_at   ← marked by tracking-buffer flush
  *
  * The source of truth for each is a different table:
  *
  *   campaigns.sent_count            ↔ COUNT(*) FROM campaign_sends WHERE status='sent'
+ *   campaigns.pending_count         ↔ COUNT(*) FROM campaign_sends WHERE status='pending'
+ *   campaigns.deferred_count        ↔ COUNT(*) FROM campaign_sends WHERE status='pending' AND eligible_at > NOW()
+ *   campaigns.failed_count          ↔ COUNT(*) FROM campaign_sends WHERE status='failed'
  *   campaign_sends.first_open_at    ↔ MIN(timestamp) FROM campaign_stats WHERE type='open'
  *   campaign_sends.first_click_at   ↔ MIN(timestamp) FROM campaign_stats WHERE type='click'
  *
@@ -48,6 +54,13 @@ export interface ReconcileResult {
   firstOpenFixed: number;
   firstClickFixed: number;
   engagementCountersFixed: number;
+  /**
+   * 2026-05-23 — count of campaigns whose pending_count / deferred_count /
+   * failed_count cache disagreed with the truth-direct counts from
+   * `campaign_sends` and were corrected this tick. See stage
+   * `lifecycle_counters` below for the SQL.
+   */
+  lifecycleCountersFixed: number;
   durationMs: number;
 }
 
@@ -76,7 +89,8 @@ type ReconcileStage =
   | "sent_count"
   | "first_open_at"
   | "first_click_at"
-  | "engagement_counters";
+  | "engagement_counters"
+  | "lifecycle_counters";
 
 export async function reconcileCounters(
   options: { scope?: "recent" | "all" } = {},
@@ -177,6 +191,7 @@ export async function reconcileCounters(
   let firstOpenFixed = 0;
   let firstClickFixed = 0;
   let engagementCountersFixed = 0;
+  let lifecycleCountersFixed = 0;
   try {
   // 1. campaigns.sent_count (fill-only — never reduces)
   currentStage = "sent_count";
@@ -276,6 +291,61 @@ export async function reconcileCounters(
            OR c.complaints_count    IS DISTINCT FROM truth.complaints )`,
   );
   engagementCountersFixed = engagementRes.rowCount ?? 0;
+  checkBudget();
+
+  // 5. campaigns.{pending_count, deferred_count, failed_count} — added
+  //    2026-05-23 after a prod incident where a Decathlon campaign sat at
+  //    pending_count=231 633 cached vs 0 real rows for 2 days, blocking
+  //    the UI progress bar at 12% and preventing the pressure-guard
+  //    auto-completion (which keys off pending_count=0). Until today the
+  //    reconciler only ever touched sent_count / engagement counters, so
+  //    pending_count drift was permanent: there is no other path that
+  //    re-derives it from the source of truth.
+  //
+  //    Truth-direct assignment (no GREATEST, no fill-only): a single
+  //    aggregate over `campaign_sends` filtered to the recent-activity
+  //    set yields all three counters in one scan. We only UPDATE when
+  //    at least one column disagrees, so the steady-state cost is just
+  //    the aggregate scan + a no-op join.
+  //
+  //    Status guard `c.status IN ('sending','paused','completed')`:
+  //      • Excludes draft/scheduled — those legitimately have
+  //        pending_count=0 with no campaign_sends rows yet, and we
+  //        must not stamp them.
+  //      • Includes completed — the Decathlon case. For a completed
+  //        campaign with 0 real pending rows, this correctly sets
+  //        pending_count=0, which is also what the lifecycle
+  //        transitions are supposed to do (but evidently don't always).
+  //
+  //    Idempotent and safe to run concurrently with sender writes: the
+  //    truth aggregate races with live mutations, so we may overshoot
+  //    or undershoot by a handful of rows per tick. That is fine — the
+  //    next tick re-converges, and a few-row transient is invisible
+  //    compared to the 231k drift this prevents.
+  currentStage = "lifecycle_counters";
+  const lifecycleRes = await client.query(
+    `${truthLead} (
+       SELECT campaign_id,
+              COUNT(*) FILTER (WHERE status = 'pending')::bigint                                       AS pending,
+              COUNT(*) FILTER (WHERE status = 'pending' AND eligible_at > NOW())::bigint               AS held,
+              COUNT(*) FILTER (WHERE status = 'failed')::bigint                                        AS failed
+         FROM campaign_sends
+        WHERE TRUE
+          ${inRecentRow}
+        GROUP BY campaign_id
+     )
+     UPDATE campaigns c
+        SET pending_count  = truth.pending,
+            deferred_count = truth.held,
+            failed_count   = truth.failed
+       FROM truth
+      WHERE c.id = truth.campaign_id
+        AND c.status IN ('sending', 'paused', 'completed')
+        AND ( c.pending_count  IS DISTINCT FROM truth.pending
+           OR c.deferred_count IS DISTINCT FROM truth.held
+           OR c.failed_count   IS DISTINCT FROM truth.failed )`,
+  );
+  lifecycleCountersFixed = lifecycleRes.rowCount ?? 0;
   currentStage = "idle";
   } finally {
     clearTimeout(guard);
@@ -291,18 +361,19 @@ export async function reconcileCounters(
   if (firstOpenFixed > 0) counterDriftFixedTotal.inc({ counter: "first_open_at" }, firstOpenFixed);
   if (firstClickFixed > 0) counterDriftFixedTotal.inc({ counter: "first_click_at" }, firstClickFixed);
   if (engagementCountersFixed > 0) counterDriftFixedTotal.inc({ counter: "engagement_counters" }, engagementCountersFixed);
+  if (lifecycleCountersFixed > 0) counterDriftFixedTotal.inc({ counter: "lifecycle_counters" }, lifecycleCountersFixed);
   counterDriftRunDurationMs.set(durationMs);
   counterDriftLastRunAt.set(Math.floor(Date.now() / 1000));
 
-  if (sentCountFixed + firstOpenFixed + firstClickFixed + engagementCountersFixed > 0) {
+  if (sentCountFixed + firstOpenFixed + firstClickFixed + engagementCountersFixed + lifecycleCountersFixed > 0) {
     logger.warn(
-      `[COUNTER RECONCILER] fixed drift (scope=${scope}): sent_count=${sentCountFixed} first_open_at=${firstOpenFixed} first_click_at=${firstClickFixed} engagement=${engagementCountersFixed} in ${durationMs}ms`,
+      `[COUNTER RECONCILER] fixed drift (scope=${scope}): sent_count=${sentCountFixed} first_open_at=${firstOpenFixed} first_click_at=${firstClickFixed} engagement=${engagementCountersFixed} lifecycle=${lifecycleCountersFixed} in ${durationMs}ms`,
     );
   } else {
     logger.info(`[COUNTER RECONCILER] no drift (scope=${scope}, ${durationMs}ms)`);
   }
 
-  return { sentCountFixed, firstOpenFixed, firstClickFixed, engagementCountersFixed, durationMs };
+  return { sentCountFixed, firstOpenFixed, firstClickFixed, engagementCountersFixed, lifecycleCountersFixed, durationMs };
 }
 
 let timer: NodeJS.Timeout | null = null;
