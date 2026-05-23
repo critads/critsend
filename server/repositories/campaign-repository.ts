@@ -667,7 +667,8 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
           failed_count = 0,
           retry_until = NULL,
           auto_retry_count = ${newAutoRetryCount},
-          urgent_mode = false
+          urgent_mode = false,
+          urgent_flush_job_id = NULL
       WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM reset) > 0
       RETURNING id
     ),

@@ -291,6 +291,33 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
     // here after a production incident where the route returned 500
     // because Postgres raised `column "user_id" does not exist`.
     { label: "campaigns.user_id", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS user_id varchar` },
+    // 2026-05-23: pointer from `campaigns` to the most recent
+    // urgent-flush job, set by the async POST /api/campaigns/:id/urgent.
+    // See `urgentFlushJobId` comment in shared/schema.ts.
+    { label: "campaigns.urgent_flush_job_id", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS urgent_flush_job_id varchar` },
+    // 2026-05-23: async urgent-flush jobs table. Replaces the
+    // synchronous 68k-row UPDATE that saturated the Neon pool during
+    // the 2026-05-23 incident. The /urgent route enqueues here and
+    // returns 202; the urgent-flush worker drains the held queue in
+    // 2 000-row batches with sleeps between batches. See
+    // server/services/urgent-flush-service.ts.
+    { label: "urgent_flush_jobs", sql: `
+        CREATE TABLE IF NOT EXISTS urgent_flush_jobs (
+          id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+          campaign_id varchar NOT NULL,
+          user_id varchar,
+          status text NOT NULL DEFAULT 'pending',
+          total_held integer NOT NULL DEFAULT 0,
+          processed integer NOT NULL DEFAULT 0,
+          batch_size integer NOT NULL DEFAULT 2000,
+          error text,
+          created_at timestamptz NOT NULL DEFAULT NOW(),
+          started_at timestamptz,
+          completed_at timestamptz,
+          heartbeat_at timestamptz
+        )` },
+    { label: "urgent_flush_jobs_status_created_idx", sql: `CREATE INDEX IF NOT EXISTS urgent_flush_jobs_status_created_idx ON urgent_flush_jobs(status, created_at)` },
+    { label: "urgent_flush_jobs_campaign_idx", sql: `CREATE INDEX IF NOT EXISTS urgent_flush_jobs_campaign_idx ON urgent_flush_jobs(campaign_id)` },
     // Task #145 R13: DB-backed admin gate (replaces ADMIN_USER_IDS env-only).
     { label: "users.is_admin", sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false` },
     { label: "pressure_flush_audit", sql: `

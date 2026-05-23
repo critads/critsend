@@ -217,6 +217,17 @@ export const campaigns = pgTable("campaigns", {
   // bypass survives PM2 restarts until the operator explicitly clears
   // it (or the campaign completes).
   urgentMode: boolean("urgent_mode").notNull().default(false),
+  // Foreign key to the most recent urgent-flush job for this campaign.
+  // Set by POST /api/campaigns/:id/urgent when it queues an async flush
+  // job. Cleared on /end / completion / /retry-failed / /requeue along
+  // with `urgent_mode`. Used by the UI to surface "Flush in progress…"
+  // and by the campaigns list to compute a per-row progress badge
+  // without an extra query per row. NULL = no flush has ever been
+  // queued for this campaign (or it was cleared on lifecycle reset).
+  // 2026-05-23: introduced together with the async urgent-flush
+  // pipeline that replaced the synchronous 68k-row UPDATE which
+  // saturated the Neon pool during the 2026-05-23 incident.
+  urgentFlushJobId: varchar("urgent_flush_job_id"),
   // ── Auto-resend to openers (36h follow-up) ──────────────────────────
   // parentCampaignId: when set, this campaign is a follow-up child sent only
   //   to subscribers who opened the parent. Audience iteration in
@@ -606,6 +617,37 @@ export const insertMtaSchema = createInsertSchema(mtas).omit({ id: true, created
   username: z.string().max(200).nullable().optional(),
   password: z.string().max(500).nullable().optional(),
 });
+// ── Urgent-flush async jobs (2026-05-23) ───────────────────────────────
+// Backing store for the async pipeline that replaced the synchronous
+// 68k-row UPDATE in POST /api/campaigns/:id/urgent. The route now inserts
+// one row here (status='pending'), returns 202 + jobId, and the
+// urgent-flush worker (server/services/urgent-flush-service.ts) drains
+// the held queue in small batches (default 2 000 rows / txn, ~50 ms each)
+// with sleeps between batches so the main pool is never starved. The UI
+// polls GET /api/urgent-flush/:jobId for live progress.
+// status transitions: pending → running → (completed | failed)
+// Orphan recovery: a row stuck in 'running' for >10 min is reset to
+// 'pending' by the worker's maintenance pass (handles PM2 restarts mid-flush).
+export const urgentFlushJobs = pgTable("urgent_flush_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull(),
+  userId: varchar("user_id"),
+  status: text("status").notNull().default("pending"),
+  totalHeld: integer("total_held").notNull().default(0),
+  processed: integer("processed").notNull().default(0),
+  batchSize: integer("batch_size").notNull().default(2000),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  heartbeatAt: timestamp("heartbeat_at"),
+}, (table) => ({
+  statusCreatedIdx: index("urgent_flush_jobs_status_created_idx").on(table.status, table.createdAt),
+  campaignIdx: index("urgent_flush_jobs_campaign_idx").on(table.campaignId),
+}));
+
+export type UrgentFlushJob = typeof urgentFlushJobs.$inferSelect;
+
 export const insertEmailHeaderSchema = createInsertSchema(emailHeaders).omit({ id: true }).extend({
   name: z.string().min(1, "Name required").max(200, "Header name too long"),
   value: z.string().min(1, "Value required").max(2000, "Header value too long"),

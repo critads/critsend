@@ -364,7 +364,15 @@ export default function Campaigns() {
     },
   });
 
-  const urgentMutation = useMutation<{ ok: boolean; nulledSubscribers: number; flushedHeld: number }, Error, string>({
+  // 2026-05-23 — async urgent-flush. Server returns 202 + jobId immediately
+  // (no DB-stalling synchronous UPDATE). We poll GET /api/urgent-flush/:jobId
+  // every 2s for progress and surface a single toast that updates from
+  // "en cours… X/Y" → "terminé ✓" or "erreur".
+  const urgentMutation = useMutation<
+    { ok: boolean; jobId: string; status: string; totalHeld: number; processed: number; alreadyRunning?: boolean },
+    Error,
+    string
+  >({
     mutationFn: async (id: string) => {
       const res = await apiRequest("POST", `/api/campaigns/${id}/urgent`);
       return res.json();
@@ -373,14 +381,56 @@ export default function Campaigns() {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       setUrgentConfirm(null);
       toast({
-        title: "Mode urgent activé",
-        description: `${data.flushedHeld.toLocaleString()} envois en attente débloqués, garde 6h contournée pour ${data.nulledSubscribers.toLocaleString()} contacts.`,
+        title: data.alreadyRunning ? "Mode urgent: flush déjà en cours" : "Mode urgent: flush en arrière-plan",
+        description: `${data.totalHeld.toLocaleString()} envois à débloquer. Suivi de la progression…`,
       });
+
+      // Poll progress. Stops on completed/failed or after a safety max
+      // (totalHeld / 500 batches × 2s poll × 3 safety factor, capped at
+      // 30 min) so we don't leak intervals on a stuck/abandoned job.
+      const jobId = data.jobId;
+      const startTs = Date.now();
+      const MAX_POLL_MS = Math.min(30 * 60_000, Math.max(60_000, (data.totalHeld / 500) * 2_000 * 3));
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/urgent-flush/${jobId}`, { credentials: "include" });
+          if (!r.ok) {
+            // 404/403/5xx: stop polling, leave the campaign list to reflect actual state.
+            if (r.status === 404 || r.status === 403) clearInterval(poll);
+            return;
+          }
+          const job = (await r.json()) as { status: string; totalHeld: number; processed: number; error: string | null };
+          queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+          if (job.status === "completed") {
+            clearInterval(poll);
+            toast({
+              title: "Mode urgent activé ✓",
+              description: `${job.processed.toLocaleString()} envois débloqués. La campagne est en cours d'expédition prioritaire.`,
+            });
+          } else if (job.status === "failed") {
+            clearInterval(poll);
+            toast({
+              title: "Mode urgent: échec du flush",
+              description: job.error ?? "Erreur inconnue. Vérifiez les logs serveur.",
+              variant: "destructive",
+            });
+          } else if (Date.now() - startTs > MAX_POLL_MS) {
+            clearInterval(poll);
+          }
+        } catch {
+          // Network blip — keep polling; the safety timeout will eventually stop us.
+        }
+      }, 2_000);
     },
-    onError: () => {
+    onError: (err: any) => {
+      // 503 (pool saturated) surfaces here with a parsed message via apiRequest.
+      const msg = String(err?.message || err || "");
+      const tightDb = msg.includes("under load") || msg.includes("503");
       toast({
-        title: "Erreur",
-        description: "Impossible d'activer le mode urgent.",
+        title: tightDb ? "Base de données sous charge" : "Erreur",
+        description: tightDb
+          ? "La DB est saturée — réessayez dans 30 secondes."
+          : "Impossible d'activer le mode urgent.",
         variant: "destructive",
       });
     },

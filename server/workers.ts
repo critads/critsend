@@ -2046,6 +2046,15 @@ export async function startAllWorkers() {
         startPressureGuardWorker();
       }
     });
+  // 2026-05-23 — async urgent-flush worker. Polls urgent_flush_jobs and
+  // drains held queues in small batches with sleeps between batches so
+  // the main pool is never starved. Safe in every topology: SKIP LOCKED
+  // on the claim guarantees only one worker processes any given job at
+  // a time, so we can start it unconditionally in both worker and web
+  // processes.
+  import("./services/urgent-flush-service").then(({ startUrgentFlushWorker }) => {
+    startUrgentFlushWorker();
+  });
   // Task #160: orphaned-sends reconciler (closes campaign_sends rows
   // stuck in pending/attempting on completed campaigns). Always-on in
   // the worker — tiny cost, runs hourly, guards against silent counter

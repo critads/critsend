@@ -1003,6 +1003,13 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
       startPressureGuardWorker();
     }
 
+    // 2026-05-23 — async urgent-flush worker (web monolith path).
+    // Mirrors the worker.ts startup. SKIP LOCKED on the claim makes
+    // this safe even when both the web process and a dedicated worker
+    // process run it simultaneously — only one wins each job.
+    const { startUrgentFlushWorker } = await import('./services/urgent-flush-service');
+    startUrgentFlushWorker();
+
     messageQueue.onMessage('import_jobs', () => {
       logger.info('[IMPORT_GUARDIAN] import_jobs NOTIFY received — scheduling fallback poll in 10 s');
       setTimeout(() => {

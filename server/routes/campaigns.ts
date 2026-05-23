@@ -1005,6 +1005,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           // that reopens this campaign. The audit row in
           // pressure_flush_audit remains for forensic review.
           urgentMode: false,
+          urgentFlushJobId: null,
         }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
 
         return { deletedDeferred: deleted, campaign: updated };
@@ -1060,41 +1061,72 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Invalid ID format" });
       }
       // Auth + per-campaign ownership gate (mirrors pressure.ts pattern).
-      // /urgent is operator-grade — it bypasses cross-campaign pressure
-      // protections — so we deliberately enforce a stricter check than
-      // /end: authenticated AND (admin OR owner of this campaign).
       const sess = (req as any).session;
       const uid: string | undefined = sess?.userId;
       if (!uid) {
         return res.status(401).json({ error: "Authentication required" });
       }
-      const ownerRow: any = await db.execute(sql`SELECT user_id, status FROM campaigns WHERE id = ${req.params.id}`);
+
+      // 2026-05-23 — pre-flight load-shedding. The /urgent route used
+      // to crash the DB by holding a pool slot for several seconds on
+      // a 68k-row UPDATE. The pipeline is now async, but if the pool
+      // is ALREADY tight we still refuse to enqueue: the worker that
+      // drains the job needs free pool slots, and starting a new flush
+      // on a saturated pool would just queue it indefinitely while
+      // making symptoms harder to diagnose. Threshold mirrors the
+      // global load-shedding middleware.
+      const { getPoolSaturation } = await import("../db");
+      const sat = getPoolSaturation();
+      if (sat >= 0.7) {
+        res.setHeader("Retry-After", "30");
+        return res.status(503).json({
+          error: "Database under load — retry in 30 seconds",
+          poolSaturation: Number(sat.toFixed(2)),
+        });
+      }
+
+      const ownerRow: any = await db.execute(sql`SELECT user_id, status, urgent_flush_job_id FROM campaigns WHERE id = ${req.params.id}`);
       if (!ownerRow.rows?.length) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      const { user_id: ownerId, status: campaignStatus } = ownerRow.rows[0] as { user_id: string | null; status: string };
-      // Admin bypass: check users.is_admin (the same DB-backed flag the
-      // pressure admin routes use). We inline the check here rather than
-      // exporting requireAdmin from pressure.ts to keep that module's
-      // internals private; the query is one row by PK so cost is trivial.
+      const { user_id: ownerId, status: campaignStatus, urgent_flush_job_id: existingJobId } =
+        ownerRow.rows[0] as { user_id: string | null; status: string; urgent_flush_job_id: string | null };
+
       const adminRow: any = await db.execute(sql`SELECT is_admin FROM users WHERE id = ${uid}`);
       const isAdmin = adminRow.rows?.[0]?.is_admin === true;
       if (!isAdmin && ownerId && ownerId !== uid) {
         return res.status(403).json({ error: "Forbidden" });
       }
-      // Eligibility: only campaigns actively trying to deliver can be
-      // marked urgent. Draft has no sends to flush; completed/failed/
-      // scheduled would either re-arm a finished campaign or pre-stamp
-      // urgency on something the sender hasn't even claimed yet.
       if (campaignStatus !== "sending" && campaignStatus !== "paused") {
         return res.status(400).json({
           error: `Urgent mode only available for campaigns in 'sending' or 'paused' status (current: ${campaignStatus})`,
         });
       }
-      // Live held check: deferredCount is cumulative-lifetime, not a
-      // live queue depth. Compute the real held count from the partial
-      // index that backs CampaignListItem.pressureHeldCount so we don't
-      // diverge from what the UI shows.
+
+      // Idempotency: if a flush job is already pending/running for this
+      // campaign, return it instead of creating a duplicate. The UI's
+      // polling loop will pick up the existing job and show its progress.
+      if (existingJobId) {
+        const existing: any = await db.execute(sql`
+          SELECT id, status, total_held, processed
+          FROM urgent_flush_jobs
+          WHERE id = ${existingJobId} AND status IN ('pending', 'running')
+        `);
+        if (existing.rows?.length) {
+          const row = existing.rows[0];
+          return res.status(202).json({
+            ok: true,
+            jobId: row.id,
+            status: row.status,
+            totalHeld: Number(row.total_held),
+            processed: Number(row.processed),
+            alreadyRunning: true,
+          });
+        }
+      }
+
+      // Live held count — used to pre-populate `total_held` so the UI's
+      // progress bar can render an accurate denominator on the first poll.
       const heldRow: any = await db.execute(sql`
         SELECT COUNT(*)::int AS held
         FROM campaign_sends
@@ -1108,68 +1140,96 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "No held sends — nothing to flush" });
       }
 
-      const { flushedHeld } = await db.transaction(async (tx) => {
-        // 1. Enable the CAS bypass flag — survives across PM2 restarts.
-        //    The flag is honoured in BOTH CAS paths:
-        //      - pressureGuardReserveSendSlots (sender enqueue)
-        //      - drainCampaign's force-CAS branch (drain dispatch)
-        //    Cleared on /end (terminal), on natural completion (both
-        //    `updateCampaign(..., status: "completed")` call sites in
-        //    campaign-sender), on reopen routes (/retry-failed,
-        //    /requeue), and stripped from /copy + generic PATCH so it
-        //    can't leak to other campaigns.
-        //
-        //    2026-05-22 audit: removed the previous step that NULLed
-        //    `subscribers.last_sent_at` for held contacts. That
-        //    cross-campaign mutation opened a window where ANY other
-        //    non-urgent campaign racing for the same subscriber could
-        //    pass the 6h CAS prematurely (last_sent_at IS NULL clause).
-        //    With urgent_mode now read at dispatch time by drainCampaign
-        //    via pressureGuardForceReserveSendSlots, the flag alone
-        //    fully achieves the bypass without touching shared state.
-        await tx.execute(sql`UPDATE campaigns SET urgent_mode = true WHERE id = ${req.params.id}`);
+      // Async enqueue. Three fast statements, no per-row work:
+      //   1. Flip `urgent_mode` so the drain's force-CAS bypasses the 6h
+      //      gap for THIS campaign from the very next dispatch tick.
+      //      Honoured immediately even though the held queue is not yet
+      //      flushed — rows already DUE NOW (if any) start dispatching
+      //      under the bypass right away.
+      //   2. Insert one `urgent_flush_jobs` row with the held snapshot.
+      //   3. Link the job back to the campaign for fast UI lookup.
+      // No long-running transaction, no row-level locks on campaign_sends,
+      // no WAL spike. Returns in <100 ms.
+      const insertRes: any = await db.execute(sql`
+        INSERT INTO urgent_flush_jobs (campaign_id, user_id, total_held, status)
+        VALUES (${req.params.id}, ${uid}, ${liveHeld}, 'pending')
+        RETURNING id
+      `);
+      const jobId = insertRes.rows[0].id as string;
 
-        // 2. Flush all held campaign_sends to DUE NOW so the drain
-        //    worker can sweep them up immediately on its next tick.
-        //    The drain's force-CAS will stamp last_sent_at = NOW() per
-        //    subscriber at dispatch time, restoring forward integrity
-        //    of the 6h guard for OTHER campaigns without ever leaving
-        //    a NULL window open.
-        const flushed: any = await tx.execute(sql`
-          UPDATE campaign_sends
-          SET eligible_at = NOW()
-          WHERE campaign_id = ${req.params.id}
-            AND status = 'pending'
-            AND eligible_at > NOW()
-        `);
-        const flushedN = Number(flushed?.rowCount ?? 0);
-
-        // 3. Resync the cached counter (was the source of the "still
-        //    shows 124k held" UX confusion before).
-        await tx.execute(sql`UPDATE campaigns SET deferred_count = 0 WHERE id = ${req.params.id}`);
-
-        // 4. Audit trail (admin pressure-queue page reads this).
-        await tx.execute(sql`
-          INSERT INTO pressure_flush_audit (campaign_id, user_id, scope, count, reason)
-          VALUES (
-            ${req.params.id},
-            ${uid},
-            'urgent',
-            ${flushedN},
-            ${`URGENT MODE enabled — flushed ${flushedN} held rows to DUE NOW. CAS will bypass 6h gap and blocked_by_older for this campaign until urgent_mode is cleared (completion / /end / /retry-failed / /requeue).`}
-          )
-        `);
-
-        return { flushedHeld: flushedN };
-      });
+      await db.execute(sql`
+        UPDATE campaigns
+        SET urgent_mode = true, urgent_flush_job_id = ${jobId}
+        WHERE id = ${req.params.id}
+      `);
 
       logger.info(
-        `[CAMPAIGN_URGENT] Campaign ${req.params.id} marked URGENT — flushed=${flushedHeld}`,
+        `[CAMPAIGN_URGENT] Campaign ${req.params.id} enqueued URGENT flush job ${jobId} (totalHeld=${liveHeld})`,
       );
-      res.json({ ok: true, flushedHeld });
+
+      return res.status(202).json({
+        ok: true,
+        jobId,
+        status: "pending",
+        totalHeld: liveHeld,
+        processed: 0,
+        alreadyRunning: false,
+      });
     } catch (error: any) {
       logger.error("[CAMPAIGN_URGENT] Failed:", error);
-      res.status(500).json({ error: "Failed to mark campaign urgent" });
+      res.status(500).json({ error: "Failed to enqueue urgent flush" });
+    }
+  });
+
+  /**
+   * GET /api/urgent-flush/:jobId — UI progress poll endpoint.
+   *
+   * Returns the current state of an urgent-flush job: status, total,
+   * processed, and (for failed jobs) the error message. Auth gate is
+   * the same as the POST: admin OR owner of the campaign referenced by
+   * the job. Cheap (one PK lookup + one campaigns.user_id lookup).
+   */
+  app.get("/api/urgent-flush/:jobId", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.jobId)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const sess = (req as any).session;
+      const uid: string | undefined = sess?.userId;
+      if (!uid) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const jobRow: any = await db.execute(sql`
+        SELECT j.id, j.campaign_id, j.status, j.total_held, j.processed,
+               j.error, j.created_at, j.started_at, j.completed_at,
+               c.user_id AS campaign_user_id
+        FROM urgent_flush_jobs j
+        LEFT JOIN campaigns c ON c.id = j.campaign_id
+        WHERE j.id = ${req.params.jobId}
+      `);
+      if (!jobRow.rows?.length) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      const row = jobRow.rows[0];
+      const adminRow: any = await db.execute(sql`SELECT is_admin FROM users WHERE id = ${uid}`);
+      const isAdmin = adminRow.rows?.[0]?.is_admin === true;
+      if (!isAdmin && row.campaign_user_id && row.campaign_user_id !== uid) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      return res.json({
+        id: row.id,
+        campaignId: row.campaign_id,
+        status: row.status,
+        totalHeld: Number(row.total_held),
+        processed: Number(row.processed),
+        error: row.error,
+        createdAt: row.created_at,
+        startedAt: row.started_at,
+        completedAt: row.completed_at,
+      });
+    } catch (error: any) {
+      logger.error("[URGENT_FLUSH_PROGRESS] Failed:", error);
+      res.status(500).json({ error: "Failed to fetch flush job status" });
     }
   });
 
@@ -1262,7 +1322,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           // bypass on a fresh retry would silently push the new wave
           // ahead of every other campaign's pressure window. They can
           // re-click /urgent if they actually want that.
-          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null, autoRetryCount: 0, urgentMode: false })
+          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null, autoRetryCount: 0, urgentMode: false, urgentFlushJobId: null })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
         if (!updated) return { campaign: null, resetCount };
@@ -1320,6 +1380,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           // 2026-05-22: see /retry-failed comment — urgent_mode must
           // not survive a requeue of a failed campaign.
           urgentMode: false,
+          urgentFlushJobId: null,
         }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
         if (!updated) return null;
         await tx.insert(campaignJobs).values({

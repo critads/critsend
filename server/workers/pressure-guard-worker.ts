@@ -692,7 +692,38 @@ async function pollDeferredQueueInner() {
         return ta - tb;
       });
     const fairnessPicks = fairnessCandidates.slice(0, fairnessSlots);
-    const finalPicks = [...volumePicks, ...fairnessPicks];
+    let finalPicks = [...volumePicks, ...fairnessPicks];
+
+    // 2026-05-23 — urgent-mode slot cap. Previously urgent campaigns
+    // ALSO bypassed the slot allocation: a single urgent campaign with
+    // 65k+ DUE-NOW rows would land at the top of the (drainable_count
+    // DESC) ordering and monopolise EVERY slot of MAX_CAMPAIGNS_PER_TICK,
+    // starving all other active campaigns and causing the pool-saturation
+    // cascade seen in the 2026-05-23 incident (sends → 0, logout, page
+    // crash).
+    //
+    // We now cap urgent picks at half the per-tick slots (rounded down,
+    // minimum 1). Urgent campaigns still go FIRST (drainable_count DESC
+    // keeps them at the top), they still bypass winding-down throttling
+    // (line ~671), and per-row CAS still ignores the 6h gap — what
+    // changes is they cannot consume more than ~50% of the parallelism
+    // budget. Non-urgent campaigns get the remaining slots so the rest
+    // of the platform keeps progressing.
+    const URGENT_CAP = Math.max(1, Math.floor(MAX_CAMPAIGNS_PER_TICK / 2));
+    const urgentInPicks = finalPicks.filter((p) => p.urgent_mode === true);
+    if (urgentInPicks.length > URGENT_CAP) {
+      const keepUrgentIds = new Set(urgentInPicks.slice(0, URGENT_CAP).map((p) => p.campaign_id));
+      // Drop excess urgent picks from the final list…
+      finalPicks = finalPicks.filter((p) => p.urgent_mode !== true || keepUrgentIds.has(p.campaign_id));
+      // …and backfill from the next non-urgent eligible campaigns we hadn't picked.
+      const pickedIds = new Set(finalPicks.map((p) => p.campaign_id));
+      const backfillPool = eligibleForDrain
+        .filter((p) => p.urgent_mode !== true && !pickedIds.has(p.campaign_id));
+      const slotsToFill = MAX_CAMPAIGNS_PER_TICK - finalPicks.length;
+      if (slotsToFill > 0) {
+        finalPicks = [...finalPicks, ...backfillPool.slice(0, slotsToFill)];
+      }
+    }
 
     // Record drain ticks for every campaign we actually picked.
     for (const row of finalPicks) {
@@ -1338,7 +1369,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
         // would retain urgent_mode=true post-completion, and any future
         // reopen path that does not explicitly clear (e.g. an internal
         // sender path we haven't audited) would resurrect the bypass.
-        await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false });
+        await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false, urgentFlushJobId: null });
         logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} marked completed (deferred queue drained)`);
         // Task #165: emit a terminal SSE event so the campaigns-list
         // progress bar (and any open detail page) flips to "completed"
