@@ -103,6 +103,20 @@ export async function getCampaignsPaginated(opts: {
           AND ${campaignSends.status} = 'pending'
           AND ${campaignSends.eligibleAt} IS NOT NULL
       )`,
+      // Live total pending count (held + active claim-queue). Backed by the
+      // partial index `campaign_sends_campaign_status_idx` so it stays cheap
+      // even on the 2s-poll list endpoint. We need this because the cached
+      // `campaigns.pending_count` column drifts upwards over time as the
+      // counter-update paths under PgBouncer transaction-pooling occasionally
+      // double-decrement / miss decrements; observed 2026-05-24 inflation
+      // up to 300k phantom rows for some sending campaigns. The frontend
+      // progress bar prefers this live value so the bar can never show
+      // ghost-pending segments after the campaign has actually finished.
+      realPendingCount: sql<number>`(
+        SELECT COUNT(*)::int FROM ${campaignSends}
+        WHERE ${campaignSends.campaignId} = ${campaigns.id}
+          AND ${campaignSends.status} = 'pending'
+      )`,
       autoRetryCount: campaigns.autoRetryCount,
       uniqueOpensCount: campaigns.uniqueOpensCount,
       totalOpensCount: campaigns.totalOpensCount,

@@ -739,7 +739,7 @@ export default function Campaigns() {
                         <CampaignProgress
                           sentCount={campaign.sentCount}
                           failedCount={campaign.failedCount}
-                          pendingCount={campaign.pendingCount ?? 0}
+                          pendingCount={campaign.realPendingCount ?? campaign.pendingCount ?? 0}
                           heldCount={campaign.pressureHeldCount ?? 0}
                           status={campaign.status}
                           testId={`progress-campaign-${campaign.id}`}
@@ -791,16 +791,16 @@ export default function Campaigns() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-sm">
+                          {campaign.scheduledAt && (
+                            <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-scheduled-${campaign.id}`}>
+                              <span className="font-medium text-foreground/70">Scheduled</span>
+                              <span>{new Date(campaign.scheduledAt).toLocaleString()}</span>
+                            </div>
+                          )}
                           {campaign.createdAt && (
                             <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-created-${campaign.id}`}>
                               <span className="font-medium text-foreground/70">Created</span>
                               <span>{new Date(campaign.createdAt).toLocaleString()}</span>
-                            </div>
-                          )}
-                          {campaign.startedAt && (
-                            <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-started-${campaign.id}`}>
-                              <span className="font-medium text-foreground/70">Started</span>
-                              <span>{new Date(campaign.startedAt).toLocaleString()}</span>
                             </div>
                           )}
                         </div>

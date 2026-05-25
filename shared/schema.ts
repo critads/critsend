@@ -793,6 +793,15 @@ export type CampaignListItem = Campaign & {
   // cached counter) so it drops to 0 the moment the drain queue empties,
   // unlike the cumulative `campaigns.deferred_count`.
   pressureHeldCount: number;
+  // Live total count of pending sends for this campaign — i.e. `campaign_sends`
+  // rows with `status = 'pending'` (held + active, no eligible_at filter).
+  // Added 2026-05-24 because the cached `campaigns.pending_count` column is
+  // observed to drift wildly upwards on long-running sends (e.g. cached=313k
+  // vs real=502 on 4210618c-…). The progress bar and any UI that needs the
+  // real outstanding count MUST prefer this field over the cached one.
+  // Optional so older/external API consumers and any cached/stale payload
+  // shapes remain valid; callers fall back to `pendingCount` when missing.
+  realPendingCount?: number;
 };
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
 
