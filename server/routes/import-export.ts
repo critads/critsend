@@ -2,12 +2,17 @@ import { type Express, type Request, type Response, type NextFunction } from "ex
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { db } from "../db";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, and, ne } from "drizzle-orm";
 import { importJobs, importJobQueue } from "@shared/schema";
 import * as fs from "fs";
 import * as path from "path";
 import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE, CHUNKS_DIR_BASE, getUploadDirStatus, formatUploadDirError } from "../upload";
-import { useObjectStorageForImports } from "../storage-backends";
+import {
+  useObjectStorageForImports,
+  ObjectStorageNotFound,
+  ObjectStorageAccessError,
+  ObjectStorageTransientError,
+} from "../storage-backends";
 import { sanitizeCsvValue } from "../utils";
 import { isMemoryPressure } from "../workers";
 import { jobEvents, type JobProgressEvent } from "../job-events";
@@ -129,6 +134,10 @@ export function registerImportExportRoutes(app: Express, helpers: {
       res.setHeader('Retry-After', '60');
       return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
     }
+    // Hoisted to outer scope so the compensation in the outer catch can see
+    // them regardless of which step in the inner try threw.
+    let job: Awaited<ReturnType<typeof storage.createImportJob>> | undefined;
+    let uploadedRemotePath: string | null = null;
     try {
       logger.info(`[IMPORT] Received import request`);
       if (!req.file) {
@@ -159,7 +168,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       const totalDataRows = lineCount - 1;
       logger.info(`[IMPORT] CSV has ${totalDataRows} data rows`);
 
-      const job = await storage.createImportJob({
+      job = await storage.createImportJob({
         filename: req.file.originalname,
         totalRows: totalDataRows,
         tagMode: tagMode,
@@ -172,9 +181,15 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
       const useRemoteStorage = useObjectStorageForImports();
       let storagePath: string;
+      // `uploadedRemotePath` declared at function scope above. Compensation
+      // lives in the outer catch so it covers the full window
+      // upload → verify → tx-commit. Without this, a failure after PUT but
+      // before tx commit would orphan the object in the bucket forever
+      // AND leave a stuck "uploading" import_jobs row.
 
       if (useRemoteStorage) {
         storagePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
+        uploadedRemotePath = storagePath;
         logger.info(`[IMPORT] Uploaded to object storage: ${storagePath}`);
         const objectExists = await objectStorageService.objectExists(storagePath);
         if (!objectExists) {
@@ -186,25 +201,55 @@ export function registerImportExportRoutes(app: Express, helpers: {
         logger.info(`[IMPORT] Using local disk storage: ${storagePath}`);
       }
 
-      const queueItem = await db.transaction(async (tx) => {
-        await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
-        const [queued] = await tx.insert(importJobQueue).values({
-          importJobId: job.id,
-          csvFilePath: storagePath,
-          totalLines: lineCount,
-          processedLines: 0,
-          fileSizeBytes,
-          processedBytes: 0,
-          lastCheckpointLine: 0,
-          status: "pending",
-        }).returning();
-        return queued;
-      });
-      logger.info(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, path: ${storagePath}`);
-
-      res.status(202).json(job);
+      try {
+        const queueItem = await db.transaction(async (tx) => {
+          await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job!.id}`);
+          const [queued] = await tx.insert(importJobQueue).values({
+            importJobId: job!.id,
+            csvFilePath: storagePath,
+            totalLines: lineCount,
+            processedLines: 0,
+            fileSizeBytes,
+            processedBytes: 0,
+            lastCheckpointLine: 0,
+            status: "pending",
+          }).returning();
+          return queued;
+        });
+        logger.info(`[IMPORT] Import job ${job.id} enqueued with queue item ID: ${queueItem.id}, path: ${storagePath}`);
+        // Past the point of no return — uploaded object now belongs to the
+        // queue row, the worker is responsible for its lifecycle.
+        uploadedRemotePath = null;
+        res.status(202).json(job);
+      } catch (txErr) {
+        // Re-throw to outer catch which handles compensation uniformly.
+        throw txErr;
+      }
     } catch (error) {
       logger.error("[IMPORT] Error starting import:", error);
+      // Uniform compensation across all failure points (upload, verify, tx).
+      // `job` and `uploadedRemotePath` are hoisted to function scope and
+      // remain `undefined`/`null` for the branches that hadn't reached
+      // those statements yet.
+      if (uploadedRemotePath) {
+        try {
+          await objectStorageService.deleteStorageObject(uploadedRemotePath);
+          logger.warn(`[IMPORT] Compensated orphan S3 object: ${uploadedRemotePath}`);
+        } catch (cleanupErr) {
+          logger.error(`[IMPORT] FAILED to clean up orphan S3 object ${uploadedRemotePath}: ${cleanupErr}. Manual bucket cleanup required.`);
+        }
+      }
+      if (job?.id) {
+        try {
+          await storage.updateImportJob(job.id, {
+            status: "failed",
+            errorMessage: `Import setup failed: ${String((error as any)?.message || error).slice(0, 500)}`,
+            completedAt: new Date(),
+          });
+        } catch (updateErr) {
+          logger.error(`[IMPORT] FAILED to mark job ${job.id} as failed: ${updateErr}`);
+        }
+      }
       if (req.file?.path) {
         try { fs.unlinkSync(req.file.path); } catch {}
       }
@@ -269,11 +314,36 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
       const { id } = req.params;
 
-      const [existingJob] = await db
-        .select({ status: importJobs.status, csvFilePath: importJobs.csvFilePath })
+      // csvFilePath lives on importJobQueue (not importJobs). Pre-fix this
+      // select was grabbing `importJobs.csvFilePath` which doesn't exist, so
+      // Drizzle returned undefined and EVERY requeue fell into the 409 branch.
+      //
+      // A job can have multiple queue rows during phase-2 dedup merges: the
+      // phase-2 row carries the sentinel csv_file_path='phase2_merge' (NOT a
+      // real path — used by the worker to signal "no source file, run dedup
+      // SQL"). For the requeue gate we want the ORIGINAL source CSV row, so
+      // we exclude phase2_merge and order by createdAt ASC LIMIT 1 (same
+      // resolution pattern as import-worker.ts:1986 and
+      // import-processor.ts:1565). Status comes from import_jobs (1 row).
+      const [statusRow] = await db
+        .select({ status: importJobs.status })
         .from(importJobs)
         .where(eq(importJobs.id, id))
         .limit(1);
+      const existingJob = statusRow
+        ? await (async () => {
+            const [pathRow] = await db
+              .select({ csvFilePath: importJobQueue.csvFilePath })
+              .from(importJobQueue)
+              .where(and(
+                eq(importJobQueue.importJobId, id),
+                ne(importJobQueue.csvFilePath, "phase2_merge"),
+              ))
+              .orderBy(importJobQueue.createdAt)
+              .limit(1);
+            return { status: statusRow.status, csvFilePath: pathRow?.csvFilePath ?? null };
+          })()
+        : undefined;
 
       if (!existingJob) {
         return res.status(404).json({ error: "Import job not found" });
@@ -286,21 +356,53 @@ export function registerImportExportRoutes(app: Express, helpers: {
       // Refuse requeue if the source CSV is gone (e.g. server restart wiped /uploads,
       // or the object-storage entry was deleted). Without this check the worker would
       // just fail again with the same "file not found" error, and the user would be
-      // stuck in a Requeue loop.
+      // stuck in a Requeue loop. For object-storage paths, distinguish:
+      //   - real NotFound  → 409 csv_file_missing (user must re-upload)
+      //   - AccessError    → 500 storage_misconfigured (operator must fix env/IAM)
+      //   - TransientError → 503 storage_unavailable (client should retry in a bit)
+      // This is the WHOLE POINT of the typed-error refactor (audit 2026-05-25):
+      // pre-fix, a transient Hetzner 5xx blip would have been silently translated
+      // into "csv_file_missing" and the user stuck re-uploading on every retry.
       const csvPath = existingJob.csvFilePath;
-      let csvStillThere = false;
-      if (csvPath) {
-        if (csvPath.startsWith("/objects/")) {
-          csvStillThere = await objectStorageService.objectExists(csvPath);
-        } else {
-          csvStillThere = fs.existsSync(csvPath);
-        }
-      }
-      if (!csvStillThere) {
+      if (!csvPath) {
         return res.status(409).json({
           error: "csv_file_missing",
-          message: "The original CSV file is no longer on the server. Please re-upload it to retry this import.",
+          message: "Import job has no source CSV path. Please re-upload.",
         });
+      }
+      if (csvPath.startsWith("/objects/")) {
+        try {
+          const exists = await objectStorageService.objectExists(csvPath);
+          if (!exists) {
+            return res.status(409).json({
+              error: "csv_file_missing",
+              message: "The original CSV file is no longer in object storage. Please re-upload it to retry this import.",
+            });
+          }
+        } catch (storageErr) {
+          if (storageErr instanceof ObjectStorageAccessError) {
+            logger.error(`[REQUEUE] Access denied checking ${csvPath}: ${storageErr.message}`);
+            return res.status(500).json({
+              error: "storage_misconfigured",
+              message: "Object storage credentials or bucket policy are invalid. Contact the operator.",
+            });
+          }
+          if (storageErr instanceof ObjectStorageTransientError) {
+            logger.warn(`[REQUEUE] Transient storage error checking ${csvPath}: ${storageErr.message}`);
+            return res.status(503).json({
+              error: "storage_unavailable",
+              message: "Object storage is temporarily unavailable. Please retry in a few seconds.",
+            });
+          }
+          throw storageErr;
+        }
+      } else {
+        if (!fs.existsSync(csvPath)) {
+          return res.status(409).json({
+            error: "csv_file_missing",
+            message: "The original CSV file is no longer on the server. Please re-upload it to retry this import.",
+          });
+        }
       }
 
       let requeued = false;
@@ -511,7 +613,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
 
       const [queueItem] = await db.insert(importJobQueue).values({
-        importJobId: job.id,
+        importJobId: job!.id,
         csvFilePath: "phase2_merge",
         totalLines: job.totalRows,
         processedLines: 0,
@@ -657,6 +759,11 @@ export function registerImportExportRoutes(app: Express, helpers: {
   });
 
   app.post("/api/import/chunked/:uploadId/complete", async (req: Request, res: Response) => {
+    // Hoisted to outer scope so the compensation in the outer catch can see
+    // them regardless of which step in the inner try threw.
+    let job: Awaited<ReturnType<typeof storage.createImportJob>> | undefined;
+    let uploadedRemotePathChunked: string | null = null;
+    const outerUploadId = req.params.uploadId;
     if (isMemoryPressure) {
       res.setHeader('Retry-After', '60');
       return res.status(503).json({ error: "Server under memory pressure. Please retry later." });
@@ -727,7 +834,7 @@ export function registerImportExportRoutes(app: Express, helpers: {
       
       const totalDataRows = lineCount - 1;
       
-      const job = await storage.createImportJob({
+      job = await storage.createImportJob({
         filename: upload.filename,
         totalRows: totalDataRows,
         tagMode: upload.tagMode,
@@ -741,9 +848,13 @@ export function registerImportExportRoutes(app: Express, helpers: {
       const useRemoteStorageChunked = useObjectStorageForImports();
       let storagePathChunked: string;
       const verifiedSize = fs.statSync(tempCsvPath).size;
+      // `uploadedRemotePathChunked` declared at function scope above.
+      // Compensation in the outer catch covers upload→verify→tx (mirrors
+      // POST /api/import above).
 
       if (useRemoteStorageChunked) {
         storagePathChunked = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
+        uploadedRemotePathChunked = storagePathChunked;
         logger.info(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${storagePathChunked}`);
         const objectExists = await objectStorageService.objectExists(storagePathChunked);
         if (!objectExists) {
@@ -757,9 +868,9 @@ export function registerImportExportRoutes(app: Express, helpers: {
       }
 
       const queueItem = await db.transaction(async (tx) => {
-        await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job.id}`);
+        await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job!.id}`);
         const [queued] = await tx.insert(importJobQueue).values({
-          importJobId: job.id,
+          importJobId: job!.id,
           csvFilePath: storagePathChunked,
           totalLines: lineCount,
           processedLines: 0,
@@ -771,13 +882,36 @@ export function registerImportExportRoutes(app: Express, helpers: {
         return queued;
       });
       logger.info(`[CHUNKED] ${uploadId}: Import job ${job.id} enqueued, path: ${storagePathChunked}`);
-      
+      // Past point of no return — clear compensation marker.
+      uploadedRemotePathChunked = null;
+
       chunkedUploads.delete(uploadId);
-      
+
       res.status(202).json(job);
     } catch (error: any) {
       logger.error("[CHUNKED] Error completing upload:", error);
-      
+
+      // Uniform compensation across all failure points (upload, verify, tx).
+      if (uploadedRemotePathChunked) {
+        try {
+          await objectStorageService.deleteStorageObject(uploadedRemotePathChunked);
+          logger.warn(`[CHUNKED] ${outerUploadId}: Compensated orphan S3 object: ${uploadedRemotePathChunked}`);
+        } catch (cleanupErr) {
+          logger.error(`[CHUNKED] ${outerUploadId}: FAILED to clean up orphan S3 object ${uploadedRemotePathChunked}: ${cleanupErr}. Manual bucket cleanup required.`);
+        }
+      }
+      if (job?.id) {
+        try {
+          await storage.updateImportJob(job.id, {
+            status: "failed",
+            errorMessage: `Chunked import setup failed: ${String(error?.message || error).slice(0, 500)}`,
+            completedAt: new Date(),
+          });
+        } catch (updateErr) {
+          logger.error(`[CHUNKED] ${outerUploadId}: FAILED to mark job as failed: ${updateErr}`);
+        }
+      }
+
       try { 
         if (fs.existsSync(tempCsvPath)) {
           fs.unlinkSync(tempCsvPath); 

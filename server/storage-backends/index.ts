@@ -2,6 +2,16 @@ import { ObjectStorageService } from "../replit_integrations/object_storage/obje
 import { HetznerS3Service } from "./hetzner-s3";
 import { logger } from "../logger";
 
+// Re-export the typed error hierarchy so callers can `import { ... } from
+// "../storage-backends"` without reaching into the errors module.
+export {
+  ObjectStorageError,
+  ObjectStorageNotFound,
+  ObjectStorageAccessError,
+  ObjectStorageTransientError,
+  ObjectStorageInvalidPath,
+} from "./errors";
+
 /**
  * Storage backend factory for CSV import payloads.
  *
