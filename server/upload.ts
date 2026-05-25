@@ -2,10 +2,12 @@ import multer from "multer";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { ObjectStorageService } from "./replit_integrations/object_storage";
+import { getObjectStorageService } from "./storage-backends";
 
-// Object storage service for persistent file storage (survives deployments)
-const objectStorageService = new ObjectStorageService();
+// Object storage service for persistent file storage (survives deployments).
+// Resolves to Replit ObjectStorageService, Hetzner S3, or a stub based on
+// STORAGE_BACKEND env var — see server/storage-backends/index.ts.
+const objectStorageService = getObjectStorageService();
 
 /**
  * Resolve the directory where uploaded import CSVs are persisted between

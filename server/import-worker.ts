@@ -14,7 +14,7 @@ import { sql } from "drizzle-orm";
 import * as readline from "readline";
 import * as fs from "fs";
 import { from as copyFrom } from "pg-copy-streams";
-import { ObjectStorageService } from "./replit_integrations/object_storage/objectStorage";
+import { getObjectStorageService } from "./storage-backends";
 
 const { Pool } = pg;
 
@@ -76,7 +76,7 @@ async function ensureDbConnection(maxRetries = 3): Promise<void> {
   }
 }
 
-const objectStorageService = new ObjectStorageService();
+const objectStorageService = getObjectStorageService();
 
 type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
 

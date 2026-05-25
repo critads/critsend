@@ -7,10 +7,10 @@ import { importPool as pool, importDb as db } from "../import-pool";
 import { logger } from "../logger";
 import { storage } from "../storage";
 import { jobEvents, JobProgressEvent } from "../job-events";
-import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
+import { getObjectStorageService } from "../storage-backends";
 import { IMPORT_CONCURRENCY } from "../connection-budget";
 
-const objectStorageService = new ObjectStorageService();
+const objectStorageService = getObjectStorageService();
 
 const CONCURRENCY = IMPORT_CONCURRENCY;
 
@@ -670,25 +670,41 @@ async function peekCsvHasRefsColumn(csvFilePath: string): Promise<boolean> {
   const isObjectStorage = csvFilePath.startsWith("/objects/");
   let firstLine = "";
 
+  // Helper: read first line and ALWAYS destroy the underlying stream to avoid
+  // leaking file descriptors (local fs) or HTTP sockets (S3 GET response body).
+  const readFirstLine = (stream: NodeJS.ReadableStream): Promise<string> =>
+    new Promise<string>((resolve, reject) => {
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+      let captured = "";
+      let settled = false;
+      const finish = (val: string) => {
+        if (settled) return;
+        settled = true;
+        try { rl.close(); } catch {}
+        try { (stream as any).destroy?.(); } catch {}
+        resolve(val);
+      };
+      const fail = (err: unknown) => {
+        if (settled) return;
+        settled = true;
+        try { rl.close(); } catch {}
+        try { (stream as any).destroy?.(); } catch {}
+        reject(err);
+      };
+      rl.on("line", (line: string) => { captured = line; finish(line); });
+      rl.on("error", fail);
+      rl.on("close", () => finish(captured));
+    });
+
   if (isObjectStorage) {
     const exists = await objectStorageService.objectExists(csvFilePath);
     if (!exists) return false;
     const stream = await objectStorageService.getObjectStream(csvFilePath);
-    firstLine = await new Promise<string>((resolve, reject) => {
-      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-      rl.on("line", (line: string) => { rl.close(); resolve(line); });
-      rl.on("error", reject);
-      rl.on("close", () => resolve(firstLine));
-    });
+    firstLine = await readFirstLine(stream);
   } else {
     if (!(await fileExistsWithRetry(csvFilePath, "peek"))) return false;
     const stream = fs.createReadStream(csvFilePath, { encoding: "utf-8", highWaterMark: 1024 });
-    firstLine = await new Promise<string>((resolve, reject) => {
-      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-      rl.on("line", (line: string) => { rl.close(); resolve(line); });
-      rl.on("error", reject);
-      rl.on("close", () => resolve(firstLine));
-    });
+    firstLine = await readFirstLine(stream);
   }
 
   const headers = firstLine.split(";").map(h => h.trim().toLowerCase());

@@ -7,6 +7,7 @@ import { importJobs, importJobQueue } from "@shared/schema";
 import * as fs from "fs";
 import * as path from "path";
 import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE, CHUNKS_DIR_BASE, getUploadDirStatus, formatUploadDirError } from "../upload";
+import { useObjectStorageForImports } from "../storage-backends";
 import { sanitizeCsvValue } from "../utils";
 import { isMemoryPressure } from "../workers";
 import { jobEvents, type JobProgressEvent } from "../job-events";
@@ -169,10 +170,10 @@ export function registerImportExportRoutes(app: Express, helpers: {
       });
       logger.info(`[IMPORT] Created import job: ${job.id}`);
 
-      const useReplitStorage = process.env.STORAGE_BACKEND === "replit";
+      const useRemoteStorage = useObjectStorageForImports();
       let storagePath: string;
 
-      if (useReplitStorage) {
+      if (useRemoteStorage) {
         storagePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
         logger.info(`[IMPORT] Uploaded to object storage: ${storagePath}`);
         const objectExists = await objectStorageService.objectExists(storagePath);
@@ -282,11 +283,20 @@ export function registerImportExportRoutes(app: Express, helpers: {
         return res.status(400).json({ error: `Import cannot be requeued from status '${currentStatus}'` });
       }
 
-      // Refuse requeue if the source CSV is gone (e.g. server restart wiped /uploads).
-      // Without this check the worker would just fail again with the same "file not found"
-      // error, and the user would be stuck in a Requeue loop.
+      // Refuse requeue if the source CSV is gone (e.g. server restart wiped /uploads,
+      // or the object-storage entry was deleted). Without this check the worker would
+      // just fail again with the same "file not found" error, and the user would be
+      // stuck in a Requeue loop.
       const csvPath = existingJob.csvFilePath;
-      if (!csvPath || !fs.existsSync(csvPath)) {
+      let csvStillThere = false;
+      if (csvPath) {
+        if (csvPath.startsWith("/objects/")) {
+          csvStillThere = await objectStorageService.objectExists(csvPath);
+        } else {
+          csvStillThere = fs.existsSync(csvPath);
+        }
+      }
+      if (!csvStillThere) {
         return res.status(409).json({
           error: "csv_file_missing",
           message: "The original CSV file is no longer on the server. Please re-upload it to retry this import.",
@@ -728,11 +738,11 @@ export function registerImportExportRoutes(app: Express, helpers: {
       });
       logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       
-      const useReplitStorageChunked = process.env.STORAGE_BACKEND === "replit";
+      const useRemoteStorageChunked = useObjectStorageForImports();
       let storagePathChunked: string;
       const verifiedSize = fs.statSync(tempCsvPath).size;
 
-      if (useReplitStorageChunked) {
+      if (useRemoteStorageChunked) {
         storagePathChunked = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
         logger.info(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${storagePathChunked}`);
         const objectExists = await objectStorageService.objectExists(storagePathChunked);
