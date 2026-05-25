@@ -196,33 +196,43 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
   app.post("/api/campaigns/test", async (req: Request, res: Response) => {
     try {
-      const { 
-        email, 
+      const {
+        email,
         mtaId,
-        fromName, 
-        fromEmail, 
-        subject, 
-        preheader, 
+        fromName,
+        fromEmail,
+        subject,
+        preheader,
         htmlContent,
         companyAddress,
         unsubscribeText,
         trackOpens,
         trackClicks,
+        // Task #185 opt-in: when true the test send is funneled through
+        // `prepareTrackedHtml` so the preview includes the open pixel and
+        // rewritten click URLs the real recipient would receive. Default
+        // false keeps the legacy "preview only — no tracking" behaviour
+        // so developer test sends don't pollute analytics. Requires a
+        // saved `campaignId` + a real `subscriberId` because tracking
+        // events insert into `campaign_stats` with NOT NULL FKs.
+        trackInTest,
+        campaignId,
+        subscriberId,
       } = req.body;
-      
+
       if (!email || !fromEmail || !subject || !htmlContent) {
         return res.status(400).json({ error: "Missing required fields (email, fromEmail, subject, htmlContent)" });
       }
-      
+
       let mta = null;
       if (mtaId) {
         mta = await storage.getMta(mtaId);
       }
-      
+
       const headers: Record<string, string> = {
         "X-Test-Email": "true",
       };
-      
+
       const defaultHeaders = await storage.getDefaultHeaders();
       const trackingDomain = mta?.trackingDomain || undefined;
       const rawTrackingDomain = trackingDomain || "";
@@ -232,17 +242,91 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const testUnsubscribeUrl = normalizedDomain
         ? `${normalizedDomain}/api/unsubscribe/test-campaign/test-subscriber`
         : "#unsubscribe-placeholder";
-      
+
       for (const header of defaultHeaders) {
         const resolvedValue = header.value.replace(/\{UNSUBSCRIBE\}/gi, testUnsubscribeUrl);
         headers[header.name] = resolvedValue;
       }
-      
+
+      // Build the optional tracking context. Requires resolvable
+      // campaign+subscriber rows for downstream FK satisfaction. If the
+      // caller didn't provide a subscriberId, fall back to looking up
+      // the recipient email in the subscribers table — convenient for
+      // the wizard UI where a developer just types their own address.
+      let trackingContext: import("../email-service").TestEmailTrackingContext | undefined;
+      if (trackInTest) {
+        if (!campaignId) {
+          return res.status(400).json({
+            error: "trackInTest requires a saved campaignId so tracking events satisfy the campaign_stats FK constraint.",
+          });
+        }
+        const campaignRow = await storage.getCampaign(campaignId);
+        let subRow = subscriberId ? await storage.getSubscriber(subscriberId) : undefined;
+        if (!subRow) {
+          subRow = await storage.getSubscriberByEmail(email);
+        }
+        if (!campaignRow || !subRow) {
+          return res.status(404).json({
+            error: "Cannot enable trackInTest: campaignId not found, or the test recipient's email is not a known subscriber (tracking events require valid FKs).",
+          });
+        }
+        trackingContext = {
+          campaign: {
+            ...campaignRow,
+            // Use the request-body HTML/subject/etc so the preview reflects
+            // unsaved edits the user is iterating on in the wizard.
+            htmlContent,
+            subject,
+            preheader: preheader ?? campaignRow.preheader,
+            unsubscribeText: unsubscribeText ?? campaignRow.unsubscribeText,
+            companyAddress: companyAddress ?? campaignRow.companyAddress,
+          },
+          subscriber: subRow,
+          tracking: {
+            trackOpens: trackOpens !== false,
+            trackClicks: trackClicks !== false,
+            trackingDomain: trackingDomain,
+            openTrackingDomain: mta?.openTrackingDomain || undefined,
+            openTag: campaignRow.openTag || undefined,
+            clickTag: campaignRow.clickTag || undefined,
+          },
+        };
+      }
+
       if (mta) {
-        logger.info(`[TEST EMAIL] Sending via MTA SMTP (${mta.name}) to: ${email}`);
+        logger.info(`[TEST EMAIL] Sending via MTA SMTP (${mta.name}) to: ${email}${trackingContext ? " [tracked]" : ""}`);
         const { sendTestEmailViaSMTP } = await import("../email-service");
-        
-        const result = await sendTestEmailViaSMTP(mta, {
+
+        const result = await sendTestEmailViaSMTP(
+          mta,
+          {
+            to: email,
+            fromName: fromName || "Test",
+            fromEmail,
+            subject,
+            htmlContent,
+            preheader,
+            companyAddress,
+            unsubscribeText,
+            trackingDomain,
+            headers,
+          },
+          trackingContext,
+        );
+
+        if (result.success) {
+          res.json({ success: true, messageId: result.messageId, tracked: !!trackingContext });
+        } else {
+          res.status(500).json({ error: result.error || "Failed to send test email via SMTP" });
+        }
+        return;
+      }
+
+      logger.info(`[TEST EMAIL] No MTA selected, using Resend API to: ${email}${trackingContext ? " [tracked]" : ""}`);
+      const { sendTestEmailViaResend } = await import("../resend-client");
+
+      const result = await sendTestEmailViaResend(
+        {
           to: email,
           fromName: fromName || "Test",
           fromEmail,
@@ -253,34 +337,15 @@ export function registerCampaignRoutes(app: Express, helpers: {
           unsubscribeText,
           trackingDomain,
           headers,
-        });
-        
-        if (result.success) {
-          res.json({ success: true, messageId: result.messageId });
-        } else {
-          res.status(500).json({ error: result.error || "Failed to send test email via SMTP" });
-        }
-        return;
-      }
-      
-      logger.info(`[TEST EMAIL] No MTA selected, using Resend API to: ${email}`);
-      const { sendTestEmailViaResend } = await import("../resend-client");
-      
-      const result = await sendTestEmailViaResend({
-        to: email,
-        fromName: fromName || "Test",
-        fromEmail,
-        subject,
-        htmlContent,
-        preheader,
-        companyAddress,
-        unsubscribeText,
-        trackingDomain,
-        headers,
-      });
+        },
+        trackingContext,
+      );
       
       if (result.success) {
-        res.json({ success: true, messageId: result.messageId });
+        // Normalize the response shape with the SMTP branch above so the
+        // UI can reliably show a "tracked" indicator regardless of which
+        // transport actually delivered the test send.
+        res.json({ success: true, messageId: result.messageId, tracked: !!trackingContext });
       } else {
         res.status(500).json({ error: result.error || "Failed to send test email" });
       }

@@ -260,6 +260,147 @@ export function personalizeContent(
   return personalized;
 }
 
+/**
+ * Minimal Campaign shape required by `prepareTrackedHtml`. Accepts both real
+ * `Campaign` rows and synthetic objects used by the automation engine /
+ * Resend fallback / test-send paths.
+ */
+export interface TrackedHtmlCampaign {
+  id: string;
+  htmlContent: string;
+  subject: string;
+  preheader?: string | null;
+  unsubscribeText?: string | null;
+  companyAddress?: string | null;
+  createdAt?: Date | string | null;
+  fromName?: string;
+  fromEmail?: string;
+  replyEmail?: string | null;
+  openTag?: string | null;
+  clickTag?: string | null;
+}
+
+/** Minimal Subscriber shape required by `prepareTrackedHtml`. */
+export interface TrackedHtmlSubscriber {
+  id: string;
+  email: string;
+  tags?: string[] | null;
+}
+
+/** Minimal MTA shape required by `prepareTrackedHtml`. */
+export interface TrackedHtmlMta {
+  imageHostingDomain?: string | null;
+}
+
+export interface PreparedEmail {
+  /** Final HTML body, fully tracked and footered. */
+  html: string;
+  /** Personalized subject line. */
+  subject: string;
+  /** Resolved unsubscribe URL (short /u/{token} when batchUnsubTokens has one, else HMAC). */
+  unsubscribeUrl: string;
+}
+
+export interface PrepareTrackedHtmlOptions {
+  /** Wrap subject through personalizeContent (default: true). */
+  personalizeSubject?: boolean;
+  /** Inject the footer block (unsubscribe + company address) after tracking. Default: true. */
+  appendFooter?: boolean;
+  /** Inject preheader span at the top of the HTML body. Default: false — most
+   *  callers prefer to prepend it AFTER tracking/footer (e.g. `sendEmail`). */
+  injectPreheader?: boolean;
+}
+
+/**
+ * Single canonical pipeline that takes raw campaign HTML + subscriber + MTA
+ * + tracking decisions and produces the fully prepared HTML for transport.
+ *
+ * Steps (in order):
+ *   1. personalizeContent  (htmlContent — {{email}} / {{subscriber_id}} / {{tags}})
+ *   2. rewriteImageUrls    (using mta.imageHostingDomain + campaign date context)
+ *   3. resolve unsubscribe URL (short /u/{token} from tracking.batchUnsubTokens, else HMAC)
+ *   4. replace {{unsubscribe_url}} placeholder
+ *   5. addTrackingToHtml   (open pixel + click rewriting via tracking options)
+ *   6. appendFooter        (optional)
+ *
+ * This is the chokepoint every outbound email path funnels through:
+ * bulk campaign sender, pressure-guard drain worker, automation engine,
+ * Resend fallback, and (opt-in) test sends. Adding a new send path? Use
+ * this helper or your emails will silently lose tracking.
+ */
+export function prepareTrackedHtml(
+  campaign: TrackedHtmlCampaign,
+  subscriber: TrackedHtmlSubscriber,
+  mta: TrackedHtmlMta,
+  tracking: TrackingOptions,
+  opts: PrepareTrackedHtmlOptions = {}
+): PreparedEmail {
+  // `personalizeContent` only reads { email, id, tags } — cast a minimal
+  // shape so callers don't have to materialize the full Subscriber row.
+  const subscriberObj = {
+    id: subscriber.id,
+    email: subscriber.email,
+    tags: subscriber.tags || [],
+  } as unknown as Subscriber;
+
+  // 1. personalize body
+  let html = personalizeContent(campaign.htmlContent, subscriberObj);
+
+  // 2. image URL rewriting (uses MTA's image hosting domain + campaign date)
+  const createdAt = campaign.createdAt
+    ? (campaign.createdAt instanceof Date ? campaign.createdAt : new Date(campaign.createdAt))
+    : new Date();
+  html = rewriteImageUrls(html, mta.imageHostingDomain, {
+    campaignId: String(campaign.id),
+    year: createdAt.getUTCFullYear().toString(),
+    month: String(createdAt.getUTCMonth() + 1).padStart(2, "0"),
+  });
+
+  // 3. resolve unsubscribe URL: prefer branded /u/{token}, else HMAC-signed.
+  const baseUrl = normalizeBaseUrl(tracking.trackingDomain);
+  const unsubToken = tracking.batchUnsubTokens?.get(subscriber.id);
+  const unsubscribeUrl = unsubToken && baseUrl
+    ? `${baseUrl}/u/${unsubToken}`
+    : (baseUrl ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id) : "");
+
+  // 4. replace {{unsubscribe_url}} placeholder in the body
+  if (unsubscribeUrl && html.includes("{{unsubscribe_url}}")) {
+    html = html.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
+  }
+
+  // 5. tracking pixel + click rewriting
+  html = addTrackingToHtml(html, {
+    ...tracking,
+    campaignId: campaign.id,
+    subscriberId: subscriber.id,
+  });
+
+  // Optional preheader injection at the top of the body
+  if (opts.injectPreheader && campaign.preheader) {
+    html =
+      `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${campaign.preheader}</span>` +
+      html;
+  }
+
+  // 6. footer (unsubscribe link + company address)
+  if (opts.appendFooter !== false) {
+    html = appendFooterToHtml(
+      html,
+      buildEmailFooter({
+        unsubscribeText: campaign.unsubscribeText,
+        companyAddress: campaign.companyAddress,
+        unsubscribeUrl: unsubscribeUrl || undefined,
+      })
+    );
+  }
+
+  const subject = opts.personalizeSubject === false
+    ? campaign.subject
+    : personalizeContent(campaign.subject, subscriberObj);
+
+  return { html, subject, unsubscribeUrl };
+}
+
 /** Optional campaign context for upgrading legacy /images/ paths to /campaigns/ format. */
 export interface ImageRewriteContext {
   campaignId: string;
@@ -389,48 +530,23 @@ export async function sendEmail(
 ): Promise<SendEmailResult> {
   const transporter = createTransporter(mta);
 
-  let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
-  
-  // Rewrite local image URLs to use the MTA's image hosting domain
-  // Pass campaign context so legacy /images/ paths are upgraded to /campaigns/ URLs
-  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain, campaignContext(campaign));
-  
-  // Resolve unsubscribe URL and replace placeholder in HTML body
-  const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
-  // Prefer short /u/{token} when a batch token is available for this subscriber
-  const unsubToken = trackingOptions.batchUnsubTokens?.get(subscriber.id);
-  const unsubscribeUrl = unsubToken && baseUrl
-    ? `${baseUrl}/u/${unsubToken}`
-    : (baseUrl ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id) : "");
-  if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
-    htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
-  }
-
-  htmlContent = addTrackingToHtml(htmlContent, {
-    campaignId: campaign.id,
-    subscriberId: subscriber.id,
-    trackOpens: trackingOptions.trackOpens,
-    trackClicks: trackingOptions.trackClicks,
-    trackingDomain: trackingOptions.trackingDomain,
-    openTrackingDomain: trackingOptions.openTrackingDomain,
-    openTag: trackingOptions.openTag,
-    clickTag: trackingOptions.clickTag,
-    linkMap: trackingOptions.linkMap,
-    batchClickTokens: trackingOptions.batchClickTokens,
-    batchUnsubTokens: trackingOptions.batchUnsubTokens,
-  });
-
-  // Append footer (unsubscribe link + company address) after tracking
-  htmlContent = appendFooterToHtml(
-    htmlContent,
-    buildEmailFooter({
-      unsubscribeText: campaign.unsubscribeText,
-      companyAddress: campaign.companyAddress,
-      unsubscribeUrl: unsubscribeUrl || undefined,
-    })
+  // All HTML transforms — personalize → image rewrite → unsubscribe →
+  // tracking → footer — funnel through `prepareTrackedHtml` so the SMTP
+  // path stays byte-identical with the nullsink + automation + Resend
+  // paths. Any drift here would silently regress one path's tracking.
+  const prepared = prepareTrackedHtml(
+    campaign,
+    subscriber,
+    mta as TrackedHtmlMta,
+    {
+      ...trackingOptions,
+      campaignId: campaign.id,
+      subscriberId: subscriber.id,
+    },
   );
-
-  const subject = personalizeContent(campaign.subject, subscriber);
+  let htmlContent = prepared.html;
+  const unsubscribeUrl = prepared.unsubscribeUrl;
+  const subject = prepared.subject;
 
   const mailOptions = {
     from: `"${campaign.fromName}" <${campaign.fromEmail}>`,
@@ -592,47 +708,22 @@ export async function sendEmailWithNullsink(
   const simulatedLatencyMs = (mta as any).simulatedLatencyMs || 0;
   const failureRate = (mta as any).failureRate || 0;
 
-  // Build the email content similar to normal sending
-  let htmlContent = personalizeContent(campaign.htmlContent, subscriber);
-  
-  // Rewrite local image URLs to use the MTA's image hosting domain
-  // Pass campaign context so legacy /images/ paths are upgraded to /campaigns/ URLs
-  htmlContent = rewriteImageUrls(htmlContent, (mta as any).imageHostingDomain, campaignContext(campaign));
-  const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
-  // Prefer short /u/{token} when a batch token is available for this subscriber
-  const unsubTokenNullsink = trackingOptions.batchUnsubTokens?.get(subscriber.id);
-  const unsubscribeUrl = unsubTokenNullsink && baseUrl
-    ? `${baseUrl}/u/${unsubTokenNullsink}`
-    : (baseUrl ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id) : "");
-  if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
-    htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
-  }
-
-  htmlContent = addTrackingToHtml(htmlContent, {
-    campaignId: campaign.id,
-    subscriberId: subscriber.id,
-    trackOpens: trackingOptions.trackOpens,
-    trackClicks: trackingOptions.trackClicks,
-    trackingDomain: trackingOptions.trackingDomain,
-    openTrackingDomain: trackingOptions.openTrackingDomain,
-    openTag: trackingOptions.openTag,
-    clickTag: trackingOptions.clickTag,
-    linkMap: trackingOptions.linkMap,
-    batchClickTokens: trackingOptions.batchClickTokens,
-    batchUnsubTokens: trackingOptions.batchUnsubTokens,
-  });
-
-  // Append footer after tracking
-  htmlContent = appendFooterToHtml(
-    htmlContent,
-    buildEmailFooter({
-      unsubscribeText: campaign.unsubscribeText,
-      companyAddress: campaign.companyAddress,
-      unsubscribeUrl: unsubscribeUrl || undefined,
-    })
+  // Funnel through the shared `prepareTrackedHtml` chokepoint so the
+  // nullsink path stays byte-identical with the SMTP / automation / Resend
+  // paths.
+  const prepared = prepareTrackedHtml(
+    campaign,
+    subscriber,
+    mta as TrackedHtmlMta,
+    {
+      ...trackingOptions,
+      campaignId: campaign.id,
+      subscriberId: subscriber.id,
+    },
   );
-
-  const subject = personalizeContent(campaign.subject, subscriber);
+  const htmlContent = prepared.html;
+  const unsubscribeUrl = prepared.unsubscribeUrl;
+  const subject = prepared.subject;
 
   const nullsinkTransporter = getNullsinkTransporter();
 
@@ -759,9 +850,24 @@ export async function sendAutomationEmail(
   return sendTestEmailViaSMTP(mta, options);
 }
 
+/**
+ * Optional tracking context for test sends. When provided, the test path
+ * funnels through `prepareTrackedHtml` exactly like a real campaign send
+ * so the previewed HTML reflects what a recipient would actually receive
+ * (open pixel + click rewriting + footer). Default behavior (when this
+ * is undefined) remains "preview only — no tracking" to avoid polluting
+ * analytics from developer test sends.
+ */
+export interface TestEmailTrackingContext {
+  campaign: TrackedHtmlCampaign;
+  subscriber: TrackedHtmlSubscriber;
+  tracking: Omit<TrackingOptions, "campaignId" | "subscriberId">;
+}
+
 export async function sendTestEmailViaSMTP(
   mta: Mta,
-  options: TestEmailOptions
+  options: TestEmailOptions,
+  trackingContext?: TestEmailTrackingContext,
 ): Promise<SendEmailResult> {
   // If MTA is in nullsink mode, just simulate success
   if ((mta as any).mode === "nullsink") {
@@ -771,36 +877,52 @@ export async function sendTestEmailViaSMTP(
       messageId: `nullsink-test-${Date.now()}@local`,
     };
   }
-  
+
   // Create transporter for this MTA
   const transporter = createTransporter(mta);
-  
-  // Process HTML content - add preheader if provided
-  let htmlContent = options.htmlContent;
-  if (options.preheader) {
-    const preheaderHtml = `<div style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${options.preheader}</div>`;
-    htmlContent = htmlContent.replace(/(<body[^>]*>)/i, `$1${preheaderHtml}`);
-  }
-  
-  // Rewrite local image URLs if image hosting domain is configured
-  const imageHostingDomain = (mta as any).imageHostingDomain;
-  if (imageHostingDomain) {
-    htmlContent = rewriteImageUrls(htmlContent, imageHostingDomain);
-  }
 
-  // Append footer preview (uses a placeholder URL since this is a test send)
-  const testBaseUrl = normalizeBaseUrl(options.trackingDomain);
-  const testUnsubscribeUrl = testBaseUrl
-    ? `${testBaseUrl}/api/unsubscribe/test/test`
-    : "";
-  htmlContent = appendFooterToHtml(
-    htmlContent,
-    buildEmailFooter({
-      unsubscribeText: options.unsubscribeText,
-      companyAddress: options.companyAddress,
-      unsubscribeUrl: testUnsubscribeUrl || undefined,
-    })
-  );
+  let htmlContent: string;
+
+  if (trackingContext) {
+    // Tracked test send: route through the shared chokepoint so the
+    // preview is byte-identical with a real bulk send.
+    const prepared = prepareTrackedHtml(
+      trackingContext.campaign,
+      trackingContext.subscriber,
+      mta as TrackedHtmlMta,
+      {
+        ...trackingContext.tracking,
+        campaignId: trackingContext.campaign.id,
+        subscriberId: trackingContext.subscriber.id,
+      },
+      { injectPreheader: !!trackingContext.campaign.preheader },
+    );
+    htmlContent = prepared.html;
+  } else {
+    // Untracked test send (default): minimal pipeline, no tracking pixels
+    // or rewritten click URLs.
+    htmlContent = options.htmlContent;
+    if (options.preheader) {
+      const preheaderHtml = `<div style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${options.preheader}</div>`;
+      htmlContent = htmlContent.replace(/(<body[^>]*>)/i, `$1${preheaderHtml}`);
+    }
+    const imageHostingDomain = (mta as any).imageHostingDomain;
+    if (imageHostingDomain) {
+      htmlContent = rewriteImageUrls(htmlContent, imageHostingDomain);
+    }
+    const testBaseUrl = normalizeBaseUrl(options.trackingDomain);
+    const testUnsubscribeUrl = testBaseUrl
+      ? `${testBaseUrl}/api/unsubscribe/test/test`
+      : "";
+    htmlContent = appendFooterToHtml(
+      htmlContent,
+      buildEmailFooter({
+        unsubscribeText: options.unsubscribeText,
+        companyAddress: options.companyAddress,
+        unsubscribeUrl: testUnsubscribeUrl || undefined,
+      })
+    );
+  }
 
   // Build mail options
   const mailOptions: nodemailer.SendMailOptions = {
@@ -877,59 +999,43 @@ export function sendEmailBatchNullsink(
   precomputedBaseHtml?: string
 ): BatchNullsinkResult[] {
   const failureRate = (mta as any).failureRate || 0;
-  const baseUrl = normalizeBaseUrl(trackingOptions.trackingDomain);
 
   const baseHtml = precomputedBaseHtml ?? precomputeBaseHtml(campaign, mta);
 
   const results: BatchNullsinkResult[] = [];
   let htmlBodyStored = false;
 
+  // Build a wrapper campaign carrying the precomputed `baseHtml` (already
+   // image-rewritten + preheader-prepended) as its htmlContent so the shared
+   // `prepareTrackedHtml` chokepoint applies personalize → tracking → footer
+   // without redoing the per-batch precompute work. preheader cleared so
+   // we don't re-inject it.
+  const wrappedCampaign: TrackedHtmlCampaign = {
+    ...campaign,
+    htmlContent: baseHtml,
+    preheader: null,
+  };
+
   for (const sub of subscribers) {
     try {
-      const subscriber: Subscriber = {
+      const subscriber: TrackedHtmlSubscriber = {
         id: sub.id,
         email: sub.email,
         tags: sub.tags || [],
-        ipAddress: null,
-        importDate: new Date(),
       };
 
-      let htmlContent = personalizeContent(baseHtml, subscriber);
-
-      // Prefer short /u/{token} when a batch token is available
-      const unsubTokenBatch = trackingOptions.batchUnsubTokens?.get(subscriber.id);
-      const unsubscribeUrl = unsubTokenBatch && baseUrl
-        ? `${baseUrl}/u/${unsubTokenBatch}`
-        : (baseUrl ? generateSignedUnsubscribeUrl(baseUrl, campaign.id, subscriber.id) : "");
-      if (unsubscribeUrl && htmlContent.includes("{{unsubscribe_url}}")) {
-        htmlContent = htmlContent.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
-      }
-
-      htmlContent = addTrackingToHtml(htmlContent, {
-        campaignId: campaign.id,
-        subscriberId: subscriber.id,
-        trackOpens: trackingOptions.trackOpens,
-        trackClicks: trackingOptions.trackClicks,
-        trackingDomain: trackingOptions.trackingDomain,
-        openTrackingDomain: trackingOptions.openTrackingDomain,
-        openTag: trackingOptions.openTag,
-        clickTag: trackingOptions.clickTag,
-        linkMap: trackingOptions.linkMap,
-        batchClickTokens: trackingOptions.batchClickTokens,
-        batchUnsubTokens: trackingOptions.batchUnsubTokens,
-      });
-
-      // Append footer (unsubscribe link + company address) after tracking
-      htmlContent = appendFooterToHtml(
-        htmlContent,
-        buildEmailFooter({
-          unsubscribeText: campaign.unsubscribeText,
-          companyAddress: campaign.companyAddress,
-          unsubscribeUrl: unsubscribeUrl || undefined,
-        })
+      const prepared = prepareTrackedHtml(
+        wrappedCampaign,
+        subscriber,
+        mta as TrackedHtmlMta,
+        {
+          ...trackingOptions,
+          campaignId: campaign.id,
+          subscriberId: subscriber.id,
+        },
       );
-
-      const subject = personalizeContent(campaign.subject, subscriber);
+      const htmlContent = prepared.html;
+      const subject = prepared.subject;
       const messageSize = Buffer.byteLength(htmlContent, 'utf8');
 
       const shouldFail = failureRate > 0 && Math.random() * 100 < failureRate;

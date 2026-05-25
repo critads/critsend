@@ -1,10 +1,10 @@
 import { db } from "../db";
 import { sql, eq, and } from "drizzle-orm";
-import { automationWorkflows, automationEnrollments, subscribers } from "@shared/schema";
-import type { AutomationWorkflow, AutomationEnrollment, TriggerType } from "@shared/schema";
+import { automationWorkflows, automationEnrollments, subscribers, campaigns } from "@shared/schema";
+import type { AutomationWorkflow, AutomationEnrollment, TriggerType, Campaign, Mta } from "@shared/schema";
 import { logger } from "../logger";
 import { isPoolHealthy } from "../db";
-import { sendAutomationEmail } from "../email-service";
+import { sendAutomationEmail, sendEmail } from "../email-service";
 import { storage } from "../storage";
 import { automationQueue } from "../queues";
 
@@ -48,9 +48,13 @@ export function runAutomationBootstrapMigrations(): Promise<void> {
   _automationBootstrapPromise = (async () => {
     try {
       await db.execute(sql`ALTER TABLE automation_workflows ADD COLUMN IF NOT EXISTS mta_id varchar`);
-      logger.info("[AUTOMATION] Bootstrap migration: mta_id column ready");
+      // Task #185: synthetic-campaign id for tracking automation send_email
+      // steps. Nullable; populated lazily on first send by
+      // `ensureAutomationTrackingCampaign` below.
+      await db.execute(sql`ALTER TABLE automation_workflows ADD COLUMN IF NOT EXISTS tracking_campaign_id varchar`);
+      logger.info("[AUTOMATION] Bootstrap migration: mta_id + tracking_campaign_id columns ready");
     } catch (err: any) {
-      logger.error(`[AUTOMATION] Bootstrap migration FAILED (mta_id): ${err?.message || err}`);
+      logger.error(`[AUTOMATION] Bootstrap migration FAILED: ${err?.message || err}`);
     }
   })();
   return _automationBootstrapPromise;
@@ -178,6 +182,7 @@ function jsonRowToWorkflow(j: Record<string, any>): AutomationWorkflow {
     triggerConfig: j.trigger_config ?? {},
     steps: j.steps ?? [],
     mtaId: j.mta_id ?? null,
+    trackingCampaignId: j.tracking_campaign_id ?? null,
     totalEnrolled: j.total_enrolled ?? 0,
     totalCompleted: j.total_completed ?? 0,
     totalFailed: j.total_failed ?? 0,
@@ -318,13 +323,17 @@ async function executeSendEmailStep(
     }
   }
 
-  const personalizedHtml = htmlContent
-    .replace(/\{\{email\}\}/gi, subscriber.email)
-    .replace(/\{\{name\}\}/gi, subscriber.name || subscriber.email);
-
-  const personalizedSubject = subject
-    .replace(/\{\{email\}\}/gi, subscriber.email)
-    .replace(/\{\{name\}\}/gi, subscriber.name || subscriber.email);
+  // Replace {{name}} (an automation-only placeholder) here. Other
+  // placeholders ({{email}}, {{subscriber_id}}, {{tags}}) are handled
+  // canonically inside `prepareTrackedHtml` via `personalizeContent`.
+  const nameReplacedHtml = htmlContent.replace(
+    /\{\{name\}\}/gi,
+    subscriber.name || subscriber.email,
+  );
+  const personalizedSubject = subject.replace(
+    /\{\{name\}\}/gi,
+    subscriber.name || subscriber.email,
+  );
 
   // Final liveness re-check immediately before the SMTP call. This minimizes
   // the window in which a cancellation could be issued but the email is
@@ -335,19 +344,142 @@ async function executeSendEmailStep(
     return;
   }
 
-  const result = await sendAutomationEmail(mta, {
-    to: subscriber.email,
-    fromName: fromName || mta.fromName || "Critsend",
-    fromEmail: fromEmail || mta.fromEmail || mta.username,
-    subject: personalizedSubject,
-    htmlContent: personalizedHtml,
-  });
+  // Task #185: route the automation send through the same `sendEmail`
+  // path used by campaign-sender/pressure-guard so opens + clicks +
+  // unsubscribe links are tracked. Requires a real `campaigns` row for
+  // the FK on `campaign_stats`, so we lazy-create one synthetic campaign
+  // per workflow (status='automation_internal', filtered out of the
+  // user-facing campaigns list) and reuse it for every send by this
+  // workflow.
+  const resolvedFromEmail = fromEmail || mta.fromEmail || mta.username || "noreply@example.com";
+  const resolvedFromName = fromName || mta.fromName || "Critsend";
+  // The synthetic campaign is created ONCE per workflow and only serves
+  // as the FK identity target for tracking events (campaign_stats /
+  // campaign_sends). We seed it with the raw step template (NOT the
+  // per-recipient `{{name}}`-replaced content) so the persisted row
+  // never holds another subscriber's personalization.
+  const trackingCampaign = await ensureAutomationTrackingCampaign(
+    workflow,
+    mta,
+    {
+      fromName: resolvedFromName,
+      fromEmail: resolvedFromEmail,
+      subject,
+      htmlContent,
+    },
+  );
 
-  if (!result.success) {
-    throw new Error(`Email send failed: ${result.error || "Unknown error"}`);
+  if (trackingCampaign) {
+    // Build a per-send campaign view that keeps the synthetic campaign's
+    // id (so tracking FKs resolve) but carries THIS recipient's
+    // personalized subject + html. Without this override sendEmail
+    // would render the cached synthetic-row content and leak the first
+    // recipient's name to every later recipient.
+    const perSendCampaign = {
+      ...trackingCampaign,
+      fromName: resolvedFromName,
+      fromEmail: resolvedFromEmail,
+      subject: personalizedSubject,
+      htmlContent: nameReplacedHtml,
+    };
+    const result = await sendEmail(
+      mta,
+      subscriber,
+      perSendCampaign,
+      {
+        trackOpens: true,
+        trackClicks: true,
+        trackingDomain: mta.trackingDomain || undefined,
+        openTrackingDomain: mta.openTrackingDomain || undefined,
+        openTag: trackingCampaign.openTag || undefined,
+        clickTag: trackingCampaign.clickTag || undefined,
+      },
+    );
+
+    if (!result.success) {
+      throw new Error(`Email send failed: ${result.error || "Unknown error"}`);
+    }
+
+    logger.info(`${logPrefix} Email sent to ${subscriber.email} (messageId: ${result.messageId})`);
+    return;
   }
 
-  logger.info(`${logPrefix} Email sent to ${subscriber.email} (messageId: ${result.messageId})`);
+  // Task #185 invariant: every outbound automation email must funnel through
+  // `prepareTrackedHtml` so opens/clicks are captured. If we could not
+  // provision the synthetic tracking campaign (e.g. missing tracking
+  // domain), fail the step instead of silently bypassing tracking. The
+  // automation engine's retry/failure machinery will surface this to the
+  // user as an actionable error.
+  throw new Error(
+    "Could not provision tracking campaign for automation send_email step — refusing to send untracked. Check tracking domain configuration.",
+  );
+}
+
+/**
+ * Lazy-create (and cache on the workflow row) a synthetic `campaigns`
+ * row used as the FK target for tracking events generated by automation
+ * `send_email` steps. The synthetic row uses status='automation_internal'
+ * and is filtered out of `getCampaignsPaginated`. Returns null if we
+ * could not provision one (caller falls back to untracked send).
+ */
+async function ensureAutomationTrackingCampaign(
+  workflow: AutomationWorkflow,
+  mta: Mta,
+  step: { fromName: string; fromEmail: string; subject: string; htmlContent: string },
+): Promise<Campaign | null> {
+  try {
+    if (workflow.trackingCampaignId) {
+      const [existing] = await db
+        .select()
+        .from(campaigns)
+        .where(eq(campaigns.id, workflow.trackingCampaignId));
+      if (existing) {
+        return existing;
+      }
+      // FK target vanished (manual delete?) — fall through and recreate.
+    }
+
+    const [inserted] = await db
+      .insert(campaigns)
+      .values({
+        userId: null,
+        name: `[automation] ${workflow.name}`,
+        mtaId: mta.id,
+        segmentId: null,
+        fromName: step.fromName,
+        fromEmail: step.fromEmail,
+        replyEmail: null,
+        subject: step.subject,
+        preheader: null,
+        htmlContent: step.htmlContent,
+        trackClicks: true,
+        trackOpens: true,
+        unsubscribeText: "Unsubscribe",
+        companyAddress: null,
+        sendingSpeed: "medium",
+        status: "automation_internal",
+        openTag: null,
+        clickTag: null,
+        unsubscribeTag: null,
+      })
+      .returning();
+
+    // Mutate the in-memory workflow so any further send_email steps
+    // executed in this same processing pass reuse this row instead of
+    // re-inserting another synthetic campaign.
+    workflow.trackingCampaignId = inserted.id;
+
+    await db
+      .update(automationWorkflows)
+      .set({ trackingCampaignId: inserted.id })
+      .where(eq(automationWorkflows.id, workflow.id));
+
+    logger.info(`[AUTOMATION] Provisioned tracking campaign ${inserted.id.substring(0, 8)} for workflow ${workflow.id.substring(0, 8)}`);
+    return inserted;
+  } catch (err: any) {
+    logger.warn(`[AUTOMATION] ensureAutomationTrackingCampaign failed: ${err?.message || err} — sending untracked`);
+    return null;
+  }
 }
 
 async function executeWaitStep(

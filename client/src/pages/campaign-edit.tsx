@@ -108,6 +108,11 @@ export default function CampaignEdit() {
   const [showPreview, setShowPreview] = useState(true);
   const [testEmail, setTestEmail] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
+  // Task #185: opt-in for running test sends through the same
+  // `prepareTrackedHtml` chokepoint real campaign sends use, so the
+  // previewed HTML carries the open pixel + rewritten click URLs.
+  // Default off so casual previews don't pollute analytics.
+  const [trackInTest, setTrackInTest] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   // Task #138: tracks whether the exclusion combobox is revealed.
   // Initialised to true once the loaded campaign already has an
@@ -357,6 +362,11 @@ export default function CampaignEdit() {
         unsubscribeText: formData.unsubscribeText,
         trackOpens: formData.trackOpens,
         trackClicks: formData.trackClicks,
+        // Task #185: opt-in tracked preview. Server requires a saved
+        // campaignId; if the recipient is a known subscriber the server
+        // looks them up by email automatically.
+        trackInTest,
+        campaignId,
       });
       
       if (res.ok) {
@@ -1152,6 +1162,25 @@ export default function CampaignEdit() {
                     )}
                   </Button>
                 </div>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={trackInTest}
+                    onChange={(e) => setTrackInTest(e.target.checked)}
+                    data-testid="checkbox-track-in-test"
+                  />
+                  <span>
+                    Apply open + click tracking to this test send (recipient must be a known subscriber)
+                  </span>
+                  {trackInTest && (
+                    <span
+                      className="ml-1 inline-flex items-center rounded-md bg-blue-100 dark:bg-blue-950/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300"
+                      data-testid="badge-tracked-preview"
+                    >
+                      Tracked
+                    </span>
+                  )}
+                </label>
                 <p className="text-xs text-muted-foreground">
                   Send a test email to verify your content before launching
                 </p>

@@ -5,6 +5,8 @@
 
 import { Resend } from 'resend';
 import { logger } from "./logger";
+import type { Mta } from "@shared/schema";
+import { prepareTrackedHtml, type TestEmailTrackingContext } from "./email-service";
 
 async function getCredentials(): Promise<{ apiKey: string; fromEmail: string | undefined }> {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
@@ -93,19 +95,22 @@ function buildEmailFooter(options: {
 }
 
 // Send a test email using Resend HTTP API
-export async function sendTestEmailViaResend(options: {
-  to: string;
-  fromName: string;
-  fromEmail: string;
-  subject: string;
-  htmlContent: string;
-  replyTo?: string;
-  preheader?: string;
-  companyAddress?: string;
-  unsubscribeText?: string;
-  trackingDomain?: string;
-  headers?: Record<string, string>;
-}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+export async function sendTestEmailViaResend(
+  options: {
+    to: string;
+    fromName: string;
+    fromEmail: string;
+    subject: string;
+    htmlContent: string;
+    replyTo?: string;
+    preheader?: string;
+    companyAddress?: string;
+    unsubscribeText?: string;
+    trackingDomain?: string;
+    headers?: Record<string, string>;
+  },
+  trackingContext?: TestEmailTrackingContext,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const { client } = await getResendClient();
 
@@ -113,33 +118,59 @@ export async function sendTestEmailViaResend(options: {
       ? `${options.fromName} <${options.fromEmail}>`
       : options.fromEmail;
 
-    let finalHtml = options.htmlContent;
+    let finalHtml: string;
 
-    if (options.preheader) {
-      const preheaderHtml = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${options.preheader}</span>`;
-      finalHtml = preheaderHtml + finalHtml;
-    }
-
-    let unsubscribeUrl: string | undefined;
-    if (options.trackingDomain && options.unsubscribeText) {
-      const baseUrl = options.trackingDomain.replace(/\/$/, '');
-      unsubscribeUrl = `${baseUrl}/api/unsubscribe/test-campaign/test-subscriber?sig=test`;
-    }
-
-    if (unsubscribeUrl && finalHtml.includes('{{unsubscribe_url}}')) {
-      finalHtml = finalHtml.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
-    }
-
-    const footer = buildEmailFooter({
-      unsubscribeText: options.unsubscribeText,
-      companyAddress: options.companyAddress,
-      unsubscribeUrl: unsubscribeUrl,
-    });
-
-    if (finalHtml.includes('</body>')) {
-      finalHtml = finalHtml.replace('</body>', footer + '</body>');
+    if (trackingContext) {
+      // Tracked path: route through the shared chokepoint so the Resend
+      // fallback applies open pixel + click rewriting + footer identical
+      // to the SMTP / nullsink / campaign-sender paths. The Mta-shaped
+      // imageHostingDomain comes from the request body when callers don't
+      // have a real MTA (Resend fallback when no MTA selected).
+      const mtaShape: Pick<Mta, "imageHostingDomain"> = {
+        imageHostingDomain: null,
+      };
+      const prepared = prepareTrackedHtml(
+        trackingContext.campaign,
+        trackingContext.subscriber,
+        mtaShape as Mta,
+        {
+          ...trackingContext.tracking,
+          campaignId: trackingContext.campaign.id,
+          subscriberId: trackingContext.subscriber.id,
+        },
+        { injectPreheader: !!trackingContext.campaign.preheader },
+      );
+      finalHtml = prepared.html;
     } else {
-      finalHtml = finalHtml + footer;
+      // Legacy untracked test preview path.
+      finalHtml = options.htmlContent;
+
+      if (options.preheader) {
+        const preheaderHtml = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${options.preheader}</span>`;
+        finalHtml = preheaderHtml + finalHtml;
+      }
+
+      let unsubscribeUrl: string | undefined;
+      if (options.trackingDomain && options.unsubscribeText) {
+        const baseUrl = options.trackingDomain.replace(/\/$/, '');
+        unsubscribeUrl = `${baseUrl}/api/unsubscribe/test-campaign/test-subscriber?sig=test`;
+      }
+
+      if (unsubscribeUrl && finalHtml.includes('{{unsubscribe_url}}')) {
+        finalHtml = finalHtml.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
+      }
+
+      const footer = buildEmailFooter({
+        unsubscribeText: options.unsubscribeText,
+        companyAddress: options.companyAddress,
+        unsubscribeUrl: unsubscribeUrl,
+      });
+
+      if (finalHtml.includes('</body>')) {
+        finalHtml = finalHtml.replace('</body>', footer + '</body>');
+      } else {
+        finalHtml = finalHtml + footer;
+      }
     }
 
     const result = await client.emails.send({

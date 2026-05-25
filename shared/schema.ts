@@ -1134,6 +1134,15 @@ export const automationWorkflows = pgTable("automation_workflows", {
   triggerConfig: jsonb("trigger_config").notNull().default(sql`'{}'::jsonb`),
   steps: jsonb("steps").notNull().default(sql`'[]'::jsonb`),
   mtaId: varchar("mta_id"),
+  // Synthetic-campaign id used by the automation engine so open/click events
+  // dispatched by send_email steps can be persisted into `campaign_stats`
+  // (which has a NOT NULL FK to `campaigns.id`). Lazy-created on first
+  // send_email run via `ensureAutomationTrackingCampaign` and reused for
+  // every subsequent send by the same workflow. The synthetic row uses
+  // status='automation_internal' so it is filtered out of the user-facing
+  // campaigns list. Idempotent bootstrap migration adds this column in
+  // `runAutomationBootstrapMigrations`.
+  trackingCampaignId: varchar("tracking_campaign_id"),
   totalEnrolled: integer("total_enrolled").notNull().default(0),
   totalCompleted: integer("total_completed").notNull().default(0),
   totalFailed: integer("total_failed").notNull().default(0),
