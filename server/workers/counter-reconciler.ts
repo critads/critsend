@@ -193,114 +193,22 @@ export async function reconcileCounters(
   let engagementCountersFixed = 0;
   let lifecycleCountersFixed = 0;
   try {
-  // 1. campaigns.sent_count (fill-only — never reduces)
-  currentStage = "sent_count";
-  const sentRes = await client.query(
-    `${truthLead} (
-       SELECT campaign_id, COUNT(*)::bigint AS cnt
-         FROM campaign_sends
-        WHERE status = 'sent'
-          ${inRecentRow}
-        GROUP BY campaign_id
-     )
-     UPDATE campaigns c
-        SET sent_count = truth.cnt
-       FROM truth
-      WHERE c.id = truth.campaign_id
-        AND c.sent_count < truth.cnt`,
-  );
-  sentCountFixed = sentRes.rowCount ?? 0;
-  checkBudget();
-
-  // 2. campaign_sends.first_open_at
-  currentStage = "first_open_at";
-  const openRes = await client.query(
-    `${truthLead} (
-       SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
-         FROM campaign_stats
-        WHERE type = 'open'
-          ${inRecentRow}
-        GROUP BY campaign_id, subscriber_id
-     )
-     UPDATE campaign_sends cs
-        SET first_open_at = truth.first_ts
-       FROM truth
-      WHERE cs.campaign_id = truth.campaign_id
-        AND cs.subscriber_id = truth.subscriber_id
-        AND cs.first_open_at IS NULL`,
-  );
-  firstOpenFixed = openRes.rowCount ?? 0;
-  checkBudget();
-
-  // 3. campaign_sends.first_click_at
-  currentStage = "first_click_at";
-  const clickRes = await client.query(
-    `${truthLead} (
-       SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
-         FROM campaign_stats
-        WHERE type = 'click'
-          ${inRecentRow}
-        GROUP BY campaign_id, subscriber_id
-     )
-     UPDATE campaign_sends cs
-        SET first_click_at = truth.first_ts
-       FROM truth
-      WHERE cs.campaign_id = truth.campaign_id
-        AND cs.subscriber_id = truth.subscriber_id
-        AND cs.first_click_at IS NULL`,
-  );
-  firstClickFixed = clickRes.rowCount ?? 0;
-  checkBudget();
-
-  // 4. Cached engagement counters on campaigns.* — single UPDATE that re-derives
-  currentStage = "engagement_counters";
-  //    all six counters from campaign_stats via direct assignment. The truth
-  //    from campaign_stats is always authoritative; if the cached counter
-  //    drifted above truth (e.g. a bug in an earlier code version inflated
-  //    unique_opens_count), this corrects it downward. Previous versions used
-  //    GREATEST() (fill-only) which could never fix overcounts — resulting in
-  //    >100% open rates on the /campaigns list.
-  const engagementRes = await client.query(
-    `${truthLead} (
-       SELECT campaign_id,
-              COUNT(*) FILTER (WHERE type = 'open')::bigint                          AS total_opens,
-              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')::bigint     AS unique_opens,
-              COUNT(*) FILTER (WHERE type = 'click')::bigint                         AS total_clicks,
-              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click')::bigint    AS unique_clicks,
-              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')::bigint AS unsubscribes,
-              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints
-         FROM campaign_stats
-        WHERE TRUE
-          ${inRecentRow}
-        GROUP BY campaign_id
-     )
-     UPDATE campaigns c
-        SET total_opens_count   = truth.total_opens,
-            unique_opens_count  = truth.unique_opens,
-            total_clicks_count  = truth.total_clicks,
-            unique_clicks_count = truth.unique_clicks,
-            unsubscribes_count  = truth.unsubscribes,
-            complaints_count    = truth.complaints
-       FROM truth
-      WHERE c.id = truth.campaign_id
-        AND ( c.total_opens_count   IS DISTINCT FROM truth.total_opens
-           OR c.unique_opens_count  IS DISTINCT FROM truth.unique_opens
-           OR c.total_clicks_count  IS DISTINCT FROM truth.total_clicks
-           OR c.unique_clicks_count IS DISTINCT FROM truth.unique_clicks
-           OR c.unsubscribes_count  IS DISTINCT FROM truth.unsubscribes
-           OR c.complaints_count    IS DISTINCT FROM truth.complaints )`,
-  );
-  engagementCountersFixed = engagementRes.rowCount ?? 0;
-  checkBudget();
-
-  // 5. campaigns.{pending_count, deferred_count, failed_count} — added
-  //    2026-05-23 after a prod incident where a Decathlon campaign sat at
-  //    pending_count=231 633 cached vs 0 real rows for 2 days, blocking
-  //    the UI progress bar at 12% and preventing the pressure-guard
-  //    auto-completion (which keys off pending_count=0). Until today the
-  //    reconciler only ever touched sent_count / engagement counters, so
-  //    pending_count drift was permanent: there is no other path that
-  //    re-derives it from the source of truth.
+  // 1. campaigns.{pending_count, deferred_count, failed_count} — MUST RUN FIRST.
+  //
+  //    Was originally step 5 (after sent_count + 3 engagement-counter stages
+  //    that scan ~20M campaign_stats rows). With the default 5s wall budget
+  //    (RECONCILE_TICK_BUDGET_MS=5000), steps 2-4 routinely consumed the
+  //    whole budget on a busy DB, so lifecycle_counters never ran and
+  //    pending_count drift accumulated indefinitely (observed 2026-05-25:
+  //    38 sending/paused campaigns with up to 384k phantom rows; the user-
+  //    visible progress bar showed huge ghost "pending" segments).
+  //
+  //    Moved to step 1 (2026-05-25) — the cheapest stage (single
+  //    aggregate over campaign_sends, indexed by status) AND the most
+  //    UX-critical one (drives the /campaigns progress bar and the
+  //    pressure-guard auto-completion path which keys off pending_count=0).
+  //    Engagement counters being a few minutes stale is invisible; pending
+  //    being 300k off is not.
   //
   //    Truth-direct assignment (no GREATEST, no fill-only): a single
   //    aggregate over `campaign_sends` filtered to the recent-activity
@@ -346,6 +254,106 @@ export async function reconcileCounters(
            OR c.failed_count   IS DISTINCT FROM truth.failed )`,
   );
   lifecycleCountersFixed = lifecycleRes.rowCount ?? 0;
+  checkBudget();
+
+  // 2. campaigns.sent_count (fill-only — never reduces)
+  currentStage = "sent_count";
+  const sentRes = await client.query(
+    `${truthLead} (
+       SELECT campaign_id, COUNT(*)::bigint AS cnt
+         FROM campaign_sends
+        WHERE status = 'sent'
+          ${inRecentRow}
+        GROUP BY campaign_id
+     )
+     UPDATE campaigns c
+        SET sent_count = truth.cnt
+       FROM truth
+      WHERE c.id = truth.campaign_id
+        AND c.sent_count < truth.cnt`,
+  );
+  sentCountFixed = sentRes.rowCount ?? 0;
+  checkBudget();
+
+  // 3. campaign_sends.first_open_at
+  currentStage = "first_open_at";
+  const openRes = await client.query(
+    `${truthLead} (
+       SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
+         FROM campaign_stats
+        WHERE type = 'open'
+          ${inRecentRow}
+        GROUP BY campaign_id, subscriber_id
+     )
+     UPDATE campaign_sends cs
+        SET first_open_at = truth.first_ts
+       FROM truth
+      WHERE cs.campaign_id = truth.campaign_id
+        AND cs.subscriber_id = truth.subscriber_id
+        AND cs.first_open_at IS NULL`,
+  );
+  firstOpenFixed = openRes.rowCount ?? 0;
+  checkBudget();
+
+  // 4. campaign_sends.first_click_at
+  currentStage = "first_click_at";
+  const clickRes = await client.query(
+    `${truthLead} (
+       SELECT campaign_id, subscriber_id, MIN("timestamp") AS first_ts
+         FROM campaign_stats
+        WHERE type = 'click'
+          ${inRecentRow}
+        GROUP BY campaign_id, subscriber_id
+     )
+     UPDATE campaign_sends cs
+        SET first_click_at = truth.first_ts
+       FROM truth
+      WHERE cs.campaign_id = truth.campaign_id
+        AND cs.subscriber_id = truth.subscriber_id
+        AND cs.first_click_at IS NULL`,
+  );
+  firstClickFixed = clickRes.rowCount ?? 0;
+  checkBudget();
+
+  // 5. Cached engagement counters on campaigns.* — single UPDATE that re-derives
+  currentStage = "engagement_counters";
+  //    all six counters from campaign_stats via direct assignment. The truth
+  //    from campaign_stats is always authoritative; if the cached counter
+  //    drifted above truth (e.g. a bug in an earlier code version inflated
+  //    unique_opens_count), this corrects it downward. Previous versions used
+  //    GREATEST() (fill-only) which could never fix overcounts — resulting in
+  //    >100% open rates on the /campaigns list.
+  const engagementRes = await client.query(
+    `${truthLead} (
+       SELECT campaign_id,
+              COUNT(*) FILTER (WHERE type = 'open')::bigint                          AS total_opens,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')::bigint     AS unique_opens,
+              COUNT(*) FILTER (WHERE type = 'click')::bigint                         AS total_clicks,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click')::bigint    AS unique_clicks,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')::bigint AS unsubscribes,
+              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints
+         FROM campaign_stats
+        WHERE TRUE
+          ${inRecentRow}
+        GROUP BY campaign_id
+     )
+     UPDATE campaigns c
+        SET total_opens_count   = truth.total_opens,
+            unique_opens_count  = truth.unique_opens,
+            total_clicks_count  = truth.total_clicks,
+            unique_clicks_count = truth.unique_clicks,
+            unsubscribes_count  = truth.unsubscribes,
+            complaints_count    = truth.complaints
+       FROM truth
+      WHERE c.id = truth.campaign_id
+        AND ( c.total_opens_count   IS DISTINCT FROM truth.total_opens
+           OR c.unique_opens_count  IS DISTINCT FROM truth.unique_opens
+           OR c.total_clicks_count  IS DISTINCT FROM truth.total_clicks
+           OR c.unique_clicks_count IS DISTINCT FROM truth.unique_clicks
+           OR c.unsubscribes_count  IS DISTINCT FROM truth.unsubscribes
+           OR c.complaints_count    IS DISTINCT FROM truth.complaints )`,
+  );
+  engagementCountersFixed = engagementRes.rowCount ?? 0;
   currentStage = "idle";
   } finally {
     clearTimeout(guard);
