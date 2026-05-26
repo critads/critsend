@@ -246,8 +246,21 @@ export default function Campaigns() {
       // value until the user manually refreshed. 30s is rare enough not
       // to pressure the API but frequent enough to keep the deferred
       // segment visibly fresh while the drain worker dispatches.
-      return isSSEConnected() ? 30000 : 10000;
+      //
+      // Phase-1 perf fix (audit 2026-05-26): SSE-off cadence relaxed
+      // 10s → 20s. The /api/campaigns handler is the heaviest read on
+      // the web pool, and a 10s cadence was shorter than its p95
+      // service time under multi-tab load, producing a self-saturating
+      // polling loop. 20s keeps the UX feel of "live" sending counts
+      // while halving the request rate from this page.
+      return isSSEConnected() ? 30000 : 20000;
     },
+    // Phase-1 perf fix: pause polling when the tab is hidden. React
+    // Query defaults to keeping interval refetches running in the
+    // background; on a multi-tab session this multiplies the polling
+    // rate by N for tabs the user isn't even looking at, which was a
+    // major contributor to the pool-saturation 503s on /campaigns.
+    refetchIntervalInBackground: false,
     structuralSharing: (oldData: any, newData: any) => {
       if (!oldData || !newData || !oldData.campaigns || !newData.campaigns) return newData;
       return {

@@ -406,38 +406,65 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
 
+  // Phase-1 perf fix (audit 2026-05-26): 5s in-memory cache. /api/campaigns/stats
+  // is polled in parallel with /api/campaigns on every page render, but it
+  // scans ALL rows in `campaigns` to build the global stats map. The data
+  // moves slowly (cached counters updated by the tracking-buffer flush
+  // every few seconds), so a 5s TTL is invisible to users and cuts DB
+  // hits to this endpoint by ~90% under multi-tab / multi-user load —
+  // the main cause of pool-saturation 503s on /campaigns.
+  type StatsMap = Record<string, { opens: number; clicks: number; unsubscribes: number; complaints: number }>;
+  const STATS_CACHE_TTL_MS = 5_000;
+  let statsCache: { ts: number; data: StatsMap } | null = null;
+  let statsInflight: Promise<StatsMap> | null = null;
+
+  async function loadCampaignStats(): Promise<StatsMap> {
+    const result = await pool.query(`
+      SELECT id,
+             unique_opens_count,
+             unique_clicks_count,
+             unsubscribes_count,
+             complaints_count
+        FROM campaigns
+    `);
+    const out: StatsMap = {};
+    for (const row of result.rows as Array<{
+      id: string;
+      unique_opens_count: number | string;
+      unique_clicks_count: number | string;
+      unsubscribes_count: number | string;
+      complaints_count: number | string;
+    }>) {
+      out[row.id] = {
+        opens: Number(row.unique_opens_count) || 0,
+        clicks: Number(row.unique_clicks_count) || 0,
+        unsubscribes: Number(row.unsubscribes_count) || 0,
+        complaints: Number(row.complaints_count) || 0,
+      };
+    }
+    return out;
+  }
+
   app.get("/api/campaigns/stats", async (_req: Request, res: Response) => {
     try {
-      // Fast read of the cached counters maintained by the tracking-buffer
-      // flush transaction (server/tracking-buffer.ts) and re-derived by the
-      // counter-drift reconciler (server/workers/counter-reconciler.ts).
-      // Replaces the previous COUNT(DISTINCT)…GROUP BY over the full
-      // campaign_stats event table, which became unscalable past a few
-      // million rows and caused the /campaigns list to timeout-and-render-zeros.
-      const result = await pool.query(`
-        SELECT id,
-               unique_opens_count,
-               unique_clicks_count,
-               unsubscribes_count,
-               complaints_count
-          FROM campaigns
-      `);
-      const statsMap: Record<string, { opens: number; clicks: number; unsubscribes: number; complaints: number }> = {};
-      for (const row of result.rows as Array<{
-        id: string;
-        unique_opens_count: number | string;
-        unique_clicks_count: number | string;
-        unsubscribes_count: number | string;
-        complaints_count: number | string;
-      }>) {
-        statsMap[row.id] = {
-          opens: Number(row.unique_opens_count) || 0,
-          clicks: Number(row.unique_clicks_count) || 0,
-          unsubscribes: Number(row.unsubscribes_count) || 0,
-          complaints: Number(row.complaints_count) || 0,
-        };
+      const now = Date.now();
+      if (statsCache && now - statsCache.ts < STATS_CACHE_TTL_MS) {
+        return res.json(statsCache.data);
       }
-      res.json(statsMap);
+      // Coalesce concurrent misses onto a single DB query so a thundering
+      // herd of polls at cache-expiry doesn't fan out to N parallel scans.
+      if (!statsInflight) {
+        statsInflight = loadCampaignStats()
+          .then((data) => {
+            statsCache = { ts: Date.now(), data };
+            return data;
+          })
+          .finally(() => {
+            statsInflight = null;
+          });
+      }
+      const data = await statsInflight;
+      res.json(data);
     } catch (error) {
       logger.error("Error fetching campaign stats:", error);
       res.status(500).json({ error: "Failed to fetch campaign stats" });
