@@ -17,7 +17,7 @@ import {
   type InsertNullsinkCapture,
 } from "@shared/schema";
 import { db, pool } from "../db";
-import { eq, desc, and, or, sql, ilike, isNull, ne } from "drizzle-orm";
+import { eq, desc, and, or, sql, ilike, isNull, ne, gte, lt } from "drizzle-orm";
 import crypto from "crypto";
 import { logger } from "../logger";
 import { campaignQueue } from "../queues";
@@ -40,8 +40,10 @@ export async function getCampaignsPaginated(opts: {
   limit: number;
   search?: string;
   originalsOnly?: boolean;
+  scheduledFrom?: Date;
+  scheduledTo?: Date;
 }): Promise<{ campaigns: (Campaign & { mtaName: string | null })[]; total: number }> {
-  const { page, limit, search, originalsOnly } = opts;
+  const { page, limit, search, originalsOnly, scheduledFrom, scheduledTo } = opts;
   const offset = (page - 1) * limit;
 
   // Task #185: hide synthetic "automation_internal" campaigns from the
@@ -58,6 +60,14 @@ export async function getCampaignsPaginated(opts: {
   }
   if (originalsOnly) {
     conditions.push(isNull(campaigns.parentCampaignId));
+  }
+  // Task #188: scheduled-date filter. When either bound is set we also
+  // require scheduled_at IS NOT NULL so draft/unscheduled rows fall out
+  // (they have no meaningful date to filter against). Drafts remain
+  // visible when neither bound is set, preserving prior behaviour.
+  if (scheduledFrom || scheduledTo) {
+    if (scheduledFrom) conditions.push(gte(campaigns.scheduledAt, scheduledFrom));
+    if (scheduledTo) conditions.push(lt(campaigns.scheduledAt, scheduledTo));
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -219,6 +229,45 @@ export async function ensureCampaignSendsPressureHeldIndex(): Promise<LockResult
     logger.info("[INDEX] campaign_sends_pressure_held_per_campaign_idx creation skipped — another process is handling it");
   } else {
     logger.warn("[INDEX] campaign_sends_pressure_held_per_campaign_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
+/**
+ * B-tree index on `campaigns.scheduled_at` to keep the Task #188 date-range
+ * filter on the `/campaigns` list fast. The list endpoint orders by
+ * `created_at DESC` and adds `scheduled_at >= :from AND scheduled_at < :to`
+ * when a preset (Today / Yesterday / Custom) is active. Without this index,
+ * the count + page queries fall back to a seq scan over every campaign row,
+ * which under load holds a main-pool connection long enough to trip the
+ * load-shed middleware.
+ *
+ * `WHERE scheduled_at IS NOT NULL` keeps the index narrow (drafts and never-
+ * scheduled rows are excluded anyway when a date bound is set — see the
+ * conditions block in `getCampaignsPaginated`).
+ */
+export async function ensureCampaignsScheduledAtIndex(): Promise<LockResult | "exists"> {
+  if (await indexExistsAndValid("campaigns_scheduled_at_idx")) {
+    logger.info("[INDEX] campaigns_scheduled_at_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGNS_SCHEDULED_AT,
+    "CAMPAIGNS_SCHEDULED_AT",
+    async (_lockClient) => {
+      await pool.query(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaigns_scheduled_at_idx
+           ON campaigns (scheduled_at)
+           WHERE scheduled_at IS NOT NULL`,
+      );
+    },
+  );
+  if (result === "ran") {
+    logger.info("[INDEX] campaigns_scheduled_at_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[INDEX] campaigns_scheduled_at_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[INDEX] campaigns_scheduled_at_idx creation encountered an error during advisory lock");
   }
   return result;
 }

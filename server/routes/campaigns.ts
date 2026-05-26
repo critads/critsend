@@ -362,7 +362,21 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const search = (req.query.search as string)?.trim() || undefined;
       const originalsOnly = req.query.originalsOnly === "true";
 
-      const result = await storage.getCampaignsPaginated({ page, limit, search, originalsOnly });
+      // Task #188: optional scheduled-date filter (Today / Yesterday / Custom).
+      // Both bounds are ISO timestamps; the frontend computes them from the
+      // browser's local clock when a preset is picked. Invalid timestamps are
+      // dropped (treated as if the bound were absent) rather than 400-ing so
+      // a stale URL never blocks the list from rendering. Bounds are inclusive
+      // start / exclusive end (matches the [from, to) convention).
+      const parseBound = (v: unknown): Date | undefined => {
+        if (typeof v !== "string" || !v) return undefined;
+        const d = new Date(v);
+        return Number.isFinite(d.getTime()) ? d : undefined;
+      };
+      const scheduledFrom = parseBound(req.query.scheduledFrom);
+      const scheduledTo = parseBound(req.query.scheduledTo);
+
+      const result = await storage.getCampaignsPaginated({ page, limit, search, originalsOnly, scheduledFrom, scheduledTo });
       res.json({
         campaigns: result.campaigns,
         total: result.total,

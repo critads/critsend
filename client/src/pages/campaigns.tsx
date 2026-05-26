@@ -1,4 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { format } from "date-fns";
+import type { DateRange } from "react-day-picker";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
@@ -66,6 +70,7 @@ import {
   Clipboard,
   Square,
   Zap,
+  CalendarIcon,
 } from "lucide-react";
 import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
 import { CampaignProgress } from "@/components/campaign-progress";
@@ -140,6 +145,14 @@ export default function Campaigns() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [originalsOnly, setOriginalsOnly] = useState(false);
+  // Task #188: scheduled-date filter. `dateFilter` drives the segmented
+  // button group; `customRange` only matters when dateFilter === 'custom'.
+  // Bounds are computed in the browser's local timezone — Today = local
+  // midnight to local midnight + 24h — so a French operator sees campaigns
+  // scheduled "today" by their wall clock, not UTC.
+  const [dateFilter, setDateFilter] = useState<"all" | "today" | "yesterday" | "custom">("all");
+  const [customRange, setCustomRange] = useState<DateRange | undefined>(undefined);
+  const [customPopoverOpen, setCustomPopoverOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [endConfirm, setEndConfirm] = useState<CampaignListItem | null>(null);
@@ -164,15 +177,55 @@ export default function Campaigns() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, []);
 
+  // Task #188: resolve `dateFilter` into ISO [from, to) bounds. `null` means
+  // no bound (either "all" is selected or Custom is open but incomplete —
+  // we don't want to send a partial filter that would surprise the user).
+  const dateBounds = useMemo<{ from: string | null; to: string | null }>(() => {
+    if (dateFilter === "all") return { from: null, to: null };
+    // Use calendar-day arithmetic (setDate) rather than `+ 24*60*60*1000` so
+    // we get correct local-day [from, to) boundaries across DST transitions
+    // (a "day" can be 23h or 25h on switch days — fixed-millisecond math
+    // would mis-bucket campaigns by ±1h on those days).
+    const startOfDay = (d: Date) => {
+      const x = new Date(d);
+      x.setHours(0, 0, 0, 0);
+      return x;
+    };
+    const addDays = (d: Date, n: number) => {
+      const x = new Date(d);
+      x.setDate(x.getDate() + n);
+      return x;
+    };
+    if (dateFilter === "today") {
+      const from = startOfDay(new Date());
+      const to = addDays(from, 1);
+      return { from: from.toISOString(), to: to.toISOString() };
+    }
+    if (dateFilter === "yesterday") {
+      const todayStart = startOfDay(new Date());
+      const from = addDays(todayStart, -1);
+      return { from: from.toISOString(), to: todayStart.toISOString() };
+    }
+    // custom: require both ends; the upper bound is exclusive next-day start.
+    if (dateFilter === "custom" && customRange?.from && customRange?.to) {
+      const from = startOfDay(customRange.from);
+      const to = addDays(startOfDay(customRange.to), 1);
+      return { from: from.toISOString(), to: to.toISOString() };
+    }
+    return { from: null, to: null };
+  }, [dateFilter, customRange]);
+
   const queryParams = new URLSearchParams();
   queryParams.set("page", String(currentPage));
   queryParams.set("limit", String(PAGE_SIZE));
   if (debouncedSearch) queryParams.set("search", debouncedSearch);
   if (originalsOnly) queryParams.set("originalsOnly", "true");
+  if (dateBounds.from) queryParams.set("scheduledFrom", dateBounds.from);
+  if (dateBounds.to) queryParams.set("scheduledTo", dateBounds.to);
   const queryString = queryParams.toString();
 
   const { data: campaignsData, isLoading, isError, error } = useQuery<PaginatedCampaigns>({
-    queryKey: ["/api/campaigns", { page: currentPage, search: debouncedSearch, originalsOnly }],
+    queryKey: ["/api/campaigns", { page: currentPage, search: debouncedSearch, originalsOnly, from: dateBounds.from, to: dateBounds.to }],
     // Task #148: route through `apiRequest` so 503 responses surface as
     // `ApiError` with `.status` + parsed `.body` — required for the
     // soft-busy branch in the error UI below to fire reliably.
@@ -499,6 +552,70 @@ export default function Campaigns() {
               />
               Originals only
             </label>
+            <div className="flex items-center gap-1 rounded-md border bg-background p-0.5" data-testid="filter-scheduled-date">
+              {([
+                { key: "all", label: "All" },
+                { key: "today", label: "Today" },
+                { key: "yesterday", label: "Yesterday" },
+              ] as const).map(({ key, label }) => (
+                <Button
+                  key={key}
+                  type="button"
+                  size="sm"
+                  variant={dateFilter === key ? "default" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => { setDateFilter(key); setCurrentPage(1); }}
+                  data-testid={`button-date-${key}`}
+                >
+                  {label}
+                </Button>
+              ))}
+              <Popover open={customPopoverOpen} onOpenChange={setCustomPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={dateFilter === "custom" ? "default" : "ghost"}
+                    className="h-7 px-2.5 text-xs gap-1.5"
+                    data-testid="button-date-custom"
+                  >
+                    <CalendarIcon className="h-3.5 w-3.5" />
+                    {dateFilter === "custom" && customRange?.from && customRange?.to
+                      ? `${format(customRange.from, "d MMM")} – ${format(customRange.to, "d MMM")}`
+                      : "Custom"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="range"
+                    selected={customRange}
+                    onSelect={(range) => {
+                      setCustomRange(range);
+                      setDateFilter("custom");
+                      setCurrentPage(1);
+                      if (range?.from && range?.to) setCustomPopoverOpen(false);
+                    }}
+                    numberOfMonths={2}
+                  />
+                  <div className="flex items-center justify-end gap-2 border-t p-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setCustomRange(undefined);
+                        setDateFilter("all");
+                        setCurrentPage(1);
+                        setCustomPopoverOpen(false);
+                      }}
+                      data-testid="button-date-custom-clear"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -983,9 +1100,21 @@ export default function Campaigns() {
               <p className="text-muted-foreground max-w-md mb-4">
                 {debouncedSearch
                   ? "No campaigns match your search. Try a different query."
-                  : "Create your first campaign to start sending emails to your subscribers."}
+                  : dateFilter !== "all"
+                    ? "No campaigns match the selected date range. Try a different period or clear the filter."
+                    : "Create your first campaign to start sending emails to your subscribers."}
               </p>
-              {!debouncedSearch && (
+              {dateFilter !== "all" && !debouncedSearch && (
+                <Button
+                  variant="outline"
+                  onClick={() => { setDateFilter("all"); setCustomRange(undefined); setCurrentPage(1); }}
+                  data-testid="button-clear-date-filter"
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Clear date filter
+                </Button>
+              )}
+              {!debouncedSearch && dateFilter === "all" && (
                 <Link href="/campaigns/new">
                   <Button>
                     <Plus className="h-4 w-4 mr-2" />

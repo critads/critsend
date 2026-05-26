@@ -98,6 +98,8 @@ export interface IStorage {
     limit: number;
     search?: string;
     originalsOnly?: boolean;
+    scheduledFrom?: Date;
+    scheduledTo?: Date;
   }): Promise<{ campaigns: CampaignListItem[]; total: number }>;
   getCampaign(id: string): Promise<Campaign | undefined>;
   getCampaignStatus(id: string): Promise<string | null>;
