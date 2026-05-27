@@ -158,7 +158,7 @@ export async function getCampaignsPaginated(opts: {
         COUNT(*) FILTER (WHERE eligible_at IS NOT NULL)::int AS pressure_held,
         COUNT(*)::int AS real_pending
       FROM ${campaignSends}
-      WHERE campaign_id = ANY(${pageIds}::text[])
+      WHERE campaign_id = ANY(${pageIds}::uuid[])
         AND status = 'pending'
       GROUP BY campaign_id
     `);

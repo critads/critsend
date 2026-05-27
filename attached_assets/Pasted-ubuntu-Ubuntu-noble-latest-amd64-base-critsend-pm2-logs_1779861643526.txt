@@ -1,0 +1,85 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 80 --nostream --err
+[TAILING] Tailing last 80 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 80 lines:
+7|critsend | 2026-05-27 07:52:33 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:34 +02:00: 2026-05-27T05:52:34.149Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:34 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:36 +02:00: 2026-05-27T05:52:36.811Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:36 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:38 +02:00: 2026-05-27T05:52:38.052Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:38 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:43 +02:00: 2026-05-27T05:52:43.645Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:43 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:45 +02:00: 2026-05-27T05:52:45.057Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:45 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:45 +02:00: 2026-05-27T05:52:45.599Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:45 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:45 +02:00: 2026-05-27T05:52:45.991Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:45 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:50 +02:00: 2026-05-27T05:52:50.162Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:50 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:50 +02:00: 2026-05-27T05:52:50.288Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:50 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:50 +02:00: 2026-05-27T05:52:50.289Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:52:50 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:52:51 +02:00: 2026-05-27T05:52:51.138Z [ERROR] [CAMPAIGNS] Bootstrap migration FAILED: canceling statement due to lock timeout
+7|critsend | 2026-05-27 07:53:03 +02:00: 2026-05-27T05:53:03.042Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:03 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:03 +02:00: 2026-05-27T05:53:03.405Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:03 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:09 +02:00: 2026-05-27T05:53:09.309Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:09 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:13 +02:00: 2026-05-27T05:53:13.806Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:13 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:13 +02:00: 2026-05-27T05:53:13.896Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:13 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:21 +02:00: 2026-05-27T05:53:21.228Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: canceling statement due to statement timeout
+7|critsend | 2026-05-27 07:53:23 +02:00: 2026-05-27T05:53:23.973Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:23 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:28 +02:00: 2026-05-27T05:53:28.283Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:28 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:28 +02:00: 2026-05-27T05:53:28.365Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:28 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:28 +02:00: 2026-05-27T05:53:28.653Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:28 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:31 +02:00: 2026-05-27T05:53:31.496Z [ERROR] [CAMPAIGN_GUARDIAN] Error in campaign guardian poll: {"value":"canceling statement due to statement timeout"}
+7|critsend | 2026-05-27 07:53:32 +02:00: 2026-05-27T05:53:32.324Z [WARN] [TRACKING BUFFER] open batch (12 rows) failed, requeued 12 for retry: canceling statement due to statement timeout
+7|critsend | 2026-05-27 07:53:32 +02:00: 2026-05-27T05:53:32.324Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: canceling statement due to statement timeout
+7|critsend | 2026-05-27 07:53:32 +02:00: 2026-05-27T05:53:32.325Z [WARN] [TRACKING BUFFER] flush backoff: interval=2250ms (1 consecutive failures)
+7|critsend | 2026-05-27 07:53:33 +02:00: 2026-05-27T05:53:33.199Z [ERROR] [TRACKING POOL] JS-level query timeout after 12000ms — connection destroyed. SQL: SELECT open_tag, click_tag, unsubscribe_tag
+7|critsend | 2026-05-27 07:53:33 +02:00:          FROM campaigns WHERE id = $
+7|critsend | 2026-05-27 07:53:33 +02:00: 2026-05-27T05:53:33.693Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_maintenance_state): duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+7|critsend | 2026-05-27 07:53:33 +02:00: 2026-05-27T05:53:33.757Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader): duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+7|critsend | 2026-05-27 07:53:33 +02:00: 2026-05-27T05:53:33.910Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_drain_tick_errors): duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+7|critsend | 2026-05-27 07:53:39 +02:00: 2026-05-27T05:53:39.567Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=b399b096-5b89-42ad-8f5c-2ffed0696e8f kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=683 sat=1.00 lease=0
+7|critsend | 2026-05-27 07:53:49 +02:00: 2026-05-27T05:53:49.429Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:53:59 +02:00: 2026-05-27T05:53:59.905Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:54:10 +02:00: 2026-05-27T05:54:10.407Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:54:20 +02:00: 2026-05-27T05:54:20.887Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:54:31 +02:00: 2026-05-27T05:54:31.365Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:54:41 +02:00: 2026-05-27T05:54:41.845Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:54:52 +02:00: 2026-05-27T05:54:52.346Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:55:02 +02:00: 2026-05-27T05:55:02.839Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:55:03 +02:00: 2026-05-27T05:55:03.253Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:55:14 +02:00: 2026-05-27T05:55:14.759Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:55:16 +02:00: 2026-05-27T05:55:16.750Z [WARN] [503] source=load_shed method=GET path=/api/campaigns route=/api/campaigns rid=26b62b42-5812-4f25-a3d1-c11b9037cc0b kind=saturation code=- pool active=30/30 idle=0 total=30 waiting=2 sat=1.00 lease=0
+7|critsend | 2026-05-27 07:55:24 +02:00: 2026-05-27T05:55:24.543Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:55:26 +02:00: 2026-05-27T05:55:26.797Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:56:29 +02:00: 2026-05-27T05:56:29.880Z [WARN] Invalid tracking signature for unsubscribe: campaign=ac88f89a-05fa-4799-b72c-fbe7ac4f05a9, subscriber=0a4a0169-4d69-4da3-9716-68c6ccc995c3, sig=b20cf095...
+7|critsend | 2026-05-27 07:57:13 +02:00: 2026-05-27T05:57:13.252Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:57:20 +02:00: 2026-05-27T05:57:20.966Z [WARN] Short unsubscribe token not found or invalid: JZxiysSa,
+7|critsend | 2026-05-27 07:57:47 +02:00: 2026-05-27T05:57:47.327Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:57:53 +02:00: 2026-05-27T05:57:53.257Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:57:54 +02:00: 2026-05-27T05:57:54.555Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:01 +02:00: 2026-05-27T05:58:01.899Z [WARN] Short unsubscribe token not found or invalid: eyzkvtIy,
+7|critsend | 2026-05-27 07:58:11 +02:00: 2026-05-27T05:58:11.153Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:25 +02:00: 2026-05-27T05:58:25.850Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:29 +02:00: 2026-05-27T05:58:29.472Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:30 +02:00: 2026-05-27T05:58:30.364Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:31 +02:00: 2026-05-27T05:58:31.217Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:59:04 +02:00: 2026-05-27T05:59:04.430Z [WARN] Short unsubscribe token not found or invalid: HTb3B752,
+7|critsend | 2026-05-27 07:59:17 +02:00: 2026-05-27T05:59:17.984Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:59:20 +02:00: 2026-05-27T05:59:20.358Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:59:21 +02:00: 2026-05-27T05:59:21.642Z [WARN] [CAMPAIGN_GUARDIAN] Diagnosed 1 stuck campaign(s): sending_no_active_job=1
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
