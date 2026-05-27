@@ -1,0 +1,35 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 30 --nostream --err
+[TAILING] Tailing last 30 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 30 lines:
+7|critsend | 2026-05-27 07:57:54 +02:00: 2026-05-27T05:57:54.555Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:01 +02:00: 2026-05-27T05:58:01.899Z [WARN] Short unsubscribe token not found or invalid: eyzkvtIy,
+7|critsend | 2026-05-27 07:58:11 +02:00: 2026-05-27T05:58:11.153Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:25 +02:00: 2026-05-27T05:58:25.850Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:29 +02:00: 2026-05-27T05:58:29.472Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:30 +02:00: 2026-05-27T05:58:30.364Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:58:31 +02:00: 2026-05-27T05:58:31.217Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:59:04 +02:00: 2026-05-27T05:59:04.430Z [WARN] Short unsubscribe token not found or invalid: HTb3B752,
+7|critsend | 2026-05-27 07:59:17 +02:00: 2026-05-27T05:59:17.984Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:59:20 +02:00: 2026-05-27T05:59:20.358Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 07:59:21 +02:00: 2026-05-27T05:59:21.642Z [WARN] [CAMPAIGN_GUARDIAN] Diagnosed 1 stuck campaign(s): sending_no_active_job=1
+7|critsend | 2026-05-27 08:00:49 +02:00: 2026-05-27T06:00:49.672Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 08:00:54 +02:00: 2026-05-27T06:00:54.230Z [WARN] Invalid tracking signature for open: campaign=135c0667-b312-4c96-a63d-19452361b7a5, subscriber=26d58366-555e-4a83=-ba47-875e4991a930
+7|critsend | 2026-05-27 08:00:54 +02:00: 2026-05-27T06:00:54.531Z [WARN] Short unsubscribe token not found or invalid: bLf7lgjR,
+7|critsend | 2026-05-27 08:01:59 +02:00: 2026-05-27T06:01:59.936Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 08:03:00 +02:00: (node:556960) Warning: NodeVersionSupportWarning: The AWS SDK for JavaScript (v3)
+7|critsend | 2026-05-27 08:03:00 +02:00: versions published after the first week of January 2027
+7|critsend | 2026-05-27 08:03:00 +02:00: will require node >=22. You are running node v20.20.2.
+7|critsend | 2026-05-27 08:03:00 +02:00: 
+7|critsend | 2026-05-27 08:03:00 +02:00: To continue receiving updates to AWS services, bug fixes,
+7|critsend | 2026-05-27 08:03:00 +02:00: and security updates please upgrade to node >=22.
+7|critsend | 2026-05-27 08:03:00 +02:00: 
+7|critsend | 2026-05-27 08:03:00 +02:00: More information can be found at: https://a.co/c895JFp
+7|critsend | 2026-05-27 08:03:00 +02:00: (Use `node --trace-warnings ...` to show where the warning was created)
+7|critsend | 2026-05-27 08:03:00 +02:00: 2026-05-27T06:03:00.717Z [ERROR] [CONNECTION BUDGET] SPLIT-PROCESS OVER BUDGET! Combined web(30)+worker(18)+tracking(0)+import(0)+notify(2)=50 + headroom 2 = 52 exceeds Neon limit 50. [tracking=50, import=6 via pooler, excluded]
+7|critsend | 2026-05-27 08:03:01 +02:00: 2026-05-27T06:03:01.165Z [WARN] [LOCK_RECOVERY] (web-boot) terminated 1 leaked PgBouncer backends holding bootstrap advisory locks (failures=0, by_objid={"900001":1}). This is the Task #152 self-heal at startup; rerun is idempotent.
+7|critsend | 2026-05-27 08:03:23 +02:00: 2026-05-27T06:03:23.386Z [WARN] [tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: could not create unique index "tracking_tokens_unique_idx"
+7|critsend | 2026-05-27 08:03:29 +02:00: 2026-05-27T06:03:29.333Z [WARN] Short unsubscribe token not found or invalid: bYY0zMIG,
+7|critsend | 2026-05-27 08:04:06 +02:00: 2026-05-27T06:04:06.963Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+7|critsend | 2026-05-27 08:04:08 +02:00: 2026-05-27T06:04:08.896Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
