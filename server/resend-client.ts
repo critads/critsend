@@ -6,7 +6,7 @@
 import { Resend } from 'resend';
 import { logger } from "./logger";
 import type { Mta } from "@shared/schema";
-import { prepareTrackedHtml, type TestEmailTrackingContext } from "./email-service";
+import { prepareTrackedHtml, sanitizeOutboundHeaders, type TestEmailTrackingContext } from "./email-service";
 
 async function getCredentials(): Promise<{ apiKey: string; fromEmail: string | undefined }> {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
@@ -179,7 +179,7 @@ export async function sendTestEmailViaResend(
       subject: options.subject,
       html: finalHtml,
       replyTo: options.replyTo || options.fromEmail,
-      headers: options.headers,
+      headers: sanitizeOutboundHeaders(options.headers ? { ...options.headers } : undefined),
     });
 
     if (result.error) {

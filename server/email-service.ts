@@ -14,6 +14,25 @@ import { logger } from "./logger";
  * Returns the current date + `days` in RFC 2822 format.
  * Example: "Wed, 8 Apr 2026 05:28:25 +0000"
  */
+/**
+ * Strip X-Open-Tag / X-Click-Tag from a headers map (case-insensitive).
+ * These header names must never appear in outgoing email — they leaked
+ * internal tag identifiers with no operational benefit. Call this on any
+ * operator-supplied or test-supplied headers right before handing them to
+ * the transport (nodemailer or Resend). The tracking pipeline reads these
+ * tags from the campaigns table at event time and does NOT depend on the
+ * wire header.
+ */
+export function sanitizeOutboundHeaders<T extends Record<string, string> | undefined>(headers: T): T {
+  if (!headers) return headers;
+  for (const key of Object.keys(headers)) {
+    if (/^x-(open|click)-tag$/i.test(key)) {
+      delete headers[key];
+    }
+  }
+  return headers;
+}
+
 function rfc2822DatePlusDays(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -561,13 +580,13 @@ export async function sendEmail(
     mailOptions.html = `<span style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">${campaign.preheader}</span>` + mailOptions.html;
   }
 
-  if (campaign.openTag) {
-    mailOptions.headers["X-Open-Tag"] = campaign.openTag;
-  }
-  if (campaign.clickTag) {
-    mailOptions.headers["X-Click-Tag"] = campaign.clickTag;
-  }
-  
+  // X-Open-Tag / X-Click-Tag headers were intentionally removed: they leaked
+  // internal tag identifiers (e.g. O4CM, C4CM) into every outgoing message
+  // header with no operational benefit. The tracking pipeline still consults
+  // campaigns.open_tag / click_tag at event time via getCampaignTagsCached()
+  // in server/routes/tracking.ts — subscriber tagging on open/click is
+  // unaffected.
+
   // Apply custom headers with placeholder replacement
   if (customHeaders) {
     const date7 = rfc2822DatePlusDays(7);
@@ -579,6 +598,10 @@ export async function sendEmail(
       mailOptions.headers[headerName] = resolvedValue;
     }
   }
+
+  // Defensive guard: never let X-Open-Tag / X-Click-Tag reach the wire,
+  // even if an operator configured them via customHeaders.
+  sanitizeOutboundHeaders(mailOptions.headers);
 
   let lastError: Error | null = null;
 
@@ -740,7 +763,11 @@ export async function sendEmailWithNullsink(
       headers[headerName] = resolvedValue;
     }
   }
-  
+
+  // Defensive guard: strip X-Open-Tag / X-Click-Tag from operator-supplied
+  // headers — these must never appear on the wire.
+  sanitizeOutboundHeaders(headers);
+
   const mailOptions = {
     from: `"${campaign.fromName}" <${campaign.fromEmail}>`,
     replyTo: campaign.replyEmail || campaign.fromEmail,
@@ -930,7 +957,7 @@ export async function sendTestEmailViaSMTP(
     to: options.to,
     subject: options.subject,
     html: htmlContent,
-    headers: options.headers || {},
+    headers: sanitizeOutboundHeaders({ ...(options.headers || {}) }),
   };
   
   // Attempt to send with retries
