@@ -25,6 +25,7 @@ let flushJobPollingInterval: NodeJS.Timeout | null = null;
 let mtaRecoveryInterval: NodeJS.Timeout | null = null;
 let memoryCheckInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
+let trackingTokenDailyTimer: NodeJS.Timeout | null = null;
 let scheduledCampaignInterval: NodeJS.Timeout | null = null;
 let workerHeartbeatInterval: NodeJS.Timeout | null = null;
 let automationPollingInterval: NodeJS.Timeout | null = null;
@@ -1877,7 +1878,12 @@ export async function runMaintenanceNow(triggeredBy: string = "auto"): Promise<A
 
 async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }>> {
   const rules = await storage.getMaintenanceRules();
-  const enabledRules = rules.filter(r => r.enabled);
+  // tracking_tokens is handled by a dedicated daily 1 AM Paris job
+  // (scheduleDailyTrackingTokenPurge). Excluded from the 6h cycle so a
+  // 100M+ row purge never starts in the middle of business hours.
+  // The "daily_1am_paris" trigger bypasses this filter via runMaintenanceForRule
+  // directly (see runDailyTrackingTokenPurge below).
+  const enabledRules = rules.filter(r => r.enabled && r.tableName !== "tracking_tokens");
   const results: Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }> = [];
 
   logger.info(`[MAINTENANCE] Starting cleanup run (${triggeredBy}), ${enabledRules.length} rules enabled`);
@@ -1965,6 +1971,124 @@ function startMaintenanceWorker() {
     }
     await checkTrackingTokenBloat();
   }, MAINTENANCE_INTERVAL);
+  scheduleDailyTrackingTokenPurge();
+}
+
+// ── Daily 1 AM Paris purge for tracking_tokens ────────────────────
+// tracking_tokens grows ~5 GB/day on prod and dominates DB size (234 GB / 1B
+// rows observed 2026-05-27). Purging it every 6h with the rest of the cycle
+// risks a multi-hour DELETE landing during business hours. This dedicated
+// scheduler fires once a day at 01:00 Europe/Paris (handles DST via the
+// Intl.DateTimeFormat round-trip) so the big DELETE runs strictly off-peak.
+//
+// Multi-process safety: the cluster runs 3 PM2 processes (web/worker/drainer).
+// All three will arm a 01:00 timer, so before running we check
+// db_maintenance_logs for any 'success' run of tracking_tokens in the last
+// 23 hours and skip if found. This is a cheap idempotency gate — DELETE LIMIT
+// is already safe to run concurrently, the gate just avoids wasted work.
+function msUntilNextHourInTz(hour: number, tz: string): number {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(now).filter(p => p.type !== "literal").map(p => [p.type, p.value])
+  );
+  const tzYear = +parts.year, tzMonth = +parts.month, tzDay = +parts.day;
+  const tzHour = +parts.hour, tzMinute = +parts.minute, tzSecond = +parts.second;
+  // Convert "now in tz" treated as UTC to derive tz offset vs real UTC.
+  const tzNowAsUtcMs = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, tzSecond);
+  const offsetMs = tzNowAsUtcMs - (now.getTime() - (now.getTime() % 1000));
+  // Target day: today if before target hour, else tomorrow
+  let targetY = tzYear, targetM = tzMonth, targetD = tzDay;
+  if (tzHour >= hour) {
+    const tomorrow = new Date(Date.UTC(tzYear, tzMonth - 1, tzDay + 1));
+    targetY = tomorrow.getUTCFullYear();
+    targetM = tomorrow.getUTCMonth() + 1;
+    targetD = tomorrow.getUTCDate();
+  }
+  const targetTzAsUtcMs = Date.UTC(targetY, targetM - 1, targetD, hour, 0, 0);
+  const targetMs = targetTzAsUtcMs - offsetMs;
+  return Math.max(targetMs - now.getTime(), 1000);
+}
+
+async function runDailyTrackingTokenPurge(): Promise<void> {
+  try {
+    // Idempotency gate: skip if any process already purged successfully in last 23h
+    const recent = await pool.query(
+      `SELECT 1 FROM db_maintenance_logs
+        WHERE table_name = 'tracking_tokens'
+          AND status IN ('success', 'partial')
+          AND executed_at > NOW() - INTERVAL '23 hours'
+        LIMIT 1`
+    );
+    if ((recent.rowCount ?? 0) > 0) {
+      logger.info("[MAINTENANCE_DAILY] tracking_tokens already purged within 23h — skipping");
+      return;
+    }
+
+    const rules = await storage.getMaintenanceRules();
+    const rule = rules.find(r => r.tableName === "tracking_tokens" && r.enabled);
+    if (!rule) {
+      logger.warn("[MAINTENANCE_DAILY] tracking_tokens rule not found or disabled — skipping");
+      return;
+    }
+
+    logger.info("[MAINTENANCE_DAILY] Starting 1 AM Paris tracking_tokens purge");
+    const result = await runMaintenanceForRule(rule, "daily_1am_paris");
+
+    await storage.createMaintenanceLog({
+      ruleId: rule.id,
+      tableName: rule.tableName,
+      rowsDeleted: result.rowsDeleted,
+      durationMs: result.durationMs,
+      status: result.status,
+      errorMessage: result.errorMessage || null,
+      triggeredBy: "daily_1am_paris",
+    });
+
+    await pool.query(
+      `UPDATE db_maintenance_rules SET last_run_at = NOW(), last_rows_deleted = $1 WHERE id = $2`,
+      [result.rowsDeleted, rule.id],
+    );
+
+    logger.info(
+      `[MAINTENANCE_DAILY] tracking_tokens purge done: deleted=${result.rowsDeleted} ` +
+      `duration=${result.durationMs}ms status=${result.status}` +
+      (result.errorMessage ? ` error=${result.errorMessage}` : "")
+    );
+
+    await checkTrackingTokenBloat();
+  } catch (err: any) {
+    logger.error("[MAINTENANCE_DAILY] tracking_tokens purge failed:", err);
+  } finally {
+    scheduleDailyTrackingTokenPurge();
+  }
+}
+
+function scheduleDailyTrackingTokenPurge(): void {
+  if (trackingTokenDailyTimer) {
+    clearTimeout(trackingTokenDailyTimer);
+    trackingTokenDailyTimer = null;
+  }
+  const ms = msUntilNextHourInTz(1, "Europe/Paris");
+  logger.info(
+    `[MAINTENANCE_DAILY] tracking_tokens purge scheduled in ${Math.round(ms / 60000)} min ` +
+    `(next 01:00 Europe/Paris)`
+  );
+  trackingTokenDailyTimer = setTimeout(() => {
+    void runDailyTrackingTokenPurge();
+  }, ms);
+  trackingTokenDailyTimer.unref?.();
+}
+
+function stopDailyTrackingTokenPurge(): void {
+  if (trackingTokenDailyTimer) {
+    clearTimeout(trackingTokenDailyTimer);
+    trackingTokenDailyTimer = null;
+  }
 }
 
 function stopMaintenanceWorker() {
@@ -2075,6 +2199,7 @@ export function stopAllBackgroundWorkers() {
   stopJobProcessor();
   stopTagQueueWorker();
   stopMaintenanceWorker();
+  stopDailyTrackingTokenPurge();
   stopGhostCampaignSweep();
   stopScheduledCampaignPoller();
   stopFollowUpSpawner();
