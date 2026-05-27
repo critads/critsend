@@ -1,0 +1,96 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend
+
+# 1. Switch local → hetzner
+sed -i 's/^STORAGE_BACKEND=local/STORAGE_BACKEND=hetzner/' .env
+
+# 2. Ajoute les 5 credentials retrouvés
+cat >> .env <<'EOF'
+HETZNER_S3_ENDPOINT=https://nbg1.your-objectstorage.com
+HETZNER_S3_REGION=nbg1
+HETZNER_S3_BUCKET=critsender
+HETZNER_S3_ACCESS_KEY=AQABGOP3YBXXD3XPO9NU
+HETZNER_S3_SECRET_KEY=Qf7h8Q6A2NdQv8h6IevYzcyeUvyspMBVWfkLLbWO
+EOF
+
+# 3. Vérifie
+grep -nE "^STORAGE_BACKEND|^HETZNER_S3" .env
+
+# 4. Test creds AVANT redéploiement (échoue vite si bucket/clés invalides)
+HETZNER_S3_ENDPOINT=https://nbg1.your-objectstorage.com \
+HETZNER_S3_REGION=nbg1 \
+HETZNER_S3_BUCKET=critsender \
+HETZNER_S3_ACCESS_KEY=AQABGOP3YBXXD3XPO9NU \
+HETZNER_S3_SECRET_KEY=Qf7h8Q6A2NdQv8h6IevYzcyeUvyspMBVWfkLLbWO \
+on=nbg1, bucket=critsender, ...ndpoint=https://nbg1.your-objectstorage.com, regi
+8:STORAGE_BACKEND=hetzner
+15:HETZNER_S3_ENDPOINT=https://nbg1.your-objectstorage.com
+16:HETZNER_S3_REGION=nbg1
+17:HETZNER_S3_BUCKET=critsender
+18:HETZNER_S3_ACCESS_KEY=AQABGOP3YBXXD3XPO9NU
+19:HETZNER_S3_SECRET_KEY=Qf7h8Q6A2NdQv8h6IevYzcyeUvyspMBVWfkLLbWO
+=== Hetzner S3 backend smoke test ===
+endpoint = https://nbg1.your-objectstorage.com
+region   = nbg1
+bucket   = critsender
+access   = AQABGO…
+2026-05-27T05:01:34.937Z [INFO] [HETZNER_S3] Initialized: endpoint=https://nbg1.your-objectstorage.com, region=nbg1, bucket=critsender, partSize=8MB, queueSize=4, connectTimeout=5000ms, socketTimeout=120000ms, maxAttempts=4
+
+[1] Wrote 71 bytes to /tmp/97ca7640-a77b-4f04-a886-254576b9189d.csv
+[2] Uploading…
+(node:554722) Warning: NodeVersionSupportWarning: The AWS SDK for JavaScript (v3)
+versions published after the first week of January 2027
+will require node >=22. You are running node v20.20.2.
+
+To continue receiving updates to AWS services, bug fixes,
+and security updates please upgrade to node >=22.
+
+More information can be found at: https://a.co/c895JFp
+(Use `node --trace-warnings ...` to show where the warning was created)
+2026-05-27T05:01:35.101Z [INFO] [HETZNER_S3] Uploaded size_bytes=71 duration_ms=163 mbps=0.00 parts=1 → s3://critsender/imports/_smoketest_/2ef997c4-b93f-4bc9-ae9c-6f3696de486a.csv
+    → storagePath = /objects/imports/_smoketest_/2ef997c4-b93f-4bc9-ae9c-6f3696de486a.csv
+[3] objectExists(/objects/imports/_smoketest_/2ef997c4-b93f-4bc9-ae9c-6f3696de486a.csv)…
+    → true
+[4] getObjectStream… reading bytes back
+    → 71 bytes received
+    → first 80 chars: email;name;refs;tags\nfoo@bar.com;Foo;abc;tag1\nbaz@bar.com;Baz;def;tag2\n
+[5] objectExists(/objects/imports/_smoketest_/does-not-exist.csv) (should be false)…
+    → false
+[6] deleteStorageObject(/objects/imports/_smoketest_/2ef997c4-b93f-4bc9-ae9c-6f3696de486a.csv)…
+    → true
+[7] objectExists after delete (should be false)…
+    → false
+
+✅ ALL CHECKS PASSED — Hetzner S3 backend is operational.
+[PM2] Applying action deleteProcessId on app [all](ids: [ 4, 5, 6 ])
+[PM2] [critsend-web](4) ✓
+[PM2] [critsend-drainer](6) ✓
+[PM2] [critsend-worker](5) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0.2%     │ 75.7mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2][WARN] Applications critsend-web, critsend-worker, critsend-drainer not running, starting...
+[PM2] App [critsend-web] launched (1 instances)
+[PM2] App [critsend-worker] launched (1 instances)
+[PM2] App [critsend-drainer] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 9  │ critsend-drainer   │ fork     │ 0    │ online    │ 0%       │ 21.8mb   │
+│ 7  │ critsend-web       │ fork     │ 0    │ online    │ 0%       │ 36.8mb   │
+│ 8  │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 27.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 75.7mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
