@@ -280,6 +280,12 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
     { label: "pressure_drain_tick_errors idx", sql: `CREATE INDEX IF NOT EXISTS pressure_drain_tick_errors_occurred_at_idx ON pressure_drain_tick_errors (occurred_at DESC)` },
     { label: "campaigns.skipped_pressure_count", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS skipped_pressure_count integer NOT NULL DEFAULT 0` },
     { label: "campaign_sends.eligible_at", sql: `ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS eligible_at timestamp` },
+    // 2026-05-27: campaign_jobs.heartbeat column. Referenced by
+    // workers.ts ghost-sweep and stuck-campaign-diagnosis to detect
+    // crashed senders. Production was raising "column cj.heartbeat does
+    // not exist" because the column was never added by a migration —
+    // the Drizzle schema referenced it but no DDL had been deployed.
+    { label: "campaign_jobs.heartbeat", sql: `ALTER TABLE campaign_jobs ADD COLUMN IF NOT EXISTS heartbeat timestamp` },
     // Task #169: aging cap columns. ALTER TABLE … ADD COLUMN with
     // NULLable timestamp / integer DEFAULT 0 is a metadata-only
     // operation on PG ≥ 11 (no full table rewrite).

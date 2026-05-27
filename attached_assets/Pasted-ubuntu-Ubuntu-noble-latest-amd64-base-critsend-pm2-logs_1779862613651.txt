@@ -1,0 +1,45 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 logs critsend-web --lines 40 --nostream --err
+[TAILING] Tailing last 40 lines for [critsend-web] process (change the value with --lines option)
+/var/log/critsend/web-err.log last 40 lines:
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.585Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.585Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.585Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.585Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.586Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.587Z [ERROR] [TRACKING BUFFER] enqueue open tag failed: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:21 +02:00: 2026-05-27T06:15:21.588Z [ERROR] [AUTOMATION] Error checking triggers for subscriber_opened: timeout exceeded when trying to connect
+7|critsend | 2026-05-27 08:15:29 +02:00: 2026-05-27T06:15:29.386Z [WARN] Short unsubscribe token not found or invalid: u1RwgqaH,
+7|critsend | 2026-05-27 08:15:39 +02:00: 2026-05-27T06:15:39.109Z [ERROR] [CAMPAIGN_GUARDIAN] Error in campaign guardian poll: {"value":"column cj.heartbeat does not exist"}
+7|critsend | 2026-05-27 08:15:41 +02:00: 2026-05-27T06:15:41.378Z [WARN] [BOOTSTRAP_LOCK] CREATE campaign_sends_pressure_subscriber_idx DDL failed: deadlock detected
+7|critsend | 2026-05-27 08:15:41 +02:00: 2026-05-27T06:15:41.407Z [WARN] [PRESSURE_GUARD] CONCURRENTLY campaign_sends_pressure_subscriber_idx build failed (non-fatal): deadlock detected
+7|critsend | 2026-05-27 08:15:52 +02:00: 2026-05-27T06:15:52.543Z [WARN] Short unsubscribe token not found or invalid: favicon.ico
+7|critsend | 2026-05-27 08:16:15 +02:00: 2026-05-27T06:16:15.382Z [ERROR] Error fetching campaigns: {"length":105,"name":"error","severity":"ERROR","code":"42846","position":"302","file":"parse_expr.c","line":"2761","routine":"transformTypeCast"}
+
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 

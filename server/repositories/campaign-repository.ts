@@ -24,6 +24,7 @@ import { campaignQueue } from "../queues";
 import { mapWithConcurrency } from "../utils";
 import { classifyDbError, isDiskFullError } from "../db-errors";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
+import { toPgTextArray } from "../utils/pg-array";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -158,7 +159,7 @@ export async function getCampaignsPaginated(opts: {
         COUNT(*) FILTER (WHERE eligible_at IS NOT NULL)::int AS pressure_held,
         COUNT(*)::int AS real_pending
       FROM ${campaignSends}
-      WHERE campaign_id = ANY(${pageIds}::uuid[])
+      WHERE campaign_id = ANY(${toPgTextArray(pageIds)}::text[])
         AND status = 'pending'
       GROUP BY campaign_id
     `);

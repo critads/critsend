@@ -423,6 +423,12 @@ export const campaignJobs = pgTable("campaign_jobs", {
   completedAt: timestamp("completed_at"),
   workerId: text("worker_id"),
   errorMessage: text("error_message"),
+  // Sender heartbeats every 30s while a job is processing. Used by
+  // campaign-guardian + ghost-sweep to detect crashed workers and
+  // re-enqueue stalled jobs. Added 2026-05-27 to fix prod error
+  // "column cj.heartbeat does not exist" — bootstrap migration in
+  // server/db.ts adds the column on startup for existing DBs.
+  heartbeat: timestamp("heartbeat"),
 }, (table) => ({
   campaignIdx: index("campaign_jobs_campaign_idx").on(table.campaignId),
   statusIdx: index("campaign_jobs_status_idx").on(table.status),
