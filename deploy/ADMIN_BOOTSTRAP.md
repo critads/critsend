@@ -46,6 +46,13 @@ admin until you remove the env var.
 UPDATE users SET is_admin = false WHERE username = 'alice';
 ```
 
+## CSV import storage backend
+
+By default uploaded CSVs go to local disk (`IMPORT_UPLOAD_DIR`, default
+`/var/lib/critsend/uploads/imports`). This loses files if PM2 restarts
+between the upload and the worker pickup. To activate Hetzner Object Storage
+(S3-compatible, recommended for prod), see **[HETZNER_S3_SETUP.md](HETZNER_S3_SETUP.md)**.
+
 ## Drain healthcheck (Task #160)
 
 Once an admin exists, you can verify the dedicated `critsend-drainer`
