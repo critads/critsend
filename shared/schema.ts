@@ -1332,3 +1332,48 @@ export const pressureFlushAudit = pgTable("pressure_flush_audit", {
 }));
 
 export type PressureFlushAudit = typeof pressureFlushAudit.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════
+// PMTA QUEUE MONITORING (Task #193)
+// ═══════════════════════════════════════════════════════════════
+// Periodic snapshots of `pmta show queue <domain>` output collected over SSH
+// from the PMTA host. The collector runs every 5 minutes (lease-table leader
+// election in `pmta_collector_leader` — NEVER pg_try_advisory_lock on Neon
+// PgBouncer per architectural rule documented in replit.md). The HTTP route
+// (`GET /api/pmta/snapshots/latest`) reads cached rows only and NEVER opens
+// an SSH connection on the request path.
+export const pmtaQueueSnapshots = pgTable("pmta_queue_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  domain: text("domain").notNull(),
+  capturedAt: timestamp("captured_at").notNull().defaultNow(),
+  // Total messages queued for the domain (pmta `kmsg` aggregate).
+  pendingCount: integer("pending_count").notNull().default(0),
+  // Lines from the queue dump that match the error pattern
+  // (error|timeout|refused|blocked|defer|421|450|451|452|550|554).
+  errorCount: integer("error_count").notNull().default(0),
+  // 'ok' | 'ssh_error' | 'parse_error'
+  status: text("status").notNull().default("ok"),
+  errorMessage: text("error_message"),
+  // Up to ~50 matched error lines (truncated) for the UI to render verbatim.
+  errorLines: jsonb("error_lines").notNull().default(sql`'[]'::jsonb`),
+  // Truncated raw stdout (first ~8 KB) for forensics.
+  rawExcerpt: text("raw_excerpt"),
+}, (table) => ({
+  domainCapturedIdx: index("pmta_snapshots_domain_captured_idx").on(table.domain, table.capturedAt),
+  capturedAtIdx: index("pmta_snapshots_captured_at_idx").on(table.capturedAt),
+}));
+
+export type PmtaQueueSnapshot = typeof pmtaQueueSnapshots.$inferSelect;
+export type InsertPmtaQueueSnapshot = typeof pmtaQueueSnapshots.$inferInsert;
+
+// Lease-table leader election for the 5-minute PMTA collector.
+// Singleton row keyed on `lock_key='global'`. Holder is the PM2 process id
+// + hostname; expires_at is renewed on every successful tick. NEVER use
+// pg_try_advisory_lock here — it leaks on Neon's PgBouncer transaction
+// pooling (same defect resolved for the pressure-guard drain leader).
+export const pmtaCollectorLeader = pgTable("pmta_collector_leader", {
+  lockKey: text("lock_key").primaryKey(),
+  holder: text("holder").notNull(),
+  acquiredAt: timestamp("acquired_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+});

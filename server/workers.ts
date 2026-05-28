@@ -2190,6 +2190,11 @@ export async function startAllWorkers() {
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
   });
+  // Task #193 — PMTA queue monitoring collector. Lease-table leader election
+  // means it's safe to call from every PM2 process; only one runs per tick.
+  import("./services/pmta-collector").then(({ startPmtaCollector }) => {
+    void startPmtaCollector();
+  }).catch((err: any) => logger.error(`[PMTA_COLLECTOR] failed to start: ${err?.message || err}`));
 }
 
 export function stopAllBackgroundWorkers() {
@@ -2205,6 +2210,10 @@ export function stopAllBackgroundWorkers() {
   stopFollowUpSpawner();
   stopAutomationProcessor();
   stopPressureGuardWorker();
+  // Task #193 — PMTA collector
+  import("./services/pmta-collector").then(({ stopPmtaCollector }) => {
+    stopPmtaCollector();
+  }).catch(() => { /* shutdown best-effort */ });
   // Task #160
   import("./workers/orphaned-sends-reconciler").then(({ stopOrphanedSendsReconciler }) => {
     stopOrphanedSendsReconciler();

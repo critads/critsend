@@ -36,6 +36,7 @@ import DatabaseHealth from "@/pages/database-health";
 import SystemMetrics from "@/pages/system-metrics";
 import CampaignQueue from "@/pages/campaign-queue";
 import AdminPressureQueue from "@/pages/admin-pressure-queue";
+import PmtaQueues from "@/pages/pmta";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -68,6 +69,7 @@ function Router() {
       <Route path="/advanced-analytics" component={AdvancedAnalytics} />
       <Route path="/database-health" component={DatabaseHealth} />
       <Route path="/system-metrics" component={SystemMetrics} />
+      <Route path="/pmta" component={PmtaQueues} />
       <Route component={NotFound} />
     </Switch>
   );

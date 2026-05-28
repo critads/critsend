@@ -28,6 +28,7 @@ import { registerPressureRoutes } from "./routes/pressure";
 import { register503AttributionRoutes } from "./routes/admin-503";
 import { registerAdminPressureGuardLocksRoutes } from "./routes/admin-pressure-guard-locks";
 import { registerAdminStuckCampaignsRoutes } from "./routes/admin-stuck-campaigns";
+import { registerPmtaRoutes } from "./routes/pmta";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -125,6 +126,7 @@ export async function registerRoutes(
   register503AttributionRoutes(app);
   registerAdminPressureGuardLocksRoutes(app);
   registerAdminStuckCampaignsRoutes(app);
+  registerPmtaRoutes(app);
 
   return httpServer;
 }
