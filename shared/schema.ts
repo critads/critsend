@@ -1342,8 +1342,30 @@ export type PressureFlushAudit = typeof pressureFlushAudit.$inferSelect;
 // PgBouncer per architectural rule documented in replit.md). The HTTP route
 // (`GET /api/pmta/snapshots/latest`) reads cached rows only and NEVER opens
 // an SSH connection on the request path.
+// One row per configured PMTA host. v1 expects exactly one row (single
+// hardcoded server populated from PMTA_SSH_* env on startup), but the
+// `server_id` FK on snapshots leaves room for multi-server support without
+// a future migration. Credentials are NEVER stored here — only a reference
+// to the secret name (`ssh_key_secret_ref`).
+export const pmtaServers = pgTable("pmta_servers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  host: text("host").notNull(),
+  port: integer("port").notNull().default(22),
+  username: text("username").notNull(),
+  sshKeySecretRef: text("ssh_key_secret_ref").notNull().default("PMTA_SSH_PRIVATE_KEY"),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqueHostPort: uniqueIndex("pmta_servers_host_port_unique").on(table.host, table.port),
+}));
+
+export type PmtaServer = typeof pmtaServers.$inferSelect;
+
 export const pmtaQueueSnapshots = pgTable("pmta_queue_snapshots", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // FK to pmta_servers — nullable in dev when no server row exists yet, but
+  // the collector always populates it. Index allows per-server filtering.
+  serverId: varchar("server_id").references(() => pmtaServers.id, { onDelete: "set null" }),
   domain: text("domain").notNull(),
   capturedAt: timestamp("captured_at").notNull().defaultNow(),
   // Total messages queued for the domain (pmta `kmsg` aggregate).
@@ -1361,6 +1383,7 @@ export const pmtaQueueSnapshots = pgTable("pmta_queue_snapshots", {
 }, (table) => ({
   domainCapturedIdx: index("pmta_snapshots_domain_captured_idx").on(table.domain, table.capturedAt),
   capturedAtIdx: index("pmta_snapshots_captured_at_idx").on(table.capturedAt),
+  serverIdx: index("pmta_snapshots_server_idx").on(table.serverId),
 }));
 
 export type PmtaQueueSnapshot = typeof pmtaQueueSnapshots.$inferSelect;

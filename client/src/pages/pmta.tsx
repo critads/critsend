@@ -6,14 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -28,11 +20,13 @@ import {
   XCircle,
   Loader2,
   AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface PmtaSnapshot {
   id: string;
+  serverId: string | null;
   domain: string;
   capturedAt: string;
   pendingCount: number;
@@ -47,6 +41,7 @@ interface LatestResponse {
   configured: boolean;
   configuredDomains: string[];
   snapshots: PmtaSnapshot[];
+  errorQueues: PmtaSnapshot[];
 }
 
 function timeAgo(iso: string): string {
@@ -61,29 +56,107 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-function StatusBadge({ status }: { status: string }) {
-  if (status === "ok") {
+/**
+ * Status pill per task contract (green / yellow / red).
+ *   - green: status=ok AND errorCount=0
+ *   - yellow: status=parse_error OR (status=ok AND errorCount>0)
+ *   - red: status=ssh_error
+ */
+function statusTier(s: PmtaSnapshot): "green" | "yellow" | "red" {
+  if (s.status === "ssh_error") return "red";
+  if (s.status === "parse_error") return "yellow";
+  if ((s.errorCount ?? 0) > 0) return "yellow";
+  return "green";
+}
+
+function StatusPill({ snapshot }: { snapshot: PmtaSnapshot }) {
+  const tier = statusTier(snapshot);
+  if (tier === "green") {
     return (
-      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300" data-testid={`badge-status-ok`}>
-        <CheckCircle2 className="h-3 w-3 mr-1" /> OK
+      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300" data-testid={`pill-${snapshot.domain}-green`}>
+        <CheckCircle2 className="h-3 w-3 mr-1" /> Healthy
       </Badge>
     );
   }
-  if (status === "ssh_error") {
+  if (tier === "yellow") {
     return (
-      <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300" data-testid={`badge-status-ssh-error`}>
-        <XCircle className="h-3 w-3 mr-1" /> SSH error
+      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300" data-testid={`pill-${snapshot.domain}-yellow`}>
+        <AlertTriangle className="h-3 w-3 mr-1" /> Attention
       </Badge>
     );
   }
-  if (status === "parse_error") {
-    return (
-      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300" data-testid={`badge-status-parse-error`}>
-        <AlertTriangle className="h-3 w-3 mr-1" /> Parse error
-      </Badge>
-    );
-  }
-  return <Badge variant="outline" data-testid={`badge-status-${status}`}>{status}</Badge>;
+  return (
+    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300" data-testid={`pill-${snapshot.domain}-red`}>
+      <XCircle className="h-3 w-3 mr-1" /> SSH error
+    </Badge>
+  );
+}
+
+function DomainCard({ snapshot, onOpen }: { snapshot: PmtaSnapshot; onOpen: () => void }) {
+  return (
+    <Card
+      className="cursor-pointer hover:shadow-md transition-shadow"
+      onClick={onOpen}
+      data-testid={`card-domain-${snapshot.domain}`}
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base font-mono break-all" data-testid={`text-domain-${snapshot.domain}`}>
+            {snapshot.domain}
+          </CardTitle>
+          <StatusPill snapshot={snapshot} />
+        </div>
+        <CardDescription className="text-xs" data-testid={`text-refreshed-${snapshot.domain}`}>
+          Last refresh {timeAgo(snapshot.capturedAt)}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide">Pending</div>
+            <div className="text-2xl font-mono font-semibold" data-testid={`stat-pending-${snapshot.domain}`}>
+              {snapshot.pendingCount.toLocaleString()}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide">Errors</div>
+            <div
+              className={`text-2xl font-mono font-semibold ${snapshot.errorCount > 0 ? "text-red-600" : "text-muted-foreground"}`}
+              data-testid={`stat-errors-${snapshot.domain}`}
+            >
+              {snapshot.errorCount.toLocaleString()}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MissingDomainCard({ domain }: { domain: string }) {
+  return (
+    <Card className="opacity-60" data-testid={`card-domain-missing-${domain}`}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base font-mono break-all">{domain}</CardTitle>
+          <Badge variant="outline" className="text-muted-foreground">awaiting first tick</Badge>
+        </div>
+        <CardDescription className="text-xs">No snapshot captured yet</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide">Pending</div>
+            <div className="text-2xl font-mono font-semibold text-muted-foreground">—</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide">Errors</div>
+            <div className="text-2xl font-mono font-semibold text-muted-foreground">—</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function PmtaQueuesPage() {
@@ -108,30 +181,26 @@ export default function PmtaQueuesPage() {
           : `Reason: ${result?.reason ?? "unknown"}`,
       });
       // Snapshots land asynchronously after the leader finishes the SSH tick.
-      // Refetch a few times to surface results without waiting for the 30s poll.
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/pmta/snapshots/latest"] }), 5_000);
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/pmta/snapshots/latest"] }), 15_000);
     },
     onError: (err: any) => {
       toast({
         title: "Refresh failed",
-        description: err?.message ?? "Unknown error",
+        description: err?.message ?? "Unknown error (rate limit is 1/minute per user)",
         variant: "destructive",
       });
     },
   });
 
   const snapshots = data?.snapshots ?? [];
+  const errorQueues = data?.errorQueues ?? [];
   const configuredDomains = data?.configuredDomains ?? [];
   const seen = new Set(snapshots.map((s) => s.domain));
   const missing = configuredDomains.filter((d) => !seen.has(d));
 
-  const totalPending = snapshots.reduce((s, r) => s + (r.pendingCount || 0), 0);
-  const totalErrors = snapshots.reduce((s, r) => s + (r.errorCount || 0), 0);
-  const sshErrors = snapshots.filter((r) => r.status === "ssh_error").length;
-
   return (
-    <div className="p-4 lg:p-6 space-y-6 bg-white rounded-2xl">
+    <div className="p-4 lg:p-6 space-y-6 bg-white dark:bg-stone-950 rounded-2xl">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2" data-testid="heading-pmta">
@@ -139,7 +208,7 @@ export default function PmtaQueuesPage() {
             PMTA Queue Monitoring
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Snapshots refreshed every 5 minutes from the PMTA host over SSH. The UI itself never opens an SSH session — it reads cached snapshots from the database.
+            Cached snapshots refreshed every 5 minutes from the PMTA host over SSH. The UI itself never opens an SSH session.
           </p>
         </div>
         <Button
@@ -163,7 +232,7 @@ export default function PmtaQueuesPage() {
             <div className="text-sm">
               <div className="font-medium text-amber-900 dark:text-amber-200">PMTA collector is not configured.</div>
               <div className="text-amber-800 dark:text-amber-300 mt-1">
-                Set the following secrets on the server, then restart workers:
+                Set these secrets on the server, then restart workers:
                 <code className="block mt-2 font-mono text-xs">
                   PMTA_SSH_HOST, PMTA_SSH_PORT (default 22), PMTA_SSH_USER, PMTA_SSH_PRIVATE_KEY, PMTA_DOMAINS (comma-separated)
                 </code>
@@ -173,120 +242,97 @@ export default function PmtaQueuesPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total pending</CardDescription>
-            <CardTitle className="text-3xl font-mono" data-testid="stat-total-pending">
-              {isLoading ? <Skeleton className="h-8 w-24" /> : totalPending.toLocaleString()}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Error lines (across all domains)</CardDescription>
-            <CardTitle className="text-3xl font-mono" data-testid="stat-total-errors">
-              {isLoading ? <Skeleton className="h-8 w-24" /> : totalErrors.toLocaleString()}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>SSH-failed domains</CardDescription>
-            <CardTitle className="text-3xl font-mono" data-testid="stat-ssh-errors">
-              {isLoading ? <Skeleton className="h-8 w-24" /> : sshErrors.toLocaleString()}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
+      {/* Domain cards — one per configured sending domain. */}
+      <section data-testid="section-domain-cards">
+        <h2 className="text-lg font-semibold mb-3">Sending domains</h2>
+        {isError ? (
+          <div className="text-sm text-red-600" data-testid="text-pmta-error">
+            Failed to load snapshots: {String((error as any)?.message ?? error)}
+          </div>
+        ) : isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+          </div>
+        ) : snapshots.length === 0 && missing.length === 0 ? (
+          <div className="text-sm text-muted-foreground" data-testid="text-pmta-empty">
+            No snapshots captured yet. {data?.configured ? "The first tick happens within ~5 minutes of worker startup, or click Refresh now." : "Configure the collector first."}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {snapshots.map((s) => (
+              <DomainCard key={s.id} snapshot={s} onOpen={() => setSelected(s)} />
+            ))}
+            {missing.map((d) => (
+              <MissingDomainCard key={`missing-${d}`} domain={d} />
+            ))}
+          </div>
+        )}
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Queues by domain</CardTitle>
-          <CardDescription>
-            Click a row to see matched error lines and raw output excerpt.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isError ? (
-            <div className="text-sm text-red-600" data-testid="text-pmta-error">
-              Failed to load snapshots: {String((error as any)?.message ?? error)}
-            </div>
-          ) : isLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : snapshots.length === 0 ? (
-            <div className="text-sm text-muted-foreground" data-testid="text-pmta-empty">
-              No snapshots captured yet. {data?.configured ? "The first tick happens within ~5 minutes of worker startup, or click Refresh now." : "Configure the collector first."}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Domain</TableHead>
-                  <TableHead className="text-right">Pending</TableHead>
-                  <TableHead className="text-right">Errors</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Captured</TableHead>
-                  <TableHead className="text-right">Details</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {snapshots.map((s) => (
-                  <TableRow
-                    key={s.id}
-                    className="cursor-pointer hover:bg-muted/40"
-                    onClick={() => setSelected(s)}
-                    data-testid={`row-pmta-${s.domain}`}
-                  >
-                    <TableCell className="font-mono text-sm" data-testid={`text-domain-${s.domain}`}>
-                      {s.domain}
-                    </TableCell>
-                    <TableCell className="text-right font-mono" data-testid={`text-pending-${s.domain}`}>
-                      {s.pendingCount.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {s.errorCount > 0 ? (
-                        <span className="text-red-600 font-semibold" data-testid={`text-errors-${s.domain}`}>
-                          {s.errorCount}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground" data-testid={`text-errors-${s.domain}`}>0</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={s.status} />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground" data-testid={`text-captured-${s.domain}`}>
-                      {timeAgo(s.capturedAt)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" data-testid={`button-details-${s.domain}`}>
-                        View
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {missing.map((d) => (
-                  <TableRow key={`missing-${d}`} className="opacity-60" data-testid={`row-pmta-missing-${d}`}>
-                    <TableCell className="font-mono text-sm">{d}</TableCell>
-                    <TableCell className="text-right font-mono">—</TableCell>
-                    <TableCell className="text-right font-mono">—</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-muted-foreground">awaiting first tick</Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">—</TableCell>
-                    <TableCell />
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {/* Dedicated cross-domain errors section per task contract. */}
+      <section data-testid="section-error-queues">
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-600" />
+          Queues with delivery errors
+        </h2>
+        {isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : errorQueues.length === 0 ? (
+          <div className="text-sm text-muted-foreground" data-testid="text-no-errors">
+            No queues currently report delivery errors. Pattern matched:{" "}
+            <code className="font-mono text-xs">error | timeout | refused | blocked | defer | 421 | 450 | 451 | 452 | 550 | 554</code>
+          </div>
+        ) : (
+          <div className="space-y-3" data-testid="list-error-queues">
+            {errorQueues.map((q) => (
+              <Card
+                key={`err-${q.id}`}
+                className="border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => setSelected(q)}
+                data-testid={`error-queue-${q.domain}`}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-base font-mono">{q.domain}</CardTitle>
+                      <StatusPill snapshot={q} />
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">
+                        {q.errorCount} error line{q.errorCount === 1 ? "" : "s"}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                  <CardDescription className="text-xs">
+                    Captured {timeAgo(q.capturedAt)} · {q.pendingCount.toLocaleString()} pending
+                  </CardDescription>
+                </CardHeader>
+                {q.errorLines.length > 0 && (
+                  <CardContent className="pt-0">
+                    <pre
+                      className="font-mono text-xs bg-stone-900 text-amber-200 p-3 rounded-md overflow-x-auto max-h-32"
+                      data-testid={`error-lines-preview-${q.domain}`}
+                    >
+                      {q.errorLines.slice(0, 3).join("\n")}
+                      {q.errorLines.length > 3 && `\n… and ${q.errorLines.length - 3} more (click for full list)`}
+                    </pre>
+                  </CardContent>
+                )}
+                {q.status === "ssh_error" && q.errorMessage && (
+                  <CardContent className="pt-0">
+                    <div className="text-xs text-red-700 dark:text-red-300 font-mono" data-testid={`ssh-error-${q.domain}`}>
+                      SSH: {q.errorMessage}
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
 
       <Dialog open={selected !== null} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">

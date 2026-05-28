@@ -21,7 +21,7 @@ import os from "node:os";
 import { Client as SshClient, type ConnectConfig } from "ssh2";
 import { pool } from "../db";
 import { logger } from "../logger";
-import { insertPmtaSnapshot } from "../repositories/pmta-repository";
+import { insertPmtaSnapshot, upsertPmtaServer } from "../repositories/pmta-repository";
 
 const COLLECTOR_INTERVAL_MS = Math.max(
   Number(process.env.PMTA_COLLECTOR_INTERVAL_MS) || 5 * 60 * 1000,
@@ -40,6 +40,9 @@ const LOCK_KEY = "global";
 
 let collectorTimer: NodeJS.Timeout | null = null;
 let collectorRunning = false;
+// Cached pmta_servers.id for the host populated from PMTA_SSH_* env. Resolved
+// lazily on the first tick so collector start does not block on DB readiness.
+let cachedServerId: string | null = null;
 
 interface CollectorConfig {
   host: string;
@@ -220,9 +223,29 @@ async function runSshCommand(
   });
 }
 
+async function resolveServerId(cfg: CollectorConfig): Promise<string | null> {
+  if (cachedServerId) return cachedServerId;
+  try {
+    cachedServerId = await upsertPmtaServer({
+      host: cfg.host,
+      port: cfg.port,
+      username: cfg.username,
+      sshKeySecretRef: "PMTA_SSH_PRIVATE_KEY",
+    });
+    return cachedServerId;
+  } catch (err: any) {
+    // Non-fatal: snapshots can be written with a null server_id and the
+    // server row will be re-attempted on the next tick. Log without
+    // touching the private key.
+    logger.warn(`[PMTA_COLLECTOR] upsert pmta_servers failed (${err?.message || err}) — snapshots will carry server_id=null until resolved`);
+    return null;
+  }
+}
+
 async function collectOnce(cfg: CollectorConfig): Promise<{ ok: number; failed: number }> {
   let ok = 0;
   let failed = 0;
+  const serverId = await resolveServerId(cfg);
   // Open one SSH connection per domain — keeps each failure isolated and
   // avoids long-lived sessions on the PMTA host.
   for (const domain of cfg.domains) {
@@ -232,6 +255,7 @@ async function collectOnce(cfg: CollectorConfig): Promise<{ ok: number; failed: 
       const { stdout, stderr, code } = await runSshCommand(cfg, command);
       if (code !== 0 && !stdout) {
         await insertPmtaSnapshot({
+          serverId,
           domain,
           pendingCount: 0,
           errorCount: 0,
@@ -245,6 +269,7 @@ async function collectOnce(cfg: CollectorConfig): Promise<{ ok: number; failed: 
       }
       const parsed = parsePmtaQueueOutput(stdout);
       await insertPmtaSnapshot({
+        serverId,
         domain,
         pendingCount: parsed.pendingCount,
         errorCount: parsed.errorCount,
@@ -257,6 +282,7 @@ async function collectOnce(cfg: CollectorConfig): Promise<{ ok: number; failed: 
     } catch (err: any) {
       try {
         await insertPmtaSnapshot({
+          serverId,
           domain,
           pendingCount: 0,
           errorCount: 0,
@@ -284,8 +310,21 @@ async function ensureLeaderTable(): Promise<void> {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS pmta_servers (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      host TEXT NOT NULL,
+      port INTEGER NOT NULL DEFAULT 22,
+      username TEXT NOT NULL,
+      ssh_key_secret_ref TEXT NOT NULL DEFAULT 'PMTA_SSH_PRIVATE_KEY',
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS pmta_servers_host_port_unique ON pmta_servers(host, port)`);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS pmta_queue_snapshots (
       id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      server_id VARCHAR REFERENCES pmta_servers(id) ON DELETE SET NULL,
       domain TEXT NOT NULL,
       captured_at TIMESTAMP NOT NULL DEFAULT NOW(),
       pending_count INTEGER NOT NULL DEFAULT 0,
@@ -296,8 +335,11 @@ async function ensureLeaderTable(): Promise<void> {
       raw_excerpt TEXT
     )
   `);
+  // Backfill server_id column on installs that pre-date the FK (idempotent).
+  await pool.query(`ALTER TABLE pmta_queue_snapshots ADD COLUMN IF NOT EXISTS server_id VARCHAR REFERENCES pmta_servers(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS pmta_snapshots_domain_captured_idx ON pmta_queue_snapshots(domain, captured_at)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS pmta_snapshots_captured_at_idx ON pmta_queue_snapshots(captured_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS pmta_snapshots_server_idx ON pmta_queue_snapshots(server_id)`);
 }
 
 function holderId(): string {
