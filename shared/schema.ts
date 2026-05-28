@@ -1389,6 +1389,25 @@ export const pmtaQueueSnapshots = pgTable("pmta_queue_snapshots", {
 export type PmtaQueueSnapshot = typeof pmtaQueueSnapshots.$inferSelect;
 export type InsertPmtaQueueSnapshot = typeof pmtaQueueSnapshots.$inferInsert;
 
+// Single-row signal table for cross-process operator-triggered refresh.
+// Process model: the web HTTP process is NOT necessarily the collector
+// leader (split web/worker deployment). Operator hits POST /refresh on
+// ANY process → that handler upserts `requested_at = NOW()` here →
+// the leader process polls this row every few seconds and, when
+// `requested_at > processed_at`, runs an out-of-cycle collectOnce and
+// bumps `processed_at`. This is the only durable way to guarantee the
+// "Refresh now" button actually causes a tick across PM2 processes
+// without a separate message bus.
+export const pmtaRefreshSignal = pgTable("pmta_refresh_signal", {
+  id: text("id").primaryKey(), // always 'global' — singleton
+  requestedAt: timestamp("requested_at"),
+  requestedBy: text("requested_by"), // userId for audit
+  processedAt: timestamp("processed_at"),
+  processedBy: text("processed_by"), // collector process id
+});
+
+export type PmtaRefreshSignal = typeof pmtaRefreshSignal.$inferSelect;
+
 // Lease-table leader election for the 5-minute PMTA collector.
 // Singleton row keyed on `lock_key='global'`. Holder is the PM2 process id
 // + hostname; expires_at is renewed on every successful tick. NEVER use

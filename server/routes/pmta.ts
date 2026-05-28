@@ -142,17 +142,23 @@ export function registerPmtaRoutes(app: Express) {
       next();
     },
     refreshLimiter,
-    (_req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       if (!isPmtaConfigured()) {
         return res.status(503).json({ error: "PMTA collector not configured" });
       }
-      const result = requestPmtaRefresh();
+      const uid = (req.session?.userId as string) || "unknown";
+      // Returns scheduled=true only after the refresh signal is durably
+      // persisted to `pmta_refresh_signal`. The collector leader process
+      // polls that table every ~5s and runs the tick — so this works
+      // even when web and worker are separate PM2 processes.
+      const result = await requestPmtaRefresh(uid);
       if (!result.scheduled) {
-        return res.status(202).json({ scheduled: false, reason: result.reason });
+        return res.status(503).json({ scheduled: false, reason: result.reason });
       }
       res.status(202).json({
         scheduled: true,
-        note: "Refresh enqueued — will run on the PMTA collector leader process within seconds.",
+        requestedAt: result.requestedAt,
+        note: "Refresh signal persisted — collector leader will run within ~5 seconds.",
       });
     },
   );

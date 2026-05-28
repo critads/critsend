@@ -39,7 +39,13 @@ const ERROR_PATTERN_RE = /\b(error|timeout|refused|blocked|defer|421|450|451|452
 const LOCK_KEY = "global";
 
 let collectorTimer: NodeJS.Timeout | null = null;
+let refreshPollTimer: NodeJS.Timeout | null = null;
 let collectorRunning = false;
+// How often EVERY process polls pmta_refresh_signal looking for a
+// pending operator-triggered refresh. Cheap query (1 row, indexed PK),
+// runs on every PM2 process but only the leader actually executes a
+// tick — so cost scales with #processes, not #domains.
+const REFRESH_POLL_INTERVAL_MS = 5_000;
 // Cached pmta_servers.id for the host populated from PMTA_SSH_* env. Resolved
 // lazily on the first tick so collector start does not block on DB readiness.
 let cachedServerId: string | null = null;
@@ -411,21 +417,95 @@ export async function runPmtaCollectorOnce(): Promise<{
 }
 
 /**
- * Operator-facing refresh trigger. NEVER opens SSH on the caller's stack —
- * schedules the tick on `setImmediate` so the HTTP request returns
- * instantly. Leader election still applies inside `runPmtaCollectorOnce`,
- * so even if every PM2 process receives a refresh request only the leader
- * will actually contact PMTA.
+ * Operator-facing refresh trigger. Cross-process durable: writes a row to
+ * `pmta_refresh_signal` from whichever PM2 process received the HTTP
+ * request. The collector leader (which may be a different process — the
+ * web process typically does NOT run workers) polls this table every few
+ * seconds and runs an out-of-cycle collectOnce when it sees a pending
+ * signal. The HTTP handler never opens SSH.
+ *
+ * Returns scheduled=true only AFTER the signal row is durably persisted.
  */
-export function requestPmtaRefresh(): { scheduled: boolean; reason?: string } {
+export async function requestPmtaRefresh(
+  requestedBy: string,
+): Promise<{ scheduled: boolean; reason?: string; requestedAt?: string }> {
   if (!isPmtaConfigured()) return { scheduled: false, reason: "not_configured" };
-  if (collectorRunning) return { scheduled: false, reason: "already_running" };
-  setImmediate(() => {
-    runPmtaCollectorOnce().catch((err) =>
-      logger.error("[PMTA_COLLECTOR] background refresh failed:", err),
+  try {
+    await ensureRefreshSignalTable();
+    const result = await pool.query(
+      `INSERT INTO pmta_refresh_signal (id, requested_at, requested_by)
+         VALUES ('global', NOW(), $1)
+       ON CONFLICT (id) DO UPDATE
+         SET requested_at = NOW(),
+             requested_by = EXCLUDED.requested_by
+       RETURNING requested_at`,
+      [requestedBy],
     );
-  });
-  return { scheduled: true };
+    const requestedAt = result.rows[0]?.requested_at;
+    return {
+      scheduled: true,
+      requestedAt: requestedAt ? new Date(requestedAt).toISOString() : undefined,
+    };
+  } catch (err: any) {
+    logger.error(`[PMTA_COLLECTOR] requestPmtaRefresh failed: ${err?.message || err}`);
+    return { scheduled: false, reason: "persist_failed" };
+  }
+}
+
+async function ensureRefreshSignalTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pmta_refresh_signal (
+      id TEXT PRIMARY KEY,
+      requested_at TIMESTAMP,
+      requested_by TEXT,
+      processed_at TIMESTAMP,
+      processed_by TEXT
+    )
+  `);
+}
+
+/**
+ * Polls pmta_refresh_signal. Runs on every process but only acts when
+ * this process is the leader (cheap idempotent check via tryAcquireLeader).
+ * If requested_at > processed_at, runs an out-of-cycle collectOnce.
+ */
+async function checkRefreshSignal(): Promise<void> {
+  if (!isPmtaConfigured() || collectorRunning) return;
+  try {
+    const sig = await pool.query<{ requested_at: Date | null; processed_at: Date | null }>(
+      `SELECT requested_at, processed_at FROM pmta_refresh_signal WHERE id = 'global'`,
+    );
+    const row = sig.rows[0];
+    if (!row?.requested_at) return;
+    const isStale = row.processed_at && row.processed_at >= row.requested_at;
+    if (isStale) return;
+    const won = await tryAcquireLeader();
+    if (!won) return;
+    // Mark processed BEFORE running so concurrent poll ticks on the same
+    // leader can't double-fire. Use atomic UPDATE...WHERE so a race with
+    // a fresh request mid-tick still gets picked up on the next poll.
+    const claim = await pool.query(
+      `UPDATE pmta_refresh_signal
+          SET processed_at = NOW(), processed_by = $1
+        WHERE id = 'global'
+          AND requested_at = $2
+          AND (processed_at IS NULL OR processed_at < requested_at)
+        RETURNING id`,
+      [holderId(), row.requested_at],
+    );
+    if ((claim.rowCount ?? 0) === 0) return; // lost the race — skip
+    collectorRunning = true;
+    try {
+      const cfg = loadConfig();
+      if (!cfg) return;
+      const { ok, failed } = await collectOnce(cfg);
+      logger.info(`[PMTA_COLLECTOR] operator-refresh tick complete ok=${ok} failed=${failed}`);
+    } finally {
+      collectorRunning = false;
+    }
+  } catch (err: any) {
+    logger.error(`[PMTA_COLLECTOR] checkRefreshSignal failed: ${err?.message || err}`);
+  }
 }
 
 export async function startPmtaCollector(): Promise<void> {
@@ -452,9 +532,19 @@ export async function startPmtaCollector(): Promise<void> {
     void runPmtaCollectorOnce();
   }, COLLECTOR_INTERVAL_MS);
   collectorTimer.unref?.();
+  // Cross-process refresh poller — runs on every PM2 process; only the
+  // leader actually executes a tick (cheap SELECT otherwise).
+  refreshPollTimer = setInterval(() => {
+    void checkRefreshSignal();
+  }, REFRESH_POLL_INTERVAL_MS);
+  refreshPollTimer.unref?.();
 }
 
 export function stopPmtaCollector(): void {
+  if (refreshPollTimer) {
+    clearInterval(refreshPollTimer);
+    refreshPollTimer = null;
+  }
   if (collectorTimer) {
     clearInterval(collectorTimer);
     collectorTimer = null;
