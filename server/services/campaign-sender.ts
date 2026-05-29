@@ -391,11 +391,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   const startTime = Date.now();
   let shouldStop = false;
 
-  const defaultHeaders = await storage.getDefaultHeaders();
+  // Default email headers are now injected centrally inside `sendEmail`
+  // (server/email-service.ts) for EVERY outbound path, so the bulk sender no
+  // longer fetches/passes them here. Fetching them once at campaign start used
+  // to freeze a snapshot for the whole run — an operator editing a default
+  // header mid-campaign would not see it applied. The central 60s-cached
+  // source picks up edits within the cache TTL. This map is left empty for
+  // any future per-campaign custom headers (it merges on top of defaults).
   const customHeadersMap: Record<string, string> = {};
-  for (const header of defaultHeaders) {
-    customHeadersMap[header.name] = header.value;
-  }
 
   const trackingOpts: {
     trackOpens: boolean;

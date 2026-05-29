@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { logger } from "../logger";
 import { insertMtaSchema, insertEmailHeaderSchema } from "@shared/schema";
 import { z } from "zod";
-import { closeTransporter, resolveSmtpSecurity } from "../email-service";
+import { closeTransporter, resolveSmtpSecurity, invalidateDefaultHeadersCache } from "../email-service";
 import nodemailer from "nodemailer";
 import type { Mta } from "@shared/schema";
 
@@ -306,6 +306,7 @@ export function registerMtaRoutes(app: Express, helpers: {
     try {
       const data = insertEmailHeaderSchema.parse(req.body);
       const header = await storage.createHeader(data);
+      invalidateDefaultHeadersCache();
       res.status(201).json(header);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -325,6 +326,7 @@ export function registerMtaRoutes(app: Express, helpers: {
       if (!header) {
         return res.status(404).json({ error: "Header not found" });
       }
+      invalidateDefaultHeadersCache();
       res.json(header);
     } catch (error) {
       logger.error("Error updating header:", error);
@@ -338,6 +340,7 @@ export function registerMtaRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Invalid ID format" });
       }
       await storage.deleteHeader(req.params.id);
+      invalidateDefaultHeadersCache();
       res.status(204).send();
     } catch (error) {
       logger.error("Error deleting header:", error);

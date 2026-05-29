@@ -9,6 +9,102 @@ import {
 } from "./tracking";
 import { getNullsinkServer } from "./nullsink-smtp";
 import { logger } from "./logger";
+import { getDefaultHeaders } from "./repositories/mta-repository";
+
+// ── Default email headers cache ────────────────────────────────────────
+// Operator-configured "Default" headers (e.g. List-Unsubscribe-Post,
+// X-Mailer, X-List-Unsubscribe, Expires) must be attached to EVERY outgoing
+// email — bulk campaign sends, pressure-guard drain sends, and automation
+// sends. Rather than relying on each call site to fetch + pass them (which
+// silently regressed: the pressure-guard drain and automation paths were
+// sending with NO default headers), we inject them centrally inside
+// `sendEmail` — the single real-wire function all three paths funnel through.
+// The DB read is cached for 60s with single-flight dedup so high-volume
+// sending never hammers the table; the header CRUD routes call
+// `invalidateDefaultHeadersCache()` so operator edits take effect at once.
+type CachedHeader = { name: string; value: string };
+let _defaultHeadersCache: { value: CachedHeader[]; fetchedAt: number } | null = null;
+let _defaultHeadersInflight: Promise<CachedHeader[]> | null = null;
+const DEFAULT_HEADERS_CACHE_TTL = 60000;
+
+export function invalidateDefaultHeadersCache(): void {
+  _defaultHeadersCache = null;
+}
+
+async function getDefaultHeadersCached(): Promise<CachedHeader[]> {
+  const cached = _defaultHeadersCache;
+  if (cached && Date.now() - cached.fetchedAt < DEFAULT_HEADERS_CACHE_TTL) {
+    return cached.value;
+  }
+  if (_defaultHeadersInflight) return _defaultHeadersInflight;
+  _defaultHeadersInflight = (async () => {
+    // When we already have a last-good cache (TTL just expired) a single
+    // attempt is enough — on failure we serve stale. When we have NO cache
+    // yet (process cold-start) we retry a few times so a transient DB blip at
+    // startup can't let the very first batch go out without the mandatory
+    // default headers (List-Unsubscribe-Post, etc.).
+    const maxAttempts = cached ? 1 : 4;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const rows = await getDefaultHeaders();
+        const value = rows.map((h) => ({ name: h.name, value: h.value }));
+        _defaultHeadersCache = { value, fetchedAt: Date.now() };
+        return value;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < maxAttempts) {
+          await sleep(250 * attempt);
+        }
+      }
+    }
+    // All attempts failed. Prefer the last-good cache (backed off for another
+    // TTL window so we don't hammer the DB during an outage). With no cache at
+    // all, log at ERROR — this is the only window where a send can go out
+    // without default headers, and operators must see it.
+    if (cached) {
+      logger.warn(
+        `[DEFAULT_HEADERS] refresh failed, serving stale cache: ${(lastErr as Error)?.message || lastErr}`,
+      );
+      cached.fetchedAt = Date.now();
+      return cached.value;
+    }
+    logger.error(
+      `[DEFAULT_HEADERS] cold-start fetch failed after ${maxAttempts} attempts — sends in this window will omit default headers: ${(lastErr as Error)?.message || lastErr}`,
+    );
+    return [];
+  })().finally(() => {
+    _defaultHeadersInflight = null;
+  });
+  return _defaultHeadersInflight;
+}
+
+/**
+ * Merge operator-configured DEFAULT headers (cached) with any caller-supplied
+ * custom headers, then resolve `{UNSUBSCRIBE}` / `{DATE+7}` placeholders for
+ * this recipient. Defaults are applied to EVERY send so no call site can omit
+ * them; caller-supplied headers win on a key conflict. The returned map is
+ * always passed through `sanitizeOutboundHeaders` by the caller.
+ */
+async function buildOutboundHeaders(
+  unsubscribeUrl: string,
+  customHeaders?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const defaults = await getDefaultHeadersCached();
+  const merged: Record<string, string> = {};
+  for (const h of defaults) merged[h.name] = h.value;
+  if (customHeaders) {
+    for (const [k, v] of Object.entries(customHeaders)) merged[k] = v;
+  }
+  const date7 = rfc2822DatePlusDays(7);
+  const resolved: Record<string, string> = {};
+  for (const [name, value] of Object.entries(merged)) {
+    resolved[name] = value
+      .replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl)
+      .replace(/\{DATE\+7\}/gi, date7);
+  }
+  return resolved;
+}
 
 /**
  * Returns the current date + `days` in RFC 2822 format.
@@ -587,17 +683,11 @@ export async function sendEmail(
   // in server/routes/tracking.ts — subscriber tagging on open/click is
   // unaffected.
 
-  // Apply custom headers with placeholder replacement
-  if (customHeaders) {
-    const date7 = rfc2822DatePlusDays(7);
-    
-    for (const [headerName, headerValue] of Object.entries(customHeaders)) {
-      const resolvedValue = headerValue
-        .replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl)
-        .replace(/\{DATE\+7\}/gi, date7);
-      mailOptions.headers[headerName] = resolvedValue;
-    }
-  }
+  // Inject operator-configured DEFAULT headers + any caller-supplied custom
+  // headers. This is the single chokepoint for outbound headers — every real
+  // SMTP send (bulk sender, pressure-guard drain, automation) funnels through
+  // here, so default headers can never be silently dropped by a call site.
+  mailOptions.headers = await buildOutboundHeaders(unsubscribeUrl, customHeaders);
 
   // Defensive guard: never let X-Open-Tag / X-Click-Tag reach the wire,
   // even if an operator configured them via customHeaders.
@@ -750,19 +840,10 @@ export async function sendEmailWithNullsink(
 
   const nullsinkTransporter = getNullsinkTransporter();
 
-  const headers: Record<string, string> = {};
-  
-  // Apply custom headers with placeholder replacement
-  if (customHeaders) {
-    const date7 = rfc2822DatePlusDays(7);
-    
-    for (const [headerName, headerValue] of Object.entries(customHeaders)) {
-      const resolvedValue = headerValue
-        .replace(/\{UNSUBSCRIBE\}/gi, unsubscribeUrl)
-        .replace(/\{DATE\+7\}/gi, date7);
-      headers[headerName] = resolvedValue;
-    }
-  }
+  // Inject operator-configured DEFAULT headers + any caller-supplied custom
+  // headers (parity with the real-SMTP `sendEmail` path so nullsink captures
+  // reflect exactly what would go on the wire).
+  const headers: Record<string, string> = await buildOutboundHeaders(unsubscribeUrl, customHeaders);
 
   // Defensive guard: strip X-Open-Tag / X-Click-Tag from operator-supplied
   // headers — these must never appear on the wire.
