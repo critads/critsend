@@ -10,6 +10,7 @@ import { SNOWBALL_THROTTLE_CONFIG } from "../services/campaign-sender";
 import { logger } from "../logger";
 import { classifyDbError } from "../db-errors";
 import { emitServiceBusy } from "../middleware/service-busy";
+import { buildCampaignsListCacheKey, getCampaignsListCached, publishCampaignsListInvalidation } from "../repositories/campaigns-list-cache";
 import { messageQueue } from "../message-queue";
 import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
 import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62 } from "../utils";
@@ -376,13 +377,28 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const scheduledFrom = parseBound(req.query.scheduledFrom);
       const scheduledTo = parseBound(req.query.scheduledTo);
 
-      const result = await storage.getCampaignsPaginated({ page, limit, search, originalsOnly, scheduledFrom, scheduledTo });
-      res.json({
-        campaigns: result.campaigns,
-        total: result.total,
-        page,
-        totalPages: Math.ceil(result.total / limit),
-      });
+      // Task #199: serve from a short in-process cache (default 3 min,
+      // CAMPAIGNS_LIST_CACHE_TTL_MS) to stop this heavy read (count + join +
+      // aggregate over campaign_sends) from saturating the web DB pool and
+      // tripping the 503 load-shed. The cache is invalidated cross-process on
+      // every campaign state transition; live counters keep flowing via SSE.
+      // `?refresh=true` bypasses the cache for a forced re-read.
+      const forceRefresh = req.query.refresh === "true" || req.query.refresh === "1";
+      const cacheKey = buildCampaignsListCacheKey({ page, limit, search, originalsOnly, scheduledFrom, scheduledTo });
+      const payload = await getCampaignsListCached(
+        cacheKey,
+        async () => {
+          const result = await storage.getCampaignsPaginated({ page, limit, search, originalsOnly, scheduledFrom, scheduledTo });
+          return {
+            campaigns: result.campaigns,
+            total: result.total,
+            page,
+            totalPages: Math.ceil(result.total / limit),
+          };
+        },
+        forceRefresh,
+      );
+      res.json(payload);
     } catch (error) {
       const classified = classifyDbError(error);
       if (classified.transient) {
@@ -891,6 +907,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
+      // Task #199: PATCH edits list-visible fields (name/status/schedule/…) via
+      // raw tx — invalidate the list cache so the edit shows immediately.
+      publishCampaignsListInvalidation();
 
       if (existingCampaign.status !== "sending" && campaign.status === "sending") {
         await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
@@ -1029,6 +1048,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
+      // Task #199: status transition done via raw tx — invalidate the list cache.
+      publishCampaignsListInvalidation();
 
       if (!futureScheduled) {
         await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
@@ -1116,6 +1137,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
         return { deletedDeferred: deleted, campaign: updated };
       });
+      // Task #199: status transition done via raw tx — invalidate the list cache.
+      publishCampaignsListInvalidation();
 
       logger.info(`[CAMPAIGN_END] Campaign ${req.params.id} ended: deleted ${deletedDeferred} deferred sends, status→completed`);
       res.json({ campaign, deletedDeferred });
@@ -1452,6 +1475,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
         }
         return res.status(404).json({ error: "Campaign not found" });
       }
+      // Task #199: status transition done via raw tx — invalidate the list cache.
+      publishCampaignsListInvalidation();
 
       await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
       logger.info(`[CAMPAIGN_RETRY_FAILED] Reset ${resetCount} failed sends to pending, NOTIFY sent for campaign ${req.params.id}`);
@@ -1498,6 +1523,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
+      // Task #199: status transition done via raw tx — invalidate the list cache.
+      publishCampaignsListInvalidation();
 
       await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
       logger.info(`[CAMPAIGN_REQUEUE] NOTIFY sent for campaign ${req.params.id}`);
@@ -1644,6 +1671,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to update campaign status`);
         return res.status(500).json({ error: "Failed to start campaign - status update failed" });
       }
+      // Task #199: status transition done via raw tx — invalidate the list cache.
+      publishCampaignsListInvalidation();
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
       
       await messageQueue.notify("campaign_jobs", { campaignId });

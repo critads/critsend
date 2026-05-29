@@ -880,6 +880,13 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
       } catch (err) {
         logger.warn(`[ANALYTICS] Failed to start invalidation subscriber: ${(err as Error).message}`);
       }
+      try {
+        const { startCampaignsListInvalidationSubscriber } = await import("./repositories/campaigns-list-cache");
+        startCampaignsListInvalidationSubscriber(redisSubscriber);
+        logger.info("[CAMPAIGNS_CACHE] Cache invalidation subscriber started");
+      } catch (err) {
+        logger.warn(`[CAMPAIGNS_CACHE] Failed to start invalidation subscriber: ${(err as Error).message}`);
+      }
     }
   } else {
     logger.info("[SSE] Redis not configured — progress events via in-process EventEmitter (monolith mode)");

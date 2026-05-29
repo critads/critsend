@@ -234,26 +234,26 @@ export default function Campaigns() {
       return res.json();
     },
     placeholderData: keepPreviousData,
+    // Task #199: align the client staleTime with the server-side list cache
+    // (default 3 min). Within this window React Query serves the cached list
+    // on mount/refocus instead of re-hitting the API — live status/counter
+    // changes still arrive via SSE (handleCampaignEvent patches this cache).
+    staleTime: 3 * 60 * 1000,
     refetchInterval: (query) => {
       const data = query.state.data as PaginatedCampaigns | undefined;
       const hasSending = data?.campaigns?.some((c) => c.status === "sending");
       if (!hasSending) return false;
-      // When SSE is connected the sent/failed/pending/deferred counters
-      // arrive in real time, so we can poll less aggressively. We still
-      // poll though — `pressureHeldCount` is a live subquery NOT carried
-      // on the SSE event stream, so without a slow refetch the amber
-      // "held" segment of the progress bar would freeze at its initial
-      // value until the user manually refreshed. 30s is rare enough not
-      // to pressure the API but frequent enough to keep the deferred
-      // segment visibly fresh while the drain worker dispatches.
-      //
-      // Phase-1 perf fix (audit 2026-05-26): SSE-off cadence relaxed
-      // 10s → 20s. The /api/campaigns handler is the heaviest read on
-      // the web pool, and a 10s cadence was shorter than its p95
-      // service time under multi-tab load, producing a self-saturating
-      // polling loop. 20s keeps the UX feel of "live" sending counts
-      // while halving the request rate from this page.
-      return isSSEConnected() ? 30000 : 20000;
+      // Task #199: the heavy 20-30s polling that self-saturated the web DB
+      // pool (and tripped the 503 "Serveur momentanément occupé" screen) is
+      // gone. Live sent/failed/pending/deferred counters now ride SSE in
+      // real time. We keep ONE slow 60s refetch while a campaign is sending
+      // purely so the one value SSE does not carry — `pressureHeldCount`, the
+      // drain-queue snapshot behind the amber "held" progress segment — does
+      // not freeze indefinitely. These polls are served from the server cache
+      // (cost no DB read), so the held value refreshes at the cache TTL
+      // boundary (~3 min) rather than every 60s — acceptable for a cosmetic
+      // progress segment, and the bar still advances live via SSE sent counts.
+      return 60000;
     },
     // Phase-1 perf fix: pause polling when the tab is hidden. React
     // Query defaults to keeping interval refetches running in the
@@ -648,7 +648,20 @@ export default function Campaigns() {
                 <Skeleton key={i} className="h-16 w-full" />
               ))}
             </div>
-          ) : isError ? (
+          ) : (isError && (() => {
+            // Task #199: keep the last-good list on a transient "busy" 503
+            // when we already have data (placeholderData: keepPreviousData).
+            // Showing a stale-but-valid list is far better UX than wiping the
+            // page for the full-screen busy spinner — SSE keeps it live and
+            // the next refetch silently recovers. Only fall through to an
+            // error screen when there's nothing to show, or the failure is a
+            // genuine (non-busy) error worth surfacing.
+            const err = error as any;
+            const isBusy =
+              err?.status === 503 &&
+              (err?.body?.error === "service_busy" || (err?.retryAfterSeconds ?? 0) > 0);
+            return !campaignsData || !isBusy;
+          })()) ? (
             (() => {
               // Task #148: distinguish "server is briefly busy, retry will
               // succeed" (503 service_busy) from genuine failures so users

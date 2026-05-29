@@ -25,6 +25,7 @@ import { mapWithConcurrency } from "../utils";
 import { classifyDbError, isDiskFullError } from "../db-errors";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
 import { toPgTextArray } from "../utils/pg-array";
+import { publishCampaignsListInvalidation } from "./campaigns-list-cache";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -361,11 +362,17 @@ export async function getCampaignsByPauseReason(reason: string): Promise<Campaig
 
 export async function createCampaign(data: InsertCampaign): Promise<Campaign> {
   const [campaign] = await db.insert(campaigns).values(data).returning();
+  // New campaign must appear in the list immediately — drop the short cache.
+  publishCampaignsListInvalidation();
   return campaign;
 }
 
 export async function updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign | undefined> {
   const [campaign] = await db.update(campaigns).set(data).where(eq(campaigns.id, id)).returning();
+  // State transition (status/edit/schedule/etc.) — drop the short list cache.
+  // Per-send counters never flow through here (they use atomic SQL helpers),
+  // so this does NOT thrash the cache during active sending.
+  publishCampaignsListInvalidation();
   return campaign;
 }
 
@@ -377,6 +384,7 @@ export async function deleteCampaign(id: string): Promise<void> {
   await db.execute(sql`DELETE FROM pending_tag_operations WHERE campaign_id = ${id}`);
   await db.execute(sql`DELETE FROM analytics_daily WHERE campaign_id = ${id}`);
   await db.delete(campaigns).where(eq(campaigns.id, id));
+  publishCampaignsListInvalidation();
 }
 
 export async function copyCampaign(id: string): Promise<Campaign | undefined> {
@@ -528,15 +536,18 @@ export async function spawnFollowUpCampaign(
   // parent.followUpCampaignId (which would deadlock subsequent polls because
   // the partial unique index on parent_campaign_id would block re-spawn).
   try {
-    return await db.transaction(async (tx) => {
-      const [created] = await tx.insert(campaigns).values(child).returning();
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx.insert(campaigns).values(child).returning();
       await tx.execute(sql`
         UPDATE campaigns
-        SET follow_up_campaign_id = ${created.id}
+        SET follow_up_campaign_id = ${row.id}
         WHERE id = ${parent.id} AND follow_up_campaign_id IS NULL
       `);
-      return created;
+      return row;
     });
+    // New scheduled child must appear in the list immediately — drop the cache.
+    publishCampaignsListInvalidation();
+    return created;
   } catch (err: any) {
     // Unique-violation on the partial index = another worker already
     // spawned the child. Find the existing child and ensure the parent
@@ -657,7 +668,11 @@ export async function updateCampaignStatusAtomic(campaignId: string, newStatus: 
       UPDATE campaigns SET status = ${newStatus} WHERE id = ${campaignId} RETURNING id
     `);
   }
-  return result.rows.length > 0;
+  const changed = result.rows.length > 0;
+  // Only fan out when a status actually flipped — keeps the cache alive when
+  // a CAS loses (no-op) but drops it on every real transition.
+  if (changed) publishCampaignsListInvalidation();
+  return changed;
 }
 
 export async function reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean> {
@@ -777,6 +792,8 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
     SELECT (SELECT COUNT(*) FROM reset) AS reset_count
   `);
   const resetCount = Number(result.rows[0]?.reset_count ?? 0);
+  // failed → sending transition: refresh the list so the status is current.
+  if (resetCount > 0) publishCampaignsListInvalidation();
   return resetCount > 0;
 }
 

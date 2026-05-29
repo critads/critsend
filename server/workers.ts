@@ -8,6 +8,7 @@ import { messageQueue } from "./message-queue";
 import { logger } from "./logger";
 import { workerRestartsTotal, flushJobsTotal } from "./metrics";
 import { type JobProgressEvent, publishJobProgress } from "./job-events";
+import { publishCampaignsListInvalidation } from "./repositories/campaigns-list-cache";
 import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
 import { classifyDbError } from "./db-errors";
@@ -1041,6 +1042,8 @@ async function pollScheduledCampaigns() {
           SET status = 'completed', completed_at = NOW(), pending_count = 0
           WHERE id = ${row.id} AND status = 'scheduled'
         `);
+        // Task #199: status transition in the worker — fan out cache invalidation.
+        publishCampaignsListInvalidation();
         logger.info(`[SCHEDULE_POLL] Follow-up ${row.id} (${row.name}) had 0 openers at promotion time — marked completed without sending`);
       }
     }
@@ -1064,6 +1067,8 @@ async function pollScheduledCampaigns() {
       RETURNING campaign_id, (SELECT name FROM promoted WHERE promoted.id = campaign_id) AS name
     `);
     const launched = result.rows as Array<{ campaign_id: string; name: string }>;
+    // Task #199: scheduled → sending transition in the worker — fan out cache invalidation.
+    if (launched.length > 0) publishCampaignsListInvalidation();
     for (const row of launched) {
       await messageQueue.notify("campaign_jobs", { campaignId: row.campaign_id }).catch(() => {});
       logger.info(`[SCHEDULE_POLL] Campaign ${row.campaign_id} (${row.name}) scheduled time reached — transitioned to sending`);
