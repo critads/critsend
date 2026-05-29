@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex, date, bigserial, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1419,3 +1419,63 @@ export const pmtaCollectorLeader = pgTable("pmta_collector_leader", {
   acquiredAt: timestamp("acquired_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Pressure-guard operational tables (Tasks #149, #160).
+//
+// These four tables are also created at runtime by the idempotent raw-SQL
+// bootstrap in `server/services/pressure-guard.ts` (CREATE TABLE IF NOT
+// EXISTS). They are mirrored here ONLY so `drizzle-kit push --force`
+// (run during deploy) sees no schema drift — without these definitions
+// drizzle treats them as "removed" tables and, when other new tables are
+// added, its rename detector emits interactive prompts and may drop the
+// live coordination tables. Keep these definitions byte-for-byte aligned
+// with the DDL in pressure-guard.ts; the raw-SQL bootstrap remains the
+// self-heal path for installs that predate this schema entry.
+// ─────────────────────────────────────────────────────────────────────────
+
+// R3: single-row state table for cluster-wide once/day maintenance.
+export const pressureMaintenanceState = pgTable("pressure_maintenance_state", {
+  id: boolean("id").primaryKey().default(true),
+  lastHeavyRunDate: date("last_heavy_run_date"),
+}, (table) => ({
+  singleton: check("pressure_maintenance_state_singleton", sql`${table.id} = true`),
+}));
+
+export type PressureMaintenanceState = typeof pressureMaintenanceState.$inferSelect;
+
+// Task #149/#160: lease-table for cross-cluster leader election + per-tick
+// heartbeat. NEVER pg_try_advisory_lock (leaks on Neon PgBouncer).
+export const pressureGuardLeader = pgTable("pressure_guard_leader", {
+  lockKey: text("lock_key").primaryKey(),
+  holderId: text("holder_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  lastTickAt: timestamp("last_tick_at", { withTimezone: true }),
+  lastTickDrained: integer("last_tick_drained").notNull().default(0),
+  lastTickErrors: integer("last_tick_errors").notNull().default(0),
+  lastTickEligible: integer("last_tick_eligible").notNull().default(0),
+});
+
+export type PressureGuardLeader = typeof pressureGuardLeader.$inferSelect;
+
+// Task #160: cross-process drain-tick error log (auto-pruned to 24h).
+export const pressureDrainTickErrors = pgTable("pressure_drain_tick_errors", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  holderId: text("holder_id"),
+  errorMsg: text("error_msg"),
+}, (table) => ({
+  // Raw-SQL bootstrap uses `(occurred_at DESC)`; Postgres defaults DESC to
+  // NULLS FIRST, so match that exactly (drizzle's .desc() defaults to NULLS
+  // LAST) — otherwise push sees index drift.
+  occurredAtIdx: index("pressure_drain_tick_errors_occurred_at_idx").on(table.occurredAt.desc().nullsFirst()),
+}));
+
+export type PressureDrainTickError = typeof pressureDrainTickErrors.$inferSelect;
+
+// Single-row marker recording that the one-time pressure-guard backfill ran.
+export const pressureGuardBackfillDone = pgTable("pressure_guard_backfill_done", {
+  id: integer("id").primaryKey(),
+});
+
+export type PressureGuardBackfillDone = typeof pressureGuardBackfillDone.$inferSelect;
