@@ -72,19 +72,22 @@ const SNOWBALL_THROTTLE_THRESHOLD = envFloat("PRESSURE_RATIO_THROTTLE_THRESHOLD"
 const SNOWBALL_THROTTLE_MIN_DEFERRED = envIntBounded("PRESSURE_RATIO_THROTTLE_MIN_DEFERRED", 1000, 1, 10_000_000);
 const SNOWBALL_THROTTLE_SLEEP_MS = envIntBounded("PRESSURE_RATIO_THROTTLE_SLEEP_MS", 30_000, 1_000, 10 * 60_000);
 
-// Fairness yield (production incident 2026-05-20): when a long-running
-// campaign's own queue has 0 ready sends and only pressure-guard helds
-// remain, holding a MAX_CONCURRENT_CAMPAIGNS job slot wastes a worker
-// slot. Empirically observed: 7 medium/slow campaigns from May 15-18
-// each emitting 0-6 sends/min held all 8-12 concurrent slots, starving
-// 9 newer fast campaigns waiting in FIFO. The pressure-guard drain
-// (server/workers/pressure-guard-worker.ts) processes helds independently
-// AND marks the campaign 'completed' when its queue empties (line 1111
-// there), so yielding loses no work. A delayed re-trigger covers the
-// case where the segment isn't yet fully enrolled.
-const FAIRNESS_YIELD_DISABLED = envBoolDisabled("FAIRNESS_YIELD_DISABLED");
-const FAIRNESS_YIELD_CHECK_EVERY_BATCHES = envIntBounded("FAIRNESS_YIELD_CHECK_EVERY_BATCHES", 5, 1, 1000);
-const FAIRNESS_YIELD_FALLBACK_DELAY_MIN = envIntBounded("FAIRNESS_YIELD_FALLBACK_DELAY_MIN", 30, 1, 1440);
+// Recipient-loss incident (4 campaigns stopped at ~50K of 80K–155K and
+// were marked 'completed'): an in-loop "fairness yield" used to release
+// the job slot when the sender's own queue had 0 ready sends and only
+// pressure-guard helds remained, on the assumption the drain worker would
+// finish the rest. But it fired BEFORE the segment cursor was fully
+// enumerated, so the drain worker — which only checks the already-reserved
+// queue (pending+attempting == 0), never enumeration completeness — marked
+// the campaign 'completed' while every segment member past the cursor was
+// never enrolled into campaign_sends. The un-enumerated tail was silently
+// dropped. The yield has been removed: slot release is now gated on cursor
+// exhaustion via the post-loop pressure-guard deferred-hold (see "Holding
+// 'sending' status" below), which only runs after the loop breaks on an
+// empty batch — i.e. after every member is enrolled. Correctness (no
+// dropped recipients) takes priority over the mid-enumeration slot fairness
+// the yield provided; a cursor-persisting resumable yield could restore
+// that fairness without data loss as a future enhancement.
 
 // Exported snapshot for the UI/API (Task #156). Centralised here because
 // these are the same values the running sender uses to make throttle
@@ -568,63 +571,6 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     while (!shouldStop) {
       await checkStatusAndHeartbeat();
       if (shouldStop) break;
-
-      // Fairness yield (production incident 2026-05-20): if our own
-      // queue has 0 ready sends and only pressure-guard helds remain,
-      // release this job slot. The drain worker
-      // (server/workers/pressure-guard-worker.ts) dispatches helds
-      // independently AND marks the campaign 'completed' when its queue
-      // empties (line 1111 there), so yielding loses no work. A delayed
-      // re-trigger keyed on the earliest held's eligible_at covers the
-      // case where the segment is not yet fully enrolled. Check every N
-      // batches to keep the extra COUNT cheap (single index scan over
-      // campaign_sends_campaign_status_idx).
-      if (!FAIRNESS_YIELD_DISABLED && batchNumber > 0 && batchNumber % FAIRNESS_YIELD_CHECK_EVERY_BATCHES === 0) {
-        try {
-          const qs = await retryDbOp(
-            () => db.execute(sql`
-              SELECT
-                COUNT(*) FILTER (WHERE status = 'pending' AND (eligible_at IS NULL OR eligible_at <= NOW()))::int AS ready,
-                COUNT(*) FILTER (WHERE status = 'pending' AND eligible_at > NOW())::int AS held
-              FROM campaign_sends WHERE campaign_id = ${campaignId}
-            `),
-            `${logPrefix} fairnessYieldCheck`,
-          );
-          const row = qs.rows[0] as { ready?: number; held?: number } | undefined;
-          const ready = Number(row?.ready ?? 0);
-          const held = Number(row?.held ?? 0);
-          if (ready === 0 && held > 0) {
-            logger.info(`${logPrefix} Fairness yield: 0 ready + ${held} held — releasing slot, drain owns dispatches, re-trigger scheduled on next held eligibility`);
-            const excludeSelf = jobId ? sql`AND id != ${jobId}` : sql``;
-            await retryDbOp(
-              () => db.execute(sql`
-                INSERT INTO campaign_jobs (campaign_id, status, retry_count, next_retry_at)
-                SELECT
-                  ${campaignId},
-                  'pending',
-                  0,
-                  COALESCE(
-                    (SELECT MIN(eligible_at) FROM campaign_sends
-                      WHERE campaign_id = ${campaignId}
-                        AND status = 'pending' AND eligible_at > NOW()),
-                    NOW() + (INTERVAL '1 minute' * ${FAIRNESS_YIELD_FALLBACK_DELAY_MIN})
-                  )
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM campaign_jobs
-                  WHERE campaign_id = ${campaignId}
-                    AND status IN ('pending', 'processing')
-                    ${excludeSelf}
-                )
-              `),
-              `${logPrefix} fairnessYieldReTrigger`,
-            );
-            shouldStop = true;
-            break;
-          }
-        } catch (err: any) {
-          logger.warn(`${logPrefix} Fairness yield check failed (non-fatal, proceeding): ${err?.message || err}`);
-        }
-      }
 
       // Snowball auto-throttle (Task #154): if this campaign's currently-
       // deferred backlog dominates its already-processed work, pause

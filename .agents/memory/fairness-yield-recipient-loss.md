@@ -1,42 +1,46 @@
 ---
 name: Fairness-yield drops un-enumerated segment tail
-description: Why campaigns can mark themselves "completed" after sending to only a fraction of the segment
+description: Why a campaign can be marked "completed" after reaching only a fraction of its segment, and the invariant that prevents it
 ---
-# Fairness-yield can complete a campaign before the segment is fully enumerated
+# A campaign must be fully enrolled before it can complete
 
-**Symptom:** a campaign marked `completed` but sent to far fewer recipients than its
-segment contains (observed: ~50K sent out of 78K–155K). Missing recipients all sit
-*beyond* the keyset cursor's stopping point and all existed at send time. `eligible_at`
-is NULL on every row (looks like "no deferrals") yet `campaigns.deferred_count` is large
-and the campaign has many `campaign_jobs` rows (re-trigger churn).
+**Failure signature:** a campaign shows status `completed` but `sent + failed`
+is far below the segment size (observed ~50K of 80K–155K). The missing
+recipients all sit *beyond* the segment keyset cursor's stopping point and all
+existed at send time. `campaign_sends.eligible_at` looks NULL everywhere (as if
+nothing was ever deferred) yet `campaigns.deferred_count` is large and the
+campaign accumulated many `campaign_jobs` rows (re-trigger churn). The NULL
+`eligible_at` is a red herring — the drain clears it on dispatch.
 
-**Root cause (two interacting parts):**
-1. `campaign-sender.ts` fairness-yield (fires every `FAIRNESS_YIELD_CHECK_EVERY_BATCHES`,
-   default 5 → ~50K rows for SMTP batch 10K) releases the job slot when
-   `ready===0 && held>0`, *before the segment cursor is exhausted*. Its comment claims a
-   delayed re-trigger covers "segment not yet fully enrolled" — it does not.
-2. The pressure-guard drain worker's post-drain completion gate only checks
-   `COUNT(*) WHERE status IN ('pending','attempting') == 0` for the **already-reserved**
-   rows. It never checks that the segment cursor finished enumerating. So once the
-   reserved/deferred subset drains, it flips the campaign to `completed` and the
-   un-enumerated tail (everyone past the cursor) is silently dropped. The drain clears
-   `eligible_at` on send, which is why post-hoc the rows look like they were never deferred.
+**Root cause (two parts that must be reasoned about together):**
+1. The sender released its job slot mid-enumeration whenever its own queue had
+   0 ready sends and only pressure-guard *deferred* rows remained, assuming the
+   drain would finish. It fired *before the segment cursor was exhausted*.
+2. The pressure-guard drain's completion gate only checks that the
+   already-reserved queue is empty (no pending/attempting). It has no signal for
+   "the segment finished enumerating." So once the reserved/deferred subset
+   drained, it completed the campaign and the un-enumerated tail was dropped.
 
-**Why the re-trigger doesn't save it:** on a fresh re-run the cursor restarts at the
-beginning; batches 1..5 are already-reserved (skipped, but `batchNumber` still
-increments), so the fairness check fires again at batch 5 with held>0 before enumeration
-reaches new territory — a livelock — until the drain marks it `completed` first.
+**The invariant (do not violate):** a campaign may not be handed to the drain or
+transitioned to `completed` until its segment cursor is fully enumerated and
+every member is enrolled into `campaign_sends`. Full enrollment first, then
+drain/complete. The sender enforces this by only releasing the slot *after* the
+enumeration loop breaks on an empty batch.
 
-**Invariant to preserve:** a campaign must NOT be completable (and must not yield to the
-drain) until its segment cursor is fully enumerated and every member is enrolled into
-`campaign_sends`. Full enrollment first, then drain/complete.
+**Known residual gap (pre-existing, low probability):** a hard crash
+mid-enumeration leaves a partially-enrolled `sending` campaign. It is mitigated
+because deferred rows keep `status='pending'` with a future `eligible_at`, so the
+drain can't empty the queue before the stuck-job guardian requeues the sender —
+but a crash with zero deferred rows could still let the drain complete early. The
+robust fix is an explicit enumeration-complete marker required by *both*
+completion paths. Not yet implemented.
 
-**Safe requeue:** `pressureGuardReserveSendSlots` dedups via the `already_in_campaign`
-CTE and only stamps `last_sent_at` for genuinely-new rows, so re-opening a `completed`
-campaign (status→sending + enqueue job) re-enrolls only the missing tail with no
-double-sends — but only AFTER the code fix, or it will drop the tail again.
+**Safe requeue of an affected campaign:** re-opening (status→sending + enqueue
+job) re-enrolls only the missing tail with no double-sends, because the reserve
+dedups against rows already in the campaign and only stamps new dispatches — but
+only AFTER the enrollment invariant is enforced, else the tail drops again.
 
-**Audit approach:** prod is `NEON_DATABASE_URL` (not the executeSql dev DB); query via
-node pg Pool. Compare a segment's current member count + `NOT EXISTS campaign_sends`
-missing set against `import_date < campaign.started_at` to prove the audience pre-existed.
-Cross-check a sibling send on the *same* `segment_id` that delivered the full count.
+**Audit note:** production is the Neon URL, not the dev DB the executeSql tool
+hits; query prod via a node pg client. Prove the audience pre-existed by checking
+that the missing members were imported before the campaign started, and
+cross-check a sibling campaign on the *same* segment that delivered the full count.

@@ -1,1 +1,1 @@
-- [Fairness-yield recipient loss](fairness-yield-recipient-loss.md) — campaigns can mark "completed" after sending only the first ~50K; fairness-yield + drain completion drop the un-enumerated segment tail. Enroll fully before completing.
+- [Fairness-yield recipient loss](fairness-yield-recipient-loss.md) — a campaign can flip to "completed" after enrolling only part of its segment; never release/complete before the segment cursor is fully enumerated.
