@@ -44,3 +44,12 @@ only AFTER the enrollment invariant is enforced, else the tail drops again.
 hits; query prod via a node pg client. Prove the audience pre-existed by checking
 that the missing members were imported before the campaign started, and
 cross-check a sibling campaign on the *same* segment that delivered the full count.
+
+**Cheap pre-filter when scanning for affected campaigns:** only campaigns with
+`deferred_count > 0` can be victims — the slot-release fires only when the sender's
+ready queue is 0 *and* held(deferred) > 0, so `deferred_count = 0` is structurally
+immune. Filter to those first, then run the expensive segment-membership scan
+(compile the segment with the app's real `compileSegmentRules` + `normalizeRules`,
+count members with NO `campaign_sends` row AND `import_date < started_at`). A
+truncated campaign also enrolls a tell-tale round number (~50K = 5×10K SMTP batch)
+because the yield fired at a batch-5 boundary.
