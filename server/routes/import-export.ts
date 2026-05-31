@@ -179,27 +179,17 @@ export function registerImportExportRoutes(app: Express, helpers: {
       });
       logger.info(`[IMPORT] Created import job: ${job.id}`);
 
-      const useRemoteStorage = useObjectStorageForImports();
-      let storagePath: string;
-      // `uploadedRemotePath` declared at function scope above. Compensation
-      // lives in the outer catch so it covers the full window
-      // upload → verify → tx-commit. Without this, a failure after PUT but
-      // before tx commit would orphan the object in the bucket forever
-      // AND leave a stuck "uploading" import_jobs row.
-
-      if (useRemoteStorage) {
-        storagePath = await objectStorageService.uploadLocalFile(csvFilePath, `${job.id}.csv`);
-        uploadedRemotePath = storagePath;
-        logger.info(`[IMPORT] Uploaded to object storage: ${storagePath}`);
-        const objectExists = await objectStorageService.objectExists(storagePath);
-        if (!objectExists) {
-          throw new Error(`Object storage verification failed: ${storagePath} does not exist after upload`);
-        }
-        try { fs.unlinkSync(csvFilePath); } catch {}
-      } else {
-        storagePath = csvFilePath;
-        logger.info(`[IMPORT] Using local disk storage: ${storagePath}`);
-      }
+      // Deferred upload (2026-05-31): the CSV is NO LONGER uploaded to object
+      // storage on the synchronous request path. We persist it on the shared,
+      // restart-safe upload volume (multer already wrote it there) and enqueue
+      // the LOCAL path. The worker uploads it to object storage as its first
+      // step (ensureCsvUploadedToObjectStorage in import-processor.ts), so a
+      // Hetzner 503 SlowDown throttle storm is absorbed by the worker's
+      // requeue/backoff instead of failing the import on a request that has no
+      // retry path (and risks a proxy timeout). `uploadedRemotePath` therefore
+      // stays null — the outer-catch S3 compensation is now a no-op here.
+      const storagePath = csvFilePath;
+      logger.info(`[IMPORT] File staged locally for deferred upload: ${storagePath} (remoteBackend=${useObjectStorageForImports()})`);
 
       try {
         const queueItem = await db.transaction(async (tx) => {
@@ -845,27 +835,13 @@ export function registerImportExportRoutes(app: Express, helpers: {
       });
       logger.info(`[CHUNKED] ${uploadId}: Created import job: ${job.id}`);
       
-      const useRemoteStorageChunked = useObjectStorageForImports();
-      let storagePathChunked: string;
       const verifiedSize = fs.statSync(tempCsvPath).size;
-      // `uploadedRemotePathChunked` declared at function scope above.
-      // Compensation in the outer catch covers upload→verify→tx (mirrors
-      // POST /api/import above).
-
-      if (useRemoteStorageChunked) {
-        storagePathChunked = await objectStorageService.uploadLocalFile(tempCsvPath, `${job.id}.csv`);
-        uploadedRemotePathChunked = storagePathChunked;
-        logger.info(`[CHUNKED] ${uploadId}: Uploaded to object storage: ${storagePathChunked}`);
-        const objectExists = await objectStorageService.objectExists(storagePathChunked);
-        if (!objectExists) {
-          throw new Error(`Object storage verification failed: ${storagePathChunked} does not exist after upload`);
-        }
-        logger.info(`[CHUNKED] ${uploadId}: File verified in object storage, size: ${verifiedSize} bytes`);
-        try { fs.unlinkSync(tempCsvPath); } catch {}
-      } else {
-        storagePathChunked = tempCsvPath;
-        logger.info(`[CHUNKED] ${uploadId}: Using local disk storage: ${storagePathChunked}, size: ${verifiedSize} bytes`);
-      }
+      // Deferred upload (2026-05-31): enqueue the LOCAL assembled file; the
+      // worker uploads it to object storage as its first step. Mirrors POST
+      // /api/import above. `uploadedRemotePathChunked` stays null — the
+      // outer-catch S3 compensation is now a no-op here.
+      const storagePathChunked = tempCsvPath;
+      logger.info(`[CHUNKED] ${uploadId}: File staged locally for deferred upload: ${storagePathChunked}, size: ${verifiedSize} bytes (remoteBackend=${useObjectStorageForImports()})`);
 
       const queueItem = await db.transaction(async (tx) => {
         await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job!.id}`);

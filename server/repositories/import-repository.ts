@@ -101,6 +101,32 @@ export async function claimNextImportJob(workerId: string): Promise<ImportJobQue
   return mapQueueRow(result.rows[0]);
 }
 
+/**
+ * Requeue a claimed import job back to 'pending' for a bounded retry, used when
+ * the worker's deferred object-storage upload hits a transient throttle/5xx
+ * (ObjectStorageTransientError). Releases the worker lease so the next poll
+ * re-claims it. The local CSV is intentionally left in place (the upload step
+ * only deletes it on success).
+ *
+ * LEASE-SAFE: the update is bound to the calling `workerId` so it can only reset
+ * a row this worker still owns. If `recoverStuckImportJobs` already reset the row
+ * and another worker re-claimed it (i.e. the upload stalled >10 min), the WHERE
+ * matches nothing and we return false — the caller must then NOT mark the job
+ * failed, because a different worker now owns the active claim.
+ *
+ * Deliberately does NOT touch `retry_count`: that counter is owned by
+ * `recoverStuckImportJobs` (hard-fails at >= 2). The transient-upload retry
+ * budget is wall-clock based in the caller, fully decoupled from recovery.
+ */
+export async function requeueImportJobForRetry(queueId: string, workerId: string): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE import_job_queue
+    SET status = 'pending', worker_id = NULL, started_at = NULL, heartbeat = NULL
+    WHERE id = ${queueId} AND status = 'processing' AND worker_id = ${workerId}
+  `);
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function updateImportQueueProgress(queueId: string, processedLines: number): Promise<void> {
   await db.execute(sql`
     UPDATE import_job_queue SET processed_lines = ${processedLines}, heartbeat = NOW()

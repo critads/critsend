@@ -181,6 +181,7 @@ export interface IStorage {
   updateImportJob(id: string, data: Partial<ImportJob>): Promise<ImportJob | undefined>;
   enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number, fileSizeBytes?: number): Promise<ImportJobQueueItem>;
   claimNextImportJob(workerId: string): Promise<ImportJobQueueItem | null>;
+  requeueImportJobForRetry(queueId: string, workerId: string): Promise<boolean>;
   updateImportQueueProgress(queueId: string, processedLines: number): Promise<void>;
   updateImportQueueProgressWithCheckpoint(queueId: string, processedLines: number, processedBytes: number, lastCheckpointLine: number): Promise<void>;
   updateImportQueueHeartbeat(queueId: string): Promise<void>;

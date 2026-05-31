@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import * as fs from "fs";
 import { db, pool, isPoolHealthy } from "./db";
 import { sql } from "drizzle-orm";
 import type { CampaignJob } from "@shared/schema";
@@ -11,6 +12,7 @@ import { type JobProgressEvent, publishJobProgress } from "./job-events";
 import { publishCampaignsListInvalidation } from "./repositories/campaigns-list-cache";
 import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
+import { ObjectStorageTransientError } from "./storage-backends";
 import { classifyDbError } from "./db-errors";
 import { processAutomationEnrollments, checkAndEnrollForTrigger, runAutomationBootstrapMigrations } from "./services/automation-engine";
 import { startPressureGuardWorker, stopPressureGuardWorker } from "./workers/pressure-guard-worker";
@@ -1544,7 +1546,51 @@ async function pollForImportJobs() {
         }
       })
       .catch(async (err: any) => {
+        // Deferred-upload transient failure: a Hetzner 503 SlowDown / 5xx while
+        // the worker uploads the staged CSV should REQUEUE the job (the
+        // backend's own adaptive+transient backoff has already been spent),
+        // not permanently fail it. The retry budget is WALL-CLOCK based (job age)
+        // rather than a counter, so it stays fully decoupled from retry_count /
+        // recoverStuckImportJobs — a transient throttle storm can rage for the
+        // whole window without burning the recovery budget. A genuinely broken
+        // bucket/credentials surfaces immediately as a non-transient error
+        // (ObjectStorageAccessError), which is NOT caught here and fails fast.
+        const MAX_UPLOAD_RETRY_MS = Number(process.env.IMPORT_UPLOAD_MAX_RETRY_MS || 2 * 60 * 60 * 1000);
+        const jobAgeMs = Date.now() - new Date(queueItem.createdAt).getTime();
+        if (err instanceof ObjectStorageTransientError && jobAgeMs < MAX_UPLOAD_RETRY_MS) {
+          // LEASE-SAFE requeue: only resets the row if THIS worker still owns it.
+          // If the upload stalled long enough for recoverStuckImportJobs to reset
+          // it and another worker re-claimed, requeue returns false and we must
+          // NOT mark the job failed (the other worker owns the active claim).
+          const requeued = await storage.requeueImportJobForRetry(queueId, WORKER_ID).catch((requeueErr: any) => {
+            logger.error(`[IMPORT] Failed to requeue throttled job ${importJobId}: ${requeueErr.message}`);
+            return false;
+          });
+          if (requeued) {
+            logger.warn(`[IMPORT] Job ${importJobId} upload throttled (transient), requeued for retry (job age ${Math.round(jobAgeMs / 1000)}s / cap ${Math.round(MAX_UPLOAD_RETRY_MS / 1000)}s): ${err.message}`);
+          } else {
+            logger.warn(`[IMPORT] Job ${importJobId} upload throttled but lease no longer held (re-claimed by another worker) — not failing.`);
+          }
+          return; // either re-claimed by us, or owned by another worker; do not fail
+        }
         logger.error(`[IMPORT] In-process job ${importJobId} failed: ${err.message}`, { stack: err.stack });
+        // Deterministic local-file GC: on a TERMINAL failure (non-transient
+        // error, or transient past the retry window) the deferred upload never
+        // succeeded, so the staged CSV still sits on the persistent volume and
+        // would otherwise leak forever (the upload step only unlinks on success,
+        // and processImport's cleanup only runs once the path is /objects/...).
+        // Skip the /objects/ (already uploaded) and phase2_merge sentinel cases.
+        const staged = queueItem.csvFilePath;
+        if (staged && !staged.startsWith("/objects/") && staged !== "phase2_merge") {
+          try {
+            if (fs.existsSync(staged)) {
+              fs.unlinkSync(staged);
+              logger.info(`[IMPORT] Cleaned up orphaned staged CSV for failed job ${importJobId}: ${staged}`);
+            }
+          } catch (cleanupErr: any) {
+            logger.warn(`[IMPORT] Failed to clean up staged CSV ${staged}: ${cleanupErr.message}`);
+          }
+        }
         try {
           const jobAfterError = await storage.getImportJob(importJobId).catch(() => null);
           if (jobAfterError?.status === "cancelled") {

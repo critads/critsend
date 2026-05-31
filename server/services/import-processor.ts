@@ -7,7 +7,7 @@ import { importPool as pool, importDb as db } from "../import-pool";
 import { logger } from "../logger";
 import { storage } from "../storage";
 import { jobEvents, JobProgressEvent } from "../job-events";
-import { getObjectStorageService } from "../storage-backends";
+import { getObjectStorageService, useObjectStorageForImports, ObjectStorageTransientError } from "../storage-backends";
 import { IMPORT_CONCURRENCY } from "../connection-budget";
 
 const objectStorageService = getObjectStorageService();
@@ -1720,6 +1720,73 @@ async function processRefsImportPhase2(
 
 // ─── Public entry point ────────────────────────────────────────────────────────
 
+/**
+ * Deferred upload (2026-05-31): the Hetzner upload was moved OFF the synchronous
+ * /api/import request path INTO the worker. The request handler now enqueues the
+ * LOCAL csv path; this runs as the worker's first step and
+ * uploads → verifies → rewrites the queue row to the /objects/ path →
+ * deletes the local temp file. It returns the path the rest of processing reads.
+ *
+ * Idempotent: a path already in object storage (`/objects/...`), the phase-2
+ * sentinel (`phase2_merge`), or a local-disk-backend deployment is returned
+ * unchanged — so a requeued or recovered job never re-uploads.
+ *
+ * On a transient throttle/5xx (`ObjectStorageTransientError`) it RE-THROWS so
+ * the worker loop (server/workers.ts) requeues the job with backoff instead of
+ * permanently failing it. The local file is left in place for the retry.
+ */
+async function ensureCsvUploadedToObjectStorage(
+  queueId: string,
+  importJobId: string,
+  csvFilePath: string,
+): Promise<string> {
+  // Phase-2 merge has no backing file; nothing to upload.
+  if (csvFilePath === "phase2_merge") return csvFilePath;
+  // Already uploaded on a prior attempt (requeue / recovery) — never re-upload.
+  if (csvFilePath.startsWith("/objects/")) return csvFilePath;
+  // Local-disk backend: the worker reads the file directly, no upload needed.
+  if (!useObjectStorageForImports()) return csvFilePath;
+
+  // The local file must still exist. If it vanished before the worker could
+  // upload it, surface a clear, non-retryable message (re-upload is the fix).
+  if (!fs.existsSync(csvFilePath)) {
+    throw new Error(
+      `CSV file not found on local volume before upload: ${csvFilePath}. ` +
+      `The file may have been removed before the worker could upload it. Please re-upload.`,
+    );
+  }
+
+  const objectName = `${importJobId}.csv`;
+  logger.info(`[IMPORT] ${importJobId}: Deferred upload starting → ${objectName} (queueId=${queueId})`);
+  // uploadLocalFile + objectExists are already throttle-hardened (adaptive
+  // retry + withTransientRetry) in the Hetzner backend. A transient error here
+  // propagates as ObjectStorageTransientError → worker requeue with backoff.
+  const remotePath = await objectStorageService.uploadLocalFile(csvFilePath, objectName);
+  const exists = await objectStorageService.objectExists(remotePath);
+  if (!exists) {
+    // A post-upload verification miss is treated as transient so the worker
+    // retries the whole upload rather than permanently failing the import.
+    throw new ObjectStorageTransientError(
+      `Object storage verification failed after upload: ${remotePath} does not exist`,
+    );
+  }
+
+  // Atomically point the queue row at the uploaded object so any later requeue
+  // or stuck-job recovery reads from object storage and never re-uploads.
+  await db.execute(sql`
+    UPDATE import_job_queue SET csv_file_path = ${remotePath} WHERE id = ${queueId}
+  `);
+  logger.info(`[IMPORT] ${importJobId}: Deferred upload complete → ${remotePath}, queue row updated`);
+
+  // Best-effort local cleanup; the object is now the source of truth.
+  try {
+    fs.unlinkSync(csvFilePath);
+  } catch {
+    logger.warn(`[IMPORT] ${importJobId}: Failed to delete local temp after upload: ${csvFilePath}`);
+  }
+  return remotePath;
+}
+
 export async function processImportJob(
   queueId: string,
   importJobId: string,
@@ -1761,21 +1828,27 @@ export async function processImportJob(
 
   logger.info(`[IMPORT] ${importJobId}: Starting — queueId=${queueId}, csvFilePath=${csvFilePath}, phase2=${isPhase2}, forceMode=${isForceMode}, removeMode=${isRemoveMode}`);
 
+  // Deferred upload: if the queue row still points at the local staging file
+  // (remote backend), upload it to object storage now, before any processing.
+  // A transient throttle re-throws → worker requeues. After this, every code
+  // path below reads from `resolvedCsvPath` (the /objects/ path on success).
+  const resolvedCsvPath = await ensureCsvUploadedToObjectStorage(queueId, importJobId, csvFilePath);
+
   if (isPhase2) {
-    await processRefsImportPhase2(queueId, importJobId, csvFilePath, onProgress);
+    await processRefsImportPhase2(queueId, importJobId, resolvedCsvPath, onProgress);
   } else if (isRemoveMode) {
     logger.info(`[IMPORT] ${importJobId}: Remove mode active — bypassing refs-column detection, running direct removal`);
-    await processImport(queueId, importJobId, csvFilePath, onProgress);
+    await processImport(queueId, importJobId, resolvedCsvPath, onProgress);
   } else if (isForceMode) {
     logger.info(`[IMPORT] ${importJobId}: Force mode active — bypassing refs-column detection, running direct import`);
-    await processImport(queueId, importJobId, csvFilePath, onProgress);
+    await processImport(queueId, importJobId, resolvedCsvPath, onProgress);
   } else {
-    const hasRefsColumn = await peekCsvHasRefsColumn(csvFilePath);
+    const hasRefsColumn = await peekCsvHasRefsColumn(resolvedCsvPath);
     logger.info(`[IMPORT] ${importJobId}: Auto-detected CSV format: refs column ${hasRefsColumn ? "present" : "absent"}`);
     if (hasRefsColumn) {
-      await processRefsImportPhase1(queueId, importJobId, csvFilePath, onProgress);
+      await processRefsImportPhase1(queueId, importJobId, resolvedCsvPath, onProgress);
     } else {
-      await processImport(queueId, importJobId, csvFilePath, onProgress);
+      await processImport(queueId, importJobId, resolvedCsvPath, onProgress);
     }
   }
 }
