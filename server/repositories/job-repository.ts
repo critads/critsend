@@ -75,6 +75,17 @@ export async function enqueueCampaignJobWithRetry(campaignId: string, retryCount
   return mapJobRow(result.rows[0]);
 }
 
+// Fairness tie-breaker (production incident notes 2026-05-19; implemented
+// 2026-05-31). claimNextJob is otherwise strict FIFO by campaigns.created_at.
+// Under sustained load an old campaign that keeps re-enqueuing mints a fresh
+// job every cycle whose old campaigns.created_at always sorts to the front,
+// starving requeued/younger campaigns whose jobs have already waited hours
+// (observed: tail-recovery requeues stuck >20h while older campaigns cycled).
+// We promote any job pending longer than JOB_FAIRNESS_PROMOTE_MIN minutes ahead
+// of the created_at FIFO. A freshly re-enqueued job from an old campaign is NOT
+// aged, so it can no longer jump ahead of a starved job. Tunable via env.
+const JOB_FAIRNESS_PROMOTE_MIN = Math.max(1, parseInt(process.env.JOB_FAIRNESS_PROMOTE_MIN || '15', 10) || 15);
+
 export async function claimNextJob(workerId: string): Promise<CampaignJob | null> {
   // FIFO order is keyed on campaigns.created_at (Task #153). Originally
   // (Task #144) we ordered by campaigns.started_at, but campaign-sender
@@ -91,7 +102,10 @@ export async function claimNextJob(workerId: string): Promise<CampaignJob | null
       SELECT cj.id FROM campaign_jobs cj
       LEFT JOIN campaigns c ON c.id = cj.campaign_id
       WHERE cj.status = 'pending' AND (cj.next_retry_at IS NULL OR cj.next_retry_at <= NOW())
-      ORDER BY c.created_at ASC NULLS LAST, cj.created_at ASC
+      ORDER BY
+        (cj.created_at <= NOW() - (INTERVAL '1 minute' * ${JOB_FAIRNESS_PROMOTE_MIN})) DESC,
+        c.created_at ASC NULLS LAST,
+        cj.created_at ASC
       FOR UPDATE OF cj SKIP LOCKED
       LIMIT 1
     )

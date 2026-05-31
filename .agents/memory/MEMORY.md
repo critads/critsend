@@ -1,1 +1,3 @@
 - [Fairness-yield recipient loss](fairness-yield-recipient-loss.md) — a campaign can flip to "completed" after enrolling only part of its segment; never release/complete before the segment cursor is fully enumerated.
+- [Job-claim fairness](job-claim-fairness.md) — claimNextJob promotes jobs pending >15min (JOB_FAIRNESS_PROMOTE_MIN) ahead of campaign-created FIFO; else old re-enqueuing campaigns starve requeued ones. Distinct from drain FIFO; never bump campaigns.created_at.
+- [Prod DB access](prod-db-access.md) — executeSql hits DEV; query prod Neon via `npx tsx` importing server/db. campaigns.id is VARCHAR (LIKE match); counter source-of-truth is campaign_sends.
