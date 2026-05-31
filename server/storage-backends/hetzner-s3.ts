@@ -12,6 +12,7 @@ import { logger } from "../logger";
 import {
   ObjectStorageNotFound,
   ObjectStorageInvalidPath,
+  ObjectStorageTransientError,
   classifyS3Error,
 } from "./errors";
 
@@ -31,14 +32,29 @@ import {
  * Required env vars: HETZNER_S3_{ENDPOINT,REGION,BUCKET,ACCESS_KEY,SECRET_KEY}.
  * Activated by STORAGE_BACKEND=hetzner (or "s3"). See ./index.ts factory.
  *
- * Reliability features (Hetzner audit 2026-05-25):
+ * Reliability features (Hetzner audit 2026-05-25; throttle hardening 2026-05-31):
  * - **Multipart uploads** via @aws-sdk/lib-storage `Upload` class: 8MB parts,
  *   4 parts in parallel, automatic per-part retry. Single multi-GB uploads
  *   no longer fail on a single network hiccup.
  * - **Bounded timeouts** via NodeHttpHandler: connect 5s, socket 120s per
  *   request. Defaults are 0 (infinite) which let stuck sockets hang the
  *   worker loop indefinitely.
- * - **Capped retries**: maxAttempts=4 (3 retries) for non-upload commands.
+ * - **Adaptive SDK retry** (2026-05-31): `retryMode: "adaptive"` adds a
+ *   client-side rate limiter (token bucket) that proactively backs off when
+ *   Hetzner returns `503 SlowDown` / throttling, on top of exponential
+ *   backoff+jitter. `maxAttempts` raised to 8 (env HETZNER_S3_MAX_ATTEMPTS).
+ *   This is the primary fix for the production incident where a SlowDown storm
+ *   failed every import: the SYNCHRONOUS upload path (POST /api/import and the
+ *   chunked-complete handler) is NOT in the worker job loop, so the typed-error
+ *   requeue mechanism never got a chance — 4 standard attempts exhausted in
+ *   ~seconds and the job was marked permanently `failed`.
+ * - **App-level transient retry** (2026-05-31): `withTransientRetry` wraps
+ *   every op (upload/HEAD/GET/DELETE) with bounded exponential backoff+jitter
+ *   (env HETZNER_S3_RETRY_ROUNDS, default 3) that retries ONLY the typed
+ *   `ObjectStorageTransientError` (5xx/throttle/timeout/network). Belt-and-
+ *   suspenders for a sustained storm that outlasts the SDK budget — the upload
+ *   recovers without the user having to re-upload. NotFound/Access errors are
+ *   deterministic and pass through immediately (never retried).
  * - **Typed errors**: see ./errors.ts. The four methods distinguish
  *   NotFound / AccessError / TransientError so callers can correctly decide
  *   "permafail vs requeue with backoff" — fixes the original bug where ANY
@@ -60,9 +76,20 @@ const MULTIPART_QUEUE_SIZE = 4;
 const CONNECTION_TIMEOUT_MS = 5_000;
 const SOCKET_TIMEOUT_MS = 120_000;
 
-// Retry budget for non-upload commands (HEAD/GET/DELETE). The Upload class
-// has its own per-part retry, so this only governs simple commands.
-const MAX_ATTEMPTS = 4;
+// SDK retry budget per request. Raised from 4→8 (2026-05-31 throttle incident)
+// so the adaptive rate limiter has room to ride out a sustained Hetzner
+// `503 SlowDown` storm with exponential backoff before giving up. Governs both
+// non-upload commands (HEAD/GET/DELETE) and each multipart part PUT.
+const MAX_ATTEMPTS = Math.max(1, parseInt(process.env.HETZNER_S3_MAX_ATTEMPTS || "8", 10) || 8);
+
+// App-level transient retry (on top of the SDK's own retry). Retries ONLY the
+// typed ObjectStorageTransientError (5xx / throttle / timeout / network). Total
+// extra attempts = RETRY_ROUNDS, with exponential backoff RETRY_BASE_MS * 2^n
+// capped at RETRY_MAX_MS, plus jitter. Bounded so the synchronous import-setup
+// HTTP handler can't hang indefinitely.
+const RETRY_ROUNDS = Math.max(0, parseInt(process.env.HETZNER_S3_RETRY_ROUNDS || "3", 10) || 0);
+const RETRY_BASE_MS = Math.max(50, parseInt(process.env.HETZNER_S3_RETRY_BASE_MS || "500", 10) || 500);
+const RETRY_MAX_MS = Math.max(RETRY_BASE_MS, parseInt(process.env.HETZNER_S3_RETRY_MAX_MS || "8000", 10) || 8000);
 
 export class HetznerS3Service {
   private client: S3Client;
@@ -95,6 +122,13 @@ export class HetznerS3Service {
       credentials: { accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! },
       forcePathStyle: true,
       maxAttempts: MAX_ATTEMPTS,
+      // "adaptive" adds a client-side rate limiter that proactively throttles
+      // outbound requests when it observes `503 SlowDown` / throttling responses
+      // — the correct posture for Hetzner Object Storage, which SlowDowns under
+      // bursts of concurrent multipart PUTs. Combined with the higher maxAttempts
+      // and the app-level withTransientRetry below, this is the permanent fix for
+      // the 2026-05-31 "all imports crashing" incident.
+      retryMode: "adaptive",
       requestHandler: new NodeHttpHandler({
         connectionTimeout: CONNECTION_TIMEOUT_MS,
         socketTimeout: SOCKET_TIMEOUT_MS,
@@ -104,7 +138,8 @@ export class HetznerS3Service {
     logger.info(
       `[HETZNER_S3] Initialized: endpoint=${endpoint}, region=${region}, bucket=${bucket}, ` +
       `partSize=${MULTIPART_PART_SIZE / 1024 / 1024}MB, queueSize=${MULTIPART_QUEUE_SIZE}, ` +
-      `connectTimeout=${CONNECTION_TIMEOUT_MS}ms, socketTimeout=${SOCKET_TIMEOUT_MS}ms, maxAttempts=${MAX_ATTEMPTS}`
+      `connectTimeout=${CONNECTION_TIMEOUT_MS}ms, socketTimeout=${SOCKET_TIMEOUT_MS}ms, ` +
+      `maxAttempts=${MAX_ATTEMPTS}, retryMode=adaptive, appRetryRounds=${RETRY_ROUNDS}`
     );
   }
 
@@ -116,6 +151,35 @@ export class HetznerS3Service {
       );
     }
     return KEY_PREFIX + objectPath.slice(OBJECT_PATH_PREFIX.length);
+  }
+
+  /**
+   * Run `op` with bounded exponential-backoff retry, but ONLY for the typed
+   * `ObjectStorageTransientError` (5xx / `503 SlowDown` / throttle / timeout /
+   * network). NotFound / Access / InvalidPath are deterministic and re-thrown
+   * immediately — retrying them is futile.
+   *
+   * `op` MUST classify raw SDK errors via classifyS3Error() before throwing so
+   * we can branch on the typed hierarchy here. For the multipart upload, `op`
+   * also recreates the read stream each round (a consumed stream can't be
+   * replayed). This runs on top of the SDK's own per-request retry — it exists
+   * to survive a SlowDown storm that outlasts the SDK budget.
+   */
+  private async withTransientRetry<T>(op: () => Promise<T>, label: string): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await op();
+      } catch (err) {
+        const isTransient = err instanceof ObjectStorageTransientError;
+        if (!isTransient || attempt >= RETRY_ROUNDS) throw err;
+        const backoff = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** attempt);
+        const delay = backoff + Math.floor(Math.random() * (backoff / 2));
+        logger.warn(
+          `[HETZNER_S3] ${label} transient error (app retry ${attempt + 1}/${RETRY_ROUNDS}, waiting ${delay}ms): ${(err as Error).message}`
+        );
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
   }
 
   /**
@@ -135,32 +199,47 @@ export class HetznerS3Service {
   async uploadLocalFile(localFilePath: string, objectName: string): Promise<string> {
     const key = KEY_PREFIX + objectName;
     const stat = fs.statSync(localFilePath);
-    const body = fs.createReadStream(localFilePath);
     const start = Date.now();
     let partsUploaded = 0;
 
     try {
-      const uploader = new Upload({
-        client: this.client,
-        params: {
-          Bucket: this.bucket,
-          Key: key,
-          Body: body,
-          ContentType: "text/csv",
-          ContentLength: stat.size,
-        },
-        partSize: MULTIPART_PART_SIZE,
-        queueSize: MULTIPART_QUEUE_SIZE,
-        leavePartsOnError: false,
-      });
+      // withTransientRetry re-invokes this op on a SlowDown storm. A consumed
+      // read stream can't be replayed, so the stream + uploader are recreated
+      // inside the op on every round. classifyS3Error() runs here so the
+      // wrapper can branch on the typed hierarchy (only transient is retried).
+      await this.withTransientRetry(async () => {
+        partsUploaded = 0;
+        const body = fs.createReadStream(localFilePath);
+        try {
+          const uploader = new Upload({
+            client: this.client,
+            params: {
+              Bucket: this.bucket,
+              Key: key,
+              Body: body,
+              ContentType: "text/csv",
+              ContentLength: stat.size,
+            },
+            partSize: MULTIPART_PART_SIZE,
+            queueSize: MULTIPART_QUEUE_SIZE,
+            leavePartsOnError: false,
+          });
 
-      uploader.on("httpUploadProgress", (progress) => {
-        if (progress.part && progress.part > partsUploaded) {
-          partsUploaded = progress.part;
+          uploader.on("httpUploadProgress", (progress) => {
+            if (progress.part && progress.part > partsUploaded) {
+              partsUploaded = progress.part;
+            }
+          });
+
+          await uploader.done();
+        } catch (err) {
+          throw classifyS3Error(err, "PUT", key);
+        } finally {
+          // Safety net: if the SDK threw before/while consuming the stream, the
+          // read fd would leak. destroy() is a no-op if already consumed/closed.
+          try { body.destroy(); } catch {}
         }
-      });
-
-      await uploader.done();
+      }, `PUT ${key}`);
 
       const durationMs = Date.now() - start;
       const mbps = stat.size > 0 ? ((stat.size / 1024 / 1024) / (durationMs / 1000)).toFixed(2) : "0";
@@ -173,11 +252,8 @@ export class HetznerS3Service {
       logger.error(
         `[HETZNER_S3] Upload FAILED size_bytes=${stat.size} duration_ms=${durationMs} parts_completed=${partsUploaded} key=${key}: ${(err as any)?.name || err}`
       );
-      throw classifyS3Error(err, "PUT", key);
-    } finally {
-      // Safety net: if the SDK threw before/while consuming the stream, the
-      // read fd would leak. destroy() is a no-op if already consumed/closed.
-      try { body.destroy(); } catch {}
+      // Already classified inside the retry op.
+      throw err;
     }
   }
 
@@ -195,17 +271,22 @@ export class HetznerS3Service {
   async deleteStorageObject(objectPath: string): Promise<boolean> {
     const key = this.pathToKey(objectPath);
     try {
-      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+      await this.withTransientRetry(async () => {
+        try {
+          await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+        } catch (err) {
+          throw classifyS3Error(err, "DELETE", key);
+        }
+      }, `DELETE ${key}`);
       logger.debug(`[HETZNER_S3] Deleted s3://${this.bucket}/${key}`);
       return true;
     } catch (err: any) {
-      const classified = classifyS3Error(err, "DELETE", key);
-      if (classified instanceof ObjectStorageNotFound) {
+      if (err instanceof ObjectStorageNotFound) {
         // Idempotent: object already gone, treat as success.
         logger.debug(`[HETZNER_S3] Delete: ${key} already gone (idempotent)`);
         return true;
       }
-      throw classified;
+      throw err;
     }
   }
 
@@ -222,13 +303,18 @@ export class HetznerS3Service {
   async objectExists(objectPath: string): Promise<boolean> {
     const key = this.pathToKey(objectPath);
     try {
-      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      await this.withTransientRetry(async () => {
+        try {
+          await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+        } catch (err) {
+          throw classifyS3Error(err, "HEAD", key);
+        }
+      }, `HEAD ${key}`);
       return true;
     } catch (err: any) {
-      const classified = classifyS3Error(err, "HEAD", key);
-      if (classified instanceof ObjectStorageNotFound) return false;
-      logger.warn(`[HETZNER_S3] HEAD non-404 error for ${key}: ${classified.message}`);
-      throw classified;
+      if (err instanceof ObjectStorageNotFound) return false;
+      logger.warn(`[HETZNER_S3] HEAD non-404 error for ${key}: ${(err as Error).message}`);
+      throw err;
     }
   }
 
@@ -238,12 +324,13 @@ export class HetznerS3Service {
    */
   async getObjectStream(objectPath: string): Promise<NodeJS.ReadableStream> {
     const key = this.pathToKey(objectPath);
-    let response;
-    try {
-      response = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
-    } catch (err) {
-      throw classifyS3Error(err, "GET", key);
-    }
+    const response = await this.withTransientRetry(async () => {
+      try {
+        return await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      } catch (err) {
+        throw classifyS3Error(err, "GET", key);
+      }
+    }, `GET ${key}`);
     if (!response.Body) {
       // Per AWS SDK docs this only happens on truly empty responses, which
       // for S3 GetObject on an existing key means a 0-byte object. The CSV
