@@ -84,6 +84,15 @@ export async function enqueueCampaignJobWithRetry(campaignId: string, retryCount
 // We promote any job pending longer than JOB_FAIRNESS_PROMOTE_MIN minutes ahead
 // of the created_at FIFO. A freshly re-enqueued job from an old campaign is NOT
 // aged, so it can no longer jump ahead of a starved job. Tunable via env.
+//
+// Aged-bucket ordering (incident 2026-05-31): WITHIN the promoted/aged bucket we
+// order by JOB wait-time (cj.created_at ASC), NOT campaign age (c.created_at).
+// The original c.created_at tie-break still sorted the newest campaign LAST among
+// aged jobs, so under sustained load — when ~all jobs are aged because cycle time
+// exceeds the promote threshold — today's (newest) campaigns were perpetually
+// last and never claimed at all. Ordering the aged bucket by longest-waiting job
+// gives every campaign a fair rotation regardless of age. Non-aged jobs keep the
+// normal campaign-FIFO (c.created_at ASC) order for ordinary, unstarved operation.
 const JOB_FAIRNESS_PROMOTE_MIN = Math.max(1, parseInt(process.env.JOB_FAIRNESS_PROMOTE_MIN || '15', 10) || 15);
 
 export async function claimNextJob(workerId: string): Promise<CampaignJob | null> {
@@ -103,7 +112,13 @@ export async function claimNextJob(workerId: string): Promise<CampaignJob | null
       LEFT JOIN campaigns c ON c.id = cj.campaign_id
       WHERE cj.status = 'pending' AND (cj.next_retry_at IS NULL OR cj.next_retry_at <= NOW())
       ORDER BY
+        -- 1) aged (starved) jobs ahead of the created_at FIFO
         (cj.created_at <= NOW() - (INTERVAL '1 minute' * ${JOB_FAIRNESS_PROMOTE_MIN})) DESC,
+        -- 2) WITHIN the aged bucket: longest-waiting job first (fair rotation
+        --    across all campaigns incl. newest); NULL for non-aged so they
+        --    fall through to the campaign FIFO below
+        (CASE WHEN cj.created_at <= NOW() - (INTERVAL '1 minute' * ${JOB_FAIRNESS_PROMOTE_MIN}) THEN cj.created_at END) ASC NULLS LAST,
+        -- 3) non-aged jobs: normal campaign FIFO
         c.created_at ASC NULLS LAST,
         cj.created_at ASC
       FOR UPDATE OF cj SKIP LOCKED

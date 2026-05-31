@@ -28,6 +28,18 @@ job that has already waited.
   immutable launch-ancestry key both the sender FIFO and the drain depend on;
   bumping it corrupts deferred serialization.
 - Postgres ORDER BY boolean trick: `(cond) DESC` puts `true` first (false < true).
-- Residual: within the aged bucket, ordering is still campaign-FIFO, so very old
-  campaigns can still lead among aged jobs — acceptable, far better than the churn
-  starvation it replaced.
+- **Within the aged bucket, order by JOB wait-time (`cj.created_at ASC`), NOT
+  campaign age (`c.created_at`).** Ordering aged jobs by campaign age sorts the
+  *newest* campaign last every rotation; under heavy oversubscription (observed:
+  ~46 campaigns each with 1 pending job, ~53 in `sending`, only ~10 slots) almost
+  every job is "aged" because cycle time exceeds the promote threshold, so the
+  newest campaigns are *permanently* last and never claimed at all (today's
+  campaigns stuck at sent=0). Wait-time ordering gives true round-robin: a campaign
+  that just got a slice re-enqueues a fresh job → drops to the back → every other
+  starved campaign is served before it again. Non-aged jobs still use campaign-FIFO
+  for ordinary unstarved operation. SQL: a `CASE WHEN aged THEN cj.created_at END
+  ASC NULLS LAST` key between the aged-bucket key and the `c.created_at` key.
+- **The ghost-sweep false positive defeats this fairness** if not also fixed: see
+  [ghost-sweep-false-positive](ghost-sweep-false-positive.md). A starved
+  never-claimed pending job kept getting killed+recreated every 10min, resetting
+  its age to 0 so it never reached the 15min promote threshold.

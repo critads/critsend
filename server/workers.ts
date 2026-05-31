@@ -111,12 +111,25 @@ export function getWorkerHealth(): { jobProcessor: boolean; importProcessor: boo
  * (campaign_sends)` — both invariants are only true between a worker
  * crash during enumeration and the next successful enumeration pass.
  *
- * Trade-off: a self-healed campaign keeps its real `created_at`, so it
- * will only be picked by `claimNextJob` once no older active campaign
- * has a ready pending job. Under sustained load by older campaigns
- * this can still starve. If observed, add a fairness tie-breaker in
- * claimNextJob (e.g. promote jobs pending >15min). See production
- * incident notes 2026-05-19.
+ * False-positive guard (production incident 2026-05-31): `started_at
+ * IS NULL` + no `campaign_sends` is ALSO true for a brand-new campaign
+ * whose pending job simply hasn't been claimed yet (starved behind a
+ * backlog of older campaigns filling every worker slot). Without the
+ * extra guard below, Branch A misread "waiting in the queue" as
+ * "crashed during enumeration", killed the never-claimed pending job,
+ * reset the counters, and re-enqueued a fresh job every cycle — an
+ * infinite churn that ALSO reset the job's age to 0, defeating the
+ * claimNextJob fairness promotion (which needs the job to keep aging).
+ * So we now require NO viable in-flight job (same "viable" definition
+ * as Branch B): a healthy pending job, or a processing job with a
+ * fresh/just-claimed (NULL) heartbeat, or a just-failed job, all mean
+ * "not a ghost — leave it alone". Only a stale processing job (dead
+ * worker) or no job at all is a true ghost.
+ *
+ * Trade-off: a self-healed campaign keeps its real `created_at`. Fair
+ * scheduling of starved campaigns is handled by the claimNextJob
+ * fairness tie-breaker (promote + wait-time order). See production
+ * incident notes 2026-05-19 and 2026-05-31.
  */
 async function sweepGhostCampaigns(): Promise<void> {
   if (!isPoolHealthy()) return;
@@ -132,6 +145,22 @@ async function sweepGhostCampaigns(): Promise<void> {
           AND c.started_at IS NULL
           AND c.created_at < NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})
           AND NOT EXISTS (SELECT 1 FROM campaign_sends WHERE campaign_id = c.id)
+          -- False-positive guard (incident 2026-05-31): do NOT treat a
+          -- campaign whose pending job is merely waiting in the queue as a
+          -- crashed-enumeration ghost. Only fire when there is NO viable
+          -- in-flight job — i.e. a stale processing job (dead worker) or no
+          -- job at all. A pending job, a freshly-claimed processing job
+          -- (NULL heartbeat) or a fresh heartbeat, or a just-failed job all
+          -- mean "still in play, leave it alone". Mirrors Branch B.
+          AND NOT EXISTS (
+            SELECT 1 FROM campaign_jobs cj
+            WHERE cj.campaign_id = c.id
+              AND (
+                cj.status = 'pending'
+                OR (cj.status = 'processing' AND (cj.heartbeat IS NULL OR cj.heartbeat > NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})))
+                OR (cj.status = 'failed' AND cj.completed_at > NOW() - INTERVAL '2 minutes')
+              )
+          )
         FOR UPDATE OF c SKIP LOCKED
       ),
       lockable_jobs AS (
