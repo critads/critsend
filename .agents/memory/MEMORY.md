@@ -1,5 +1,5 @@
-- [Fairness-yield recipient loss](fairness-yield-recipient-loss.md) — a campaign can flip to "completed" after enrolling only part of its segment; never release/complete before the segment cursor is fully enumerated.
-- [Job-claim fairness](job-claim-fairness.md) — claimNextJob promotes jobs pending >15min ahead of campaign FIFO AND orders the aged bucket by job wait-time (not campaign age) or newest campaigns starve forever. Distinct from drain FIFO; never bump campaigns.created_at.
-- [Ghost-sweep false positive](ghost-sweep-false-positive.md) — ghost-sweep Branch A must require NO viable in-flight job; else it kills never-claimed (starved) pending jobs in a 10min churn loop, sent=0, and defeats the claim fairness promotion.
-- [Prod DB access](prod-db-access.md) — executeSql hits DEV; query prod Neon via `npx tsx` importing server/db. campaigns.id is VARCHAR (LIKE match); counter source-of-truth is campaign_sends.
-- [Hetzner S3 throttle](hetzner-s3-throttle.md) — CSV upload now DEFERRED to worker (first step of import job); 503 SlowDown survived by backend adaptive-retry + wall-clock worker requeue. Requeue must be lease-bound & must NOT touch retry_count.
+# Memory Index
+
+- [Campaign claim starvation after redeploy](campaign-claim-starvation.md) — newest campaigns stuck at sent=0 after deploy = worker PM2 process didn't reload the fairness ordering, or JOB_FAIRNESS_PROMOTE_MIN set too high.
+- [Prod DB access](prod-db-access.md) — query prod Neon via `npx tsx` importing server/db; executeSql hits DEV only.
+- [Hetzner S3 throttle handling](hetzner-s3-throttle.md) — 503 SlowDown mitigation: adaptive retry + deferred upload to worker job.
