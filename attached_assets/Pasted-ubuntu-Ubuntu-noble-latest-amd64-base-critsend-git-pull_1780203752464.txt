@@ -1,0 +1,87 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ git pull
+npm run build          # <-- mandatory: rebuilds dist/worker-main.cjs with the fairness fix
+pm2 restart critsend-worker critsend-drainer
+pm2 save
+remote: Enumerating objects: 37, done.
+remote: Counting objects: 100% (37/37), done.
+remote: Compressing objects: 100% (9/9), done.
+remote: Total 27 (delta 18), reused 27 (delta 18), pack-reused 0 (from 0)
+Unpacking objects: 100% (27/27), 16.14 KiB | 635.00 KiB/s, done.
+From https://github.com/critads/critsend
+   9489f3f..4b680ee  main       -> origin/main
+Updating 9489f3f..4b680ee
+Fast-forward
+ .agents/memory/MEMORY.md                           |  11 +-
+ .agents/memory/campaign-claim-starvation.md        |  40 +++
+ .agents/memory/deploy-zero-downtime.md             |  21 ++
+ ...-amd64-base-cd-home-ubuntu-cr_1780202028664.txt | 399 +++++++++++++++++++++
+ deploy/deploy.sh                                   |  24 +-
+ deploy/ecosystem.config.cjs                        |  32 +-
+ server/index.ts                                    |   8 +
+ 7 files changed, 525 insertions(+), 10 deletions(-)
+ create mode 100644 .agents/memory/campaign-claim-starvation.md
+ create mode 100644 .agents/memory/deploy-zero-downtime.md
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-cd-home-ubuntu-cr_1780202028664.txt
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 3332 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BYVpwWN-.css     95.56 kB │ gzip:  15.29 kB
+../dist/public/assets/index-DiT8jq3Y.js   1,453.71 kB │ gzip: 384.24 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.40s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 94ms
+building import worker...
+
+  dist/import-worker.cjs  670.4kb
+
+⚡ Done in 71ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 87ms
+building drainer...
+
+  dist/drainer-main.cjs  654.2kb
+
+⚡ Done in 71ms
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-worker](ids: [ 8 ])
+[PM2] [critsend-worker](8) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-drainer](ids: [ 9 ])
+[PM2] [critsend-drainer](9) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 9  │ critsend-drainer   │ fork     │ 11   │ online    │ 0%       │ 21.0mb   │
+│ 7  │ critsend-web       │ fork     │ 11   │ online    │ 0%       │ 261.1mb  │
+│ 8  │ critsend-worker    │ fork     │ 11   │ online    │ 164.3%   │ 66.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 85.2mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
