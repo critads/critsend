@@ -24,3 +24,11 @@ If the newest campaigns meet EVERY promotion precondition (aged well past the th
 - Reload all PM2 processes / lower the threshold env.
 - Bump the stuck pending jobs' `created_at` back a few hours so they jump the aged queue.
 - Briefly pause 2-3 of the oldest huge campaigns to free `MAX_CONCURRENT_CAMPAIGNS` slots.
+
+# CRITICAL TRIAGE FIRST — "sent=0" is ambiguous, do NOT assume claim-starvation
+Before nudging anything, query each stuck campaign's `deferred_count` and its latest `campaign_jobs.status` + `error_message`. There are THREE distinct causes that look identical from `sent_count=0` alone, and only one is claim-starvation:
+1. **Pressure-guard deferred (NOT stuck):** huge `deferred_count` (e.g. 100k–1.4M) with `sent=0` means the campaign enumerated and every recipient lost the pressure-window CAS → all enqueued as deferred sends. It is waiting on the **drain worker**, not a sender slot. Nudging `created_at` does nothing. Leave it (or check drain throughput).
+2. **Slot saturation (claim order ≠ preemption):** if `campaign_jobs` shows `processing` count == `MAX_CONCURRENT_CAMPAIGNS` (default 8/worker; prod ran ~10) and dozens `pending`, the aged-fairness ordering only decides WHO claims the NEXT freed slot — it cannot preempt a running mega-campaign. **Bumping `created_at` puts them first in line but does NOT free a slot**, so they stay pending until a running job finishes. Real fixes: raise `MAX_CONCURRENT_CAMPAIGNS` (bounded by `WORKER_PG_POOL_MAX` — pool saturation risk) or pause the oldest mega-campaigns.
+3. **Crashed enumeration (ghost):** latest job `status='failed'` with `error_message` "Ghost campaign self-heal: orphan job from crashed enumeration" → the ghost sweep failed an orphan job. Needs a clean **relaunch**, not a nudge.
+
+**Lesson learned the hard way:** bumping `created_at` back 6h on the stuck jobs aged them to 362 min but they stayed `pending` (worker=null) — proving the bottleneck was saturation/deferral/ghost, not FIFO ordering. Always triage by `deferred_count` + job error BEFORE choosing a remedy.

@@ -722,6 +722,14 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   }
 
   startupComplete = true;
+  // Signal PM2 (wait_ready=true) that this instance can serve traffic. This
+  // fires BEFORE the heavy bootstrap DDL below so a cluster-mode `pm2 reload`
+  // hands over the moment routes + static are ready, instead of waiting out
+  // (or timing out on) the ~90s migration phase. Guarded so it is a no-op
+  // when the process was not spawned with an IPC channel.
+  if (typeof process.send === "function") {
+    process.send("ready");
+  }
   log(`serving on port ${port} — routes and static files ready`);
 
   // ── Persistent import-upload directory safety check ─────────────────

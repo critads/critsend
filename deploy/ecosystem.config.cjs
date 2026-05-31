@@ -57,6 +57,22 @@ module.exports = {
       script: "dist/index.cjs",
       cwd: "/home/ubuntu/critsend",
 
+      // Cluster mode with 2 instances → `pm2 reload` performs a true
+      // zero-downtime rolling restart (one instance at a time, the old one
+      // kept alive until the new one signals `ready`). Fork/single-instance
+      // reload was effectively a kill+restart that left the site dark for
+      // ~60-90s while the new process warmed the link/token caches and ran
+      // bootstrap DDL. Safe to cluster: sessions live in Postgres, the HTTP
+      // listener uses reusePort, and every singleton background job already
+      // guards itself with a DB leader-lease / advisory lock (not per-process
+      // state). NOTE: switching exec_mode requires a ONE-TIME
+      //   pm2 delete critsend-web && \
+      //   pm2 start deploy/ecosystem.config.cjs --only critsend-web --env production
+      // a plain `pm2 reload` will NOT convert an existing fork process to
+      // cluster mode. Subsequent deploys then get zero-downtime reloads.
+      exec_mode: "cluster",
+      instances: 2,
+
       env_production: {
         ...dotenvVars,
         NODE_ENV: "production",
@@ -115,6 +131,13 @@ module.exports = {
         // so the embedded drain in server/index.ts is skipped. The leader
         // lease still keeps things safe even during a partial rollout.
         DRAIN_PROCESS_DEDICATED: dotenvVars.DRAIN_PROCESS_DEDICATED || "true",
+        // Cluster re-budget: with instances:2 the web main pool would otherwise
+        // open 2 × default(30) = 60 conns. Pin per-instance to 20 so the steady
+        // aggregate (~40) stays close to the previous single-instance budget and
+        // well within the Neon pooled-endpoint limit, while still leaving each
+        // instance enough headroom to absorb all traffic alone during the brief
+        // single-instance window of a rolling reload. Override in .env if needed.
+        WEB_PG_POOL_MAX: dotenvVars.WEB_PG_POOL_MAX || "20",
       },
 
       max_restarts: 10,
@@ -128,8 +151,13 @@ module.exports = {
 
       max_memory_restart: "2G",
       kill_timeout: 30000,
-      wait_ready: false,
-      listen_timeout: 30000,
+      // wait_ready + the `process.send('ready')` emitted in server/index.ts
+      // once startupComplete=true (routes + static served, BEFORE the slow
+      // bootstrap DDL) let PM2 hold the old instance until the new one can
+      // actually serve traffic. listen_timeout is generous because link/token
+      // cache warming on a busy DB can push readiness out to ~90s.
+      wait_ready: true,
+      listen_timeout: 120000,
     },
     {
       name: "critsend-worker",

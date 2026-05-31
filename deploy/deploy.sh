@@ -333,7 +333,19 @@ for proc in "${!_expected[@]}"; do
         echo "[deploy] ⚠ $proc: boot line '$pattern' not found in $log after 45 s"
         echo "[deploy]   Last 30 lines from $proc:"
         tail -n 30 "$log" 2>/dev/null | sed 's/^/[deploy]     /' || true
-        _verify_failed=1
+        if [[ "$proc" == "critsend-web" ]]; then
+            # The web "serving on port" line is logged at TCP listen, but on a
+            # busy DB it can be delayed past this 45s window by link/token cache
+            # warming + bootstrap DDL — and logrotate can move the file out from
+            # under the grep. It is therefore NOT a reliable readiness signal.
+            # The authoritative web readiness gate is the HTTP health check in
+            # Step 8 (/api/health/startup), so a miss here is only a warning and
+            # must NOT abort the deploy (doing so previously reported healthy,
+            # actively-serving deploys as failures).
+            echo "[deploy]   (web readiness is verified by the HTTP health check in Step 8 — not failing on this)"
+        else
+            _verify_failed=1
+        fi
     fi
 done
 if [[ "$_verify_failed" == "1" ]]; then
@@ -343,11 +355,17 @@ fi
 # ─── Step 8: Health check ────────────────────────────────────────────────────
 step "Waiting for app to become healthy..."
 HEALTH_OK=false
+# /api/health/startup ALWAYS returns HTTP 200 — it reports readiness in the JSON
+# body ({"status":"ready"} once routes+static are mounted, {"status":"starting"}
+# during boot). So we must inspect the body, not just the status code, otherwise
+# we'd declare a still-booting instance healthy. This is the authoritative web
+# readiness gate (the boot-line grep in Step 7b is only an advisory warning).
 for i in $(seq 1 20); do
     sleep 3
+    BODY=$(curl -s --max-time 10 http://localhost:5000/api/health/startup 2>/dev/null || echo "")
     HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:5000/api/health/startup 2>/dev/null || echo "000")
-    echo "[deploy]   Health check attempt $i/20: HTTP $HTTP_CODE"
-    if [ "$HTTP_CODE" = "200" ]; then
+    echo "[deploy]   Health check attempt $i/20: HTTP $HTTP_CODE body=${BODY:-<none>}"
+    if [ "$HTTP_CODE" = "200" ] && echo "$BODY" | grep -q '"status":"ready"'; then
         HEALTH_OK=true
         break
     fi
