@@ -1,0 +1,849 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+remote: Enumerating objects: 20, done.
+remote: Counting objects: 100% (20/20), done.
+remote: Compressing objects: 100% (9/9), done.
+remote: Total 15 (delta 6), reused 15 (delta 6), pack-reused 0 (from 0)
+Unpacking objects: 100% (15/15), 5.31 KiB | 1.77 MiB/s, done.
+From https://github.com/critads/critsend
+   cf16d7f..6825786  main       -> origin/main
+Updating cf16d7f..6825786
+Fast-forward
+ .agents/memory/MEMORY.md                        |  1 +
+ .agents/memory/fairness-yield-recipient-loss.md | 46 +++++++++++++
+ server/services/campaign-sender.ts              | 86 +++++--------------------
+ 3 files changed, 63 insertions(+), 70 deletions(-)
+ create mode 100644 .agents/memory/MEMORY.md
+ create mode 100644 .agents/memory/fairness-yield-recipient-loss.md
+[deploy] ✓ Code updated: 6825786 Ensure campaigns fully enroll recipients before marking as complete
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 896 packages, and audited 897 packages in 8s
+
+139 packages are looking for funding
+  run `npm fund` for details
+
+49 vulnerabilities (2 low, 33 moderate, 13 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (28) src/pages/campaign-edit.tsx
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 3332 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BYVpwWN-.css     95.56 kB │ gzip:  15.29 kB
+../dist/public/assets/index-DiT8jq3Y.js   1,453.71 kB │ gzip: 384.24 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.43s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 111ms
+building import worker...
+
+  dist/import-worker.cjs  668.6kb
+
+⚡ Done in 54ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 78ms
+building drainer...
+
+  dist/drainer-main.cjs  653.3kb
+
+⚡ Done in 70ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime when possible)...
+[deploy]   No env_production key changes detected — using zero-downtime reload.
+[deploy]   Reloading critsend-web first (runs bootstrap migrations)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 7 ])
+[PM2] [critsend-web](7) ✓
+[deploy]   Waiting 25s for web bootstrap to finish (CREATE INDEX CONCURRENTLY)...
+[deploy]   Reloading critsend-worker...
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 8 ])
+[PM2] [critsend-worker](8) ✓
+[deploy]   Reloading critsend-drainer...
+[PM2] Applying action reloadProcessId on app [critsend-drainer](ids: [ 9 ])
+[PM2] [critsend-drainer](9) ✓
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Verifying PM2 processes started successfully...
+[deploy] ✓ critsend-worker: boot line present
+[deploy] ✓ critsend-drainer: boot line present
+[deploy] ⚠ critsend-web: boot line 'serving on port' not found in /var/log/critsend/web-out.log after 45 s
+[deploy]   Last 30 lines from critsend-web:
+[deploy]     2026-05-30 18:05:48 +02:00: 2026-05-30T16:05:48.579Z [INFO] Unsubscribe request: campaign=1c5ae146-a0b9-41fb-bda1-a04077625b27, subscriber=84eeca4e-5e34-4fb3-b382-c8d80a4973c2
+[deploy]     2026-05-30 18:05:50 +02:00: 2026-05-30T16:05:50.085Z [INFO] Unsubscribe request: campaign=1c5ae146-a0b9-41fb-bda1-a04077625b27, subscriber=84eeca4e-5e34-4fb3-b382-c8d80a4973c2
+[deploy]     2026-05-30 18:05:50 +02:00: 2026-05-30T16:05:50.636Z [INFO] Unsubscribe request: campaign=1c5ae146-a0b9-41fb-bda1-a04077625b27, subscriber=84eeca4e-5e34-4fb3-b382-c8d80a4973c2
+[deploy]     2026-05-30 18:05:50 +02:00: 2026-05-30T16:05:50.651Z [INFO] Unsubscribe request: campaign=1c5ae146-a0b9-41fb-bda1-a04077625b27, subscriber=84eeca4e-5e34-4fb3-b382-c8d80a4973c2
+[deploy]     2026-05-30 18:05:52 +02:00: 2026-05-30T16:05:52.444Z [INFO] Unsubscribe request: campaign=1ec8c8a9-2ca0-4ba4-a891-e024ce0d3e56, subscriber=fec350ef-4b60-4278-940f-23f1a1558194
+[deploy]     2026-05-30 18:05:58 +02:00: 2026-05-30T16:05:58.203Z [INFO] [ANALYTICS_BOOTSTRAP] DDL ready: analytics_totals + subscribers.last_engaged_at
+[deploy]     2026-05-30 18:05:58 +02:00: 2026-05-30T16:05:58.208Z [INFO] Short unsubscribe: campaign=20199a51-95f8-49a0-805c-8623b3c5e0ef, subscriber=88ae9b61-f89f-4482-b6b0-1c0dce9f8df5
+[deploy]     2026-05-30 18:05:58 +02:00: 2026-05-30T16:05:58.216Z [INFO] Short unsubscribe: campaign=02d185af-b431-4b33-8a1d-00c8e7af3dec, subscriber=404be25b-2fbb-46d2-a23a-42922a62d910
+[deploy]     2026-05-30 18:05:58 +02:00: 2026-05-30T16:05:58.237Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_campaign_type_idx — skipping
+[deploy]     2026-05-30 18:05:58 +02:00: 2026-05-30T16:05:58.267Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_stats_timestamp_idx — skipping
+[deploy]     2026-05-30 18:05:58 +02:00: 2026-05-30T16:05:58.354Z [INFO] [TRACKING QUERIES] Link cache warmed: 2011 destinations loaded for active campaigns
+[deploy]     2026-05-30 18:05:59 +02:00: 2026-05-30T16:05:59.085Z [INFO] [TRACKING QUERIES] Token cache warmed: 49974 tokens loaded for active campaigns
+[deploy]     2026-05-30 18:06:00 +02:00: 2026-05-30T16:06:00.499Z [INFO] Short unsubscribe: campaign=de6f919d-209c-484f-bf95-cbbbb70651c0, subscriber=ccadc458-5fc9-48ee-8c16-d7f41a5e6660
+[deploy]     2026-05-30 18:06:19 +02:00: 2026-05-30T16:06:19.121Z [INFO] Short unsubscribe: campaign=e5074c67-e246-459d-a475-7c0c560d7d67, subscriber=fe0383d2-3301-4d7a-8241-9c3d796578d6
+[deploy]     2026-05-30 18:06:31 +02:00: 2026-05-30T16:06:31.389Z [INFO] Unsubscribe request: campaign=38f62cfa-acc3-45e2-8fa4-4251198a666a, subscriber=be00b51b-bfc6-4a6a-819a-9d9651c74596
+[deploy]     2026-05-30 18:06:36 +02:00: 2026-05-30T16:06:36.340Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaign_sends_pressure_curve_idx (74 MB)
+[deploy]     2026-05-30 18:06:36 +02:00: 2026-05-30T16:06:36.452Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaign_sends_pressure_held_per_campaign_idx (54 MB)
+[deploy]     2026-05-30 18:06:43 +02:00: 2026-05-30T16:06:43.083Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaign_sends_pressure_subscriber_idx (51 MB)
+[deploy]     2026-05-30 18:06:43 +02:00: 2026-05-30T16:06:43.195Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped email_trgm_idx (0 bytes)
+[deploy]     2026-05-30 18:07:01 +02:00: 2026-05-30T16:07:01.412Z [INFO] Short unsubscribe: campaign=e86fb75a-f385-4825-b515-9b12eac43478, subscriber=0938cd59-dda9-459d-8668-36db5098b418
+[deploy]     2026-05-30 18:07:04 +02:00: 2026-05-30T16:07:04.037Z [INFO] Short unsubscribe: campaign=e6c8071f-8c71-4f9d-bbb2-c6a43ee03122, subscriber=4652ff0e-c055-4a9d-8a41-3005b7545c9c
+[deploy]     2026-05-30 18:07:05 +02:00: 2026-05-30T16:07:05.193Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+[deploy]     2026-05-30 18:07:05 +02:00: 2026-05-30T16:07:05.221Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_campaign_first_open_idx — skipping
+[deploy]     2026-05-30 18:07:05 +02:00: 2026-05-30T16:07:05.221Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+[deploy]     2026-05-30 18:07:06 +02:00: 2026-05-30T16:07:06.879Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=a9e7f268-b6a6-47ab-a7e7-5c9f01753c21, subscriber=db2060f9-e790-4920-a5c6-5cddd6f07bfe
+[deploy]     2026-05-30 18:07:09 +02:00: 2026-05-30T16:07:09.566Z [INFO] Short unsubscribe: campaign=728c34aa-162e-4c9e-9529-731488a59880, subscriber=d2f2b0fa-d7e3-4680-981e-88e696619182
+[deploy]     2026-05-30 18:07:09 +02:00: 2026-05-30T16:07:09.839Z [INFO] [CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend ready
+[deploy]     2026-05-30 18:07:13 +02:00: 2026-05-30T16:07:13.638Z [INFO] Short unsubscribe: campaign=e6c8071f-8c71-4f9d-bbb2-c6a43ee03122, subscriber=31dfcdd9-7994-49aa-9390-99b2fd0cec0e
+[deploy]     2026-05-30 18:07:15 +02:00: 2026-05-30T16:07:15.642Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped subscribers_import_date_idx (17 MB)
+[deploy]     2026-05-30 18:07:22 +02:00: 2026-05-30T16:07:22.633Z [INFO] Short unsubscribe: campaign=1ec8c8a9-2ca0-4ba4-a891-e024ce0d3e56, subscriber=201bf32a-e157-44f2-9fb2-2e99f287205a
+[deploy] ✗ One or more PM2 processes did not emit their boot line — investigate above logs.
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ Read from remote host 37.27.117.222: Connection reset by peer
+Connection to 37.27.117.222 closed.
+client_loop: send disconnect: Broken pipe
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222
+ubuntu@37.27.117.222's password: 
+Welcome to Ubuntu 24.04.4 LTS (GNU/Linux 6.8.0-100-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Sun May 31 06:11:49 AM CEST 2026
+
+  System load:                    1.25
+  Usage of /home:                 0.1% of 1.50TB
+  Memory usage:                   4%
+  Swap usage:                     0%
+  Temperature:                    70.0 C
+  Processes:                      1094
+  Users logged in:                0
+  IPv4 address for enp193s0f0np0: 37.27.117.222
+  IPv6 address for enp193s0f0np0: 2a01:4f9:3070:28cb::2
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+9 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+Enable ESM Apps to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+
+*** System restart required ***
+Last login: Sat May 30 18:05:08 2026 from 102.117.217.254
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && git pull && npm run build && pm2 reload critsend-web critsend-worker critsend-drainer
+remote: Enumerating objects: 74, done.
+remote: Counting objects: 100% (74/74), done.
+remote: Compressing objects: 100% (19/19), done.
+remote: Total 55 (delta 36), reused 55 (delta 36), pack-reused 0 (from 0)
+Unpacking objects: 100% (55/55), 470.32 KiB | 3.27 MiB/s, done.
+From https://github.com/critads/critsend
+   6825786..9489f3f  main       -> origin/main
+Updating 6825786..9489f3f
+Fast-forward
+ .agents/memory/MEMORY.md                           |   4 +
+ .agents/memory/fairness-yield-recipient-loss.md    |   9 ++
+ .agents/memory/ghost-sweep-false-positive.md       |  40 +++++
+ .agents/memory/hetzner-s3-throttle.md              |  71 ++++++++
+ .agents/memory/job-claim-fairness.md               |  45 ++++++
+ .agents/memory/prod-db-access.md                   |  24 +++
+ ...shot_2026-05-31_at_7.39.49_AM_1780199613359.png | Bin 0 -> 530727 bytes
+ replit.md                                          |   6 +-
+ server/repositories/import-repository.ts           |  26 +++
+ server/repositories/job-repository.ts              |  31 +++-
+ server/routes/import-export.ts                     |  58 ++-----
+ server/services/import-processor.ts                |  87 +++++++++-
+ server/storage-backends/hetzner-s3.ts              | 179 +++++++++++++++------
+ server/storage-interface.ts                        |   1 +
+ server/workers.ts                                  |  87 +++++++++-
+ 15 files changed, 565 insertions(+), 103 deletions(-)
+ create mode 100644 .agents/memory/ghost-sweep-false-positive.md
+ create mode 100644 .agents/memory/hetzner-s3-throttle.md
+ create mode 100644 .agents/memory/job-claim-fairness.md
+ create mode 100644 .agents/memory/prod-db-access.md
+ create mode 100644 attached_assets/Screenshot_2026-05-31_at_7.39.49_AM_1780199613359.png
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 3332 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BYVpwWN-.css     95.56 kB │ gzip:  15.29 kB
+../dist/public/assets/index-DiT8jq3Y.js   1,453.71 kB │ gzip: 384.24 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.61s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 104ms
+building import worker...
+
+  dist/import-worker.cjs  670.4kb
+
+⚡ Done in 58ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 76ms
+building drainer...
+
+  dist/drainer-main.cjs  654.2kb
+
+⚡ Done in 66ms
+Use --update-env to update environment variables
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 7 ])
+[PM2] [critsend-web](7) ✓
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: 9489f3f Move CSV uploads to background workers and improve error handling
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 896 packages, and audited 897 packages in 8s
+
+139 packages are looking for funding
+  run `npm fund` for details
+
+49 vulnerabilities (2 low, 33 moderate, 13 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/@tanstack/react-query/build/modern/index.j
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 3332 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BYVpwWN-.css     95.56 kB │ gzip:  15.29 kB
+../dist/public/assets/index-DiT8jq3Y.js   1,453.71 kB │ gzip: 384.24 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.51s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 104ms
+building import worker...
+
+  dist/import-worker.cjs  670.4kb
+
+⚡ Done in 62ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 85ms
+building drainer...
+
+  dist/drainer-main.cjs  654.2kb
+
+⚡ Done in 61ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime when possible)...
+[deploy]   No env_production key changes detected — using zero-downtime reload.
+[deploy]   Reloading critsend-web first (runs bootstrap migrations)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 7 ])
+[PM2] [critsend-web](7) ✓
+[deploy]   Waiting 25s for web bootstrap to finish (CREATE INDEX CONCURRENTLY)...
+[deploy]   Reloading critsend-worker...
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 8 ])
+[PM2] [critsend-worker](8) ✓
+[deploy]   Reloading critsend-drainer...
+[PM2] Applying action reloadProcessId on app [critsend-drainer](ids: [ 9 ])
+[PM2] [critsend-drainer](9) ✓
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Verifying PM2 processes started successfully...
+[deploy] ✓ critsend-worker: boot line present
+[deploy] ✓ critsend-drainer: boot line present
+[deploy] ⚠ critsend-web: boot line 'serving on port' not found in /var/log/critsend/web-out.log after 45 s
+[deploy]   Last 30 lines from critsend-web:
+[deploy]     2026-05-31 06:13:43 +02:00: 2026-05-31T04:13:43.879Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+[deploy]     2026-05-31 06:13:54 +02:00: 2026-05-31T04:13:54.016Z [INFO] [TRACKING] Bootstrap migration: campaign_stats covering index already exists — skipping
+[deploy]     2026-05-31 06:14:08 +02:00: 2026-05-31T04:14:08.510Z [INFO] Unsubscribe request: campaign=a61d3f21-f3fe-46fb-b1bb-cc3b5a7de743, subscriber=bdef1873-da70-4766-9066-8b0973c3774b
+[deploy]     2026-05-31 06:14:13 +02:00: 2026-05-31T04:14:13.176Z [INFO] [TRACKING QUERIES] Link cache warmed: 1836 destinations loaded for active campaigns
+[deploy]     2026-05-31 06:14:13 +02:00: 2026-05-31T04:14:13.777Z [INFO] [TRIGRAM] campaign_subject_trgm_idx already exists — skipping
+[deploy]     2026-05-31 06:14:13 +02:00: 2026-05-31T04:14:13.888Z [INFO] [TRACKING QUERIES] Token cache warmed: 49999 tokens loaded for active campaigns
+[deploy]     2026-05-31 06:14:16 +02:00: 2026-05-31T04:14:16.314Z [INFO] [CAMPAIGN_ORIGINALS_LIST] Another process is running bootstrap — skipping
+[deploy]     2026-05-31 06:14:16 +02:00: 2026-05-31T04:14:16.314Z [INFO] [INDEX] campaigns_originals_created_at_idx creation skipped — another process is handling it
+[deploy]     2026-05-31 06:14:16 +02:00: 2026-05-31T04:14:16.326Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaign_sends_pressure_curve_idx (30 MB)
+[deploy]     2026-05-31 06:14:19 +02:00: 2026-05-31T04:14:19.583Z [INFO] [INDEX] campaigns_scheduled_at_idx created successfully
+[deploy]     2026-05-31 06:14:19 +02:00: 2026-05-31T04:14:19.843Z [INFO] [TRACKING BUFFER] flush interval restored to 1500ms
+[deploy]     2026-05-31 06:14:30 +02:00: 2026-05-31T04:14:30.019Z [INFO] [TRIGRAM] campaign_name_trgm_idx created successfully
+[deploy]     2026-05-31 06:14:30 +02:00: 2026-05-31T04:14:30.053Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaign_stats_campaign_subscriber_type_idx (0 bytes)
+[deploy]     2026-05-31 06:14:30 +02:00: 2026-05-31T04:14:30.254Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaign_name_trgm_idx (192 kB)
+[deploy]     2026-05-31 06:14:30 +02:00: 2026-05-31T04:14:30.388Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaign_subject_trgm_idx (240 kB)
+[deploy]     2026-05-31 06:14:30 +02:00: 2026-05-31T04:14:30.495Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaigns_originals_created_at_idx (32 kB)
+[deploy]     2026-05-31 06:14:30 +02:00: 2026-05-31T04:14:30.606Z [INFO] [INVALID_INDEX_REAPER] (web-boot) ✓ dropped campaigns_scheduled_at_idx (16 kB)
+[deploy]     2026-05-31 06:14:37 +02:00: 2026-05-31T04:14:37.973Z [INFO] Unsubscribe request: campaign=9ccc8c92-c686-4c45-83ef-5bedda8fdff6, subscriber=585a9720-c5bb-40a4-8330-42a25caf1bbb
+[deploy]     2026-05-31 06:14:52 +02:00: 2026-05-31T04:14:52.715Z [INFO] [PRESSURE_GUARD] Created partial index campaign_sends_pressure_curve_idx
+[deploy]     2026-05-31 06:14:52 +02:00: 2026-05-31T04:14:52.829Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+[deploy]     2026-05-31 06:14:54 +02:00: 2026-05-31T04:14:54.116Z [INFO] [PRESSURE_GUARD] Bootstrap ready (window=4h, max_defer=72h, near_aging=48h, lock=ran, schema_verified=true)
+[deploy]     2026-05-31 06:14:54 +02:00: 2026-05-31T04:14:54.977Z [INFO] Short unsubscribe: campaign=1c5ae146-a0b9-41fb-bda1-a04077625b27, subscriber=cfcb53e5-6d3f-4721-b5de-0eb208592f87
+[deploy]     2026-05-31 06:15:09 +02:00: 2026-05-31T04:15:09.055Z [INFO] Short unsubscribe: campaign=a61d3f21-f3fe-46fb-b1bb-cc3b5a7de743, subscriber=cfcb53e5-6d3f-4721-b5de-0eb208592f87
+[deploy]     2026-05-31 06:15:22 +02:00: 2026-05-31T04:15:22.060Z [INFO] Short unsubscribe: campaign=02d185af-b431-4b33-8a1d-00c8e7af3dec, subscriber=cfcb53e5-6d3f-4721-b5de-0eb208592f87
+[deploy]     2026-05-31 06:15:23 +02:00: 2026-05-31T04:15:23.375Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued de4c141d-c0d0-4db4-b1c3-9706c56227aa (#3025  Club Med - 4cmDO6 - kamma) [reason=sending_no_active_job]
+[deploy]     2026-05-31 06:15:23 +02:00: 2026-05-31T04:15:23.465Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 1c5ae146-a0b9-41fb-bda1-a04077625b27 (#3063 Transavia - 4cbE14 - mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-05-31 06:15:23 +02:00: 2026-05-31T04:15:23.551Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 5ef36c58-42b5-40f2-bb67-d0e9987f22a4 (#3018 Sharkninja - LIST DECO - kamma) [reason=sending_no_active_job]
+[deploy]     2026-05-31 06:15:23 +02:00: 2026-05-31T04:15:23.637Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 0bcadcda-b620-441c-991e-63ce1bf10c2b (#2988 Chronodrive - 5cq87A - verysent) [reason=sending_no_active_job]
+[deploy]     2026-05-31 06:15:23 +02:00: 2026-05-31T04:15:23.724Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 7cd5258e-8a94-42d5-8392-b4a055b1d17d (#3057 Tui - 4bpTRX - verysent) [reason=sending_no_active_job]
+[deploy]     2026-05-31 06:15:23 +02:00: 2026-05-31T04:15:23.809Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 3153505e-8256-4500-b2a1-05c3186f89b4 (#3021 Dessange - List Beaute - mahlesoldes) [reason=sending_no_active_job]
+[deploy] ✗ One or more PM2 processes did not emit their boot line — investigate above logs.
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ git pull
+npm run build          # <-- mandatory: rebuilds dist/worker-main.cjs with the fairness fix
+pm2 restart critsend-worker critsend-drainer
+pm2 save
+remote: Enumerating objects: 37, done.
+remote: Counting objects: 100% (37/37), done.
+remote: Compressing objects: 100% (9/9), done.
+remote: Total 27 (delta 18), reused 27 (delta 18), pack-reused 0 (from 0)
+Unpacking objects: 100% (27/27), 16.14 KiB | 635.00 KiB/s, done.
+From https://github.com/critads/critsend
+   9489f3f..4b680ee  main       -> origin/main
+Updating 9489f3f..4b680ee
+Fast-forward
+ .agents/memory/MEMORY.md                           |  11 +-
+ .agents/memory/campaign-claim-starvation.md        |  40 +++
+ .agents/memory/deploy-zero-downtime.md             |  21 ++
+ ...-amd64-base-cd-home-ubuntu-cr_1780202028664.txt | 399 +++++++++++++++++++++
+ deploy/deploy.sh                                   |  24 +-
+ deploy/ecosystem.config.cjs                        |  32 +-
+ server/index.ts                                    |   8 +
+ 7 files changed, 525 insertions(+), 10 deletions(-)
+ create mode 100644 .agents/memory/campaign-claim-starvation.md
+ create mode 100644 .agents/memory/deploy-zero-downtime.md
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-cd-home-ubuntu-cr_1780202028664.txt
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+transforming (5) ../node_modules/wouter/esm/index.js
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 3332 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BYVpwWN-.css     95.56 kB │ gzip:  15.29 kB
+../dist/public/assets/index-DiT8jq3Y.js   1,453.71 kB │ gzip: 384.24 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.40s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 94ms
+building import worker...
+
+  dist/import-worker.cjs  670.4kb
+
+⚡ Done in 71ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 87ms
+building drainer...
+
+  dist/drainer-main.cjs  654.2kb
+
+⚡ Done in 71ms
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-worker](ids: [ 8 ])
+[PM2] [critsend-worker](8) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-drainer](ids: [ 9 ])
+[PM2] [critsend-drainer](9) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 9  │ critsend-drainer   │ fork     │ 11   │ online    │ 0%       │ 21.0mb   │
+│ 7  │ critsend-web       │ fork     │ 11   │ online    │ 0%       │ 261.1mb  │
+│ 8  │ critsend-worker    │ fork     │ 11   │ online    │ 164.3%   │ 66.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 85.2mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ Read from remote host 37.27.117.222: Connection reset by peer
+Connection to 37.27.117.222 closed.
+client_loop: send disconnect: Broken pipe
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222
+ubuntu@37.27.117.222's password: 
+Welcome to Ubuntu 24.04.4 LTS (GNU/Linux 6.8.0-100-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Mon Jun  1 07:46:20 AM CEST 2026
+
+  System load:                    2.11
+  Usage of /home:                 0.1% of 1.50TB
+  Memory usage:                   4%
+  Swap usage:                     0%
+  Temperature:                    69.0 C
+  Processes:                      1093
+  Users logged in:                0
+  IPv4 address for enp193s0f0np0: 37.27.117.222
+  IPv6 address for enp193s0f0np0: 2a01:4f9:3070:28cb::2
+
+ * Strictly confined Kubernetes makes edge and IoT secure. Learn how MicroK8s
+   just raised the bar for easy, resilient and secure K8s cluster deployment.
+
+   https://ubuntu.com/engage/secure-kubernetes-at-the-edge
+
+Expanded Security Maintenance for Applications is not enabled.
+
+9 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+Enable ESM Apps to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+
+*** System restart required ***
+Last login: Sun May 31 06:11:50 2026 from 169.150.209.215
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ git pull && bash deploy/deploy.sh && pm2 restart all
+remote: Enumerating objects: 46, done.
+remote: Counting objects: 100% (46/46), done.
+remote: Compressing objects: 100% (11/11), done.
+remote: Total 28 (delta 16), reused 28 (delta 16), pack-reused 0 (from 0)
+Unpacking objects: 100% (28/28), 21.86 KiB | 771.00 KiB/s, done.
+From https://github.com/critads/critsend
+   4b680ee..4d77707  main       -> origin/main
+Updating 4b680ee..4d77707
+Fast-forward
+ .agents/memory/MEMORY.md                           |   8 +-
+ .agents/memory/campaign-claim-starvation.md        |   6 +
+ .agents/memory/db-script-environment.md            |  15 +
+ .agents/memory/tracking-tokens-partitioning.md     |  26 ++
+ ...-amd64-base-critsend-git-pull_1780203751408.txt |  87 ++++++
+ ...-amd64-base-critsend-git-pull_1780203752464.txt |  87 ++++++
+ ...-amd64-base-critsend-git-pull_1780203757713.txt |  87 ++++++
+ deploy/ecosystem.config.cjs                        |   8 +
+ drizzle.config.ts                                  |  12 +
+ replit.md                                          |   2 +-
+ scripts/migrate-tracking-tokens-partitioning.ts    | 327 +++++++++++++++++++++
+ server/repositories/campaign-repository.ts         | 171 +++++++----
+ server/tracking-partitions.ts                      | 263 +++++++++++++++++
+ server/tracking-queries.ts                         |  60 +++-
+ server/workers.ts                                  |  43 ++-
+ shared/schema.ts                                   |  20 +-
+ 16 files changed, 1149 insertions(+), 73 deletions(-)
+ create mode 100644 .agents/memory/db-script-environment.md
+ create mode 100644 .agents/memory/tracking-tokens-partitioning.md
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-git-pull_1780203751408.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-git-pull_1780203752464.txt
+ create mode 100644 attached_assets/Pasted-ubuntu-Ubuntu-noble-latest-amd64-base-critsend-git-pull_1780203757713.txt
+ create mode 100644 scripts/migrate-tracking-tokens-partitioning.ts
+ create mode 100644 server/tracking-partitions.ts
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: 4d77707 Improve tracking token storage with partitioning and deterministic lookups
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 896 packages, and audited 897 packages in 8s
+
+139 packages are looking for funding
+  run `npm fund` for details
+
+49 vulnerabilities (2 low, 33 moderate, 13 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 3332 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.88 kB
+../dist/public/assets/index-BYVpwWN-.css     95.56 kB │ gzip:  15.29 kB
+../dist/public/assets/index-Dym5uXcU.js   1,454.13 kB │ gzip: 384.35 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.60s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 110ms
+building import worker...
+
+  dist/import-worker.cjs  673.5kb
+
+⚡ Done in 69ms
+building background worker...
+
+  dist/worker-main.cjs  1.0mb ⚠️
+
+⚡ Done in 80ms
+building drainer...
+
+  dist/drainer-main.cjs  657.3kb
+
+⚡ Done in 60ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Pushing database schema changes (drizzle-kit push)...
+No config path provided, using default 'drizzle.config.ts'
+Reading config file '/home/ubuntu/critsend/drizzle.config.ts'
+Using 'pg' driver for database querying
+[✓] Pulling schema from database...
+error: relation "tracking_tokens" already exists
+    at /home/ubuntu/critsend/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async Object.query (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:80622:26)
+    at async pgPush (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:84432:13)
+    at async Object.handler (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:93871:9)
+    at async run (/home/ubuntu/critsend/node_modules/drizzle-kit/bin.cjs:93117:7) {
+  length: 109,
+  severity: 'ERROR',
+  code: '42P07',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'heap.c',
+  line: '1174',
+  routine: 'heap_create_with_catalog'
+}
+[deploy] ✓ Database schema up to date
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime when possible)...
+[deploy]   Detected new/changed env vars on: critsend-web critsend-worker critsend-drainer
+[deploy]   → forcing pm2 delete + start (≈5s downtime per app to inject fresh env)
+[PM2] Applying action deleteProcessId on app [critsend-web](ids: [ 7 ])
+[PM2] [critsend-web](7) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 9  │ critsend-drainer   │ fork     │ 11   │ online    │ 0%       │ 179.0mb  │
+│ 8  │ critsend-worker    │ fork     │ 11   │ online    │ 274.3%   │ 1.2gb    │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 75.7mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2][WARN] Applications critsend-web not running, starting...
+[PM2][WARN] App critsend-web has option 'wait_ready' set, waiting for app to be ready...
+[PM2] App [critsend-web] launched (2 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 9  │ critsend-drainer   │ fork     │ 11   │ online    │ 0.7%     │ 179.0mb  │
+│ 10 │ critsend-web       │ cluster  │ 0    │ online    │ 0%       │ 278.3mb  │
+│ 11 │ critsend-web       │ cluster  │ 0    │ online    │ 0%       │ 270.8mb  │
+│ 8  │ critsend-worker    │ fork     │ 11   │ online    │ 100.7%   │ 1.2gb    │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 75.5mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2] Applying action deleteProcessId on app [critsend-worker](ids: [ 8 ])
+[PM2] [critsend-worker](8) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 9  │ critsend-drainer   │ fork     │ 11   │ online    │ 1.1%     │ 131.4mb  │
+│ 10 │ critsend-web       │ cluster  │ 0    │ online    │ 13%      │ 262.5mb  │
+│ 11 │ critsend-web       │ cluster  │ 0    │ online    │ 4.6%     │ 267.5mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0.2%     │ 76.3mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2][WARN] Applications critsend-worker not running, starting...
+[PM2] App [critsend-worker] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 9  │ critsend-drainer   │ fork     │ 11   │ online    │ 0%       │ 132.2mb  │
+│ 10 │ critsend-web       │ cluster  │ 0    │ online    │ 0%       │ 262.5mb  │
+│ 11 │ critsend-web       │ cluster  │ 0    │ online    │ 0%       │ 267.5mb  │
+│ 12 │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 21.8mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 76.3mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2] Applying action deleteProcessId on app [critsend-drainer](ids: [ 9 ])
+[PM2] [critsend-drainer](9) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 10 │ critsend-web       │ cluster  │ 0    │ online    │ 9%       │ 268.5mb  │
+│ 11 │ critsend-web       │ cluster  │ 0    │ online    │ 20.6%    │ 281.0mb  │
+│ 12 │ critsend-worker    │ fork     │ 0    │ online    │ 32.5%    │ 143.8mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0.6%     │ 75.9mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2][WARN] Applications critsend-drainer not running, starting...
+[PM2] App [critsend-drainer] launched (1 instances)
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 13 │ critsend-drainer   │ fork     │ 0    │ online    │ 0%       │ 21.0mb   │
+│ 10 │ critsend-web       │ cluster  │ 0    │ online    │ 0%       │ 270.0mb  │
+│ 11 │ critsend-web       │ cluster  │ 0    │ online    │ 0%       │ 281.0mb  │
+│ 12 │ critsend-worker    │ fork     │ 0    │ online    │ 0%       │ 143.8mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 75.9mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[deploy]   Reloading critsend-web first (runs bootstrap migrations)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 10, 11 ])
+[PM2] [critsend-web](10) ✓
+[PM2] [critsend-web](11) ✓
+[deploy]   Waiting 25s for web bootstrap to finish (CREATE INDEX CONCURRENTLY)...
+[deploy]   Reloading critsend-worker...
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 12 ])
+[PM2] [critsend-worker](12) ✓
+[deploy]   Reloading critsend-drainer...
+[PM2] Applying action reloadProcessId on app [critsend-drainer](ids: [ 13 ])
+[PM2] [critsend-drainer](13) ✓
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Verifying PM2 processes started successfully...
+[deploy] ✓ critsend-worker: boot line present
+[deploy] ✓ critsend-drainer: boot line present
+[deploy] ⚠ critsend-web: boot line 'serving on port' not found in /var/log/critsend/web-out.log after 45 s
+[deploy]   Last 30 lines from critsend-web:
+[deploy]     2026-06-01 07:50:05 +02:00: 2026-06-01T05:50:05.835Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 02d185af-b431-4b33-8a1d-00c8e7af3dec (#3049 Belambra - 4cnZTY  - mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:05 +02:00: 2026-06-01T05:50:05.839Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 02d185af-b431-4b33-8a1d-00c8e7af3dec (#3049 Belambra - 4cnZTY  - mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:05 +02:00: 2026-06-01T05:50:05.848Z [INFO] [TRACKING BUFFER] flush interval restored to 1500ms
+[deploy]     2026-06-01 07:50:05 +02:00: 2026-06-01T05:50:05.923Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued de4c141d-c0d0-4db4-b1c3-9706c56227aa (#3025  Club Med - 4cmDO6 - kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:05 +02:00: 2026-06-01T05:50:05.926Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued de4c141d-c0d0-4db4-b1c3-9706c56227aa (#3025  Club Med - 4cmDO6 - kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.013Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 4210618c-7b17-4100-aa61-f55570fc37d7 (#3001 Zadig & Voltaire - 1ctWNZ - mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.016Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 4210618c-7b17-4100-aa61-f55570fc37d7 (#3001 Zadig & Voltaire - 1ctWNZ - mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.099Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 06c562e1-6b90-4bcb-af75-de63af14cdd1 (#3035 Histoire d'or - 6csHRE - Kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.101Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 06c562e1-6b90-4bcb-af75-de63af14cdd1 (#3035 Histoire d'or - 6csHRE - Kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.187Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued e5074c67-e246-459d-a475-7c0c560d7d67 (#3017 Dessange - BEAUTE R - kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.190Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued e5074c67-e246-459d-a475-7c0c560d7d67 (#3017 Dessange - BEAUTE R - kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.273Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 3153505e-8256-4500-b2a1-05c3186f89b4 (#3021 Dessange - List Beaute - mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:06 +02:00: 2026-06-01T05:50:06.286Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 3153505e-8256-4500-b2a1-05c3186f89b4 (#3021 Dessange - List Beaute - mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-06-01 07:50:07 +02:00: 2026-06-01T05:50:07.934Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_import_date_idx — skipping
+[deploy]     2026-06-01 07:50:07 +02:00: 2026-06-01T05:50:07.955Z [INFO] [PRESSURE_GUARD] Bootstrap ready (window=4h, max_defer=72h, near_aging=48h, lock=ran, schema_verified=true)
+[deploy]     2026-06-01 07:50:07 +02:00: 2026-06-01T05:50:07.962Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_suppressed_partial_idx — skipping
+[deploy]     2026-06-01 07:50:07 +02:00: 2026-06-01T05:50:07.992Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: subscribers_engaged_partial_idx — skipping
+[deploy]     2026-06-01 07:50:08 +02:00: 2026-06-01T05:50:08.022Z [INFO] [ANALYTICS_BOOTSTRAP] Index already exists: campaign_sends_campaign_first_open_idx — skipping
+[deploy]     2026-06-01 07:50:08 +02:00: 2026-06-01T05:50:08.022Z [INFO] [ANALYTICS_BOOTSTRAP] All required analytics indexes processed
+[deploy]     2026-06-01 07:50:08 +02:00: 2026-06-01T05:50:08.584Z [INFO] [COMPLAINT] Bot open from 195.154.17.225: campaign=45b1f804-c6fc-4f8e-b2e3-99b16e6da211, subscriber=a3c761ca-661e-4a9d-951a-11d1034822ce
+[deploy]     2026-06-01 07:50:09 +02:00: 2026-06-01T05:50:09.314Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+[deploy]     2026-06-01 07:50:09 +02:00: 2026-06-01T05:50:09.663Z [INFO] Short unsubscribe: campaign=de6f919d-209c-484f-bf95-cbbbb70651c0, subscriber=6c0e213b-e3b6-4940-9752-e22da2db4123
+[deploy]     2026-06-01 07:50:10 +02:00: 2026-06-01T05:50:10.518Z [INFO] Short unsubscribe: campaign=45b1f804-c6fc-4f8e-b2e3-99b16e6da211, subscriber=385d4061-dfdf-4a5e-a968-7a54b7ade9e5
+[deploy]     2026-06-01 07:50:10 +02:00: 2026-06-01T05:50:10.721Z [INFO] Short unsubscribe: campaign=20199a51-95f8-49a0-805c-8623b3c5e0ef, subscriber=4b87d031-269f-4bae-9099-7cacc751f7af
+[deploy]     2026-06-01 07:50:14 +02:00: 2026-06-01T05:50:14.394Z [INFO] [PRESSURE_GUARD] Bootstrap ready (window=4h, max_defer=72h, near_aging=48h, lock=ran, schema_verified=true)
+[deploy]     2026-06-01 07:50:15 +02:00: 2026-06-01T05:50:15.683Z [INFO] Short unsubscribe: campaign=a61d3f21-f3fe-46fb-b1bb-cc3b5a7de743, subscriber=af8bc59f-16be-4185-bdde-bceebf78a13f
+[deploy]     2026-06-01 07:50:16 +02:00: 2026-06-01T05:50:16.687Z [INFO] Short unsubscribe: campaign=7b0c4591-5e9e-4a06-8513-dbab5ef700f3, subscriber=8cc15649-b46a-47ea-9be4-f3c335c5bfc4
+[deploy]     2026-06-01 07:50:20 +02:00: 2026-06-01T05:50:20.129Z [INFO] Unsubscribe request: campaign=08cc072b-4fd8-48e4-afbe-bca8c515f2ea, subscriber=ef76a95e-5a09-42b4-952b-5d4bb65681e6
+[deploy]     2026-06-01 07:50:24 +02:00: 2026-06-01T05:50:24.930Z [INFO] Unsubscribe request: campaign=151fb07e-c616-4b2b-9b9a-a2eb590c216e, subscriber=7787d747-12db-45ad-844e-23bc64953da9
+[deploy]     2026-06-01 07:50:30 +02:00: 2026-06-01T05:50:30.738Z [INFO] Short unsubscribe: campaign=12d94ae6-fe95-4fed-a5f7-8d4812678e93, subscriber=19bec7b6-7a27-4877-b700-ebdc7290e610
+[deploy]   (web readiness is verified by the HTTP health check in Step 8 — not failing on this)
+
+[deploy] ▶ Waiting for app to become healthy...
+[deploy]   Health check attempt 1/20: HTTP 200 body={"status":"ready","uptime":169,"timestamp":"2026-06-01T05:50:38.432Z"}
+[deploy] ✓ App is healthy
+
+[deploy] ▶ Scanning post-deploy error logs for fatal patterns (last 60 s)...
+[deploy] ✓ No fatal error patterns in post-deploy logs
+
+[deploy] ✓ Deploy complete!
+[deploy]   Logs:   pm2 logs critsend-web
+[deploy]   Health: curl http://localhost:5000/api/health
+
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [all](ids: [ 10, 11, 12, 13 ])
+[PM2] [critsend-web](10) ✓
+[PM2] [critsend-web](11) ✓
+[PM2] [critsend-drainer](13) ✓
+[PM2] [critsend-worker](12) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 13 │ critsend-drainer   │ fork     │ 2    │ online    │ 0.6%     │ 76.9mb   │
+│ 10 │ critsend-web       │ cluster  │ 2    │ online    │ 4.2%     │ 267.5mb  │
+│ 11 │ critsend-web       │ cluster  │ 2    │ online    │ 5.9%     │ 265.9mb  │
+│ 12 │ critsend-worker    │ fork     │ 2    │ online    │ 0%       │ 24.0mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0.4%     │ 77.3mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
