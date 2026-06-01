@@ -9,6 +9,7 @@ import { storage } from "../storage";
 import { jobEvents, JobProgressEvent } from "../job-events";
 import { getObjectStorageService, useObjectStorageForImports, ObjectStorageTransientError } from "../storage-backends";
 import { IMPORT_CONCURRENCY } from "../connection-budget";
+import { withConnRetry } from "./conn-retry";
 
 const objectStorageService = getObjectStorageService();
 
@@ -16,6 +17,27 @@ const CONCURRENCY = IMPORT_CONCURRENCY;
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Acquire an import-pool client with bounded transient-connection retries.
+ * Rationale and classification live in server/services/conn-retry.ts.
+ */
+function connectWithRetry() {
+  return withConnRetry(() => pool.connect(), { label: "connection acquire" });
+}
+
+/**
+ * pool.query wrapper with the same transient-connection retry. EVERY import-path
+ * pool.query() goes through this so a Neon pooler accept-timeout on a per-row
+ * fallback (singleUpsert) or a refs/cleanup/phase query does not permanently
+ * fail rows or abort a phase — it retries the acquire first.
+ */
+function queryWithRetry(text: string, params?: any[]) {
+  return withConnRetry(
+    () => (params === undefined ? pool.query(text) : pool.query(text, params)),
+    { label: "query connect" },
+  );
 }
 
 /**
@@ -155,7 +177,7 @@ function yieldToEventLoop(): Promise<void> {
 // ─── DB helpers (use shared pool directly for COPY operations) ────────────────
 
 async function hasActiveSendingCampaigns(): Promise<boolean> {
-  const result = await pool.query(`SELECT COUNT(*) AS count FROM campaigns WHERE status = 'sending'`);
+  const result = await queryWithRetry(`SELECT COUNT(*) AS count FROM campaigns WHERE status = 'sending'`);
   return parseInt(result.rows[0]?.count || "0", 10) > 0;
 }
 
@@ -176,7 +198,7 @@ async function copyBatchUpsert(
   rows: Array<{ email: string; tags: string[]; refs: string[]; ipAddress: string | null }>,
   tagMode: "merge" | "override"
 ): Promise<{ inserted: number; updated: number }> {
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     await client.query("BEGIN");
     await client.query(`
@@ -259,7 +281,7 @@ async function directBatchUpsert(
     : `tags = COALESCE((SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL), ARRAY[]::text[])`;
   const refsConflict = `refs = COALESCE((SELECT array_agg(DISTINCT r) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL), ARRAY[]::text[])`;
 
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     await client.query("BEGIN");
     const emails = rows.map(r => r.email.toLowerCase());
@@ -296,9 +318,9 @@ async function singleUpsert(
     : `tags = COALESCE((SELECT array_agg(DISTINCT t) FROM unnest(subscribers.tags || EXCLUDED.tags) AS t WHERE t IS NOT NULL), ARRAY[]::text[])`;
   const refsConflict = `refs = COALESCE((SELECT array_agg(DISTINCT r) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL), ARRAY[]::text[])`;
 
-  const existsResult = await pool.query(`SELECT 1 FROM subscribers WHERE email = $1 LIMIT 1`, [row.email.toLowerCase()]);
+  const existsResult = await queryWithRetry(`SELECT 1 FROM subscribers WHERE email = $1 LIMIT 1`, [row.email.toLowerCase()]);
   const existed = (existsResult.rowCount || 0) > 0;
-  const upsertResult = await pool.query(
+  const upsertResult = await queryWithRetry(
     `INSERT INTO subscribers (email, tags, refs, ip_address, import_date) VALUES ($1, $2::text[], $3::text[], $4, NOW()) ON CONFLICT (email) DO UPDATE SET ${tagsConflict}, ${refsConflict}, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address) RETURNING id, (xmax = 0) AS inserted`,
     [row.email.toLowerCase(), row.tags, row.refs, row.ipAddress]
   );
@@ -370,7 +392,7 @@ async function directBatchRemoveTagsRefs(
   }
   const uniqueEmails = [...emailToTags.keys()];
 
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     await client.query("BEGIN");
     await client.query(`
@@ -422,7 +444,7 @@ async function singleRemoveTagsRefs(
   row: { email: string; tags: string[]; refs: string[]; ipAddress: string | null },
 ): Promise<"updated" | "skipped"> {
   if (row.tags.length === 0 && row.refs.length === 0) return "skipped";
-  const result = await pool.query(`
+  const result = await queryWithRetry(`
     UPDATE subscribers
     SET
       tags = (
@@ -473,7 +495,7 @@ async function bulkRemoveTagsRefs(
 async function copyBatchUpsertRefs(
   rows: Array<{ email: string; refs: string[]; ipAddress: string | null }>,
 ): Promise<{ inserted: number; updated: number }> {
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     await client.query("BEGIN");
     await client.query(`
@@ -532,7 +554,7 @@ async function directBatchUpsertRefs(
     paramIdx += 3;
   }
 
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     await client.query("BEGIN");
     const emails = rows.map(r => r.email.toLowerCase());
@@ -584,7 +606,7 @@ async function stageRefsToImportStaging(
   rows: Array<{ email: string; refs: string[]; ipAddress: string | null }>
 ): Promise<void> {
   if (rows.length === 0) return;
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     const copyStream = client.query(copyFrom(
       "COPY import_staging (job_id, email, refs, ip_address, line_number) FROM STDIN WITH (FORMAT text)"
@@ -611,7 +633,7 @@ async function cleanExistingRefsInDb(refs: string[]): Promise<number> {
   const BATCH_SIZE = 50000;
   let totalCleaned = 0;
   while (true) {
-    const result = await pool.query(`
+    const result = await queryWithRetry(`
       UPDATE subscribers SET refs = (SELECT COALESCE(array_agg(r), ARRAY[]::text[]) FROM unnest(refs) AS r WHERE r != ALL($1::text[]))
       WHERE id IN (SELECT id FROM subscribers WHERE refs && $1::text[] LIMIT $2)
     `, [refs, BATCH_SIZE]);
@@ -625,14 +647,14 @@ async function cleanExistingRefsInDb(refs: string[]): Promise<number> {
 
 async function deleteSubscribersByRefsInDb(refs: string[]): Promise<{ deleted: number; bckProtected: number }> {
   if (refs.length === 0) return { deleted: 0, bckProtected: 0 };
-  const bckResult = await pool.query(
+  const bckResult = await queryWithRetry(
     `SELECT COUNT(*) AS count FROM subscribers WHERE refs && $1::text[] AND 'BCK' = ANY(tags)`, [refs]
   );
   const bckProtected = parseInt(bckResult.rows[0]?.count || "0");
   const BATCH_SIZE = 50000;
   let totalDeleted = 0;
   while (true) {
-    const result = await pool.query(`
+    const result = await queryWithRetry(`
       DELETE FROM subscribers WHERE id IN (
         SELECT id FROM subscribers WHERE refs && $1::text[] AND NOT ('BCK' = ANY(tags)) LIMIT $2
       )
@@ -646,12 +668,12 @@ async function deleteSubscribersByRefsInDb(refs: string[]): Promise<{ deleted: n
 }
 
 async function mergeRefsFromStaging(importJobId: string): Promise<{ inserted: number; updated: number }> {
-  const existingResult = await pool.query(`
+  const existingResult = await queryWithRetry(`
     SELECT COUNT(DISTINCT s.email) AS cnt FROM subscribers s
     INNER JOIN import_staging st ON s.email = st.email WHERE st.job_id = $1
   `, [importJobId]);
   const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
-  const result = await pool.query(`
+  const result = await queryWithRetry(`
     INSERT INTO subscribers (email, refs, import_date)
     SELECT email, refs, NOW() FROM import_staging WHERE job_id = $1
     ON CONFLICT (email) DO UPDATE SET
@@ -799,7 +821,12 @@ async function processImport(
   const HEARTBEAT_INTERVAL = 30000;
   const CHECKPOINT_INTERVAL = 100000;
   const LARGE_IMPORT_THRESHOLD = 100000;
-  const MAX_INFLIGHT = CONCURRENCY;
+  // Leave one connection of headroom in the import pool. With MAX_INFLIGHT ===
+  // IMPORT_POOL_MAX, N concurrent batches hold all N connections and any extra
+  // acquisition (a COPY→INSERT fallback re-connecting, a per-row singleUpsert,
+  // or connectWithRetry re-attempting) has zero free slots and waits out the
+  // whole connect timeout. Reserving one slot keeps those paths unblocked.
+  const MAX_INFLIGHT = Math.max(1, CONCURRENCY - 1);
 
   let inflightCount = 0;
   let inflightResolvers: Array<() => void> = [];
@@ -859,7 +886,7 @@ async function processImport(
 
   let preImportSubscriberCount = 0;
   try {
-    const countResult = await pool.query("SELECT COUNT(*) AS cnt FROM subscribers");
+    const countResult = await queryWithRetry("SELECT COUNT(*) AS cnt FROM subscribers");
     preImportSubscriberCount = parseInt(countResult.rows[0]?.cnt || "0", 10);
     logger.info(`[IMPORT] ${importJobId}: Pre-import subscriber count: ${preImportSubscriberCount.toLocaleString()}`);
   } catch (err: any) {
@@ -1250,7 +1277,7 @@ async function processImport(
           logger.info(`[IMPORT] ${importJobId}: Remove mode — no new subscribers, updated: ${updatedSubscribers}`);
         } else if (resumeFromLine === 0) {
           try {
-            const postCountResult = await pool.query("SELECT COUNT(*) AS cnt FROM subscribers");
+            const postCountResult = await queryWithRetry("SELECT COUNT(*) AS cnt FROM subscribers");
             const postImportSubscriberCount = parseInt(postCountResult.rows[0]?.cnt || "0", 10);
             const rawNew = postImportSubscriberCount - preImportSubscriberCount;
             const maxPossibleNew = Math.max(0, committedRows - failedRows - duplicatesInFile);
@@ -1561,7 +1588,7 @@ async function processRefsImportPhase2(
 
   let resolvedCsvPath = csvFilePath;
   if (!resolvedCsvPath || resolvedCsvPath === "phase2_merge") {
-    const originalQueueResult = await pool.query(
+    const originalQueueResult = await queryWithRetry(
       `SELECT csv_file_path FROM import_job_queue WHERE import_job_id = $1 AND csv_file_path != 'phase2_merge' ORDER BY created_at ASC LIMIT 1`,
       [importJobId]
     );

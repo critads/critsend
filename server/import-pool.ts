@@ -68,7 +68,12 @@ const poolConfig: pg.PoolConfig = {
   max: IMPORT_POOL_MAX,
   min: IMPORT_POOL_MAX > 0 ? 1 : 0,
   idleTimeoutMillis: isExternalDb ? 20000 : 30000,
-  connectionTimeoutMillis: 15000,
+  // Generous, env-tunable connect timeout. The import opens up to IMPORT_POOL_MAX
+  // connections in a burst at the start of each batch wave; under Neon pooler load
+  // (or a compute cold start) a fresh connection accept can take >15s. An overly
+  // aggressive timeout here surfaces as "timeout exceeded when trying to connect"
+  // and fails the whole import. 30s leaves room for the pooler/compute to respond.
+  connectionTimeoutMillis: Number(process.env.IMPORT_POOL_CONNECT_TIMEOUT_MS) || 30000,
   statement_timeout: 300000,
   lock_timeout: 30000,
   allowExitOnIdle: false,

@@ -1,3 +1,4 @@
 - [tracking_tokens partitioning](tracking-tokens-partitioning.md) — daily RANGE partitions on created_at; composite PK (no token uniqueness, read with ORDER BY created_at DESC LIMIT 1); drizzle push MUST skip it; one-time migration + dual-read legacy fallback.
 - [DB target & script exit](db-script-environment.md) — tsx scripts hit PROD, executeSql sandbox hits DEV; scripts importing server/db must process.exit() or they hang on non-unref'd timers.
 - [Counter-reconciler budget](counter-reconciler-budget.md) — lifecycle stage must gate off the tiny campaigns table + per-campaign LATERAL index access, never aggregate campaign_sends by an IN-list (parallel seq scan → drift); deferred=held=eligible_at IS NOT NULL.
+- [Import conn-acquire retry](import-conn-retry.md) — wrap every import pool.connect()/pool.query() in withConnRetry + keep 1 conn headroom; CREATE INDEX CONCURRENTLY paths are deliberately NOT auto-retried.
