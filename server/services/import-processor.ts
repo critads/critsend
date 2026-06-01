@@ -5,7 +5,7 @@ import { from as copyFrom } from "pg-copy-streams";
 import { sql } from "drizzle-orm";
 import { importPool as pool, importDb as db } from "../import-pool";
 import { logger } from "../logger";
-import { storage } from "../storage";
+import { storage as rawStorage } from "../storage";
 import { jobEvents, JobProgressEvent } from "../job-events";
 import { getObjectStorageService, useObjectStorageForImports, ObjectStorageTransientError } from "../storage-backends";
 import { IMPORT_CONCURRENCY } from "../connection-budget";
@@ -39,6 +39,60 @@ function queryWithRetry(text: string, params?: any[]) {
     { label: "query connect" },
   );
 }
+
+/**
+ * importDb (drizzle) .execute wrapper with the same transient-connection retry.
+ * The import processor's db.execute() calls (DROP INDEX IF EXISTS, DELETE FROM
+ * import_staging, import_job_queue path/status rewrites) all run on the dedicated
+ * import pool and are idempotent, so a Neon pooler accept-timeout on one of them
+ * must retry the acquire rather than abort the whole job. None of these is a
+ * CREATE INDEX CONCURRENTLY (that recreate runs through storage on the main pool),
+ * so retry-after-reset is safe here.
+ */
+function execWithRetry(query: Parameters<typeof db.execute>[0]) {
+  return withConnRetry(() => db.execute(query), { label: "exec connect" });
+}
+
+/**
+ * Storage methods that must NOT be auto-retried on a connection-class error.
+ * `recreateSubscriberGinIndexes` issues CREATE INDEX CONCURRENTLY, which is not
+ * safely retryable: a mid-flight connection reset can leave an INVALID index that
+ * a retry then collides with. It already runs best-effort inside its own
+ * try/catch on the import path, so leaving it un-retried is correct.
+ */
+const NON_RETRYABLE_STORAGE_METHODS = new Set<string>(["recreateSubscriberGinIndexes"]);
+
+/**
+ * Retrying facade over the shared `storage` layer for the import path.
+ *
+ * WHY (single chokepoint): the import job's metadata, heartbeat, progress and
+ * status/finalization writes ALL run on the shared MAIN pool — NOT the dedicated
+ * import pool. So under worker main-pool contention a transient accept timeout
+ * ("timeout exceeded when trying to connect") on ANY of those calls fails the
+ * entire import, and a dedicated import pool cannot protect them. Rather than
+ * wrap ~40 individual call sites (and miss future ones), every `storage.*` call
+ * made by this module goes through this Proxy, which retries ONLY connection-
+ * class failures (timeout-when-connecting, reset sockets, 08xxx/57P01) with
+ * bounded backoff; genuine SQL/data errors still fail fast.
+ *
+ * Retry-safety: all import status/progress writes use ABSOLUTE values (set
+ * status, set committedRows/newSubscribers/etc. totals — never increments) and
+ * reads are pure, so re-running after a mid-flight reset is idempotent. The one
+ * non-idempotent op (CREATE INDEX CONCURRENTLY) is excluded above. Calls are
+ * applied with `this` bound to the real storage instance, so a method's internal
+ * `this.xxx()` calls hit the raw storage directly (no double-retry, no proxy
+ * recursion).
+ */
+const storage: typeof rawStorage = new Proxy(rawStorage, {
+  get(target, prop, receiver) {
+    const orig = Reflect.get(target, prop, receiver);
+    if (typeof orig !== "function") return orig;
+    const name = String(prop);
+    if (NON_RETRYABLE_STORAGE_METHODS.has(name)) return orig.bind(target);
+    return (...args: any[]) =>
+      withConnRetry(() => orig.apply(target, args), { label: `storage.${name} connect` });
+  },
+});
 
 /**
  * Probe a file for read-readiness with retry. Handles the chunked-upload race
@@ -188,8 +242,8 @@ async function safeDropGinIndexes(importJobId: string): Promise<boolean> {
     return false;
   }
   logger.info(`[IMPORT] ${importJobId}: Dropping GIN indexes for large import optimization (no active sends)`);
-  await db.execute(sql`DROP INDEX IF EXISTS tags_gin_idx`);
-  await db.execute(sql`DROP INDEX IF EXISTS refs_gin_idx`);
+  await execWithRetry(sql`DROP INDEX IF EXISTS tags_gin_idx`);
+  await execWithRetry(sql`DROP INDEX IF EXISTS refs_gin_idx`);
   logger.info(`[IMPORT] ${importJobId}: GIN indexes dropped`);
   return true;
 }
@@ -685,7 +739,7 @@ async function mergeRefsFromStaging(importJobId: string): Promise<{ inserted: nu
 }
 
 async function cleanupStagingData(importJobId: string): Promise<void> {
-  await db.execute(sql`DELETE FROM import_staging WHERE job_id = ${importJobId}`);
+  await execWithRetry(sql`DELETE FROM import_staging WHERE job_id = ${importJobId}`);
 }
 
 async function peekCsvHasRefsColumn(csvFilePath: string): Promise<boolean> {
@@ -1800,7 +1854,7 @@ async function ensureCsvUploadedToObjectStorage(
 
   // Atomically point the queue row at the uploaded object so any later requeue
   // or stuck-job recovery reads from object storage and never re-uploads.
-  await db.execute(sql`
+  await execWithRetry(sql`
     UPDATE import_job_queue SET csv_file_path = ${remotePath} WHERE id = ${queueId}
   `);
   logger.info(`[IMPORT] ${importJobId}: Deferred upload complete → ${remotePath}, queue row updated`);
@@ -1838,7 +1892,7 @@ export async function processImportJob(
   const importJobCheck = await storage.getImportJob(importJobId);
   if (importJobCheck?.status === 'completed') {
     logger.info(`[IMPORT] ${importJobId}: already completed, closing re-queued queue item without re-processing`);
-    await db.execute(sql`
+    await execWithRetry(sql`
       UPDATE import_job_queue SET status = 'completed', completed_at = NOW()
       WHERE import_job_id = ${importJobId} AND status IN ('pending', 'processing')
     `);

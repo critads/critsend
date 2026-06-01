@@ -12,6 +12,7 @@ import { type JobProgressEvent, publishJobProgress } from "./job-events";
 import { publishCampaignsListInvalidation } from "./repositories/campaigns-list-cache";
 import { redisConnection, isRedisConfigured } from "./redis";
 import { processImportJob } from "./services/import-processor";
+import { withConnRetry } from "./services/conn-retry";
 import { ObjectStorageTransientError } from "./storage-backends";
 import { classifyDbError } from "./db-errors";
 import { processAutomationEnrollments, checkAndEnrollForTrigger, runAutomationBootstrapMigrations } from "./services/automation-engine";
@@ -1483,18 +1484,23 @@ async function pollForImportJobs() {
     if (now - lastRecoveryCheck > 5 * 60 * 1000) {
       lastRecoveryCheck = now;
 
-      const recoveredCount = await storage.recoverStuckImportJobs();
+      // Wrap in transient-connection retry: these run on the shared main pool and
+      // a brief accept-timeout under load would otherwise abort the whole poll
+      // tick (no recovery/cleanup, and — critically — no claim, so a pending
+      // import never starts until the next tick). All three are idempotent
+      // (set-based recovery/cleanup updates; SKIP LOCKED claim).
+      const recoveredCount = await withConnRetry(() => storage.recoverStuckImportJobs(), { label: "recoverStuckImportJobs connect" });
       if (recoveredCount > 0) {
         logger.info(`Recovered ${recoveredCount} stuck import jobs back to pending`);
       }
 
-      const staleCount = await storage.cleanupStaleImportJobs(30);
+      const staleCount = await withConnRetry(() => storage.cleanupStaleImportJobs(30), { label: "cleanupStaleImportJobs connect" });
       if (staleCount > 0) {
         logger.info(`Cleaned up ${staleCount} stale import jobs`);
       }
     }
 
-    const queueItem = await storage.claimNextImportJob(WORKER_ID);
+    const queueItem = await withConnRetry(() => storage.claimNextImportJob(WORKER_ID), { label: "claimNextImportJob connect" });
 
     if (!queueItem) {
       return;
