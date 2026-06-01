@@ -15,7 +15,7 @@
  *
  *   campaigns.sent_count            ↔ COUNT(*) FROM campaign_sends WHERE status='sent'
  *   campaigns.pending_count         ↔ COUNT(*) FROM campaign_sends WHERE status='pending'
- *   campaigns.deferred_count        ↔ COUNT(*) FROM campaign_sends WHERE status='pending' AND eligible_at > NOW()
+ *   campaigns.deferred_count        ↔ COUNT(*) FROM campaign_sends WHERE status='pending' AND eligible_at IS NOT NULL  (= live "held" depth)
  *   campaigns.failed_count          ↔ COUNT(*) FROM campaign_sends WHERE status='failed'
  *   campaign_sends.first_open_at    ↔ MIN(timestamp) FROM campaign_stats WHERE type='open'
  *   campaign_sends.first_click_at   ↔ MIN(timestamp) FROM campaign_stats WHERE type='click'
@@ -163,9 +163,10 @@ export async function reconcileCounters(
     throw err;
   }
 
-  // Recent-activity campaign set: any campaign with a send OR a tracking event
-  // in the last RECONCILE_WINDOW_HOURS. Used as the gating set for all three
-  // updates so that an old campaign with a fresh open/click still reconciles.
+  // Recent-activity campaign set: any campaign that is actively sending /
+  // recently launched / recently completed, OR has a fresh tracking event in
+  // the last RECONCILE_WINDOW_HOURS. Used as the gating set for all stages so
+  // that an old campaign with a fresh open/click still reconciles.
   //
   // Task #148: previously the `recent_campaigns` CTE was only applied as a
   // post-aggregation filter on the UPDATE row, but the `truth` CTE itself
@@ -173,12 +174,29 @@ export async function reconcileCounters(
   // the join — tripping the pool's 120s statement_timeout. We now push the
   // recent-campaigns filter INTO every `truth` CTE so each scope-recent run
   // touches only the active subset (typically <100 campaigns).
+  //
+  // 2026-06-01 — the "recently sent" branch used to be
+  //   SELECT campaign_id FROM campaign_sends WHERE sent_at > NOW() - 24h
+  // which has NO usable index (the only sent_at index is partial, scoped to
+  // eligible_at IS NOT NULL) and therefore degraded to a PARALLEL SEQ SCAN of
+  // the entire campaign_sends table (~89M rows / cost ~2.5M in prod) on every
+  // tick — blowing the 5s budget for every stage. We now derive the
+  // "recently sent" set from the tiny `campaigns` table instead (a campaign
+  // that sent in the window is currently sending/paused or has a recent
+  // started_at/completed_at), keeping the cheap campaign_stats
+  // timestamp-index branch to still catch old campaigns receiving fresh
+  // opens/clicks. NOTE: this CTE now only gates stages 2-5 (sent_count +
+  // engagement). The lifecycle stage (1) no longer uses it at all — it has a
+  // dedicated campaigns-table-driven LATERAL path (see below) that is the
+  // actual fix for the deferred_count/pending_count drift.
   const recentCampaignsCte =
     scope === "all"
       ? ""
       : `WITH recent_campaigns AS (
-          SELECT campaign_id FROM campaign_sends
-            WHERE sent_at > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours'
+          SELECT id AS campaign_id FROM campaigns
+            WHERE status IN ('sending', 'paused')
+               OR completed_at > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours'
+               OR started_at  > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours'
           UNION
           SELECT campaign_id FROM campaign_stats
             WHERE "timestamp" > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours'
@@ -186,6 +204,19 @@ export async function reconcileCounters(
   // For scope=all we still need a leading WITH; the `truth` CTE supplies it.
   const truthLead = scope === "all" ? "WITH truth AS" : `${recentCampaignsCte} truth AS`;
   const inRecentRow = scope === "all" ? "" : `AND campaign_id IN (SELECT campaign_id FROM recent_campaigns)`;
+
+  // Lifecycle stage gating (stage 1 only): the set of campaigns whose
+  // pending/deferred/failed counters can move. Those only change while a
+  // campaign is actively sending (or was just sending) — a campaign merely
+  // receiving fresh opens does NOT change them — so we gate purely off the
+  // tiny `campaigns` table, never the 89M-row campaign_sends. `c2` is the
+  // inner alias used in the lifecycle UPDATE's derived table below.
+  const lifecycleCampaignFilter =
+    scope === "all"
+      ? "TRUE"
+      : `(c2.status IN ('sending', 'paused')
+          OR c2.completed_at > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours'
+          OR c2.started_at  > NOW() - INTERVAL '${RECONCILE_WINDOW_HOURS} hours')`;
 
   let sentCountFixed = 0;
   let firstOpenFixed = 0;
@@ -203,55 +234,71 @@ export async function reconcileCounters(
   //    38 sending/paused campaigns with up to 384k phantom rows; the user-
   //    visible progress bar showed huge ghost "pending" segments).
   //
-  //    Moved to step 1 (2026-05-25) — the cheapest stage (single
-  //    aggregate over campaign_sends, indexed by status) AND the most
-  //    UX-critical one (drives the /campaigns progress bar and the
-  //    pressure-guard auto-completion path which keys off pending_count=0).
-  //    Engagement counters being a few minutes stale is invisible; pending
-  //    being 300k off is not.
+  //    Moved to step 1 (2026-05-25) — the most UX-critical stage (drives the
+  //    /campaigns progress bar and the pressure-guard auto-completion path
+  //    which keys off pending_count=0). Engagement counters being a few
+  //    minutes stale is invisible; pending being 300k off is not.
   //
-  //    Truth-direct assignment (no GREATEST, no fill-only): a single
-  //    aggregate over `campaign_sends` filtered to the recent-activity
-  //    set yields all three counters in one scan. We only UPDATE when
-  //    at least one column disagrees, so the steady-state cost is just
-  //    the aggregate scan + a no-op join.
+  //    2026-06-01 — ROOT-CAUSE REWRITE. The previous form aggregated
+  //    `campaign_sends` filtered by `campaign_id IN (recent_campaigns)`. With
+  //    ~123k campaigns carrying a tracking event in the window, the planner
+  //    hash-joined the WHOLE 89M-row campaign_sends table (parallel seq scan,
+  //    cost ~2.5M) on every tick — blowing the 5s budget so this stage NEVER
+  //    committed and pending/deferred drifted ~30× (25.9M cached vs 877k
+  //    real). Fix: gate off the tiny `campaigns` table (~80 actively
+  //    sending/paused rows) and force per-campaign index access via a LATERAL
+  //    so we only ever touch the pending/failed rows of those campaigns —
+  //    pending+held derived from ONE index-driven scan of each campaign's
+  //    pending rows, failed via a second. Measured ~3.2s for 86 campaigns /
+  //    ~2M rows in prod — comfortably inside budget, no seq scan, no new
+  //    index on the hot table. scope='all' (one-shot recovery) is safe too:
+  //    completed campaigns have ~0 pending/failed rows to scan.
+  //
+  //    deferred_count semantics: we reconcile to COUNT(pending AND
+  //    eligible_at IS NOT NULL) ("held"), NOT the old "eligible_at > NOW()".
+  //    The live counter increments when a send is deferred and decrements
+  //    only when the row is actually drained/sent — it does NOT tick down the
+  //    instant eligible_at passes — so "held" is the faithful match; the old
+  //    >NOW() form under-counted by the small, transient drainable set. As a
+  //    bonus, "held" needs no eligible_at predicate beyond IS NOT NULL, which
+  //    is computed in the same pass as the pending COUNT (no extra scan).
   //
   //    Status guard `c.status IN ('sending','paused','completed')`:
   //      • Excludes draft/scheduled — those legitimately have
-  //        pending_count=0 with no campaign_sends rows yet, and we
-  //        must not stamp them.
-  //      • Includes completed — the Decathlon case. For a completed
-  //        campaign with 0 real pending rows, this correctly sets
-  //        pending_count=0, which is also what the lifecycle
-  //        transitions are supposed to do (but evidently don't always).
+  //        pending_count=0 with no campaign_sends rows yet; we must not stamp.
+  //      • Includes completed — settles a finished campaign's counters to
+  //        their final truth (the Decathlon case).
   //
-  //    Idempotent and safe to run concurrently with sender writes: the
-  //    truth aggregate races with live mutations, so we may overshoot
-  //    or undershoot by a handful of rows per tick. That is fine — the
-  //    next tick re-converges, and a few-row transient is invisible
-  //    compared to the 231k drift this prevents.
+  //    Idempotent and safe to run concurrently with sender writes: the truth
+  //    counts race with live mutations, so we may over/undershoot by a
+  //    handful of rows per tick. Fine — the next tick re-converges, and a
+  //    few-row transient is invisible next to the drift this prevents.
   currentStage = "lifecycle_counters";
   const lifecycleRes = await client.query(
-    `${truthLead} (
-       SELECT campaign_id,
-              COUNT(*) FILTER (WHERE status = 'pending')::bigint                                       AS pending,
-              COUNT(*) FILTER (WHERE status = 'pending' AND eligible_at > NOW())::bigint               AS held,
-              COUNT(*) FILTER (WHERE status = 'failed')::bigint                                        AS failed
-         FROM campaign_sends
-        WHERE TRUE
-          ${inRecentRow}
-        GROUP BY campaign_id
-     )
-     UPDATE campaigns c
-        SET pending_count  = truth.pending,
-            deferred_count = truth.held,
-            failed_count   = truth.failed
-       FROM truth
-      WHERE c.id = truth.campaign_id
+    `UPDATE campaigns c
+        SET pending_count  = lc.pending,
+            deferred_count = lc.held,
+            failed_count   = lc.failed
+       FROM (
+         SELECT c2.id AS campaign_id,
+                p.pending,
+                p.held,
+                (SELECT COUNT(*) FROM campaign_sends s
+                  WHERE s.campaign_id = c2.id AND s.status = 'failed')::bigint AS failed
+           FROM campaigns c2
+           CROSS JOIN LATERAL (
+             SELECT COUNT(*)::bigint                                        AS pending,
+                    COUNT(*) FILTER (WHERE eligible_at IS NOT NULL)::bigint AS held
+               FROM campaign_sends s
+              WHERE s.campaign_id = c2.id AND s.status = 'pending'
+           ) p
+          WHERE ${lifecycleCampaignFilter}
+       ) lc
+      WHERE c.id = lc.campaign_id
         AND c.status IN ('sending', 'paused', 'completed')
-        AND ( c.pending_count  IS DISTINCT FROM truth.pending
-           OR c.deferred_count IS DISTINCT FROM truth.held
-           OR c.failed_count   IS DISTINCT FROM truth.failed )`,
+        AND ( c.pending_count  IS DISTINCT FROM lc.pending
+           OR c.deferred_count IS DISTINCT FROM lc.held
+           OR c.failed_count   IS DISTINCT FROM lc.failed )`,
   );
   lifecycleCountersFixed = lifecycleRes.rowCount ?? 0;
   checkBudget();
