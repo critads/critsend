@@ -17,6 +17,11 @@ import { classifyDbError } from "./db-errors";
 import { processAutomationEnrollments, checkAndEnrollForTrigger, runAutomationBootstrapMigrations } from "./services/automation-engine";
 import { startPressureGuardWorker, stopPressureGuardWorker } from "./workers/pressure-guard-worker";
 import { runPressureGuardBootstrap } from "./services/pressure-guard";
+import {
+  isTrackingTokensPartitioned,
+  ensureTrackingTokenPartitions,
+  dropExpiredTrackingTokenPartitions,
+} from "./tracking-partitions";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -2116,8 +2121,40 @@ async function runDailyTrackingTokenPurge(): Promise<void> {
       return;
     }
 
-    logger.info("[MAINTENANCE_DAILY] Starting 1 AM Paris tracking_tokens purge");
-    const result = await runMaintenanceForRule(rule, "daily_1am_paris");
+    const partitioned = await isTrackingTokensPartitioned(pool);
+    let result: { rowsDeleted: number; durationMs: number; status: string; errorMessage?: string };
+
+    if (partitioned) {
+      // Partitioned layout: retention is enforced by DROPping whole day-partitions
+      // (instant, reclaims storage immediately, no WAL bloat). Also top up the
+      // forward buffer of day-partitions so inserts never hit a missing partition.
+      const startTime = Date.now();
+      try {
+        await ensureTrackingTokenPartitions(pool);
+        const retentionDays = getTrackingTokenRetentionDays();
+        const dropped = await dropExpiredTrackingTokenPartitions(pool, retentionDays);
+        result = { rowsDeleted: 0, durationMs: Date.now() - startTime, status: "success" };
+        logger.info(
+          `[MAINTENANCE_DAILY] tracking_tokens partition retention done: ` +
+          `dropped=${dropped.length} partition(s) (retention ${retentionDays}d) ` +
+          `duration=${result.durationMs}ms` +
+          (dropped.length > 0 ? ` [${dropped.join(", ")}]` : "")
+        );
+      } catch (err: any) {
+        result = {
+          rowsDeleted: 0,
+          durationMs: Date.now() - startTime,
+          status: "failed",
+          errorMessage: err?.message || String(err),
+        };
+        logger.error("[MAINTENANCE_DAILY] tracking_tokens partition retention failed:", err);
+      }
+    } else {
+      // Pre-migration: still a single non-partitioned table → fall back to the
+      // batched DELETE purge until scripts/migrate-tracking-tokens-partitioning.ts runs.
+      logger.info("[MAINTENANCE_DAILY] Starting 1 AM Paris tracking_tokens DELETE purge (non-partitioned)");
+      result = await runMaintenanceForRule(rule, "daily_1am_paris");
+    }
 
     await storage.createMaintenanceLog({
       ruleId: rule.id,
@@ -2135,7 +2172,7 @@ async function runDailyTrackingTokenPurge(): Promise<void> {
     );
 
     logger.info(
-      `[MAINTENANCE_DAILY] tracking_tokens purge done: deleted=${result.rowsDeleted} ` +
+      `[MAINTENANCE_DAILY] tracking_tokens maintenance done: deleted=${result.rowsDeleted} ` +
       `duration=${result.durationMs}ms status=${result.status}` +
       (result.errorMessage ? ` error=${result.errorMessage}` : "")
     );

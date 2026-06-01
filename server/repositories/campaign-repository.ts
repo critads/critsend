@@ -26,6 +26,15 @@ import { classifyDbError, isDiskFullError } from "../db-errors";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
 import { toPgTextArray } from "../utils/pg-array";
 import { publishCampaignsListInvalidation } from "./campaigns-list-cache";
+import {
+  isTrackingTokensPartitioned,
+  relationExists,
+  ensureTrackingTokenPartitions,
+  buildPartitionedTableDDL,
+  legacyTokensTableExists,
+  noteLegacyTokensTableGone,
+  LEGACY_TOKENS_TABLE,
+} from "../tracking-partitions";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -1222,63 +1231,77 @@ export async function runTrackingTokensBootstrap(): Promise<"ready" | "deferred"
     "tracking_tokens",
     async (_lockClient) => {
       try {
-        await pool.query(`
-          CREATE TABLE IF NOT EXISTS tracking_tokens (
-            token       varchar(8)   PRIMARY KEY,
-            type        varchar(11)  NOT NULL CHECK (type IN ('click', 'unsubscribe')),
-            campaign_id varchar      NOT NULL REFERENCES campaigns(id)       ON DELETE CASCADE,
-            subscriber_id varchar    NOT NULL,
-            link_id     varchar      NULL     REFERENCES campaign_links(id)  ON DELETE CASCADE,
-            created_at  timestamptz  NOT NULL DEFAULT now()
-          )
-        `);
-        if (!(await indexExistsAndValid("tracking_tokens_unique_idx"))) {
-          try {
-            await pool.query(`
-              CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_unique_idx
-                ON tracking_tokens (type, campaign_id, subscriber_id, COALESCE(link_id, ''))
-            `);
-          } catch (idxErr: any) {
-            if (isDiskFullError(idxErr)) {
-              const reason = `Disk pressure during unique_idx build: ${idxErr?.message || idxErr}`;
-              logger.warn(`[tracking_tokens] Bootstrap deferred (unique_idx): ${reason}`);
-              trackingTokensBootstrapState = "deferred";
-              trackingTokensBootstrapDeferReason = reason;
-              result = "deferred";
-              return;
-            }
-            logger.warn(`[tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: ${idxErr?.message || idxErr}`);
-            try {
-              await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_unique_idx`);
-            } catch { /* ignore */ }
+        const tableExists = await relationExists(pool, "tracking_tokens");
+        const partitioned = tableExists && (await isTrackingTokensPartitioned(pool));
+
+        if (!tableExists) {
+          // Fresh install: create the partitioned parent + its indexes + an
+          // initial buffer of day-partitions. Index builds run non-concurrently
+          // but are instant on an empty table.
+          for (const ddl of buildPartitionedTableDDL("tracking_tokens")) {
+            await pool.query(ddl);
           }
-        }
-        if (!(await indexExistsAndValid("tracking_tokens_campaign_idx"))) {
-          await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_campaign_idx ON tracking_tokens (campaign_id)`);
-        }
-        if (!(await indexExistsAndValid("tracking_tokens_subscriber_idx"))) {
-          await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_subscriber_idx ON tracking_tokens (subscriber_id)`);
-        }
-        if (!(await indexExistsAndValid("tracking_tokens_created_at_idx"))) {
-          try {
-            await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_created_at_idx ON tracking_tokens (created_at)`);
-          } catch (idxErr: any) {
-            if (isDiskFullError(idxErr)) {
-              const reason = `Disk pressure during created_at index build: ${idxErr?.message || idxErr}`;
-              logger.warn(
-                `[tracking_tokens] Bootstrap deferred (created_at index): ${reason}. ` +
-                `Web server will continue starting; rerun reclamation (see docs/reclaim-tracking-tokens.md), ` +
-                `then restart or call runTrackingTokensBootstrap() to retry.`
-              );
-              trackingTokensBootstrapState = "deferred";
-              trackingTokensBootstrapDeferReason = reason;
-              result = "deferred";
-              return;
-            }
-            logger.warn(`[tracking_tokens] CONCURRENTLY created_at index build failed, will retry on next start: ${idxErr?.message || idxErr}`);
+          await ensureTrackingTokenPartitions(pool);
+          logger.info("[tracking_tokens] Created partitioned table + initial partitions (fresh install)");
+        } else if (partitioned) {
+          // Already migrated to the partitioned layout: keep the forward buffer of
+          // day-partitions topped up so inserts never hit a missing partition.
+          // Parent indexes already exist (created by the migration).
+          await ensureTrackingTokenPartitions(pool);
+        } else {
+          // Legacy non-partitioned table (pre-migration). Leave the table as-is and
+          // only ensure the historical indexes exist — the conversion to partitions
+          // is performed out-of-band by scripts/migrate-tracking-tokens-partitioning.ts.
+          // Keeping this branch means the partition-aware code is safe to deploy
+          // BEFORE the data migration runs.
+          if (!(await indexExistsAndValid("tracking_tokens_unique_idx"))) {
             try {
-              await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_created_at_idx`);
-            } catch { /* ignore */ }
+              await pool.query(`
+                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_unique_idx
+                  ON tracking_tokens (type, campaign_id, subscriber_id, COALESCE(link_id, ''))
+              `);
+            } catch (idxErr: any) {
+              if (isDiskFullError(idxErr)) {
+                const reason = `Disk pressure during unique_idx build: ${idxErr?.message || idxErr}`;
+                logger.warn(`[tracking_tokens] Bootstrap deferred (unique_idx): ${reason}`);
+                trackingTokensBootstrapState = "deferred";
+                trackingTokensBootstrapDeferReason = reason;
+                result = "deferred";
+                return;
+              }
+              logger.warn(`[tracking_tokens] CONCURRENTLY unique_idx build failed, will retry on next start: ${idxErr?.message || idxErr}`);
+              try {
+                await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_unique_idx`);
+              } catch { /* ignore */ }
+            }
+          }
+          if (!(await indexExistsAndValid("tracking_tokens_campaign_idx"))) {
+            await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_campaign_idx ON tracking_tokens (campaign_id)`);
+          }
+          if (!(await indexExistsAndValid("tracking_tokens_subscriber_idx"))) {
+            await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_subscriber_idx ON tracking_tokens (subscriber_id)`);
+          }
+          if (!(await indexExistsAndValid("tracking_tokens_created_at_idx"))) {
+            try {
+              await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS tracking_tokens_created_at_idx ON tracking_tokens (created_at)`);
+            } catch (idxErr: any) {
+              if (isDiskFullError(idxErr)) {
+                const reason = `Disk pressure during created_at index build: ${idxErr?.message || idxErr}`;
+                logger.warn(
+                  `[tracking_tokens] Bootstrap deferred (created_at index): ${reason}. ` +
+                  `Web server will continue starting; rerun reclamation (see docs/reclaim-tracking-tokens.md), ` +
+                  `then restart or call runTrackingTokensBootstrap() to retry.`
+                );
+                trackingTokensBootstrapState = "deferred";
+                trackingTokensBootstrapDeferReason = reason;
+                result = "deferred";
+                return;
+              }
+              logger.warn(`[tracking_tokens] CONCURRENTLY created_at index build failed, will retry on next start: ${idxErr?.message || idxErr}`);
+              try {
+                await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS tracking_tokens_created_at_idx`);
+              } catch { /* ignore */ }
+            }
           }
         }
         trackingTokensBootstrapState = "ready";
@@ -1370,7 +1393,7 @@ export async function batchCreateClickTokens(
     await pool.query(
       `INSERT INTO tracking_tokens (token, type, campaign_id, subscriber_id, link_id)
        SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
-       ON CONFLICT (token) DO NOTHING`,
+       ON CONFLICT DO NOTHING`,
       [chunk, types, camps, subs, links]
     );
   }
@@ -1415,7 +1438,7 @@ export async function batchCreateUnsubscribeTokens(
     await pool.query(
       `INSERT INTO tracking_tokens (token, type, campaign_id, subscriber_id)
        SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[])
-       ON CONFLICT (token) DO NOTHING`,
+       ON CONFLICT DO NOTHING`,
       [chunk, typChunk, campChunk, subChunk]
     );
   }
@@ -1447,11 +1470,43 @@ export async function resolveTrackingToken(token: string): Promise<{
   linkId: string | null;
 } | null> {
   const result = await pool.query(
+    // ORDER BY created_at DESC + LIMIT 1: deterministic resolution on the rare
+    // cross-day token collision (uniqueness intentionally not enforced on the
+    // partitioned table). Served as a backward scan of PK (token, created_at).
     `SELECT type, campaign_id, subscriber_id, link_id
-     FROM tracking_tokens WHERE token = $1`,
+     FROM tracking_tokens WHERE token = $1 ORDER BY created_at DESC LIMIT 1`,
     [token]
   );
-  if (result.rows.length === 0) return null;
+  if (result.rows.length === 0) {
+    // Dual-read fallback: during the partition migration recent tokens may still
+    // live only in tracking_tokens_legacy. Self-disables once the legacy table is
+    // dropped (existence cache TTL + 42P01 latch).
+    if (await legacyTokensTableExists(pool)) {
+      try {
+        const legacy = await pool.query(
+          `SELECT type, campaign_id, subscriber_id, link_id
+           FROM ${LEGACY_TOKENS_TABLE} WHERE token = $1 ORDER BY created_at DESC LIMIT 1`,
+          [token]
+        );
+        if (legacy.rows.length > 0) {
+          const lr = legacy.rows[0];
+          return {
+            type: lr.type,
+            campaignId: lr.campaign_id,
+            subscriberId: lr.subscriber_id,
+            linkId: lr.link_id ?? null,
+          };
+        }
+      } catch (err: any) {
+        if (err?.code === "42P01") {
+          noteLegacyTokensTableGone();
+        } else {
+          throw err;
+        }
+      }
+    }
+    return null;
+  }
   const row = result.rows[0];
   return {
     type: row.type,

@@ -15,6 +15,18 @@ import { pool as mainPool, isPoolCheckoutError } from "./db";
 import { TrackingPoolUnavailableError } from "./tracking-buffer";
 import { trackingTokenCacheTotal } from "./metrics";
 import { logger } from "./logger";
+import {
+  legacyTokensTableExists,
+  noteLegacyTokensTableGone,
+  LEGACY_TOKENS_TABLE,
+  type Queryable,
+} from "./tracking-partitions";
+
+// Adapter so the legacy-existence probe runs on the isolated tracking pool — the
+// dual-read fallback must NOT touch the main pool (see file header).
+const trackingQueryable: Queryable = {
+  query: (text: string, params?: any[]) => safeTrackingQuery(text, params ?? []),
+};
 
 type ResolvedToken = {
   type: string;
@@ -74,13 +86,27 @@ export async function resolveTrackingTokenViaTrackingPool(token: string): Promis
 }
 
 async function _resolveTokenFromDB(token: string): Promise<ResolvedToken | null> {
+  // ORDER BY created_at DESC + LIMIT 1 makes resolution deterministic on the rare
+  // cross-day token collision (token uniqueness is intentionally not enforced on the
+  // partitioned table — see schema). The PK (token, created_at) index serves this as
+  // a backward index scan, so there is no added cost on the hot path.
   const sql = `SELECT type, campaign_id, subscriber_id, link_id
-     FROM tracking_tokens WHERE token = $1`;
+     FROM tracking_tokens WHERE token = $1 ORDER BY created_at DESC LIMIT 1`;
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const result = await safeTrackingQuery(sql, [token]);
       if (result.rows.length === 0) {
+        // Dual-read fallback: during the partition migration, recent tokens may
+        // still live only in tracking_tokens_legacy. Check there before caching a
+        // miss so no opens/clicks are lost mid-cutover.
+        const legacy = await resolveTokenFromLegacy(token);
+        if (legacy) {
+          tokenCache.set(token, legacy);
+          negativeTTL.delete(token);
+          tokenCacheEvict();
+          return legacy;
+        }
         tokenCache.set(token, MISS_SENTINEL);
         negativeTTL.set(token, Date.now() + NEGATIVE_TTL_MS);
         tokenCacheEvict();
@@ -112,6 +138,38 @@ async function _resolveTokenFromDB(token: string): Promise<ResolvedToken | null>
     `Tracking pool unavailable resolving token ${token} after retry`,
     lastErr,
   );
+}
+
+/**
+ * Resolve a token from the transient `tracking_tokens_legacy` table (present only
+ * during the partition migration). Returns null when the legacy table doesn't
+ * exist (pre-migration or post-drop) or holds no matching row. A 42P01 from the
+ * read (table dropped between the existence check and the query) self-disables the
+ * fallback. Any other read error propagates so the caller does NOT cache a
+ * poisoned miss for a token that might still live in legacy.
+ */
+async function resolveTokenFromLegacy(token: string): Promise<ResolvedToken | null> {
+  if (!(await legacyTokensTableExists(trackingQueryable))) return null;
+  try {
+    const r = await safeTrackingQuery(
+      `SELECT type, campaign_id, subscriber_id, link_id
+       FROM ${LEGACY_TOKENS_TABLE} WHERE token = $1 ORDER BY created_at DESC LIMIT 1`,
+      [token],
+    );
+    if (r.rows.length === 0) return null;
+    return {
+      type: r.rows[0].type,
+      campaignId: r.rows[0].campaign_id,
+      subscriberId: r.rows[0].subscriber_id,
+      linkId: r.rows[0].link_id ?? null,
+    };
+  } catch (err: any) {
+    if (err?.code === "42P01") {
+      noteLegacyTokensTableGone();
+      return null;
+    }
+    throw err;
+  }
 }
 
 export function getTokenCacheStats(): { size: number; max: number } {

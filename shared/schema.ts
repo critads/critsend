@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex, date, bigserial, check, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex, date, bigserial, check, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -589,18 +589,30 @@ export const campaignLinks = pgTable("campaign_links", {
 export type CampaignLink = typeof campaignLinks.$inferSelect;
 
 // Tracking tokens - short branded tokens for click (/c/) and unsubscribe (/u/) URLs
-// Note: the UNIQUE expression index (COALESCE) is not expressible in Drizzle — created via raw SQL
+//
+// PHYSICALLY this is a RANGE-partitioned table (one partition per UTC day on
+// created_at) so retention is enforced by DROPping whole day-partitions (instant,
+// no WAL bloat) instead of slow DELETEs. RANGE partitioning requires the partition
+// key in every unique constraint, hence the composite PK (token, created_at).
+// Consequence: token is no longer globally unique — random 8-char collisions
+// (~hundreds per 14-day window out of ~300M rows) are tolerated as noise, and a
+// retried batch insert may create a duplicate logical row; both resolve to
+// identical metadata so attribution stays correct. The actual table/partitions are
+// created by raw SQL (bootstrap DDL in server/repositories/campaign-repository.ts +
+// scripts/migrate-tracking-tokens-partitioning.ts), NOT by drizzle-kit — this
+// pgTable exists only for TypeScript types and is excluded from `drizzle-kit push`
+// via tablesFilter in drizzle.config.ts.
 export const trackingTokens = pgTable("tracking_tokens", {
-  token: varchar("token", { length: 8 }).primaryKey(),
+  token: varchar("token", { length: 8 }).notNull(),
   type: varchar("type", { length: 11 }).notNull(), // 'click' | 'unsubscribe'
   campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: 'cascade' }),
   subscriberId: varchar("subscriber_id").notNull(),
   linkId: varchar("link_id").references(() => campaignLinks.id, { onDelete: 'cascade' }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
+  pk: primaryKey({ columns: [table.token, table.createdAt] }),
   campaignIdx: index("tracking_tokens_campaign_idx").on(table.campaignId),
   subscriberIdx: index("tracking_tokens_subscriber_idx").on(table.subscriberId),
-  createdAtIdx: index("tracking_tokens_created_at_idx").on(table.createdAt),
 }));
 
 export type TrackingToken = typeof trackingTokens.$inferSelect;
