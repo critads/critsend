@@ -21,6 +21,7 @@ import { db, pool } from "../db";
 import { toPgTextArray } from "../utils/pg-array";
 import { logger } from "../logger";
 import { storage } from "../storage";
+import { messageQueue } from "../message-queue";
 import { sendEmailWithNullsink, preregisterCampaignLinks } from "../email-service";
 import {
   PRESSURE_WINDOW_HOURS,
@@ -73,6 +74,13 @@ function envInt(name: string, defaultValue: number, min: number, max: number): n
 const POLL_INTERVAL_MS = envInt("PRESSURE_GUARD_POLL_MS", 30_000, 1_000, 24 * 60 * 60_000);
 const BATCH_PER_CAMPAIGN = envInt("PRESSURE_GUARD_BATCH", 200, 1, 100_000);
 const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_000);
+// Mirror of campaign-sender.ts MAX_AUTO_RETRIES. The drain has its own
+// completion path (below) and, unlike the campaign-sender, no retry phase,
+// so without this gate any send the drain marks 'failed' would be abandoned
+// at retry_count=0 the moment the deferred queue empties and the campaign is
+// flipped to 'completed'. Auto-requeue those failures (failed → pending,
+// new campaign_job) up to this many times before giving up.
+const MAX_AUTO_RETRIES = envInt("CAMPAIGN_MAX_AUTO_RETRIES", 3, 0, 100);
 // Task #153: bounded-parallel drain. Each drainCampaign call peaks at ~2
 // main-pool connections (claim txn + finalize txn) plus per-send work that
 // is mostly SMTP I/O. With DRAIN_PARALLELISM=4 the per-tick peak DB
@@ -1355,12 +1363,42 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   // dashboards, jobEvents listeners) advance correctly.
   try {
     const remaining = await db.execute(sql`
-      SELECT COUNT(*)::int AS n FROM campaign_sends
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('pending', 'attempting'))::int AS active,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+      FROM campaign_sends
       WHERE campaign_id = ${campaignId}
-        AND status IN ('pending', 'attempting')
     `);
-    const n = Number((remaining.rows[0] as { n?: number } | undefined)?.n ?? 0);
+    const counts = remaining.rows[0] as { active?: number; failed?: number } | undefined;
+    const n = Number(counts?.active ?? 0);
+    const failedRemaining = Number(counts?.failed ?? 0);
     if (n === 0) {
+      // Before completing: auto-retry sends the drain marked 'failed'. The
+      // campaign-sender funnels its own failures through a retry phase +
+      // auto-requeue (campaign-sender.ts), but the drain has neither — so
+      // without this, drain-produced failures are abandoned at retry_count=0
+      // the instant the deferred queue empties (the historical bug behind
+      // campaigns "completed" with tens of thousands of un-retried failures).
+      // Mirror the sender's auto-requeue: failed → pending (+1 retry), enqueue
+      // a fresh campaign_job, and hold off completion until retries are
+      // exhausted (MAX_AUTO_RETRIES) — at which point the campaign completes
+      // and the residual failures remain available for manual "Retry Failed".
+      if (failedRemaining > 0) {
+        const fresh = await storage.getCampaign(campaignId);
+        const currentAutoRetries = fresh?.autoRetryCount ?? 0;
+        if (currentAutoRetries < MAX_AUTO_RETRIES) {
+          const newCount = currentAutoRetries + 1;
+          const requeued = await storage.autoRequeueCampaignFailed(campaignId, newCount);
+          if (requeued) {
+            await messageQueue.notify("campaign_jobs", { campaignId });
+            logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} auto-retry ${newCount}/${MAX_AUTO_RETRIES}: requeued ${failedRemaining} drain-failed send(s)`);
+            emitProgress("sending");
+            return;
+          }
+        } else {
+          logger.warn(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} auto-retry limit reached (${MAX_AUTO_RETRIES}/${MAX_AUTO_RETRIES}); ${failedRemaining} drain-failed send(s) remain for manual retry`);
+        }
+      }
       const flipped = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
       if (flipped) {
         // 2026-05-22 urgent-mode audit: clear the flag on natural drain
