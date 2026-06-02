@@ -66,43 +66,79 @@ async function main() {
       continue;
     }
 
-    const resetCount = await db.transaction(async (tx) => {
-      const resetResult = await tx.execute(sql`
-        UPDATE campaign_sends
+    // Chunked failed -> pending reset. A single UPDATE over ~100k rows exceeds
+    // the prod statement_timeout (57014), so we reset in bounded batches, each
+    // its own autocommit statement. Idempotent and re-runnable: only rows still
+    // 'failed' are touched, so a mid-run crash just resumes on re-run. The
+    // `cs.status = 'failed'` recheck inside the UPDATE (not only in the CTE
+    // snapshot) guards against double-touch (a second retry_count++) if another
+    // requeue/route races us on the same rows.
+    const BATCH = 5000;
+    let reset = 0;
+    for (;;) {
+      const r = await db.execute(sql`
+        WITH batch AS (
+          SELECT id FROM campaign_sends
+          WHERE campaign_id = ${id} AND status = 'failed'
+          LIMIT ${BATCH}
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE campaign_sends cs
         SET status = 'pending',
             retry_count = retry_count + 1,
             last_retry_at = NOW(),
             sent_at = NOW()
-        WHERE campaign_id = ${id} AND status = 'failed'
-        RETURNING id
+        FROM batch
+        WHERE cs.id = batch.id AND cs.status = 'failed'
+        RETURNING cs.id
       `);
-      const n = resetResult.rows.length;
-      if (n === 0) return 0;
+      const n = r.rows.length;
+      reset += n;
+      if (n > 0) process.stdout.write(`\r  [..] ${id} reset ${reset}/${failed}`);
+      if (n < BATCH) break;
+    }
+    if (reset > 0) process.stdout.write("\n");
 
-      await tx.execute(sql`
-        UPDATE campaigns
-        SET status = 'sending',
-            failed_count = 0,
-            pause_reason = NULL,
-            retry_until = NULL,
-            auto_retry_count = 0,
-            urgent_mode = false,
-            urgent_flush_job_id = NULL
-        WHERE id = ${id}
-      `);
+    // Finalize UNCONDITIONALLY (not gated on reset>0 this run): a previous run
+    // could have died after resetting all failed rows but before flipping the
+    // campaign / enqueuing the job. Re-running must still complete that, so we
+    // key off the durable post-condition — "are there pending rows to send?" —
+    // rather than off how many rows this particular invocation reset.
+    const pendRes = await db.execute(sql`
+      SELECT COUNT(*)::int AS pending
+      FROM campaign_sends WHERE campaign_id = ${id} AND status = 'pending'
+    `);
+    const pending = Number((pendRes.rows[0] as { pending?: number })?.pending ?? 0);
 
-      await tx.execute(sql`
-        INSERT INTO campaign_jobs (id, campaign_id, status)
-        SELECT gen_random_uuid(), ${id}, 'pending'
-        WHERE NOT EXISTS (
-          SELECT 1 FROM campaign_jobs
-          WHERE campaign_id = ${id} AND status IN ('pending', 'processing')
-        )
-      `);
-      return n;
-    });
+    if (pending === 0) {
+      console.log(`  [SKIP] ${id} "${row.name}" — nothing pending to send`);
+      continue;
+    }
 
-    console.log(`  [DONE] ${id} "${row.name}" — requeued ${resetCount} failed send(s); job enqueued`);
+    // Flip campaign back to sending with a fresh auto-retry budget, then enqueue
+    // a deduped job. Both are idempotent (set absolute values; job insert deduped
+    // against pending/processing) so re-running after a kill is safe.
+    await db.execute(sql`
+      UPDATE campaigns
+      SET status = 'sending',
+          failed_count = 0,
+          pause_reason = NULL,
+          retry_until = NULL,
+          auto_retry_count = 0,
+          urgent_mode = false,
+          urgent_flush_job_id = NULL
+      WHERE id = ${id}
+    `);
+    await db.execute(sql`
+      INSERT INTO campaign_jobs (id, campaign_id, status)
+      SELECT gen_random_uuid(), ${id}, 'pending'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM campaign_jobs
+        WHERE campaign_id = ${id} AND status IN ('pending', 'processing')
+      )
+    `);
+
+    console.log(`  [DONE] ${id} "${row.name}" — reset ${reset} this run; ${pending} pending; status=sending, job enqueued`);
   }
 
   console.log(`Total failed across ${CAMPAIGN_IDS.length} campaigns: ${grandTotal}`);

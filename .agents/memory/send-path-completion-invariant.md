@@ -29,3 +29,22 @@ the campaign-sender auto-requeue (failed->pending +1 retry, status='sending',
 retry_until=NULL, deduped new campaign_job). `MAX_AUTO_RETRIES` is duplicated as a
 local const in both the sender and the drain (env `CAMPAIGN_MAX_AUTO_RETRIES`,
 default 3) — keep them in sync.
+
+## Bulk-requeuing historical failures (one-off backfill)
+To re-send already-abandoned `failed` rows on `completed` campaigns: failed->pending
+(`retry_count+1`, `sent_at=NOW`), flip campaign status='sending' + reset
+`failed_count/auto_retry_count/retry_until/urgent_*`, then insert ONE deduped
+`campaign_jobs` row. **Two gotchas hit during the 2026-06-02 backfill:**
+1. A single `UPDATE ... WHERE status='failed'` over a ~100k-row campaign exceeds the
+   prod `statement_timeout` (57014) and rolls back the whole tx. Either chunk it
+   (`LIMIT N` CTE loop, each its own autocommit stmt) OR — simplest and what worked —
+   run **one transaction per campaign** via `psql` with `BEGIN; SET LOCAL
+   statement_timeout = 0; <update> <flip> <job insert>; COMMIT;`. `SET LOCAL` only
+   sticks inside an explicit tx under Neon PgBouncer transaction pooling, so it MUST
+   be the same single-tx `-c` call.
+2. **Background detachment dies in the agent sandbox** — `nohup ... &` and even
+   `setsid` only survived ~one campaign before being killed when the tool call
+   returned. Don't rely on a long-running detached `tsx` script; drive prod directly
+   with bounded foreground `psql` calls (a few campaigns per call, under the 2-min
+   tool cap). The operation is idempotent (only touches still-`failed` rows), so
+   re-running after a kill resumes cleanly.
