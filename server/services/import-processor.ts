@@ -1537,6 +1537,16 @@ async function processRefsImportPhase1(
 
   await storage.updateImportJob(importJobId, { status: "processing", startedAt: new Date() });
 
+  // Idempotent re-stage: clear any rows left by a PRIOR attempt of THIS job
+  // before staging. stageRefsToImportStaging is an append-only COPY with no
+  // dedup, so without this a requeue (transient failure → recovery) re-stages
+  // the entire CSV on top of the previous copy. Repeated requeues multiply the
+  // job's staged rows (observed: an 80k-row CSV grew to ~30M rows), which makes
+  // the end-of-phase detectImportRefs (DISTINCT unnest over the job's rows)
+  // progressively slower until it breaches statement_timeout and HARD-FAILS —
+  // a death spiral that also bloats import_staging and slows every other import.
+  await cleanupStagingData(importJobId);
+
   const BATCH_SIZE = 25000;
   let header: string[] = [];
   let emailIdx = -1, tagsIdx = -1, refsColIdx = -1, ipIdx = -1;

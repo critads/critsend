@@ -1611,6 +1611,29 @@ async function pollForImportJobs() {
             logger.info(`[IMPORT] Job ${importJobId} already completed — not overwriting to failed (queue re-process after file cleanup). Error was: ${err.message}`);
             await storage.completeImportQueueJob(queueId, "completed").catch(() => {});
           } else {
+            // Drop this terminally-failed job's staged rows so they don't leak.
+            // Phase 1 staging is an append-only COPY; without this a dead refs
+            // import leaves its ~80k+ staged rows behind, bloating import_staging
+            // and slowing detectImportRefs/cleanup for every subsequent import.
+            // LEASE-BOUND + runs BEFORE we flip the queue row to 'failed': the
+            // EXISTS guard only deletes while THIS worker still owns the
+            // 'processing' lease. If recoverStuckImportJobs reset this stale row
+            // and another worker re-claimed + re-staged it, the guard fails and we
+            // delete nothing — we must never clobber a live attempt's fresh rows.
+            // (Phase 1's idempotent pre-clear already prevents row MULTIPLICATION;
+            // this only stops a terminally-dead job from leaking its single copy.)
+            await db.execute(sql`
+              DELETE FROM import_staging s
+              WHERE s.job_id = ${importJobId}
+                AND EXISTS (
+                  SELECT 1 FROM import_job_queue q
+                  WHERE q.id = ${queueId}
+                    AND q.worker_id = ${WORKER_ID}
+                    AND q.status = 'processing'
+                )
+            `)
+              .then(() => logger.info(`[IMPORT] Cleaned up staging for failed job ${importJobId}`))
+              .catch((stagingErr: any) => logger.warn(`[IMPORT] Failed to clean staging for failed job ${importJobId}: ${stagingErr.message}`));
             await storage.completeImportQueueJob(queueId, "failed", err.message || "Unknown error").catch(() => {});
             await storage.updateImportJob(importJobId, {
               status: "failed",
