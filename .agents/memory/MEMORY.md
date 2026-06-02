@@ -2,3 +2,4 @@
 - [DB target & script exit](db-script-environment.md) — tsx scripts hit PROD, executeSql sandbox hits DEV; scripts importing server/db must process.exit() or they hang on non-unref'd timers.
 - [Counter-reconciler budget](counter-reconciler-budget.md) — lifecycle stage must gate off the tiny campaigns table + per-campaign LATERAL index access, never aggregate campaign_sends by an IN-list (parallel seq scan → drift); deferred=held=eligible_at IS NOT NULL.
 - [Import conn-acquire retry](import-conn-retry.md) — retry connect-timeouts on BOTH the import pool AND the shared main pool (import metadata/finalization runs on main pool, so a dedicated pool alone can't fix it); storage Proxy auto-retries all storage.* except CREATE INDEX CONCURRENTLY.
+- [Import hard-fail vs statement_timeout](import-statement-timeout.md) — PG 57014 is not a conn error; only uncaught heavy refs-path statements over the 89M subscribers table hard-fail imports.

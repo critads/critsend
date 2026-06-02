@@ -54,6 +54,62 @@ function execWithRetry(query: Parameters<typeof db.execute>[0]) {
 }
 
 /**
+ * Heavy bulk statements over the ~89M-row `subscribers` table (refs merge /
+ * clean-existing / delete-by-refs) can legitimately run longer than the import
+ * pool's default 5-min `statement_timeout` under production load. A
+ * statement_timeout (PG 57014) is NOT a connection error, so the conn-retry
+ * layer does not catch it — it propagates UNCAUGHT and HARD-FAILS the whole
+ * import ("canceling statement due to statement timeout"). These operations are
+ * idempotent and bounded, so we give them a larger, env-tunable budget via
+ * `SET LOCAL statement_timeout` inside a dedicated transaction (so it never
+ * leaks to other statements on the pooled connection). Connection-class blips
+ * are still retried by withConnRetry; a genuine slow-statement timeout at the
+ * elevated budget still fails fast — we do not loop a 30-min operation.
+ */
+const HEAVY_IMPORT_STATEMENT_TIMEOUT_MS = (() => {
+  const parsed = Number(process.env.IMPORT_HEAVY_STATEMENT_TIMEOUT_MS);
+  // Guard against invalid env (NaN / <=0 / non-finite) which would otherwise be
+  // injected into `SET LOCAL statement_timeout = <n>` and raise an SQL error.
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1_800_000; // 30 min
+})();
+
+async function runHeavyImportQuery(text: string, params?: any[]) {
+  return withConnRetry(
+    async () => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(`SET LOCAL statement_timeout = ${Math.trunc(HEAVY_IMPORT_STATEMENT_TIMEOUT_MS)}`);
+        const result = params === undefined ? await client.query(text) : await client.query(text, params);
+        await client.query("COMMIT");
+        return result;
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+    { label: "heavy import query" },
+  );
+}
+
+/**
+ * Detect distinct refs for a staged job on the IMPORT pool (5-min
+ * statement_timeout) rather than the shared MAIN pool (2-min). `unnest` over a
+ * large staged set under load can exceed 2 min and HARD-FAIL Phase 1; the
+ * import pool gives it the same budget as the rest of the import path. Scoped by
+ * the `import_staging_job_id_idx` index.
+ */
+async function detectImportRefsViaImportPool(importJobId: string): Promise<string[]> {
+  const result = await queryWithRetry(
+    `SELECT DISTINCT unnest(refs) AS ref FROM import_staging WHERE job_id = $1 ORDER BY ref`,
+    [importJobId],
+  );
+  return (result.rows as Array<{ ref: string }>).map((r) => r.ref);
+}
+
+/**
  * Storage methods that must NOT be auto-retried on a connection-class error.
  * `recreateSubscriberGinIndexes` issues CREATE INDEX CONCURRENTLY, which is not
  * safely retryable: a mid-flight connection reset can leave an INVALID index that
@@ -285,9 +341,6 @@ async function copyBatchUpsert(
 
     const refsConflict = `refs = COALESCE((SELECT array_agg(DISTINCT r) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL), ARRAY[]::text[])`;
 
-    const existingResult = await client.query(`SELECT COUNT(DISTINCT s.email) AS cnt FROM subscribers s INNER JOIN import_staging_batch b ON s.email = b.email`);
-    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
-
     const mergeResult = await client.query(`
       INSERT INTO subscribers (email, tags, refs, ip_address, import_date)
       SELECT email, tags, refs, ip_address, NOW() FROM import_staging_batch
@@ -307,7 +360,7 @@ async function copyBatchUpsert(
       const { dispatchSubscriberAddedTriggers } = await import("./automation-engine");
       dispatchSubscriberAddedTriggers(newSubscriberIds);
     }
-    return { inserted: Math.max(totalProcessed - preExisting, 0), updated: Math.min(preExisting, totalProcessed) };
+    return { inserted: newSubscriberIds.length, updated: Math.max(totalProcessed - newSubscriberIds.length, 0) };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
@@ -338,9 +391,6 @@ async function directBatchUpsert(
   const client = await connectWithRetry();
   try {
     await client.query("BEGIN");
-    const emails = rows.map(r => r.email.toLowerCase());
-    const existingResult = await client.query(`SELECT COUNT(*) AS cnt FROM subscribers WHERE email = ANY($1)`, [emails]);
-    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
     const result = await client.query(
       `INSERT INTO subscribers (email, tags, refs, ip_address, import_date) VALUES ${valuesClauses.join(", ")} ON CONFLICT (email) DO UPDATE SET ${tagsConflict}, ${refsConflict}, ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address) RETURNING id, (xmax = 0) AS inserted`,
       params
@@ -354,7 +404,7 @@ async function directBatchUpsert(
       const { dispatchSubscriberAddedTriggers } = await import("./automation-engine");
       dispatchSubscriberAddedTriggers(newSubscriberIds);
     }
-    return { inserted: Math.max(totalProcessed - preExisting, 0), updated: Math.min(preExisting, totalProcessed) };
+    return { inserted: newSubscriberIds.length, updated: Math.max(totalProcessed - newSubscriberIds.length, 0) };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
@@ -573,9 +623,6 @@ async function copyBatchUpsertRefs(
       copyStream.end();
     });
 
-    const existingResult = await client.query(`SELECT COUNT(DISTINCT s.email) AS cnt FROM subscribers s INNER JOIN import_staging_batch b ON s.email = b.email`);
-    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
-
     const mergeResult = await client.query(`
       INSERT INTO subscribers (email, refs, ip_address, import_date)
       SELECT email, refs, ip_address, NOW() FROM import_staging_batch
@@ -583,10 +630,12 @@ async function copyBatchUpsertRefs(
         refs = (SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[]) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL),
         ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address),
         import_date = NOW()
+      RETURNING (xmax = 0) AS inserted
     `);
     const totalProcessed = mergeResult.rowCount || 0;
+    const insertedCount = (mergeResult.rows as Array<{ inserted: boolean }>).filter(r => r.inserted).length;
     await client.query("COMMIT");
-    return { inserted: Math.max(totalProcessed - preExisting, 0), updated: Math.min(preExisting, totalProcessed) };
+    return { inserted: insertedCount, updated: Math.max(totalProcessed - insertedCount, 0) };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
@@ -611,16 +660,14 @@ async function directBatchUpsertRefs(
   const client = await connectWithRetry();
   try {
     await client.query("BEGIN");
-    const emails = rows.map(r => r.email.toLowerCase());
-    const existingResult = await client.query(`SELECT COUNT(*) AS cnt FROM subscribers WHERE email = ANY($1)`, [emails]);
-    const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
     const result = await client.query(
-      `INSERT INTO subscribers (email, refs, ip_address, import_date) VALUES ${valuesClauses.join(", ")} ON CONFLICT (email) DO UPDATE SET refs = (SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[]) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address), import_date = NOW()`,
+      `INSERT INTO subscribers (email, refs, ip_address, import_date) VALUES ${valuesClauses.join(", ")} ON CONFLICT (email) DO UPDATE SET refs = (SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[]) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL), ip_address = COALESCE(EXCLUDED.ip_address, subscribers.ip_address), import_date = NOW() RETURNING (xmax = 0) AS inserted`,
       params
     );
     const totalProcessed = result.rowCount || 0;
+    const insertedCount = (result.rows as Array<{ inserted: boolean }>).filter(r => r.inserted).length;
     await client.query("COMMIT");
-    return { inserted: Math.max(totalProcessed - preExisting, 0), updated: Math.min(preExisting, totalProcessed) };
+    return { inserted: insertedCount, updated: Math.max(totalProcessed - insertedCount, 0) };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
@@ -687,7 +734,7 @@ async function cleanExistingRefsInDb(refs: string[]): Promise<number> {
   const BATCH_SIZE = 50000;
   let totalCleaned = 0;
   while (true) {
-    const result = await queryWithRetry(`
+    const result = await runHeavyImportQuery(`
       UPDATE subscribers SET refs = (SELECT COALESCE(array_agg(r), ARRAY[]::text[]) FROM unnest(refs) AS r WHERE r != ALL($1::text[]))
       WHERE id IN (SELECT id FROM subscribers WHERE refs && $1::text[] LIMIT $2)
     `, [refs, BATCH_SIZE]);
@@ -701,14 +748,14 @@ async function cleanExistingRefsInDb(refs: string[]): Promise<number> {
 
 async function deleteSubscribersByRefsInDb(refs: string[]): Promise<{ deleted: number; bckProtected: number }> {
   if (refs.length === 0) return { deleted: 0, bckProtected: 0 };
-  const bckResult = await queryWithRetry(
+  const bckResult = await runHeavyImportQuery(
     `SELECT COUNT(*) AS count FROM subscribers WHERE refs && $1::text[] AND 'BCK' = ANY(tags)`, [refs]
   );
   const bckProtected = parseInt(bckResult.rows[0]?.count || "0");
   const BATCH_SIZE = 50000;
   let totalDeleted = 0;
   while (true) {
-    const result = await queryWithRetry(`
+    const result = await runHeavyImportQuery(`
       DELETE FROM subscribers WHERE id IN (
         SELECT id FROM subscribers WHERE refs && $1::text[] AND NOT ('BCK' = ANY(tags)) LIMIT $2
       )
@@ -722,20 +769,17 @@ async function deleteSubscribersByRefsInDb(refs: string[]): Promise<{ deleted: n
 }
 
 async function mergeRefsFromStaging(importJobId: string): Promise<{ inserted: number; updated: number }> {
-  const existingResult = await queryWithRetry(`
-    SELECT COUNT(DISTINCT s.email) AS cnt FROM subscribers s
-    INNER JOIN import_staging st ON s.email = st.email WHERE st.job_id = $1
-  `, [importJobId]);
-  const preExisting = parseInt(existingResult.rows[0]?.cnt || "0");
-  const result = await queryWithRetry(`
+  const result = await runHeavyImportQuery(`
     INSERT INTO subscribers (email, refs, import_date)
     SELECT email, refs, NOW() FROM import_staging WHERE job_id = $1
     ON CONFLICT (email) DO UPDATE SET
       refs = (SELECT COALESCE(array_agg(DISTINCT r), ARRAY[]::text[]) FROM unnest(subscribers.refs || EXCLUDED.refs) AS r WHERE r IS NOT NULL),
       import_date = NOW()
+    RETURNING (xmax = 0) AS inserted
   `, [importJobId]);
   const totalProcessed = result.rowCount || 0;
-  return { inserted: Math.max(totalProcessed - preExisting, 0), updated: Math.min(preExisting, totalProcessed) };
+  const insertedCount = (result.rows as Array<{ inserted: boolean }>).filter(r => r.inserted).length;
+  return { inserted: insertedCount, updated: Math.max(totalProcessed - insertedCount, 0) };
 }
 
 async function cleanupStagingData(importJobId: string): Promise<void> {
@@ -1563,7 +1607,7 @@ async function processRefsImportPhase1(
           batchRows = [];
         }
 
-        const detectedRefs = await storage.detectImportRefs(importJobId);
+        const detectedRefs = await detectImportRefsViaImportPool(importJobId);
         logger.info(`[IMPORT] ${importJobId}: [REFS PHASE 1] Detected ${detectedRefs.length} refs: ${detectedRefs.join(", ")}`);
 
         if (detectedRefs.length === 0) {
