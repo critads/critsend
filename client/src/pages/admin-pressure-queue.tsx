@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Clock, History, Users, TrendingUp, Send, AlertTriangle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Clock, History, Users, TrendingUp, Send, AlertTriangle, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area } from "recharts";
 
@@ -110,6 +111,8 @@ interface HistoryResponse extends StaleMeta {
   }>;
 }
 
+type BreakdownCampaign = AdminQueueResponse["campaigns"][number];
+
 export default function AdminPressureQueue() {
   const [reason, setReason] = useState("");
   const { toast } = useToast();
@@ -144,6 +147,90 @@ export default function AdminPressureQueue() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/pressure-queue/history"] });
     },
     onError: (e: any) => toast({ title: "Flush failed", description: e?.message ?? "Error", variant: "destructive" }),
+  });
+
+  // Per-campaign async urgent-flush. Mirrors the campaign-list flow:
+  // POST /api/campaigns/:id/urgent returns 202 + jobId immediately, then we
+  // poll GET /api/urgent-flush/:jobId every 2s and surface progress toasts.
+  const [urgentConfirm, setUrgentConfirm] = useState<BreakdownCampaign | null>(null);
+  // Track live poll intervals so we can clear them on unmount (the loop is
+  // bounded by MAX_POLL_MS, but navigating away mid-flush would otherwise
+  // keep polling + emitting toasts off-page).
+  const pollIntervals = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+  useEffect(() => () => {
+    pollIntervals.current.forEach((id) => clearInterval(id));
+    pollIntervals.current.clear();
+  }, []);
+  const urgentMutation = useMutation<
+    { ok: boolean; jobId: string; status: string; totalHeld: number; processed: number; alreadyRunning?: boolean },
+    Error,
+    string
+  >({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/urgent`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pressure-queue"] });
+      setUrgentConfirm(null);
+      toast({
+        title: data.alreadyRunning ? "Mode urgent: flush déjà en cours" : "Mode urgent: flush en arrière-plan",
+        description: `${data.totalHeld.toLocaleString()} envois à débloquer. Suivi de la progression…`,
+      });
+
+      const jobId = data.jobId;
+      const startTs = Date.now();
+      const MAX_POLL_MS = Math.min(30 * 60_000, Math.max(60_000, (data.totalHeld / 500) * 2_000 * 3));
+      const stop = () => {
+        clearInterval(poll);
+        pollIntervals.current.delete(poll);
+      };
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/urgent-flush/${jobId}`, { credentials: "include" });
+          if (!r.ok) {
+            if (r.status === 404 || r.status === 403) stop();
+            return;
+          }
+          const job = (await r.json()) as { status: string; totalHeld: number; processed: number; error: string | null };
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/pressure-queue"] });
+          if (job.status === "completed") {
+            stop();
+            toast({
+              title: "Mode urgent activé ✓",
+              description: `${job.processed.toLocaleString()} envois débloqués. La campagne est en cours d'expédition prioritaire.`,
+            });
+          } else if (job.status === "failed") {
+            stop();
+            toast({
+              title: "Mode urgent: échec du flush",
+              description: job.error ?? "Erreur inconnue. Vérifiez les logs serveur.",
+              variant: "destructive",
+            });
+          } else if (Date.now() - startTs > MAX_POLL_MS) {
+            stop();
+          }
+        } catch {
+          // Network blip — keep polling; the safety timeout will eventually stop us.
+        }
+      }, 2_000);
+      pollIntervals.current.add(poll);
+    },
+    onError: (err: any) => {
+      // ApiError carries a parsed JSON body (e.g. the 400 "only available for
+      // sending/paused" message, or 503 pool saturation). Prefer the clean
+      // server message over the raw "400: {...}" string.
+      const serverMsg = err?.body?.error as string | undefined;
+      const status = err?.status as number | undefined;
+      const tightDb = status === 503 || /under load|503/.test(String(err?.message || ""));
+      toast({
+        title: tightDb ? "Base de données sous charge" : "Erreur",
+        description: tightDb
+          ? "La DB est saturée — réessayez dans 30 secondes."
+          : (serverMsg || "Impossible d'activer le mode urgent."),
+        variant: "destructive",
+      });
+    },
   });
 
   // Merge defers + flushes by day for the line chart
@@ -354,9 +441,22 @@ export default function AdminPressureQueue() {
                           ) : "—"}
                         </td>
                         <td className="p-2">
-                          <Link href={`/campaigns/${c.campaign_id}/queue`}>
-                            <Button size="sm" variant="outline" data-testid={`link-open-queue-${c.campaign_id}`}>Open</Button>
-                          </Link>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-orange-600 dark:text-orange-400 border-orange-500/40 hover:text-orange-600 dark:hover:text-orange-400"
+                              onClick={() => setUrgentConfirm(c)}
+                              disabled={urgentMutation.isPending}
+                              data-testid={`button-urgent-${c.campaign_id}`}
+                            >
+                              <Zap className="h-3.5 w-3.5 mr-1" />
+                              Urgent — flush held now
+                            </Button>
+                            <Link href={`/campaigns/${c.campaign_id}/queue`}>
+                              <Button size="sm" variant="outline" data-testid={`link-open-queue-${c.campaign_id}`}>Open</Button>
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -458,6 +558,52 @@ export default function AdminPressureQueue() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!urgentConfirm} onOpenChange={() => setUrgentConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+              Activer le mode urgent ?
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  Campagne <strong>"{urgentConfirm?.campaign_name}"</strong> — {Number(urgentConfirm?.pending_deferred ?? 0).toLocaleString()} envois actuellement en attente.
+                </p>
+                <p className="text-foreground">
+                  Cette action va <strong>contourner toutes les protections marketing pressure</strong> pour cette campagne uniquement et pousser tous les envois en attente au MTA immédiatement.
+                </p>
+                <div className="rounded-md border border-orange-500/30 bg-orange-500/10 p-3 text-foreground">
+                  <p className="font-semibold mb-2">⚠️ Conséquences :</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>La règle des <strong>4h entre deux emails</strong> au même contact est ignorée pour cette campagne.</li>
+                    <li>La priorité <strong>FIFO inter-campagnes</strong> (campagnes plus anciennes d'abord) est ignorée.</li>
+                    <li>Un contact ayant reçu un autre email récemment <strong>recevra celui-ci en doublon</strong>.</li>
+                    <li>Le flag reste actif jusqu'à la fin de la campagne (survit aux redémarrages).</li>
+                  </ul>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  À réserver aux envois critiques (alertes, transactionnel urgent). Action auditée.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUrgentConfirm(null)} data-testid="button-cancel-urgent">
+              Annuler
+            </Button>
+            <Button
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              onClick={() => urgentConfirm && urgentMutation.mutate(urgentConfirm.campaign_id)}
+              disabled={urgentMutation.isPending}
+              data-testid="button-confirm-urgent"
+            >
+              {urgentMutation.isPending ? "Activation…" : "Activer le mode urgent"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
