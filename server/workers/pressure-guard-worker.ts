@@ -131,10 +131,90 @@ const MAINTENANCE_OFFPEAK_HOUR = envInt("PRESSURE_MAINTENANCE_OFFPEAK_HOUR", 3, 
 const AUDIT_TTL_INTERVAL_MS = envInt("PRESSURE_AUDIT_TTL_INTERVAL_MS", 24 * 60 * 60_000, 60 * 60_000, 7 * 24 * 60 * 60_000);
 const AUDIT_RETENTION_DAYS = envInt("PRESSURE_FLUSH_AUDIT_RETENTION_DAYS", 365, 1, 3650);
 
+// Per-send timeout + hung-tick watchdog. The drain previously had NO
+// protection against a single send (or any awaited op) that never settles:
+// `isPolling` stays true so no new tick starts, and the background
+// lease-refresh keeps the leader lease alive so no other process takes over
+// — freezing the entire drain indefinitely (observed in prod: a tick hung
+// for ~22h while 1.65M due-now sends piled up).
+//
+// SEND_TIMEOUT_MS bounds each individual SMTP dispatch so it can never hang
+// the per-campaign send loop. A timeout is treated as a send failure (the
+// row is finalised 'failed' and picked up by the drain's existing
+// auto-requeue path at completion) — NOT lost.
+const SEND_TIMEOUT_MS = envInt("PRESSURE_DRAIN_SEND_TIMEOUT_MS", 30_000, 1_000, 5 * 60_000);
+// HANG_TIMEOUT_MS: if a drain tick is in-flight but makes NO progress (no
+// send settles, no phase advances) for this long, the watchdog force-exits
+// the process so PM2 restarts a clean drainer (the lease self-releases after
+// its TTL). Must be comfortably larger than SEND_TIMEOUT_MS so a slow-but-
+// progressing tick (each send settling within SEND_TIMEOUT_MS bumps the
+// heartbeat) never trips it.
+const HANG_TIMEOUT_MS = envInt("PRESSURE_DRAIN_HANG_TIMEOUT_MS", 5 * 60_000, 60_000, 60 * 60_000);
+const WATCHDOG_CHECK_MS = envInt("PRESSURE_DRAIN_WATCHDOG_CHECK_MS", 30_000, 5_000, 10 * 60_000);
+// Only the dedicated drainer process self-exits on a hang. In embedded
+// (web/worker) mode we must never take down the whole process, so we log
+// loudly and rely on an operator instead.
+const IS_DEDICATED_DRAINER = process.env.PROCESS_TYPE === "drainer";
+// Invariant guard: the watchdog window MUST exceed the per-send timeout (a
+// progressing send settles within SEND_TIMEOUT_MS and bumps the heartbeat),
+// otherwise a misconfig (e.g. SEND=5min, HANG=1min — both reachable via the
+// env bounds) would false-trip the watchdog mid-progress. Derive an
+// effective window of at least 2× the per-send timeout regardless of env.
+const EFFECTIVE_HANG_TIMEOUT_MS = Math.max(HANG_TIMEOUT_MS, SEND_TIMEOUT_MS * 2);
+
 let pollInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
 let auditTtlInterval: NodeJS.Timeout | null = null;
 let isPolling = false;
+
+// Hung-tick watchdog state. `drainTickInFlightSince` is set when a tick
+// begins and cleared when it returns; `drainHeartbeatAt` is bumped at tick
+// start and after every settled send. The watchdog fires only when a tick
+// is in-flight AND no heartbeat has landed for HANG_TIMEOUT_MS.
+let drainTickInFlightSince: number | null = null;
+let drainHeartbeatAt = Date.now();
+let watchdogInterval: NodeJS.Timeout | null = null;
+function drainHeartbeat(): void {
+  drainHeartbeatAt = Date.now();
+}
+
+// Bounded race: settle with `p`, or reject after `ms`. The timer is unref'd
+// so it never keeps the event loop alive; clearTimeout on settle prevents a
+// late rejection firing after a successful resolve.
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    t.unref();
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
+function checkDrainWatchdog(): void {
+  const since = drainTickInFlightSince;
+  if (since == null) return; // no tick in flight — nothing to watch
+  const stalledMs = Date.now() - drainHeartbeatAt;
+  if (stalledMs <= EFFECTIVE_HANG_TIMEOUT_MS) return;
+  const stalledS = Math.round(stalledMs / 1000);
+  const inFlightS = Math.round((Date.now() - since) / 1000);
+  logger.error(
+    `[PRESSURE_GUARD_WORKER] WATCHDOG: drain tick made no progress for ${stalledS}s ` +
+    `(in-flight ${inFlightS}s, hang_timeout=${Math.round(EFFECTIVE_HANG_TIMEOUT_MS / 1000)}s). ` +
+    `A send or awaited op is hung — the leader lease would otherwise keep refreshing forever.`,
+  );
+  if (IS_DEDICATED_DRAINER) {
+    logger.error(
+      `[PRESSURE_GUARD_WORKER] WATCHDOG: force-exiting (PROCESS_TYPE=drainer) so PM2 restarts a clean drainer; leader lease self-releases after its TTL.`,
+    );
+    process.exit(1);
+  } else {
+    logger.error(
+      `[PRESSURE_GUARD_WORKER] WATCHDOG: NOT force-exiting in embedded mode (PROCESS_TYPE=${process.env.PROCESS_TYPE || "?"}); operator must restart the drain process.`,
+    );
+  }
+}
 
 // Task #160: per-tick stats published to the leader-lease row so the
 // admin /api/admin/pressure-drain/health endpoint can answer "is the
@@ -221,6 +301,17 @@ export function startPressureGuardWorker() {
     gaugeRefreshInterval = setInterval(refreshTickAgeGauges, 5_000);
     gaugeRefreshInterval.unref();
   }
+  // Hung-tick watchdog: self-heals the freeze where a never-settling await
+  // keeps isPolling=true (blocking new ticks) while the lease-refresh keeps
+  // the leader lease alive (blocking failover). Only the dedicated drainer
+  // self-exits; embedded mode logs loudly (see checkDrainWatchdog).
+  if (!watchdogInterval) {
+    logger.info(
+      `[PRESSURE_GUARD_WORKER] hung-tick watchdog armed (check=${WATCHDOG_CHECK_MS}ms, hang_timeout=${EFFECTIVE_HANG_TIMEOUT_MS}ms, send_timeout=${SEND_TIMEOUT_MS}ms, dedicated_drainer=${IS_DEDICATED_DRAINER})`,
+    );
+    watchdogInterval = setInterval(checkDrainWatchdog, WATCHDOG_CHECK_MS);
+    watchdogInterval.unref();
+  }
 }
 
 export function stopPressureGuardWorker() {
@@ -240,6 +331,11 @@ export function stopPressureGuardWorker() {
     clearInterval(gaugeRefreshInterval);
     gaugeRefreshInterval = null;
   }
+  if (watchdogInterval) {
+    clearInterval(watchdogInterval);
+    watchdogInterval = null;
+  }
+  drainTickInFlightSince = null;
   logger.info("[PRESSURE_GUARD_WORKER] Stopped");
 }
 
@@ -370,6 +466,8 @@ async function pollDeferredQueue() {
     return;
   }
   isPolling = true;
+  drainTickInFlightSince = Date.now();
+  drainHeartbeat();
   try {
     // R5: leader election. When multiple worker processes run (split web
     // + worker mode, multi-replica), only one node should drain a tick;
@@ -394,6 +492,7 @@ async function pollDeferredQueue() {
     logger.error(`[PRESSURE_GUARD_WORKER] poll error: ${err?.message || err}`);
   } finally {
     isPolling = false;
+    drainTickInFlightSince = null;
   }
 }
 
@@ -1284,17 +1383,34 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   const successIds: string[] = [];
   const failedIds: string[] = [];
   const sendQueue = [...eligibleSubs];
+  // Watchdog heartbeat at the send-phase boundary: gives the SMTP fan-out a
+  // fresh no-progress budget independent of how long the pre-send DB phases
+  // (claim, CAS, token generation) took for this campaign.
+  drainHeartbeat();
   const workers = Array.from({ length: Math.min(SMTP_CONCURRENCY, eligibleSubs.length) }, async () => {
     while (sendQueue.length > 0) {
       const sub = sendQueue.shift();
       if (!sub) return;
       try {
-        const result = await sendEmailWithNullsink(mta as any, sub, campaign, trackingOpts, customHeadersMap);
+        // Bound each send so one unresponsive MTA socket (or any awaited
+        // path the email-service SMTP timeouts don't cover — DNS, pool
+        // acquisition) can never hang the whole drain. A timeout rejects
+        // and is finalised 'failed' (then auto-requeued at completion).
+        const result = await withTimeout(
+          sendEmailWithNullsink(mta as any, sub, campaign, trackingOpts, customHeadersMap),
+          SEND_TIMEOUT_MS,
+          `drain send ${sub.email}`,
+        );
         if (result.success) successIds.push(sub.id);
         else failedIds.push(sub.id);
       } catch (err: any) {
         logger.warn(`[PRESSURE_GUARD_WORKER] send failed for ${sub.email}: ${err?.message || err}`);
         failedIds.push(sub.id);
+      } finally {
+        // Watchdog heartbeat: every settled send (success, fail, or
+        // timeout) is forward progress, so a slow-but-moving tick never
+        // trips the hung-tick watchdog.
+        drainHeartbeat();
       }
     }
   });
