@@ -1,0 +1,50 @@
+root@critsend-db /opt/critsend/deploy/db-server # cd /opt/critsend && git pull
+cd deploy/db-server
+./05-install-pgbouncer.sh
+remote: Enumerating objects: 36, done.
+remote: Counting objects: 100% (36/36), done.
+remote: Compressing objects: 100% (8/8), done.
+remote: Total 27 (delta 19), reused 27 (delta 19), pack-reused 0 (from 0)
+Unpacking objects: 100% (27/27), 11.35 KiB | 1.62 MiB/s, done.
+From https://github.com/critads/critsend
+   f0b4f93..eac9142  main       -> origin/main
+Updating f0b4f93..eac9142
+Fast-forward
+ .agents/memory/MEMORY.md                             |   1 +
+ .agents/memory/postgres-huge-pages.md                |  32 ++++
+ ...tsend-deploy-db-server-04-confi_1780570666713.txt |  22 +++
+ ...tsend-deploy-db-server-cd-opt-c_1780570478480.txt | 201 ++++++++++++++++++++
+ deploy/db-server/03-install-postgres.sh              |   2 +-
+ deploy/db-server/04-configure-postgres.sh            |  11 ++
+ deploy/db-server/05-install-pgbouncer.sh             | 209 +++++++++++++++++++++
+ 7 files changed, 477 insertions(+), 1 deletion(-)
+ create mode 100644 .agents/memory/postgres-huge-pages.md
+ create mode 100644 attached_assets/Pasted-root-critsend-db-opt-critsend-deploy-db-server-04-confi_1780570666713.txt
+ create mode 100644 attached_assets/Pasted-root-critsend-db-opt-critsend-deploy-db-server-cd-opt-c_1780570478480.txt
+ create mode 100755 deploy/db-server/05-install-pgbouncer.sh
+==> Installing PgBouncer...
+Scanning processes...                                                             
+Scanning processor microcode...                                                   
+Scanning linux images...                                                          
+    pgbouncer PgBouncer 1.25.2
+==> Generated pgbouncer lookup-role password -> /root/.pgbouncer_auth_password (root-only).
+==> Creating/refreshing the 'pgbouncer' lookup role and auth function...
+DO
+CREATE FUNCTION
+REVOKE
+GRANT
+==> Writing /etc/pgbouncer/userlist.txt...
+==> Writing /etc/pgbouncer/pgbouncer.ini...
+==> Restarting PgBouncer...
+
+Step 5 complete. Verification:
+  pgbouncer service    : active
+  admin console (TLS)  :
+    PgBouncer 1.25.2
+  end-to-end proxy     :
+    pgbouncer->postgres OK via PostgreSQL 17.10 (Ubuntu 17.10-1.pgdg24.04+1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+
+  App will connect to:  postgresql://<appuser>@157.180.98.150:6432/<db>?sslmode=require  (pooled, transaction mode)
+  Direct (LISTEN/NOTIFY + session store) stays on :5432.
+  Next: 06 — create app role + database, then dump/restore from Neon.
+root@critsend-db /opt/critsend/deploy/db-server # 
