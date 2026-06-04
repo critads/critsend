@@ -764,13 +764,26 @@ export async function recoverOrphanedPendingSends(campaignId: string, maxAgeMinu
  */
 export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean> {
   const result = await db.execute(sql`
-    WITH reset AS (
+    WITH eligible AS (
+      -- Guard (2026-06-04): only auto-requeue while the campaign is STILL
+      -- 'sending'. If an operator ended (status='completed') or paused it
+      -- (status='paused') while the sender's finalization pass was mid-flight
+      -- (the sender's shouldStop flag lags by up to one STATUS_CHECK_INTERVAL),
+      -- this CTE yields no rows and nothing below fires — so a manual End/Pause
+      -- can no longer be silently resurrected back to 'sending' by the
+      -- failed-send auto-requeue.
+      SELECT 1 AS ok
+      FROM campaigns
+      WHERE id = ${campaignId} AND status = 'sending'
+    ),
+    reset AS (
       UPDATE campaign_sends
       SET status = 'pending',
           retry_count = retry_count + 1,
           last_retry_at = NOW(),
           sent_at = NOW()
       WHERE campaign_id = ${campaignId} AND status = 'failed'
+        AND EXISTS (SELECT 1 FROM eligible)
       RETURNING id
     ),
     campaign_update AS (
@@ -785,7 +798,7 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
           auto_retry_count = ${newAutoRetryCount},
           urgent_mode = false,
           urgent_flush_job_id = NULL
-      WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM reset) > 0
+      WHERE id = ${campaignId} AND status = 'sending' AND (SELECT COUNT(*) FROM reset) > 0
       RETURNING id
     ),
     job_insert AS (
