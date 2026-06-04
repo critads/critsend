@@ -1,2 +1,3 @@
 - [Campaign status-flip guards](campaign-status-flip-guards.md) — any path that sets a campaign back to 'sending' (auto-requeue, retry, ghost-sweep) must guard on current status or it resurrects a manually Ended/Paused campaign.
+- [PostgreSQL huge pages](postgres-huge-pages.md) — verify usage via (Total-Free)+Rsvd == shared_memory_size_in_huge_pages; don't misread high HugePages_Free as a fallback.
 - [Singleton loop hung-tick freeze](singleton-loop-hung-tick.md) — re-entrancy guard + self-refreshing leader lease = no recovery from a never-settling await; needs per-unit timeout + heartbeat watchdog (safeInterval catches errors, not hangs).
