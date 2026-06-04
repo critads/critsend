@@ -1,0 +1,47 @@
+root@critsend-db /opt/critsend/deploy/db-server # cd /opt/critsend && git pull
+cd deploy/db-server
+./06-create-app-role-and-db.sh
+remote: Enumerating objects: 14, done.
+remote: Counting objects: 100% (14/14), done.
+remote: Compressing objects: 100% (4/4), done.
+remote: Total 10 (delta 7), reused 9 (delta 6), pack-reused 0 (from 0)
+Unpacking objects: 100% (10/10), 4.76 KiB | 1.59 MiB/s, done.
+From https://github.com/critads/critsend
+   eac9142..a997c7a  main       -> origin/main
+Updating eac9142..a997c7a
+Fast-forward
+ ...tsend-deploy-db-server-cd-opt-c_1780571665979.txt |  50 ++++++++
+ ...tsend-deploy-db-server-cd-opt-c_1780572074765.txt |  50 ++++++++
+ deploy/db-server/06-create-app-role-and-db.sh        | 141 +++++++++++++++++++++
+ 3 files changed, 241 insertions(+)
+ create mode 100644 attached_assets/Pasted-root-critsend-db-opt-critsend-deploy-db-server-cd-opt-c_1780571665979.txt
+ create mode 100644 attached_assets/Pasted-root-critsend-db-opt-critsend-deploy-db-server-cd-opt-c_1780572074765.txt
+ create mode 100755 deploy/db-server/06-create-app-role-and-db.sh
+==> Generated app-role password -> /root/.critsend_db_password (root-only).
+==> Creating/refreshing role 'critsend'...
+DO
+==> Creating database 'critsend' owned by 'critsend'...
+==> Configuring public schema + extensions in 'critsend'...
+ALTER SCHEMA
+GRANT
+CREATE EXTENSION
+CREATE EXTENSION
+
+Step 6 complete. Verification:
+  role / database      : critsend / critsend
+  owner check          : db owner = critsend
+  extensions present   : pg_stat_statements, pg_trgm
+  login via PgBouncer  :
+    ok: critsend@critsend
+  DDL permission check :
+    ok: app role can CREATE/DROP in public
+
+  App connection strings to use at cutover (Step 8):
+    Pooled (transaction mode, most of the app):
+      postgresql://critsend:<pw>@157.180.98.150:6432/critsend?sslmode=require
+    Direct (:5432 — LISTEN/NOTIFY, session store, import pool):
+      postgresql://critsend:<pw>@157.180.98.150:5432/critsend?sslmode=require
+    Password is in /root/.critsend_db_password (cat it when wiring env vars).
+
+  Next: 07 — maintenance-window dump/restore from Neon into 'critsend'.
+root@critsend-db /opt/critsend/deploy/db-server # 
