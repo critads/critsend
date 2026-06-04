@@ -1,0 +1,280 @@
+Last login: Thu Jun  4 10:47:22 on ttys000
+ianisbaulleret@Mac ~ % ssh root@157.180.98.150
+The authenticity of host '157.180.98.150 (157.180.98.150)' can't be established.
+ED25519 key fingerprint is: SHA256:BxW+RJKhDcjm53FmkLBC0OdQL9rmoDHSPr9ggNJlpZ0
+This key is not known by any other names.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '157.180.98.150' (ED25519) to the list of known hosts.
+root@157.180.98.150's password: 
+Linux rescue 6.12.67 #1 SMP Fri Jan 23 15:08:53 UTC 2026 x86_64
+
+-------------------------------------------------------------------------------------------------------------------------
+
+  Welcome to the Hetzner Rescue System.
+
+  This Rescue System is based on Debian GNU/Linux 12 (bookworm) with a custom kernel.
+  You can install software like you would in a normal system.
+
+  To install a new operating system from one of our prebuilt images, run 'installimage' and follow the instructions.
+
+  Important note: Any data that was not written to the disks will be lost during a reboot.
+
+  For additional information, check the following resources:
+    Rescue System:           https://docs.hetzner.com/robot/dedicated-server/troubleshooting/hetzner-rescue-system
+    Installimage:            https://docs.hetzner.com/robot/dedicated-server/operating-systems/installimage
+    Install custom software: https://docs.hetzner.com/robot/dedicated-server/operating-systems/installing-custom-images
+    other articles:          https://docs.hetzner.com/robot
+
+-------------------------------------------------------------------------------------------------------------------------
+
+Rescue System (via EFI) up since 2026-06-04 07:04 +02:00
+
+Hardware data:
+
+   CPU1: AMD EPYC 9454 48-Core Processor (Cores 96)
+   Memory:  257460 MB (ECC)
+   Disk /dev/nvme0n1: 1920 GB (=> 1788 GiB) doesn't contain a valid partition table
+   Disk /dev/nvme1n1: 1920 GB (=> 1788 GiB) doesn't contain a valid partition table
+   Total capacity 3576 GiB with 2 Disks
+
+Network data:
+   eth0  LINK: yes
+         MAC:  a0:ad:9f:28:3f:0f
+         IP:   157.180.98.150
+         IPv6: 2a01:4f9:3090:2f0f::2/64
+         Broadcom NetXtreme network driver
+   eth1  LINK: no
+         MAC:  a0:ad:9f:28:3f:10
+         IP:   (none)
+         IPv6: (none)
+         Broadcom NetXtreme network driver
+
+root@rescue ~ # sudo -i
+apt-get update && apt-get install -y git
+git clone https://github.com/critads/critsend.git /opt/critsend
+cd /opt/critsend/deploy/db-server
+chmod +x *.sh
+./01-os-prep.sh
+./02-security.sh
+-bash: sudo: command not found
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://security.debian.org bookworm-security InRelease [48.0 kB]
+Get:3 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]        
+Get:4 http://mirror.hetzner.com/debian/packages bookworm InRelease [151 kB]
+Get:5 http://mirror.hetzner.com/debian/packages bookworm-updates InRelease [55.4 kB]
+Get:6 http://mirror.hetzner.com/debian/security bookworm-security InRelease [48.0 kB]
+Get:7 http://security.debian.org bookworm-security/main Sources [207 kB]
+Hit:8 http://mirror.hetzner.com/tools/Dell/openmanage/openmanage/11100/jammy jammy InRelease
+Get:9 http://security.debian.org bookworm-security/main amd64 Packages [306 kB]
+Get:10 http://deb.debian.org/debian bookworm/main Sources [9490 kB]
+Get:11 http://deb.debian.org/debian bookworm/non-free Sources [78.0 kB]
+Get:12 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+Get:13 http://deb.debian.org/debian bookworm/non-free amd64 Packages [102 kB]
+Get:14 http://mirror.hetzner.com/debian/packages bookworm/non-free amd64 Packages [102 kB]
+Get:15 http://mirror.hetzner.com/debian/packages bookworm/main amd64 Packages [8790 kB]
+Get:16 http://mirror.hetzner.com/debian/security bookworm-security/main amd64 Packages [306 kB]
+Fetched 28.7 MB in 2s (12.8 MB/s)                         
+Reading package lists... Done
+N: Repository 'http://deb.debian.org/debian bookworm InRelease' changed its 'Version' value from '12.13' to '12.14'
+N: Repository 'http://mirror.hetzner.com/debian/packages bookworm InRelease' changed its 'Version' value from '12.13' to '12.14'
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+git is already the newest version (1:2.39.5-0+deb12u3).
+0 upgraded, 0 newly installed, 0 to remove and 85 not upgraded.
+Cloning into '/opt/critsend'...
+remote: Enumerating objects: 6964, done.
+remote: Counting objects: 100% (671/671), done.
+remote: Compressing objects: 100% (369/369), done.
+remote: Total 6964 (delta 457), reused 482 (delta 291), pack-reused 6293 (from 2)
+Receiving objects: 100% (6964/6964), 58.58 MiB | 38.72 MiB/s, done.
+Resolving deltas: 100% (5507/5507), done.
+==> Installing base packages...
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://security.debian.org bookworm-security InRelease
+Hit:3 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:4 http://mirror.hetzner.com/debian/packages bookworm InRelease
+Hit:5 http://mirror.hetzner.com/debian/packages bookworm-updates InRelease
+Hit:6 http://mirror.hetzner.com/debian/security bookworm-security InRelease
+Hit:7 http://mirror.hetzner.com/tools/Dell/openmanage/openmanage/11100/jammy jammy InRelease
+Reading package lists... Done
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+ca-certificates is already the newest version (20230311+deb12u1).
+curl is already the newest version (7.88.1-10+deb12u14).
+gnupg is already the newest version (2.2.40-1.1+deb12u2).
+lsb-release is already the newest version (12.0-1).
+numactl is already the newest version (2.0.16-1).
+htop is already the newest version (3.2.2-2).
+sysstat is already the newest version (12.6.1-1).
+nvme-cli is already the newest version (2.16-1~bpo12+1).
+Suggested packages:
+  networkd-dispatcher mailx system-log-daemon monit rsyslog
+Recommended packages:
+  python3-pyinotify python3-systemd
+The following packages will be REMOVED:
+  systemd-timesyncd
+The following NEW packages will be installed:
+  chrony fail2ban iotop ncdu ufw
+0 upgraded, 5 newly installed, 1 to remove and 84 not upgraded.
+Need to get 984 kB of archives.
+After this operation, 3786 kB of additional disk space will be used.
+Get:1 http://mirror.hetzner.com/debian/packages bookworm/main amd64 chrony amd64 4.3-2+deb12u2 [289 kB]
+Get:2 http://mirror.hetzner.com/debian/packages bookworm/main amd64 fail2ban all 1.0.2-2 [451 kB]
+Get:3 http://mirror.hetzner.com/debian/packages bookworm/main amd64 iotop amd64 0.6-42-ga14256a-0.1+b2 [24.1 kB]
+Get:4 http://mirror.hetzner.com/debian/packages bookworm/main amd64 ncdu amd64 1.18-0.2 [51.9 kB]
+Get:5 http://mirror.hetzner.com/debian/packages bookworm/main amd64 ufw all 0.36.2-1 [168 kB]
+Fetched 984 kB in 0s (4293 kB/s)
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LC_CTYPE = "UTF-8",
+	LANG = "en_US.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to a fallback locale ("en_US.UTF-8").
+locale: Cannot set LC_CTYPE to default locale: No such file or directory
+locale: Cannot set LC_ALL to default locale: No such file or directory
+Preconfiguring packages ...
+(Reading database ... 60938 files and directories currently installed.)
+Removing systemd-timesyncd (252.39-1~deb12u1) ...
+Selecting previously unselected package chrony.
+(Reading database ... 60922 files and directories currently installed.)
+Preparing to unpack .../chrony_4.3-2+deb12u2_amd64.deb ...
+Unpacking chrony (4.3-2+deb12u2) ...
+Selecting previously unselected package fail2ban.
+Preparing to unpack .../fail2ban_1.0.2-2_all.deb ...
+Unpacking fail2ban (1.0.2-2) ...
+Selecting previously unselected package iotop.
+Preparing to unpack .../iotop_0.6-42-ga14256a-0.1+b2_amd64.deb ...
+Unpacking iotop (0.6-42-ga14256a-0.1+b2) ...
+Selecting previously unselected package ncdu.
+Preparing to unpack .../ncdu_1.18-0.2_amd64.deb ...
+Unpacking ncdu (1.18-0.2) ...
+Selecting previously unselected package ufw.
+Preparing to unpack .../archives/ufw_0.36.2-1_all.deb ...
+Unpacking ufw (0.36.2-1) ...
+Setting up ncdu (1.18-0.2) ...
+Setting up chrony (4.3-2+deb12u2) ...
+locale: Cannot set LC_CTYPE to default locale: No such file or directory
+locale: Cannot set LC_ALL to default locale: No such file or directory
+
+Creating config file /etc/chrony/chrony.conf with new version
+locale: Cannot set LC_CTYPE to default locale: No such file or directory
+locale: Cannot set LC_ALL to default locale: No such file or directory
+
+Creating config file /etc/chrony/chrony.keys with new version
+dpkg-statoverride: warning: --update given but /var/log/chrony does not exist
+Created symlink /etc/systemd/system/chronyd.service → /lib/systemd/system/chrony.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/chrony.service → /lib/systemd/system/chrony.service.
+Setting up fail2ban (1.0.2-2) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/fail2ban.service → /lib/systemd/system/fail2ban.service.
+Setting up ufw (0.36.2-1) ...
+locale: Cannot set LC_CTYPE to default locale: No such file or directory
+locale: Cannot set LC_ALL to default locale: No such file or directory
+
+Creating config file /etc/ufw/before.rules with new version
+
+Creating config file /etc/ufw/before6.rules with new version
+
+Creating config file /etc/ufw/after.rules with new version
+
+Creating config file /etc/ufw/after6.rules with new version
+Created symlink /etc/systemd/system/multi-user.target.wants/ufw.service → /lib/systemd/system/ufw.service.
+Setting up iotop (0.6-42-ga14256a-0.1+b2) ...
+update-alternatives: using /usr/sbin/iotop-py to provide /usr/sbin/iotop (iotop) in auto mode
+Processing triggers for man-db (2.11.2-2) ...
+Processing triggers for dbus (1.14.10-1~deb12u1) ...
+==> Enabling time synchronization (chrony)...
+Synchronizing state of chrony.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install enable chrony
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LC_CTYPE = "UTF-8",
+	LANG = "en_US.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to a fallback locale ("en_US.UTF-8").
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LC_CTYPE = "UTF-8",
+	LANG = "en_US.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to a fallback locale ("en_US.UTF-8").
+==> Applying kernel / VM sysctl tuning...
+==> Disabling Transparent Huge Pages (THP)...
+Created symlink /etc/systemd/system/basic.target.wants/disable-thp.service → /etc/systemd/system/disable-thp.service.
+
+Step 1 complete.
+  THP enabled flag : always madvise [never]
+  swappiness       : 1
+  Next: review/adjust swap (recommend 8-16GB), then run 02-security.sh
+==> Configuring UFW firewall (DB reachable only from 37.27.117.222)...
+Backing up 'user.rules' to '/etc/ufw/user.rules.20260604_100229'
+Backing up 'before.rules' to '/etc/ufw/before.rules.20260604_100229'
+Backing up 'after.rules' to '/etc/ufw/after.rules.20260604_100229'
+Backing up 'user6.rules' to '/etc/ufw/user6.rules.20260604_100229'
+Backing up 'before6.rules' to '/etc/ufw/before6.rules.20260604_100229'
+Backing up 'after6.rules' to '/etc/ufw/after6.rules.20260604_100229'
+
+Default incoming policy changed to 'deny'
+(be sure to update your rules accordingly)
+Default outgoing policy changed to 'allow'
+(be sure to update your rules accordingly)
+WARN: initcaps
+[Errno 2] iptables v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+
+Rules updated
+Rules updated (v6)
+WARN: initcaps
+[Errno 2] iptables v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+
+Rules updated
+WARN: initcaps
+[Errno 2] iptables v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+
+Rules updated
+ERROR: problem running ufw-init
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+Warning: Extension conntrack revision 0 not supported, missing kernel module?
+Warning: Extension conntrack is not supported, missing kernel module?
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+Warning: Extension conntrack revision 0 not supported, missing kernel module?
+Warning: Extension conntrack is not supported, missing kernel module?
+Warning: Extension conntrack is not supported, missing kernel module?
+Warning: Extension conntrack is not supported, missing kernel module?
+Warning: Extension conntrack is not supported, missing kernel module?
+Warning: Extension icmp revision 0 not supported, missing kernel module?
+Warning: Extension udp revision 0 not supported, missing kernel module?
+Warning: Extension addrtype revision 0 not supported, missing kernel module?
+Warning: Extension addrtype is not supported, missing kernel module?
+Warning: Extension addrtype is not supported, missing kernel module?
+Warning: Extension limit revision 0 not supported, missing kernel module?
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+Warning: Extension udp revision 0 not supported, missing kernel module?
+Warning: Extension tcp revision 0 not supported, missing kernel module?
+Warning: Extension addrtype revision 0 not supported, missing kernel module?
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+Warning: Extension tcp revision 0 not supported, missing kernel module?
+Warning: Extension comment revision 0 not supported, missing kernel module?
+Warning: Extension LOG revision 0 not supported, missing kernel module?
+Warning: Extension limit revision 0 not supported, missing kernel module?
+Warning: Extension conntrack revision 0 not supported, missing kernel module?
+Warning: Extension REJECT revision 0 not supported, missing kernel module?
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+iptables-restore v1.8.9 (nf_tables): Could not fetch rule set generation id: Invalid argument
+
+Problem loading ipv6 (skipping)
+Problem running '/etc/ufw/before.rules'
+Problem running '/etc/ufw/after.rules'
+Problem running '/etc/ufw/user.rules'
+
+root@rescue /opt/critsend/deploy/db-server # 
