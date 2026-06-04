@@ -180,6 +180,17 @@ EOF
 # 4. Huge pages: compute the exact requirement for 64GB shared_buffers, reserve
 #    them, then restart so PostgreSQL maps shared memory onto huge pages.
 # ----------------------------------------------------------------------------
+# Allow the postmaster to lock the huge-page-backed shared memory. The default
+# systemd LimitMEMLOCK (8MB) is far below the ~64GB needed, so without this PG
+# silently falls back to 4KB pages even when huge pages are reserved.
+echo "==> Raising LimitMEMLOCK for the PostgreSQL service (huge pages need it)..."
+mkdir -p "/etc/systemd/system/postgresql@${PG_MAJOR}-main.service.d"
+cat > "/etc/systemd/system/postgresql@${PG_MAJOR}-main.service.d/override.conf" <<EOF
+[Service]
+LimitMEMLOCK=infinity
+EOF
+systemctl daemon-reload
+
 echo "==> Applying config (first restart, normal pages)..."
 systemctl restart "postgresql@${PG_MAJOR}-main"
 
