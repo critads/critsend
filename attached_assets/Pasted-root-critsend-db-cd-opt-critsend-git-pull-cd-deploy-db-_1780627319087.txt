@@ -1,0 +1,59 @@
+root@critsend-db ~ # cd /opt/critsend && git pull
+cd deploy/db-server
+tmux new -s migrate
+./07-migrate-from-neon.sh
+remote: Enumerating objects: 11, done.
+remote: Counting objects: 100% (11/11), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 7 (delta 4), reused 7 (delta 4), pack-reused 0 (from 0)
+Unpacking objects: 100% (7/7), 6.17 KiB | 3.09 MiB/s, done.
+From https://github.com/critads/critsend
+   a997c7a..15df903  main       -> origin/main
+Updating a997c7a..15df903
+Fast-forward
+ ...end-deploy-db-server-cd-opt-c_1780572122953.txt |  47 ++++
+ deploy/db-server/07-migrate-from-neon.sh           | 268 +++++++++++++++++++++
+ 2 files changed, 315 insertions(+)
+ create mode 100644 attached_assets/Pasted-root-critsend-db-opt-critsend-deploy-db-server-cd-opt-c_1780572122953.txt
+ create mode 100755 deploy/db-server/07-migrate-from-neon.sh
+
+    campaign_stats                          31931189        31931189  ok
+    campaigns                                    649             649  ok
+    dashboard_cache                                1               1  ok
+    db_maintenance_logs                         1945            1945  ok
+    db_maintenance_rules                           8               8  ok
+    email_headers                                  4               4  ok
+    error_logs                                  4794            4794  ok
+    flush_jobs                                    34              34  ok
+    import_job_queue                              81              81  ok
+    import_jobs                                  197             197  ok
+    import_staging                                 0               0  ok
+    mtas                                           7               7  ok
+    nullsink_captures                              0               0  ok
+    pending_tag_operations                   3448951         3448951  ok
+    pmta_collector_leader                          0               0  ok
+    pmta_queue_snapshots                           0               0  ok
+    pmta_refresh_signal                            0               0  ok
+    pmta_servers                                   0               0  ok
+    pressure_drain_tick_errors                     0               0  ok
+    pressure_flush_audit                          55              55  ok
+    pressure_guard_backfill_done                   0               0  ok
+    pressure_guard_leader                          3               3  ok
+    pressure_maintenance_state                     1               1  ok
+    segments                                     137             137  ok
+    session                                     2159            2159  ok
+    subscribers                              1685206         1685206  ok
+    tracking_tokens                        114209341       114209341  ok
+    urgent_flush_jobs                             52              52  ok
+    users                                          1               1  ok
+    warmup_schedules                               0               0  ok
+
+  All tables match. Migration verified complete.
+
+Step 7 finished successfully.
+  Dump kept at /var/lib/critsend-migration/dump (remove with: rm -rf /var/lib/critsend-migration once cutover is verified).
+  Next: Step 8 — point the app's env at the new server and restart:
+    Pooled : postgresql://critsend:<pw>@157.180.98.150:6432/critsend?sslmode=require
+    Direct : postgresql://critsend:<pw>@157.180.98.150:5432/critsend?sslmode=require
+    (password: cat /root/.critsend_db_password)
+root@critsend-db /opt/critsend/deploy/db-server # 
