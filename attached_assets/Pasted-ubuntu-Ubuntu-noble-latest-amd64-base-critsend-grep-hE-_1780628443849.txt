@@ -1,0 +1,44 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ grep -hE 'SSL enabled|CONNECTION BUDGET|now listening|startup complete|serving on|Bootstrap migration|IMPORT POOL|self.signed|FATAL|Unhandled' \
+  /var/log/critsend/web-out.log /var/log/critsend/web-err.log \
+  /var/log/critsend/worker-out.log /var/log/critsend/worker-err.log 2>/dev/null | tail -40
+2026-06-05 05:00:16 +02:00: 2026-06-05T03:00:16.152Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 05:00:16 +02:00: 2026-06-05T03:00:16.164Z [WARN] [TRACKING BUFFER] open batch (23 rows) failed, requeued 15 for retry: self-signed certificate
+2026-06-05 05:00:16 +02:00: 2026-06-05T03:00:16.164Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+2026-06-05 05:00:16 +02:00: 2026-06-05T03:00:16.391Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 05:00:16 +02:00: 2026-06-05T03:00:16.398Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.144Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.151Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.390Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.397Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.696Z [ERROR] Unhandled route error {"status":500,"error":"self-signed certificate","stack":"Error: self-signed certificate\n    at /home/ubuntu/critsend/dist/index.cjs:70:13356\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)","path":"/api/campaigns","method":"GET","requestId":"48c992b3-10e5-473c-86fe-cd7770474ccf"}
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.893Z [WARN] [TRACKING BUFFER] open batch (16 rows) failed, requeued 7 for retry: self-signed certificate
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.894Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.145Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.151Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.410Z [WARN] [TRACKING BUFFER] open batch (24 rows) failed, requeued 15 for retry: self-signed certificate
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.410Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.860Z [WARN] [TRACKING BUFFER] open batch (15 rows) failed, requeued 6 for retry: self-signed certificate
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.860Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.659Z [INFO] [IMPORT POOL] closed
+2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.793Z [INFO] Database SSL enabled for external connection (Neon)
+2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.928Z [INFO] [IMPORT POOL] configured: max=4, connTimeout=30000ms, stmtTimeout=300000ms, external=true, mode=direct, pooler=false
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.054Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: worker | Main pool: 18 | Tracking pool: 0 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 23 | External: true
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.054Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(10)+import(4)+notify(2) = 54 of 250 (headroom 196, required >= 2) OK
+2026-06-05 05:00:17 +02:00: 2026-06-05T03:00:17.965Z [INFO] [IMPORT POOL] closed
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.206Z [INFO] Database SSL enabled for external connection (Neon)
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.340Z [INFO] [IMPORT POOL] configured: max=4, connTimeout=30000ms, stmtTimeout=300000ms, external=true, mode=direct, pooler=false
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.464Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: worker | Main pool: 18 | Tracking pool: 0 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 23 | External: true
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.465Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(10)+import(4)+notify(2) = 54 of 250 (headroom 196, required >= 2) OK
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.509Z [INFO] [AUTOMATION] Bootstrap migration: mta_id + tracking_campaign_id columns ready
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.541Z [INFO] [IMPORT] Bootstrap migration: forced_tags/forced_refs/remove_mode columns ready
+2026-06-05 05:00:18 +02:00: 2026-06-05T03:00:18.590Z [INFO] [IMPORT POOL] startup probe OK (mode=direct)
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.084Z [WARN] [tracking_tokens] Bootstrap lock error: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.085Z [ERROR] [AUTOMATION] Bootstrap migration FAILED: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.086Z [WARN] [LOCK_RECOVERY] (worker-boot) failed to acquire client (non-fatal): self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.119Z [WARN] [INVALID_INDEX_REAPER(worker-boot)] Bootstrap lock error: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.119Z [ERROR] [IMPORT POOL] startup probe FAILED — CSV imports will not work until connectivity is restored. mode=direct, error=self-signed certificate. Fix: check NEON_DATABASE_URL, or set IMPORT_POOL_USE_DIRECT=true to bypass pooler auto-derivation.
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.120Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): self-signed certificate
+2026-06-05 04:56:06 +02:00: Error: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.125Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"self-signed certificate"}
+2026-06-05 05:00:05 +02:00: 2026-06-05T03:00:05.804Z [WARN] Pool keepalive query failed {"error":"self-signed certificate"}
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
