@@ -1,0 +1,1026 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ pm2 restart deploy/ecosystem.config.cjs --env production --update-env && pm2 save
+pm2 logs --lines 60
+[PM2] Applying action restartProcessId on app [critsend-web](ids: [ 10, 11 ])
+[PM2] Applying action restartProcessId on app [critsend-worker](ids: [ 12 ])
+[PM2] [critsend-worker](12) ✓
+[PM2] Applying action restartProcessId on app [critsend-drainer](ids: [ 13 ])
+[PM2] [critsend-drainer](13) ✓
+[PM2] [critsend-web](10) ✓
+[PM2] [critsend-web](11) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 13 │ critsend-drainer   │ fork     │ 8    │ online    │ 0%       │ 92.9mb   │
+│ 10 │ critsend-web       │ cluster  │ 7    │ online    │ 0%       │ 282.4mb  │
+│ 11 │ critsend-web       │ cluster  │ 7    │ online    │ 0%       │ 273.9mb  │
+│ 12 │ critsend-worker    │ fork     │ 8    │ online    │ 56.5%    │ 142.3mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0.7%     │ 77.2mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[TAILING] Tailing last 60 lines for [all] processes (change the value with --lines option)
+/home/ubuntu/.pm2/pm2.log last 60 lines:
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009845 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009845 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009845 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009845 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: Process with pid 1009845 still alive after 30000ms, sending it SIGKILL now...
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009845 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:46: PM2 log: App name:critsend-web id:10 disconnected
+PM2        | 2026-06-05T04:06:46: PM2 log: App [critsend-web:10] exited with code [0] via signal [SIGKILL]
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009845 msg=process killed
+PM2        | 2026-06-05T04:06:47: PM2 log: Stopping app:critsend-drainer id:13
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: App [critsend-drainer:13] exited with code [0] via signal [SIGINT]
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009817 msg=process killed
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:47: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:48: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:49: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:50: PM2 log: pid=1009833 msg=failed to kill - retrying in 100ms
+PM2        | 2026-06-05T04:06:50: PM2 log: App [critsend-worker:12] exited with code [0] via signal [SIGINT]
+PM2        | 2026-06-05T04:06:50: PM2 log: pid=1009833 msg=process killed
+PM2        | 2026-06-05T04:56:05: PM2 log: App [critsend-web:10] starting in -cluster mode-
+PM2        | 2026-06-05T04:56:05: PM2 log: App [critsend-worker:12] starting in -fork mode-
+PM2        | 2026-06-05T04:56:05: PM2 log: App [critsend-worker:12] online
+PM2        | 2026-06-05T04:56:05: PM2 log: App [critsend-drainer:13] starting in -fork mode-
+PM2        | 2026-06-05T04:56:05: PM2 log: App [critsend-drainer:13] online
+PM2        | 2026-06-05T04:56:06: PM2 log: App [critsend-web:10] online
+PM2        | 2026-06-05T04:56:06: PM2 log: App [critsend-web:11] starting in -cluster mode-
+PM2        | 2026-06-05T04:56:07: PM2 log: App [critsend-web:11] online
+
+/home/ubuntu/.pm2/logs/pm2-logrotate-error.log last 60 lines:
+/home/ubuntu/.pm2/logs/pm2-logrotate-out.log last 60 lines:
+3|pm2-logr | "/home/ubuntu/.pm2/logs/pm2-logrotate-out__2026-06-05_00-00-00.log" has been created
+3|pm2-logr | "/var/log/critsend/drainer-err__2026-06-05_00-00-00.log" has been created
+3|pm2-logr | "drainer-err__2026-05-28_00-00-00.log" has been deleted
+3|pm2-logr | "drainer-err__2026-05-28_00-00-00.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/drainer-out__2026-06-05_00-00-00.log" has been created
+3|pm2-logr | "drainer-out__2026-05-28_00-00-00.log" has been deleted
+3|pm2-logr | "drainer-out__2026-05-28_00-00-00.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/web-err__2026-06-05_00-00-00.log" has been created
+3|pm2-logr | "web-err__2026-05-31_00-00-00.log" has been deleted
+3|pm2-logr | "/var/log/critsend/web-out__2026-06-05_00-00-00.log" has been created
+3|pm2-logr | "web-out__2026-05-28_00-00-00.log" has been deleted
+3|pm2-logr | "web-out__2026-05-28_00-00-00.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/worker-err__2026-06-05_00-00-00.log" has been created
+3|pm2-logr | "worker-err__2026-05-29_07-36-46.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/worker-out__2026-06-05_00-00-00.log" has been created
+3|pm2-logr | "worker-out__2026-05-31_15-18-18.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/web-err__2026-06-05_01-05-52.log" has been created
+3|pm2-logr | "web-err__2026-06-01_00-00-00.log" has been deleted
+3|pm2-logr | "web-err__2026-05-31_00-00-00.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/web-err__2026-06-05_02-01-22.log" has been created
+3|pm2-logr | "web-err__2026-06-01_00-00-00.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/worker-err__2026-06-05_03-11-22.log" has been created
+3|pm2-logr | "worker-err__2026-05-30_00-00-00.log" has been deleted
+3|pm2-logr | "worker-err__2026-05-30_00-00-00.log.1" has been deleted
+3|pm2-logr | "/var/log/critsend/web-err__2026-06-05_03-23-52.log" has been created
+3|pm2-logr | "web-err__2026-06-02_00-00-00.log" has been deleted
+
+/var/log/critsend/drainer-out.log last 60 lines:
+13|critsen | Z [INFO] [PRESSURE_GUARD_WORKER] Campaign c418b4ce-97b3-45c4-9585-c1d75c9071d4 drained: sent=1, failed=0, deferred=0, dropped=0, aged_force_delivered=0
+13|critsen | 2026-06-05 04:00:30 +02:00: 2026-06-05T02:00:30.275Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=3, picked=3+0, winding_down=0, back_pressured=0, drained_calls=3, errors=0
+13|critsen | 2026-06-05 04:00:34 +02:00: 2026-06-05T02:00:34.519Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:00:44 +02:00: 2026-06-05T02:00:44.690Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:00:52 +02:00: 2026-06-05T02:00:52.978Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:01:05 +02:00: 2026-06-05T02:01:05.413Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:01:14 +02:00: 2026-06-05T02:01:14.177Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:01:21 +02:00: 2026-06-05T02:01:21.773Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:01:32 +02:00: 2026-06-05T02:01:32.781Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:01:42 +02:00: 2026-06-05T02:01:42.976Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:01:54 +02:00: 2026-06-05T02:01:54.560Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:02:03 +02:00: 2026-06-05T02:02:03.380Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:02:11 +02:00: 2026-06-05T02:02:11.775Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:02:23 +02:00: 2026-06-05T02:02:23.087Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:02:33 +02:00: 2026-06-05T02:02:33.348Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:02:43 +02:00: 2026-06-05T02:02:43.021Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:02:52 +02:00: 2026-06-05T02:02:52.976Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:03:03 +02:00: 2026-06-05T02:03:03.882Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 6cba5255-9882-493b-a54e-eb22d5ada6f9 drained: sent=1, failed=0, deferred=0, dropped=0, aged_force_delivered=0
+13|critsen | 2026-06-05 04:03:03 +02:00: 2026-06-05T02:03:03.984Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=3, picked=3+0, winding_down=0, back_pressured=0, drained_calls=3, errors=0
+13|critsen | 2026-06-05 04:03:13 +02:00: 2026-06-05T02:03:13.475Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:03:23 +02:00: 2026-06-05T02:03:23.001Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:03:31 +02:00: 2026-06-05T02:03:31.775Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:03:43 +02:00: 2026-06-05T02:03:43.025Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:03:52 +02:00: 2026-06-05T02:03:52.744Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:04:05 +02:00: 2026-06-05T02:04:05.216Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:04:11 +02:00: 2026-06-05T02:04:11.781Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:04:24 +02:00: 2026-06-05T02:04:24.318Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 2166d57b-68c2-447d-bc7a-c8869f6fb5d4 drained: sent=1, failed=0, deferred=0, dropped=0, aged_force_delivered=0
+13|critsen | 2026-06-05 04:04:24 +02:00: 2026-06-05T02:04:24.485Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=2, picked=2+0, winding_down=0, back_pressured=0, drained_calls=2, errors=0
+13|critsen | 2026-06-05 04:04:33 +02:00: 2026-06-05T02:04:33.129Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:04:43 +02:00: 2026-06-05T02:04:43.076Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:04:55 +02:00: 2026-06-05T02:04:55.371Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 6c6e008e-1a38-46b9-b6ef-bb50872bb29b drained: sent=1, failed=0, deferred=0, dropped=0, aged_force_delivered=0
+13|critsen | 2026-06-05 04:04:56 +02:00: 2026-06-05T02:04:56.837Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=11, picked=11+0, winding_down=0, back_pressured=0, drained_calls=11, errors=0
+13|critsen | 2026-06-05 04:05:03 +02:00: 2026-06-05T02:05:03.535Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:05:12 +02:00: 2026-06-05T02:05:12.955Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:05:21 +02:00: 2026-06-05T02:05:21.776Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:05:32 +02:00: 2026-06-05T02:05:32.815Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:05:41 +02:00: 2026-06-05T02:05:41.776Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (another node holds the lease), bootstrap=ready, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:05:52 +02:00: 2026-06-05T02:05:52.698Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:06:05 +02:00: 2026-06-05T02:06:05.293Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 00747e44-70ca-404d-b0b7-c9547868aefd drained: sent=1, failed=0, deferred=0, dropped=0, aged_force_delivered=0
+13|critsen | 2026-06-05 04:06:05 +02:00: 2026-06-05T02:06:05.683Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=1, picked=1+0, winding_down=0, back_pressured=0, drained_calls=1, errors=0
+13|critsen | 2026-06-05 04:06:13 +02:00: 2026-06-05T02:06:13.260Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:06:23 +02:00: 2026-06-05T02:06:23.947Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:06:34 +02:00: 2026-06-05T02:06:34.208Z [INFO] [PRESSURE_GUARD_WORKER] Campaign 689cd7b9-d391-4b30-9471-25b3c088d160 drained: sent=1, failed=0, deferred=0, dropped=0, aged_force_delivered=0
+13|critsen | 2026-06-05 04:06:34 +02:00: 2026-06-05T02:06:34.425Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=3, picked=3+0, winding_down=0, back_pressured=0, drained_calls=3, errors=0
+13|critsen | 2026-06-05 04:06:42 +02:00: 2026-06-05T02:06:42.775Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=Y, eligible_campaigns=0, picked=0+0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+13|critsen | 2026-06-05 04:06:47 +02:00: 2026-06-05T02:06:47.043Z [INFO] [DRAINER] Received SIGINT, starting graceful shutdown...
+13|critsen | 2026-06-05 04:06:47 +02:00: 2026-06-05T02:06:47.044Z [INFO] [PRESSURE_GUARD_WORKER] Stopped
+13|critsen | 2026-06-05 04:06:47 +02:00: 2026-06-05T02:06:47.044Z [INFO] [DRAINER] Graceful shutdown complete
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.788Z [INFO] Database SSL enabled for external connection (Neon)
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.790Z [INFO] PG pool configured: max=6, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.792Z [INFO] [DRAINER] Drainer process starting (PROCESS_TYPE=drainer)...
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.792Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: drainer | Main pool: 6 | Tracking pool: 10 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.823Z [INFO] [DB_ZOMBIE] Starting periodic idle-in-transaction sweep (min_age=30s, interval=60000ms)
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.027Z [INFO] [Redis/bullmq] Connected
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.030Z [INFO] [Redis/main] Connected
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.108Z [INFO] [PRESSURE_GUARD_WORKER] Starting (poll=10000ms, batch=1000, max-campaigns=60, drain-parallelism=4, smtp-concurrency=20, window=4h, max_defer=72h, near_aging=48h)
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.108Z [INFO] [PRESSURE_GUARD_WORKER] hung-tick watchdog armed (check=30000ms, hang_timeout=300000ms, send_timeout=30000ms, dedicated_drainer=true)
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.108Z [INFO] [DRAINER] Pressure-guard drainer running
+
+/var/log/critsend/drainer-err.log last 60 lines:
+13|critsen | 2026-06-05 00:34:38 +02:00: 2026-06-04T22:34:38.675Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(c418b4ce-97b3-45c4-9585-c1d75c9071d4) failed: deadlock detected
+13|critsen | 2026-06-05 00:34:39 +02:00: 2026-06-04T22:34:39.675Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(8e93e6c3-75d8-4437-a1c1-f6d5e4ca004a) failed: deadlock detected
+13|critsen | 2026-06-05 00:35:41 +02:00: 2026-06-04T22:35:41.033Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(c418b4ce-97b3-45c4-9585-c1d75c9071d4) failed: deadlock detected
+13|critsen | 2026-06-05 00:38:13 +02:00: 2026-06-04T22:38:13.778Z [WARN] [PRESSURE_GUARD_WORKER] Campaign 6c71eeaa-2640-4d63-ba99-a3d84ed67f09: aging cap engaged — force-dispatched 1/1 send(s) aged > 72h
+13|critsen | 2026-06-05 00:39:46 +02:00: 2026-06-04T22:39:46.156Z [WARN] [PRESSURE_GUARD_WORKER] Campaign 151fb07e-c616-4b2b-9b9a-a2eb590c216e: aging cap engaged — force-dispatched 1/1 send(s) aged > 72h
+13|critsen | 2026-06-05 02:51:20 +02:00: 2026-06-05T00:51:20.430Z [WARN] [Redis/bullmq] Reconnecting...
+13|critsen | 2026-06-05 03:08:36 +02:00: 2026-06-05T01:08:36.588Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(cd830124-e779-4ef1-8aed-948e18592440) failed: deadlock detected
+13|critsen | 2026-06-05 03:08:37 +02:00: 2026-06-05T01:08:37.588Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(81992d8e-c394-4eb0-b7a2-32aaecfde49d) failed: deadlock detected
+13|critsen | 2026-06-05 03:08:38 +02:00: 2026-06-05T01:08:38.590Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(33b91c01-cde9-4ddf-be4c-508c8c2b9f78) failed: deadlock detected
+13|critsen | 2026-06-05 03:08:39 +02:00: 2026-06-05T01:08:39.592Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(996bec18-ef24-49b6-8b21-a14987c4c6cc) failed: deadlock detected
+13|critsen | 2026-06-05 03:08:40 +02:00: 2026-06-05T01:08:40.595Z [ERROR] [PRESSURE_GUARD_WORKER] drainCampaign(689cd7b9-d391-4b30-9471-25b3c088d160) failed: deadlock detected
+13|critsen | 2026-06-05 03:53:20 +02:00: 2026-06-05T01:53:20.473Z [WARN] [PRESSURE_MAINTENANCE] VACUUM (ANALYZE) failed (non-fatal): canceling statement due to statement timeout
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.823Z [WARN] [LOCK_RECOVERY] (drainer-boot) failed to acquire client (non-fatal): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.943Z [WARN] [INVALID_INDEX_REAPER(drainer-boot)] Bootstrap lock error: self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.944Z [WARN] [INVALID_INDEX_REAPER] (drainer-boot) advisory lock acquisition errored — skipping (will retry next boot)
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.944Z [WARN] [DB_ZOMBIE] Sweep failed (non-fatal): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.951Z [ERROR] [PRESSURE_GUARD] essential DDL failed (subscribers.last_sent_at): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.956Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.deferred_count): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.961Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.last_send_at): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.966Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_maintenance_state): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.972Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_maintenance_state seed): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.977Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.982Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_at): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.987Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_drained): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.992Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_errors): self-signed certificate
+13|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.997Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_eligible): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.002Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_drain_tick_errors): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.006Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_drain_tick_errors idx): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.011Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.skipped_pressure_count): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.016Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaign_sends.eligible_at): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.021Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaign_jobs.heartbeat): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.030Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaign_sends.first_deferred_at): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.035Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.aged_forced_count): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.040Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.urgent_mode): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.045Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.user_id): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.050Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.urgent_flush_job_id): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.055Z [ERROR] [PRESSURE_GUARD] essential DDL failed (urgent_flush_jobs): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.059Z [ERROR] [PRESSURE_GUARD] essential DDL failed (urgent_flush_jobs_status_created_idx): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.064Z [ERROR] [PRESSURE_GUARD] essential DDL failed (urgent_flush_jobs_campaign_idx): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.069Z [ERROR] [PRESSURE_GUARD] essential DDL failed (users.is_admin): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.074Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_flush_audit): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.079Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_flush_audit campaign idx): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.084Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_flush_audit created idx): self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.089Z [WARN] [PRESSURE_GUARD] Bootstrap lock error: self-signed certificate
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.094Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=error, schema_verified=false, outcome=deferred — will retry every 15s
+13|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.113Z [WARN] [tracking_tokens] Bootstrap lock error: self-signed certificate
+
+/var/log/critsend/worker-err.log last 60 lines:
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.666Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 528ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.666Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): Cannot use a pool after calling end on the pool
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.670Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 708ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.670Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 607ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.683Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 693ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.686Z [WARN] [CAMPAIGN 996bec18-ef24-49b6-8b21-a14987c4c6cc job:cda46bdf] pressureGuardReserve DB operation failed (attempt 1/3, kind=connection, code=n/a), retrying in 1000ms: Cannot use a pool after calling end on the pool
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.693Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 677ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.696Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 524ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.696Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 742ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.709Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 602ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.709Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 566ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.718Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 521ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.723Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 743ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.724Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 511ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.738Z [WARN] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] RECONCILIATION MISMATCH: 1.08% discrepancy (2525 recipients). Expected 233297 from segment, but campaign_sends has 235822 records.
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.738Z [WARN] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] RECONCILIATION: 284 sends still in pending/reserved status after completion
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.739Z [ERROR] [JOB_POLL] Error processing job 98fff8c1-9dd9-4423-8e91-9f6576fc1ff9 for campaign 6c71eeaa-2640-4d63-ba99-a3d84ed67f09:
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.739Z [WARN] [JOB_POLL] getCampaign(6c71eeaa-2640-4d63-ba99-a3d84ed67f09) failed (attempt 1/3): Cannot use a pool after calling end on the pool
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.739Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 554ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.741Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 610ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.742Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 601ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.760Z [WARN] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] RECONCILIATION: 37251 sends still in pending/reserved status after completion
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.760Z [ERROR] [JOB_POLL] Error processing job a1042126-3acc-4ec7-9fba-01c23df160dd for campaign aae295e7-7b99-4493-977a-50bc617c84d4:
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.761Z [WARN] [JOB_POLL] getCampaign(aae295e7-7b99-4493-977a-50bc617c84d4) failed (attempt 1/3): Cannot use a pool after calling end on the pool
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.831Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 669ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.836Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 554ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.836Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 714ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.836Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 597ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.837Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 561ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.840Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 506ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.895Z [WARN] [CAMPAIGN 759c5438-6b26-4127-a2ec-374c02ae16ae job:7f30c784] pressureGuardReserve DB operation failed (attempt 1/3, kind=connection, code=n/a), retrying in 1000ms: Cannot use a pool after calling end on the pool
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.899Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 581ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.902Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 534ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.902Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 733ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.902Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 602ms
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.903Z [WARN] [IMPORT] transient query connect failure (attempt 1/4): timeout exceeded when trying to connect; retrying in 632ms
+12|critsen | 2026-06-05 04:56:06 +02:00: (node:1024311) Warning: NodeVersionSupportWarning: The AWS SDK for JavaScript (v3)
+12|critsen | 2026-06-05 04:56:06 +02:00: versions published after the first week of January 2027
+12|critsen | 2026-06-05 04:56:06 +02:00: will require node >=22. You are running node v20.20.2.
+12|critsen | 2026-06-05 04:56:06 +02:00: 
+12|critsen | 2026-06-05 04:56:06 +02:00: To continue receiving updates to AWS services, bug fixes,
+12|critsen | 2026-06-05 04:56:06 +02:00: and security updates please upgrade to node >=22.
+12|critsen | 2026-06-05 04:56:06 +02:00: 
+12|critsen | 2026-06-05 04:56:06 +02:00: More information can be found at: https://a.co/c895JFp
+12|critsen | 2026-06-05 04:56:06 +02:00: (Use `node --trace-warnings ...` to show where the warning was created)
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.084Z [WARN] [tracking_tokens] Bootstrap lock error: self-signed certificate
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.085Z [ERROR] [AUTOMATION] Bootstrap migration FAILED: self-signed certificate
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.086Z [WARN] [LOCK_RECOVERY] (worker-boot) failed to acquire client (non-fatal): self-signed certificate
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.119Z [WARN] [INVALID_INDEX_REAPER(worker-boot)] Bootstrap lock error: self-signed certificate
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.119Z [WARN] [INVALID_INDEX_REAPER] (worker-boot) advisory lock acquisition errored — skipping (will retry next boot)
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.119Z [ERROR] [IMPORT POOL] startup probe FAILED — CSV imports will not work until connectivity is restored. mode=direct, error=self-signed certificate. Fix: check NEON_DATABASE_URL, or set IMPORT_POOL_USE_DIRECT=true to bypass pooler auto-derivation.
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.120Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): self-signed certificate
+12|critsen | 2026-06-05 04:56:06 +02:00: Error: self-signed certificate
+12|critsen | 2026-06-05 04:56:06 +02:00:     at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326
+12|critsen | 2026-06-05 04:56:06 +02:00:     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+12|critsen | 2026-06-05 04:56:06 +02:00:     at async KK (/home/ubuntu/critsend/dist/worker-main.cjs:1671:78)
+12|critsen | 2026-06-05 04:56:06 +02:00:     at async /home/ubuntu/critsend/dist/worker-main.cjs:1828:6169 {
+12|critsen | 2026-06-05 04:56:06 +02:00:   code: 'DEPTH_ZERO_SELF_SIGNED_CERT'
+12|critsen | 2026-06-05 04:56:06 +02:00: }
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.125Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"self-signed certificate"}
+
+/var/log/critsend/worker-out.log last 60 lines:
+12|critsen | 2026-06-05 04:06:41 +02:00: 2026-06-05T02:06:41.022Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] Batch 13: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:41 +02:00: 2026-06-05T02:06:41.075Z [INFO] [CAMPAIGN b7ae1ba2-f5b1-480c-8c6f-c24746148d74 job:5fe3e6a7] Batch 13: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:41 +02:00: 2026-06-05T02:06:41.091Z [INFO] [CAMPAIGN 996bec18-ef24-49b6-8b21-a14987c4c6cc job:cda46bdf] Batch 13: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:41 +02:00: 2026-06-05T02:06:41.734Z [INFO] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] Batch 13: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:41 +02:00: 2026-06-05T02:06:41.738Z [INFO] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] Batch 20: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:42 +02:00: 2026-06-05T02:06:42.112Z [INFO] [CAMPAIGN 759c5438-6b26-4127-a2ec-374c02ae16ae job:7f30c784] Batch 14: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:42 +02:00: 2026-06-05T02:06:42.140Z [INFO] [CAMPAIGN b7ae1ba2-f5b1-480c-8c6f-c24746148d74 job:5fe3e6a7] Batch 14: All 8783 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:42 +02:00: 2026-06-05T02:06:42.140Z [INFO] [CAMPAIGN b7ae1ba2-f5b1-480c-8c6f-c24746148d74 job:5fe3e6a7] No more subscribers to process (batchNumber: 14)
+12|critsen | 2026-06-05 04:06:42 +02:00: 2026-06-05T02:06:42.170Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] Batch 14: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:42 +02:00: 2026-06-05T02:06:42.280Z [INFO] [CAMPAIGN 996bec18-ef24-49b6-8b21-a14987c4c6cc job:cda46bdf] Batch 14: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.038Z [INFO] [CAMPAIGN b7ae1ba2-f5b1-480c-8c6f-c24746148d74 job:5fe3e6a7] RECONCILIATION: expected=138783, actual=139508 (sent=92195, failed=0, pending=47313, attempting=0), discrepancy=-725 (0.52%)
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.047Z [INFO] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] Batch 14: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.091Z [INFO] [CAMPAIGN b7ae1ba2-f5b1-480c-8c6f-c24746148d74 job:5fe3e6a7] Holding 'sending' status: 47313 deferred send(s) still queued by pressure guard
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.120Z [INFO] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] Batch 21: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.201Z [INFO] [JOB_POLL] Job 5fe3e6a7-1104-4e63-b7f2-273d972a9d75 completed (campaign b7ae1ba2-f5b1-480c-8c6f-c24746148d74 status: sending)
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.201Z [INFO] [JOB_POLL] Campaign b7ae1ba2-f5b1-480c-8c6f-c24746148d74 finished (6/12 active)
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.264Z [INFO] [SHUTDOWN] Still waiting: campaigns=6
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.647Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] Batch 15: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.727Z [INFO] [CAMPAIGN 759c5438-6b26-4127-a2ec-374c02ae16ae job:7f30c784] Batch 15: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:43 +02:00: 2026-06-05T02:06:43.857Z [INFO] [CAMPAIGN 996bec18-ef24-49b6-8b21-a14987c4c6cc job:cda46bdf] Batch 15: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:44 +02:00: 2026-06-05T02:06:44.507Z [INFO] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] Batch 15: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:44 +02:00: 2026-06-05T02:06:44.584Z [INFO] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] Batch 22: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:45 +02:00: 2026-06-05T02:06:45.106Z [INFO] [CAMPAIGN 759c5438-6b26-4127-a2ec-374c02ae16ae job:7f30c784] Batch 16: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:45 +02:00: 2026-06-05T02:06:45.110Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] Batch 16: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:45 +02:00: 2026-06-05T02:06:45.217Z [INFO] [CAMPAIGN 996bec18-ef24-49b6-8b21-a14987c4c6cc job:cda46bdf] Batch 16: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:45 +02:00: 2026-06-05T02:06:45.859Z [INFO] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] Batch 16: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.039Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] Batch 17: All 6191 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.040Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] No more subscribers to process (batchNumber: 17)
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.065Z [INFO] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] Batch 23: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.237Z [INFO] [CAMPAIGN 759c5438-6b26-4127-a2ec-374c02ae16ae job:7f30c784] Batch 17: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.284Z [INFO] [CAMPAIGN 996bec18-ef24-49b6-8b21-a14987c4c6cc job:cda46bdf] Batch 17: All 10000 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.408Z [INFO] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] Batch 17: All 6561 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.408Z [INFO] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] No more subscribers to process (batchNumber: 17)
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.416Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] RECONCILIATION: expected=166191, actual=167515 (sent=119694, failed=0, pending=47821, attempting=0), discrepancy=-1324 (0.80%)
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.468Z [INFO] [CAMPAIGN 689cd7b9-d391-4b30-9471-25b3c088d160 job:7dfcb7d8] Holding 'sending' status: 47821 deferred send(s) still queued by pressure guard
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.469Z [INFO] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] Batch 24: All 3297 subscribers already processed, skipping
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.469Z [INFO] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] No more subscribers to process (batchNumber: 24)
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.509Z [INFO] [BullMQ] Queues closed
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.530Z [INFO] [JOB_POLL] Job 7dfcb7d8-b5ee-4b1b-8006-186fbf39c3dc completed (campaign 689cd7b9-d391-4b30-9471-25b3c088d160 status: sending)
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.530Z [INFO] [JOB_POLL] Campaign 689cd7b9-d391-4b30-9471-25b3c088d160 finished (5/12 active)
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.561Z [INFO] [BullMQ] Workers closed
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.607Z [INFO] NotifyQueue shut down
+12|critsen | 2026-06-05 04:06:46 +02:00: 2026-06-05T02:06:46.634Z [INFO] [Redis] Connections closed
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.659Z [INFO] [IMPORT POOL] closed
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.659Z [INFO] [WORKER] Import pool closed
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.738Z [INFO] [CAMPAIGN 6c71eeaa-2640-4d63-ba99-a3d84ed67f09 job:98fff8c1] RECONCILIATION: expected=233297, actual=235822 (sent=235538, failed=0, pending=284, attempting=0), discrepancy=-2525 (1.08%)
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.760Z [INFO] [CAMPAIGN aae295e7-7b99-4493-977a-50bc617c84d4 job:a1042126] RECONCILIATION: expected=166561, actual=167556 (sent=130305, failed=0, pending=37251, attempting=0), discrepancy=-995 (0.60%)
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.903Z [INFO] [WORKER] Database pool closed
+12|critsen | 2026-06-05 04:06:49 +02:00: 2026-06-05T02:06:49.903Z [INFO] [WORKER] Graceful shutdown complete
+12|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.793Z [INFO] Database SSL enabled for external connection (Neon)
+12|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.795Z [INFO] PG pool configured: max=18, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+12|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.928Z [INFO] [IMPORT POOL] configured: max=4, connTimeout=30000ms, stmtTimeout=300000ms, external=true, mode=direct, pooler=false
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.045Z [INFO] [STORAGE] Using Hetzner S3 backend (STORAGE_BACKEND=hetzner)
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.052Z [INFO] [HETZNER_S3] Initialized: endpoint=https://nbg1.your-objectstorage.com, region=nbg1, bucket=critsender, partSize=8MB, queueSize=4, connectTimeout=5000ms, socketTimeout=120000ms, maxAttempts=8, retryMode=adaptive, appRetryRounds=3
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.053Z [INFO] [WORKER] Worker process starting...
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.054Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: worker | Main pool: 18 | Tracking pool: 0 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 23 | External: true
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.054Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(10)+import(4)+notify(2) = 54 of 250 (headroom 196, required >= 2) OK
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.055Z [INFO] [WORKER] Process startup diagnostics {"heapLimitMB":6192,"pid":1024311,"nodeVersion":"v20.20.2","processType":"worker"}
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.144Z [INFO] [Redis/main] Connected
+12|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.146Z [INFO] [Redis/bullmq] Connected
+
+/var/log/critsend/web-out.log last 60 lines:
+10|critsen | 2026-06-05 04:06:16 +02:00: 2026-06-05T02:06:16.895Z [INFO] [SHUTDOWN] Tracking pool closed
+10|critsen | 2026-06-05 04:06:20 +02:00: 2026-06-05T02:06:20.785Z [INFO] [IMPORT POOL] closed
+10|critsen | 2026-06-05 04:06:20 +02:00: 2026-06-05T02:06:20.785Z [INFO] [SHUTDOWN] Import pool closed
+10|critsen | 2026-06-05 04:06:20 +02:00: 2026-06-05T02:06:20.831Z [INFO] [SHUTDOWN] Main database pool closed
+10|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.855Z [INFO] Database SSL enabled for external connection (Neon)
+10|critsen | 2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.856Z [INFO] PG pool configured: max=6, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.070Z [INFO] [TRACKING POOL] read pool: max=10, flush pool: max=8, connTimeout=2000ms, stmtTimeout=10000ms, jsTimeout=12000ms, external=true, mode=direct, pooler=false
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.073Z [INFO] [IMPORT POOL] configured: max=4, connTimeout=30000ms, stmtTimeout=300000ms, external=true, mode=direct, pooler=false
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.183Z [INFO] [STORAGE] Using Hetzner S3 backend (STORAGE_BACKEND=hetzner)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.186Z [INFO] [HETZNER_S3] Initialized: endpoint=https://nbg1.your-objectstorage.com, region=nbg1, bucket=critsender, partSize=8MB, queueSize=4, connectTimeout=5000ms, socketTimeout=120000ms, maxAttempts=8, retryMode=adaptive, appRetryRounds=3
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.273Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.275Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":1024305,"nodeVersion":"v20.20.2","gcExposed":false}
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.311Z [INFO] [IMPORT] Upload dir: /var/lib/critsend/uploads/imports (chunks: /var/lib/critsend/uploads/chunks)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.311Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: web | Main pool: 6 | Tracking pool: 10 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.311Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(6)+worker(18)+tracking(10)+import(4)+notify(2) = 40 of 250 (headroom 210, required >= 2) OK
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.327Z [INFO] [TRACKING BUFFER] flusher started: interval=1500ms, counterCoalesce=8000ms, maxQueue=50000, maxBatchPerType=5000, dedupeWindow=60000ms, maxRetries=3, backoffMax=10000ms, sequential=true
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.327Z [INFO] [BOUNCE BUFFER] flusher started: interval=1500ms, maxQueue=25000, maxBatch=2000, dedupeWindow=60000ms
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.328Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes, automations
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.329Z [INFO] [SSE] Redis progress bridge started
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.329Z [INFO] [ANALYTICS] Cache invalidation subscriber started
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.329Z [INFO] [CAMPAIGNS_CACHE] Invalidation subscriber started (ttl=180000ms)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.329Z [INFO] [CAMPAIGNS_CACHE] Cache invalidation subscriber started
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.329Z [INFO] [METRICS] Collector starting: first collection in 90000ms, then every 15s
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.329Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.329Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian started (polls every 30 s for stale pending jobs)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.330Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian started (polls every 60 s for stuck campaigns)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.330Z [INFO] [WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.330Z [INFO] [URGENT_FLUSH] Starting (poll=1000ms, sleep_between=100ms, orphan_after=600000ms)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.351Z [INFO] NotifyQueue scheduling reconnect in 1000ms (attempt 1)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.363Z [INFO] [Redis/bullmq] Connected
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.364Z [INFO] [Redis/main] Connected
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.397Z [INFO] [Redis/sse-subscriber] Connected
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.593Z [INFO] Database SSL enabled for external connection (Neon)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.595Z [INFO] PG pool configured: max=6, min=1, idleTimeout=20000ms, connTimeout=2000ms, external=true
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.815Z [INFO] [TRACKING POOL] read pool: max=10, flush pool: max=8, connTimeout=2000ms, stmtTimeout=10000ms, jsTimeout=12000ms, external=true, mode=direct, pooler=false
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.818Z [INFO] [IMPORT POOL] configured: max=4, connTimeout=30000ms, stmtTimeout=300000ms, external=true, mode=direct, pooler=false
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.926Z [INFO] [STORAGE] Using Hetzner S3 backend (STORAGE_BACKEND=hetzner)
+10|critsen | 2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.929Z [INFO] [HETZNER_S3] Initialized: endpoint=https://nbg1.your-objectstorage.com, region=nbg1, bucket=critsender, partSize=8MB, queueSize=4, connectTimeout=5000ms, socketTimeout=120000ms, maxAttempts=8, retryMode=adaptive, appRetryRounds=3
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.016Z [INFO] [POOL LEASE] Request-lease tracker installed (cap=2/request)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.019Z [INFO] Process startup diagnostics {"nodeOptions":"--max-old-space-size=4096 --expose-gc","heapLimitMB":4144,"pid":1024338,"nodeVersion":"v20.20.2","gcExposed":false}
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.052Z [INFO] [IMPORT] Upload dir: /var/lib/critsend/uploads/imports (chunks: /var/lib/critsend/uploads/chunks)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.052Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: web | Main pool: 6 | Tracking pool: 10 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.052Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(6)+worker(18)+tracking(10)+import(4)+notify(2) = 40 of 250 (headroom 210, required >= 2) OK
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.071Z [INFO] [TRACKING BUFFER] flusher started: interval=1500ms, counterCoalesce=8000ms, maxQueue=50000, maxBatchPerType=5000, dedupeWindow=60000ms, maxRetries=3, backoffMax=10000ms, sequential=true
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.071Z [INFO] [BOUNCE BUFFER] flusher started: interval=1500ms, maxQueue=25000, maxBatch=2000, dedupeWindow=60000ms
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.072Z [INFO] [BullMQ] Queues initialized: campaigns, imports, flushes, automations
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.072Z [INFO] [SSE] Redis progress bridge started
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.072Z [INFO] [ANALYTICS] Cache invalidation subscriber started
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] [CAMPAIGNS_CACHE] Invalidation subscriber started (ttl=180000ms)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] [CAMPAIGNS_CACHE] Cache invalidation subscriber started
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] [METRICS] Collector starting: first collection in 90000ms, then every 15s
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] [IMPORT_GUARDIAN] Fallback import guardian started (polls every 30 s for stale pending jobs)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] [CAMPAIGN_GUARDIAN] Campaign guardian started (polls every 60 s for stuck campaigns)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] [WEB] DRAIN_PROCESS_DEDICATED=true — skipping embedded pressure-guard drain (handled by critsend-drainer process)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.073Z [INFO] [URGENT_FLUSH] Starting (poll=1000ms, sleep_between=100ms, orphan_after=600000ms)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.096Z [INFO] NotifyQueue scheduling reconnect in 1000ms (attempt 1)
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.106Z [INFO] [Redis/main] Connected
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.108Z [INFO] [Redis/bullmq] Connected
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.140Z [INFO] [Redis/sse-subscriber] Connected
+
+/var/log/critsend/web-err.log last 60 lines:
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.091Z [ERROR] [TRACKING POOL] startup probe FAILED — tracking events will not persist until connectivity is restored. mode=direct, error=self-signed certificate. Fix: set NEON_TRACKING_DATABASE_URL to a valid pooled/direct URL, or set TRACKING_POOL_USE_DIRECT=true to bypass auto-derivation.
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.092Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for segment_name_trgm_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.094Z [WARN] [TRACKING QUERIES] Link cache warming failed (non-fatal): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.094Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaign_name_trgm_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.095Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for segment_name_lower_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.096Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.096Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.099Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaign_subject_trgm_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.100Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaigns_originals_created_at_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.102Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for mta_name_trgm_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.102Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaigns_scheduled_at_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.109Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for mta_hostname_trgm_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.110Z [WARN] [BOOTSTRAP_LOCK] Failed to check index existence for campaign_sends_pressure_held_per_campaign_idx: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.114Z [WARN] [SEGMENT_NAME_TRGM] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.114Z [WARN] [TRIGRAM] segment_name_trgm_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.115Z [WARN] [CAMPAIGN_NAME_TRGM] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.115Z [WARN] [TRIGRAM] campaign_name_trgm_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.116Z [WARN] [SEGMENT_NAME_LOWER] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.116Z [WARN] [INDEX] segment_name_lower_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.117Z [ERROR] [PRESSURE_GUARD] essential DDL failed (subscribers.last_sent_at): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.118Z [WARN] [CAMPAIGN_SUBJECT_TRGM] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.118Z [WARN] [TRIGRAM] campaign_subject_trgm_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.119Z [WARN] [CAMPAIGN_ORIGINALS_LIST] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.119Z [WARN] [INDEX] campaigns_originals_created_at_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.121Z [WARN] [MTA_NAME_TRGM] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.121Z [WARN] [TRIGRAM] mta_name_trgm_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.122Z [WARN] [CAMPAIGNS_SCHEDULED_AT] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.122Z [WARN] [INDEX] campaigns_scheduled_at_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.123Z [WARN] [MTA_HOSTNAME_TRGM] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.123Z [WARN] [TRIGRAM] mta_hostname_trgm_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.124Z [WARN] [CAMPAIGN_SENDS_PRESSURE_HELD] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.124Z [WARN] [INDEX] campaign_sends_pressure_held_per_campaign_idx creation encountered an error during advisory lock
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.125Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.deferred_count): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.129Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.last_send_at): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.135Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_maintenance_state): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.142Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_maintenance_state seed): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.146Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.151Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_at): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.156Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_drained): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.161Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_errors): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.165Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_guard_leader.last_tick_eligible): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.171Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_drain_tick_errors): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.175Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_drain_tick_errors idx): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.180Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.skipped_pressure_count): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.184Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaign_sends.eligible_at): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.189Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaign_jobs.heartbeat): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.194Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaign_sends.first_deferred_at): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.198Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.aged_forced_count): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.203Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.urgent_mode): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.208Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.user_id): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.213Z [ERROR] [PRESSURE_GUARD] essential DDL failed (campaigns.urgent_flush_job_id): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.218Z [ERROR] [PRESSURE_GUARD] essential DDL failed (urgent_flush_jobs): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.222Z [ERROR] [PRESSURE_GUARD] essential DDL failed (urgent_flush_jobs_status_created_idx): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.227Z [ERROR] [PRESSURE_GUARD] essential DDL failed (urgent_flush_jobs_campaign_idx): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.232Z [ERROR] [PRESSURE_GUARD] essential DDL failed (users.is_admin): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.236Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_flush_audit): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.241Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_flush_audit campaign idx): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.246Z [ERROR] [PRESSURE_GUARD] essential DDL failed (pressure_flush_audit created idx): self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.251Z [WARN] [PRESSURE_GUARD] Bootstrap lock error: self-signed certificate
+10|critsen | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.255Z [WARN] [PRESSURE_GUARD] Bootstrap NOT ready: lock=error, schema_verified=false, outcome=deferred — will retry every 15s
+
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.338Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.345Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.351Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.357Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.358Z [INFO] NotifyQueue scheduling reconnect in 2000ms (attempt 2)
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.358Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.835Z [WARN] [TRACKING BUFFER] open batch (2 rows) failed, requeued 2 for retry: self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.835Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:07 +02:00: 2026-06-05T02:56:07.835Z [WARN] [TRACKING BUFFER] flush backoff: interval=2250ms (1 consecutive failures)
+11|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.081Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.088Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.097Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+11|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.103Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+11|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.103Z [INFO] NotifyQueue scheduling reconnect in 2000ms (attempt 2)
+11|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.103Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.337Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:08 +02:00: 2026-06-05T02:56:08.345Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.081Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.089Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.338Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.345Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.359Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.366Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.366Z [INFO] NotifyQueue scheduling reconnect in 4000ms (attempt 3)
+10|critsend-web  | 2026-06-05 04:56:09 +02:00: 2026-06-05T02:56:09.366Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.077Z [WARN] [TRACKING BUFFER] open batch (2 rows) failed, requeued 2 for retry: self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.077Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.078Z [WARN] [TRACKING BUFFER] flush backoff: interval=2250ms (1 consecutive failures)
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.082Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.089Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.092Z [WARN] [TRACKING BUFFER] open batch (3 rows) failed, requeued 3 for retry: self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.093Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.093Z [WARN] [TRACKING BUFFER] flush backoff: interval=3375ms (2 consecutive failures)
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.103Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.110Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.111Z [INFO] NotifyQueue scheduling reconnect in 4000ms (attempt 3)
+11|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.111Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.337Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web  | 2026-06-05 04:56:10 +02:00: 2026-06-05T02:56:10.345Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:11 +02:00: 2026-06-05T02:56:11.004Z [ERROR] Error in short unsubscribe route: {"code":"DEPTH_ZERO_SELF_SIGNED_CERT"}
+11|critsend-web  | 2026-06-05 04:56:11 +02:00: 2026-06-05T02:56:11.081Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web  | 2026-06-05 04:56:11 +02:00: 2026-06-05T02:56:11.088Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:56:11 +02:00: 2026-06-05T02:56:11.109Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:56:11 +02:00: 2026-06-05T02:56:11.337Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:11 +02:00: 2026-06-05T02:56:11.345Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:12 +02:00: 2026-06-05T02:56:12.081Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:12 +02:00: 2026-06-05T02:56:12.088Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:12 +02:00: 2026-06-05T02:56:12.336Z [WARN] [TRACKING BUFFER] open batch (2 rows) failed, requeued 2 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:12 +02:00: 2026-06-05T02:56:12.336Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:12 +02:00: 2026-06-05T02:56:12.336Z [WARN] [TRACKING BUFFER] flush backoff: interval=3375ms (2 consecutive failures)
+10|critsend-web      | 2026-06-05 04:56:12 +02:00: 2026-06-05T02:56:12.339Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:12 +02:00: 2026-06-05T02:56:12.345Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.081Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.088Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.340Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.348Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.367Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.373Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.374Z [INFO] NotifyQueue scheduling reconnect in 8000ms (attempt 4)
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.374Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.476Z [WARN] [TRACKING BUFFER] open batch (5 rows) failed, requeued 3 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.476Z [ERROR] [TRACKING BUFFER] open batch: 2 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.476Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:13 +02:00: 2026-06-05T02:56:13.476Z [WARN] [TRACKING BUFFER] flush backoff: interval=5063ms (3 consecutive failures)
+11|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.082Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.090Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.112Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+11|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.118Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.118Z [INFO] NotifyQueue scheduling reconnect in 8000ms (attempt 4)
+11|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.119Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.341Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.348Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:14 +02:00: 2026-06-05T02:56:14.515Z [ERROR] Unhandled route error {"status":500,"error":"self-signed certificate","stack":"Error: self-signed certificate\n    at /home/ubuntu/critsend/dist/index.cjs:70:13356\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)","path":"/api/campaigns","method":"GET","requestId":"3fb3375f-18e0-46d6-936f-8f3b7672be75"}
+11|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.085Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.093Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.342Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.350Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.721Z [WARN] [TRACKING BUFFER] open batch (5 rows) failed, requeued 3 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.722Z [ERROR] [TRACKING BUFFER] open batch: 2 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.722Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:15 +02:00: 2026-06-05T02:56:15.722Z [WARN] [TRACKING BUFFER] flush backoff: interval=5063ms (3 consecutive failures)
+11|critsend-web      | 2026-06-05 04:56:16 +02:00: 2026-06-05T02:56:16.085Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:16 +02:00: 2026-06-05T02:56:16.092Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:56:16 +02:00: 2026-06-05T02:56:16.108Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:56:16 +02:00: 2026-06-05T02:56:16.342Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:16 +02:00: 2026-06-05T02:56:16.349Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:17 +02:00: 2026-06-05T02:56:17.085Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:17 +02:00: 2026-06-05T02:56:17.093Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:17 +02:00: 2026-06-05T02:56:17.345Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:17 +02:00: 2026-06-05T02:56:17.354Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.016Z [ERROR] Error in short unsubscribe route: {"code":"DEPTH_ZERO_SELF_SIGNED_CERT"}
+11|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.085Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.093Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.352Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.546Z [WARN] [TRACKING BUFFER] open batch (6 rows) failed, requeued 5 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.547Z [ERROR] [TRACKING BUFFER] open batch: 1 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.547Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:18 +02:00: 2026-06-05T02:56:18.547Z [WARN] [TRACKING BUFFER] flush backoff: interval=7594ms (4 consecutive failures)
+11|critsend-web      | 2026-06-05 04:56:19 +02:00: 2026-06-05T02:56:19.087Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:19 +02:00: 2026-06-05T02:56:19.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:19 +02:00: 2026-06-05T02:56:19.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:19 +02:00: 2026-06-05T02:56:19.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:20 +02:00: 2026-06-05T02:56:20.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:20 +02:00: 2026-06-05T02:56:20.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:20 +02:00: 2026-06-05T02:56:20.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:20 +02:00: 2026-06-05T02:56:20.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:20 +02:00: 2026-06-05T02:56:20.793Z [WARN] [TRACKING BUFFER] open batch (6 rows) failed, requeued 6 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:20 +02:00: 2026-06-05T02:56:20.793Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:20 +02:00: 2026-06-05T02:56:20.794Z [WARN] [TRACKING BUFFER] flush backoff: interval=7594ms (4 consecutive failures)
+11|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.093Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.344Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.374Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.381Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.382Z [INFO] NotifyQueue scheduling reconnect in 16000ms (attempt 5)
+10|critsend-web      | 2026-06-05 04:56:21 +02:00: 2026-06-05T02:56:21.382Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+11|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.118Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+11|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.126Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.126Z [INFO] NotifyQueue scheduling reconnect in 16000ms (attempt 5)
+11|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.126Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:22 +02:00: 2026-06-05T02:56:22.350Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:23 +02:00: 2026-06-05T02:56:23.087Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:23 +02:00: 2026-06-05T02:56:23.095Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:23 +02:00: 2026-06-05T02:56:23.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:23 +02:00: 2026-06-05T02:56:23.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:24 +02:00: 2026-06-05T02:56:24.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:24 +02:00: 2026-06-05T02:56:24.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:24 +02:00: 2026-06-05T02:56:24.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:24 +02:00: 2026-06-05T02:56:24.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:25 +02:00: 2026-06-05T02:56:25.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:25 +02:00: 2026-06-05T02:56:25.095Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:25 +02:00: 2026-06-05T02:56:25.344Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:25 +02:00: 2026-06-05T02:56:25.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.108Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.148Z [WARN] [TRACKING BUFFER] open batch (8 rows) failed, requeued 6 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.148Z [ERROR] [TRACKING BUFFER] open batch: 2 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.148Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.148Z [WARN] [TRACKING BUFFER] flush backoff: interval=10000ms (5 consecutive failures)
+10|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.344Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:26 +02:00: 2026-06-05T02:56:26.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:27 +02:00: 2026-06-05T02:56:27.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:27 +02:00: 2026-06-05T02:56:27.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:27 +02:00: 2026-06-05T02:56:27.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:27 +02:00: 2026-06-05T02:56:27.352Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.088Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.095Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.344Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.394Z [WARN] [TRACKING BUFFER] open batch (9 rows) failed, requeued 6 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.394Z [ERROR] [TRACKING BUFFER] open batch: 3 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.394Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:28 +02:00: 2026-06-05T02:56:28.394Z [WARN] [TRACKING BUFFER] flush backoff: interval=10000ms (5 consecutive failures)
+11|critsend-web      | 2026-06-05 04:56:29 +02:00: 2026-06-05T02:56:29.086Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:29 +02:00: 2026-06-05T02:56:29.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:29 +02:00: 2026-06-05T02:56:29.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:29 +02:00: 2026-06-05T02:56:29.350Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:30 +02:00: 2026-06-05T02:56:30.087Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:30 +02:00: 2026-06-05T02:56:30.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:30 +02:00: 2026-06-05T02:56:30.343Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:30 +02:00: 2026-06-05T02:56:30.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:31 +02:00: 2026-06-05T02:56:31.087Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:31 +02:00: 2026-06-05T02:56:31.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:31 +02:00: 2026-06-05T02:56:31.344Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:31 +02:00: 2026-06-05T02:56:31.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:32 +02:00: 2026-06-05T02:56:32.088Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:32 +02:00: 2026-06-05T02:56:32.095Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:32 +02:00: 2026-06-05T02:56:32.344Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:32 +02:00: 2026-06-05T02:56:32.351Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:33 +02:00: 2026-06-05T02:56:33.088Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:33 +02:00: 2026-06-05T02:56:33.096Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:33 +02:00: 2026-06-05T02:56:33.344Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:33 +02:00: 2026-06-05T02:56:33.352Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:34 +02:00: 2026-06-05T02:56:34.088Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:34 +02:00: 2026-06-05T02:56:34.096Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:34 +02:00: 2026-06-05T02:56:34.346Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:34 +02:00: 2026-06-05T02:56:34.353Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:34 +02:00: 2026-06-05T02:56:34.772Z [ERROR] Unhandled route error {"status":500,"error":"self-signed certificate","stack":"Error: self-signed certificate\n    at /home/ubuntu/critsend/dist/index.cjs:70:13356\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)","path":"/api/campaigns","method":"GET","requestId":"841e7fe1-f208-4b6c-8d06-cb4423e575a2"}
+11|critsend-web      | 2026-06-05 04:56:35 +02:00: 2026-06-05T02:56:35.087Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:35 +02:00: 2026-06-05T02:56:35.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:35 +02:00: 2026-06-05T02:56:35.345Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:35 +02:00: 2026-06-05T02:56:35.352Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.087Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.094Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.109Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.156Z [WARN] [TRACKING BUFFER] open batch (12 rows) failed, requeued 9 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.156Z [ERROR] [TRACKING BUFFER] open batch: 3 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.156Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.339Z [ERROR] [IMPORT_GUARDIAN] Error in guardian poll: {"value":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.346Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:36 +02:00: 2026-06-05T02:56:36.352Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.083Z [ERROR] [IMPORT_GUARDIAN] Error in guardian poll: {"value":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.089Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.095Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.347Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.354Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.382Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.389Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.389Z [INFO] NotifyQueue scheduling reconnect in 30000ms (attempt 6)
+10|critsend-web      | 2026-06-05 04:56:37 +02:00: 2026-06-05T02:56:37.389Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.089Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.096Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.126Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.133Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.133Z [INFO] NotifyQueue scheduling reconnect in 30000ms (attempt 6)
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.133Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.348Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.355Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.402Z [WARN] [TRACKING BUFFER] open batch (15 rows) failed, requeued 12 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.403Z [ERROR] [TRACKING BUFFER] open batch: 3 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:56:38 +02:00: 2026-06-05T02:56:38.403Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:39 +02:00: 2026-06-05T02:56:39.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:39 +02:00: 2026-06-05T02:56:39.097Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:39 +02:00: 2026-06-05T02:56:39.347Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:39 +02:00: 2026-06-05T02:56:39.354Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:40 +02:00: 2026-06-05T02:56:40.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:40 +02:00: 2026-06-05T02:56:40.097Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:40 +02:00: 2026-06-05T02:56:40.348Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:40 +02:00: 2026-06-05T02:56:40.356Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:40 +02:00: 2026-06-05T02:56:40.435Z [ERROR] Error in short unsubscribe route: {"code":"DEPTH_ZERO_SELF_SIGNED_CERT"}
+11|critsend-web      | 2026-06-05 04:56:41 +02:00: 2026-06-05T02:56:41.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:41 +02:00: 2026-06-05T02:56:41.097Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:41 +02:00: 2026-06-05T02:56:41.349Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:41 +02:00: 2026-06-05T02:56:41.356Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:41 +02:00: 2026-06-05T02:56:41.758Z [ERROR] Error in short click route: {"code":"DEPTH_ZERO_SELF_SIGNED_CERT"}
+11|critsend-web      | 2026-06-05 04:56:42 +02:00: 2026-06-05T02:56:42.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:42 +02:00: 2026-06-05T02:56:42.097Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:42 +02:00: 2026-06-05T02:56:42.349Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:42 +02:00: 2026-06-05T02:56:42.356Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:43 +02:00: 2026-06-05T02:56:43.091Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:43 +02:00: 2026-06-05T02:56:43.098Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:43 +02:00: 2026-06-05T02:56:43.350Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:43 +02:00: 2026-06-05T02:56:43.357Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:44 +02:00: 2026-06-05T02:56:44.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:44 +02:00: 2026-06-05T02:56:44.098Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:44 +02:00: 2026-06-05T02:56:44.349Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:44 +02:00: 2026-06-05T02:56:44.356Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:45 +02:00: 2026-06-05T02:56:45.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:45 +02:00: 2026-06-05T02:56:45.098Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:45 +02:00: 2026-06-05T02:56:45.350Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:45 +02:00: 2026-06-05T02:56:45.357Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.097Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.110Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.157Z [WARN] [TRACKING BUFFER] open batch (16 rows) failed, requeued 13 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.157Z [ERROR] [TRACKING BUFFER] open batch: 3 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.157Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.350Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:46 +02:00: 2026-06-05T02:56:46.357Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:47 +02:00: 2026-06-05T02:56:47.091Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:47 +02:00: 2026-06-05T02:56:47.098Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:47 +02:00: 2026-06-05T02:56:47.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:47 +02:00: 2026-06-05T02:56:47.358Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:48 +02:00: 2026-06-05T02:56:48.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:48 +02:00: 2026-06-05T02:56:48.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:48 +02:00: 2026-06-05T02:56:48.350Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:48 +02:00: 2026-06-05T02:56:48.357Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:48 +02:00: 2026-06-05T02:56:48.403Z [WARN] [TRACKING BUFFER] open batch (15 rows) failed, requeued 12 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:48 +02:00: 2026-06-05T02:56:48.403Z [ERROR] [TRACKING BUFFER] open batch: 3 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:56:48 +02:00: 2026-06-05T02:56:48.403Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:49 +02:00: 2026-06-05T02:56:49.091Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:49 +02:00: 2026-06-05T02:56:49.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:49 +02:00: 2026-06-05T02:56:49.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:49 +02:00: 2026-06-05T02:56:49.358Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:50 +02:00: 2026-06-05T02:56:50.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:50 +02:00: 2026-06-05T02:56:50.098Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:50 +02:00: 2026-06-05T02:56:50.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:50 +02:00: 2026-06-05T02:56:50.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:51 +02:00: 2026-06-05T02:56:51.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:51 +02:00: 2026-06-05T02:56:51.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:51 +02:00: 2026-06-05T02:56:51.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:51 +02:00: 2026-06-05T02:56:51.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:52 +02:00: 2026-06-05T02:56:52.091Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:52 +02:00: 2026-06-05T02:56:52.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:52 +02:00: 2026-06-05T02:56:52.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:52 +02:00: 2026-06-05T02:56:52.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:53 +02:00: 2026-06-05T02:56:53.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:53 +02:00: 2026-06-05T02:56:53.098Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:53 +02:00: 2026-06-05T02:56:53.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:53 +02:00: 2026-06-05T02:56:53.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:54 +02:00: 2026-06-05T02:56:54.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:54 +02:00: 2026-06-05T02:56:54.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:54 +02:00: 2026-06-05T02:56:54.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:54 +02:00: 2026-06-05T02:56:54.358Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:55 +02:00: 2026-06-05T02:56:55.088Z [ERROR] Unhandled route error {"status":500,"error":"self-signed certificate","stack":"Error: self-signed certificate\n    at /home/ubuntu/critsend/dist/index.cjs:70:13356\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)","path":"/api/campaigns","method":"GET","requestId":"8d359317-575e-4691-b8d8-5677800cbf4e"}
+11|critsend-web      | 2026-06-05 04:56:55 +02:00: 2026-06-05T02:56:55.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:55 +02:00: 2026-06-05T02:56:55.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:55 +02:00: 2026-06-05T02:56:55.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:55 +02:00: 2026-06-05T02:56:55.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.090Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.096Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.110Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.158Z [WARN] [TRACKING BUFFER] open batch (18 rows) failed, requeued 12 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.158Z [ERROR] [TRACKING BUFFER] open batch: 6 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.158Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:56 +02:00: 2026-06-05T02:56:56.361Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:57 +02:00: 2026-06-05T02:56:57.093Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:57 +02:00: 2026-06-05T02:56:57.100Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:57 +02:00: 2026-06-05T02:56:57.354Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:57 +02:00: 2026-06-05T02:56:57.361Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:58 +02:00: 2026-06-05T02:56:58.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:58 +02:00: 2026-06-05T02:56:58.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:58 +02:00: 2026-06-05T02:56:58.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:58 +02:00: 2026-06-05T02:56:58.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:58 +02:00: 2026-06-05T02:56:58.402Z [WARN] [TRACKING BUFFER] open batch (18 rows) failed, requeued 9 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:58 +02:00: 2026-06-05T02:56:58.403Z [ERROR] [TRACKING BUFFER] open batch: 9 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:56:58 +02:00: 2026-06-05T02:56:58.403Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:59 +02:00: 2026-06-05T02:56:59.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:56:59 +02:00: 2026-06-05T02:56:59.100Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:59 +02:00: 2026-06-05T02:56:59.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:56:59 +02:00: 2026-06-05T02:56:59.362Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:00 +02:00: 2026-06-05T02:57:00.093Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:00 +02:00: 2026-06-05T02:57:00.100Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:00 +02:00: 2026-06-05T02:57:00.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:00 +02:00: 2026-06-05T02:57:00.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:01 +02:00: 2026-06-05T02:57:01.093Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:01 +02:00: 2026-06-05T02:57:01.101Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:01 +02:00: 2026-06-05T02:57:01.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:01 +02:00: 2026-06-05T02:57:01.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:02 +02:00: 2026-06-05T02:57:02.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:02 +02:00: 2026-06-05T02:57:02.099Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:02 +02:00: 2026-06-05T02:57:02.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:02 +02:00: 2026-06-05T02:57:02.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:03 +02:00: 2026-06-05T02:57:03.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:03 +02:00: 2026-06-05T02:57:03.100Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:03 +02:00: 2026-06-05T02:57:03.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:03 +02:00: 2026-06-05T02:57:03.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:04 +02:00: 2026-06-05T02:57:04.093Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:04 +02:00: 2026-06-05T02:57:04.100Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:04 +02:00: 2026-06-05T02:57:04.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:04 +02:00: 2026-06-05T02:57:04.362Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:05 +02:00: 2026-06-05T02:57:05.094Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:05 +02:00: 2026-06-05T02:57:05.101Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:05 +02:00: 2026-06-05T02:57:05.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:05 +02:00: 2026-06-05T02:57:05.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:57:05 +02:00: 2026-06-05T02:57:05.832Z [WARN] [DB_ZOMBIE] Sweep failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.095Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.102Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.110Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.157Z [WARN] [TRACKING BUFFER] open batch (17 rows) failed, requeued 10 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.158Z [ERROR] [TRACKING BUFFER] open batch: 7 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.158Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.338Z [ERROR] [IMPORT_GUARDIAN] Error in guardian poll: {"value":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.342Z [ERROR] [CAMPAIGN_GUARDIAN] Error in campaign guardian poll: {"value":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:06 +02:00: 2026-06-05T02:57:06.357Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.083Z [ERROR] [IMPORT_GUARDIAN] Error in guardian poll: {"value":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.084Z [ERROR] [CAMPAIGN_GUARDIAN] Error in campaign guardian poll: {"value":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.092Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.100Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.389Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.396Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.396Z [WARN] NotifyQueue LISTEN connection failed for >60s, enabling fallback polling
+10|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.397Z [INFO] NotifyQueue scheduling reconnect in 30000ms (attempt 7)
+10|critsend-web      | 2026-06-05 04:57:07 +02:00: 2026-06-05T02:57:07.397Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.094Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.101Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.133Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.140Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.140Z [WARN] NotifyQueue LISTEN connection failed for >60s, enabling fallback polling
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.140Z [INFO] NotifyQueue scheduling reconnect in 30000ms (attempt 7)
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.141Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.403Z [WARN] [TRACKING BUFFER] open batch (14 rows) failed, requeued 11 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.403Z [ERROR] [TRACKING BUFFER] open batch: 3 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:57:08 +02:00: 2026-06-05T02:57:08.403Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:09 +02:00: 2026-06-05T02:57:09.094Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:09 +02:00: 2026-06-05T02:57:09.102Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:09 +02:00: 2026-06-05T02:57:09.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:09 +02:00: 2026-06-05T02:57:09.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:10 +02:00: 2026-06-05T02:57:10.095Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:10 +02:00: 2026-06-05T02:57:10.101Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:10 +02:00: 2026-06-05T02:57:10.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:10 +02:00: 2026-06-05T02:57:10.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:11 +02:00: 2026-06-05T02:57:11.095Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:11 +02:00: 2026-06-05T02:57:11.102Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:11 +02:00: 2026-06-05T02:57:11.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:11 +02:00: 2026-06-05T02:57:11.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:12 +02:00: 2026-06-05T02:57:12.096Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:12 +02:00: 2026-06-05T02:57:12.103Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:12 +02:00: 2026-06-05T02:57:12.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:12 +02:00: 2026-06-05T02:57:12.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:13 +02:00: 2026-06-05T02:57:13.097Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:13 +02:00: 2026-06-05T02:57:13.104Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:13 +02:00: 2026-06-05T02:57:13.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:13 +02:00: 2026-06-05T02:57:13.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:14 +02:00: 2026-06-05T02:57:14.096Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:14 +02:00: 2026-06-05T02:57:14.104Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:14 +02:00: 2026-06-05T02:57:14.156Z [ERROR] Error in short click route: {"code":"DEPTH_ZERO_SELF_SIGNED_CERT"}
+10|critsend-web      | 2026-06-05 04:57:14 +02:00: 2026-06-05T02:57:14.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:14 +02:00: 2026-06-05T02:57:14.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:15 +02:00: 2026-06-05T02:57:15.097Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:15 +02:00: 2026-06-05T02:57:15.104Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:15 +02:00: 2026-06-05T02:57:15.344Z [ERROR] Unhandled route error {"status":500,"error":"self-signed certificate","stack":"Error: self-signed certificate\n    at /home/ubuntu/critsend/dist/index.cjs:70:13356\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)","path":"/api/campaigns","method":"GET","requestId":"a05b94a7-bfc2-4906-ae52-036c5ef5ec93"}
+10|critsend-web      | 2026-06-05 04:57:15 +02:00: 2026-06-05T02:57:15.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:15 +02:00: 2026-06-05T02:57:15.361Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.096Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.104Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.110Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.157Z [WARN] [TRACKING BUFFER] open batch (12 rows) failed, requeued 7 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.157Z [ERROR] [TRACKING BUFFER] open batch: 5 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.158Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:16 +02:00: 2026-06-05T02:57:16.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:17 +02:00: 2026-06-05T02:57:17.096Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:17 +02:00: 2026-06-05T02:57:17.104Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:17 +02:00: 2026-06-05T02:57:17.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:17 +02:00: 2026-06-05T02:57:17.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:18 +02:00: 2026-06-05T02:57:18.097Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:18 +02:00: 2026-06-05T02:57:18.105Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:18 +02:00: 2026-06-05T02:57:18.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:18 +02:00: 2026-06-05T02:57:18.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:18 +02:00: 2026-06-05T02:57:18.403Z [WARN] [TRACKING BUFFER] open batch (12 rows) failed, requeued 6 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:18 +02:00: 2026-06-05T02:57:18.403Z [ERROR] [TRACKING BUFFER] open batch: 6 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:57:18 +02:00: 2026-06-05T02:57:18.403Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:19 +02:00: 2026-06-05T02:57:19.098Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:19 +02:00: 2026-06-05T02:57:19.106Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:19 +02:00: 2026-06-05T02:57:19.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:19 +02:00: 2026-06-05T02:57:19.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:20 +02:00: 2026-06-05T02:57:20.099Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:20 +02:00: 2026-06-05T02:57:20.106Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:20 +02:00: 2026-06-05T02:57:20.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:20 +02:00: 2026-06-05T02:57:20.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:21 +02:00: 2026-06-05T02:57:21.099Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:21 +02:00: 2026-06-05T02:57:21.106Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:21 +02:00: 2026-06-05T02:57:21.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:21 +02:00: 2026-06-05T02:57:21.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:22 +02:00: 2026-06-05T02:57:22.100Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:22 +02:00: 2026-06-05T02:57:22.107Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:22 +02:00: 2026-06-05T02:57:22.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:22 +02:00: 2026-06-05T02:57:22.359Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:23 +02:00: 2026-06-05T02:57:23.100Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:23 +02:00: 2026-06-05T02:57:23.107Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:23 +02:00: 2026-06-05T02:57:23.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:23 +02:00: 2026-06-05T02:57:23.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:24 +02:00: 2026-06-05T02:57:24.100Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:24 +02:00: 2026-06-05T02:57:24.107Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:24 +02:00: 2026-06-05T02:57:24.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:24 +02:00: 2026-06-05T02:57:24.358Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:25 +02:00: 2026-06-05T02:57:25.101Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:25 +02:00: 2026-06-05T02:57:25.109Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:25 +02:00: 2026-06-05T02:57:25.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:25 +02:00: 2026-06-05T02:57:25.361Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.101Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.108Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.110Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+10|critsend-web      | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.158Z [WARN] [TRACKING BUFFER] open batch (8 rows) failed, requeued 3 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.158Z [ERROR] [TRACKING BUFFER] open batch: 5 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.158Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.352Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:26 +02:00: 2026-06-05T02:57:26.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:27 +02:00: 2026-06-05T02:57:27.102Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:27 +02:00: 2026-06-05T02:57:27.109Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:27 +02:00: 2026-06-05T02:57:27.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:27 +02:00: 2026-06-05T02:57:27.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:28 +02:00: 2026-06-05T02:57:28.103Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:28 +02:00: 2026-06-05T02:57:28.110Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:28 +02:00: 2026-06-05T02:57:28.354Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:28 +02:00: 2026-06-05T02:57:28.361Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:28 +02:00: 2026-06-05T02:57:28.402Z [WARN] [TRACKING BUFFER] open batch (8 rows) failed, requeued 3 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:28 +02:00: 2026-06-05T02:57:28.402Z [ERROR] [TRACKING BUFFER] open batch: 5 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:57:28 +02:00: 2026-06-05T02:57:28.402Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:29 +02:00: 2026-06-05T02:57:29.103Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:29 +02:00: 2026-06-05T02:57:29.111Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:29 +02:00: 2026-06-05T02:57:29.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:29 +02:00: 2026-06-05T02:57:29.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:30 +02:00: 2026-06-05T02:57:30.103Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:30 +02:00: 2026-06-05T02:57:30.110Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:30 +02:00: 2026-06-05T02:57:30.354Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:30 +02:00: 2026-06-05T02:57:30.361Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:31 +02:00: 2026-06-05T02:57:31.103Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:31 +02:00: 2026-06-05T02:57:31.111Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:31 +02:00: 2026-06-05T02:57:31.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:31 +02:00: 2026-06-05T02:57:31.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:32 +02:00: 2026-06-05T02:57:32.105Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:32 +02:00: 2026-06-05T02:57:32.112Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:32 +02:00: 2026-06-05T02:57:32.354Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:32 +02:00: 2026-06-05T02:57:32.361Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:33 +02:00: 2026-06-05T02:57:33.104Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:33 +02:00: 2026-06-05T02:57:33.112Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:33 +02:00: 2026-06-05T02:57:33.355Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:33 +02:00: 2026-06-05T02:57:33.362Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:34 +02:00: 2026-06-05T02:57:34.105Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:34 +02:00: 2026-06-05T02:57:34.112Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:34 +02:00: 2026-06-05T02:57:34.355Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:34 +02:00: 2026-06-05T02:57:34.362Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:35 +02:00: 2026-06-05T02:57:35.104Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:35 +02:00: 2026-06-05T02:57:35.112Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:35 +02:00: 2026-06-05T02:57:35.355Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:35 +02:00: 2026-06-05T02:57:35.362Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:35 +02:00: 2026-06-05T02:57:35.600Z [ERROR] Unhandled route error {"status":500,"error":"self-signed certificate","stack":"Error: self-signed certificate\n    at /home/ubuntu/critsend/dist/index.cjs:70:13356\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async n._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:70:30088)","path":"/api/campaigns","method":"GET","requestId":"5695de17-8a47-4604-b074-1cf5c8472f34"}
+11|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.105Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+13|critsend-drainer  | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.110Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=N (bootstrap=deferred), bootstrap=deferred, has_pending=?, eligible_campaigns=0, drained_calls=0, errors=0
+11|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.111Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.157Z [WARN] [TRACKING BUFFER] open batch (10 rows) failed, requeued 8 for retry: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.157Z [ERROR] [TRACKING BUFFER] open batch: 2 events permanently dropped after 3 retries
+10|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.157Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.338Z [ERROR] Metrics collection error {"error":"Error: self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.342Z [ERROR] [IMPORT_GUARDIAN] Error in guardian poll: {"value":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:36 +02:00: 2026-06-05T02:57:36.360Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.082Z [ERROR] Metrics collection error {"error":"Error: self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.084Z [ERROR] [IMPORT_GUARDIAN] Error in guardian poll: {"value":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.104Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.110Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.356Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.363Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.397Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+10|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.404Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+10|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.404Z [INFO] NotifyQueue scheduling reconnect in 30000ms (attempt 8)
+10|critsend-web      | 2026-06-05 04:57:37 +02:00: 2026-06-05T02:57:37.404Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.105Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.112Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.140Z [INFO] NotifyQueue using 1 dedicated connection (budget-controlled)
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.147Z [ERROR] Failed to connect NotifyQueue LISTEN client {"error":"self-signed certificate"}
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.147Z [INFO] NotifyQueue scheduling reconnect in 30000ms (attempt 8)
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.147Z [WARN] NotifyQueue LISTEN client disconnected unexpectedly
+10|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.356Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.364Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.402Z [WARN] [TRACKING BUFFER] open batch (9 rows) failed, requeued 8 for retry: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.402Z [ERROR] [TRACKING BUFFER] open batch: 1 events permanently dropped after 3 retries
+11|critsend-web      | 2026-06-05 04:57:38 +02:00: 2026-06-05T02:57:38.402Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:39 +02:00: 2026-06-05T02:57:39.106Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:39 +02:00: 2026-06-05T02:57:39.114Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:39 +02:00: 2026-06-05T02:57:39.356Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:39 +02:00: 2026-06-05T02:57:39.363Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:40 +02:00: 2026-06-05T02:57:40.107Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:40 +02:00: 2026-06-05T02:57:40.114Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:40 +02:00: 2026-06-05T02:57:40.357Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:40 +02:00: 2026-06-05T02:57:40.364Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:41 +02:00: 2026-06-05T02:57:41.106Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:41 +02:00: 2026-06-05T02:57:41.114Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:41 +02:00: 2026-06-05T02:57:41.359Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:41 +02:00: 2026-06-05T02:57:41.366Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:42 +02:00: 2026-06-05T02:57:42.108Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:42 +02:00: 2026-06-05T02:57:42.115Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:42 +02:00: 2026-06-05T02:57:42.357Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:42 +02:00: 2026-06-05T02:57:42.364Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:43 +02:00: 2026-06-05T02:57:43.108Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+11|critsend-web      | 2026-06-05 04:57:43 +02:00: 2026-06-05T02:57:43.115Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:43 +02:00: 2026-06-05T02:57:43.358Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+10|critsend-web      | 2026-06-05 04:57:43 +02:00: 2026-06-05T02:57:43.365Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+1
