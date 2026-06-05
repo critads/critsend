@@ -1,3 +1,4 @@
 - [Campaign status-flip guards](campaign-status-flip-guards.md) — any path that sets a campaign back to 'sending' (auto-requeue, retry, ghost-sweep) must guard on current status or it resurrects a manually Ended/Paused campaign.
+- [node-pg sslmode overrides ssl object](node-pg-sslmode-override.md) — connection-string `sslmode` wins over code's `ssl:{rejectUnauthorized:false}`; self-signed server cert needs `sslmode=no-verify` in the URL (pg ≥8.11 `require` verifies).
 - [PostgreSQL huge pages](postgres-huge-pages.md) — verify usage via (Total-Free)+Rsvd == shared_memory_size_in_huge_pages; don't misread high HugePages_Free as a fallback.
 - [Singleton loop hung-tick freeze](singleton-loop-hung-tick.md) — re-entrancy guard + self-refreshing leader lease = no recovery from a never-settling await; needs per-unit timeout + heartbeat watchdog (safeInterval catches errors, not hangs).
