@@ -1,0 +1,119 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ # 1. Most recent web errors (the real cause)
+tail -50 /var/log/critsend/web-err.log
+
+# 2. Recent error signals across web + worker
+grep -hiE 'error|fatal|ECONN|ETIMEDOUT|timeout|self-signed|too many clients|remaining connection|terminating|out of memory|ENOMEM' \
+  /var/log/critsend/web-err.log /var/log/critsend/worker-err.log 2>/dev/null | tail -40
+
+# 3. Process health (look for climbing ↺ restart counts or 'errored')
+pm2 status
+
+# 4. Is the new Postgres still up and accepting connections?
+sudo systemctl status postgresql --no-pager | head -15
+2026-06-05 06:38:21 +02:00: 2026-06-05T04:38:21.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:21 +02:00: 2026-06-05T04:38:21.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:21 +02:00: 2026-06-05T04:38:21.534Z [ERROR] Error in short click route: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.503Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.504Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.512Z [WARN] [TRACKING BUFFER] open batch (133 rows) failed, requeued 98 for retry: connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.512Z [ERROR] [TRACKING BUFFER] open batch: 35 events permanently dropped after 3 retries
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.512Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.513Z [WARN] [TRACKING BUFFER] complaint batch (2 rows) failed, requeued 1 for retry: connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.513Z [ERROR] [TRACKING BUFFER] complaint batch: 1 events permanently dropped after 3 retries
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.514Z [ERROR] [TRACKING BUFFER] flushType(complaint) outer error: connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.902Z [ERROR] Error in short click route: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.030Z [WARN] [TRACKING BUFFER] open batch (140 rows) failed, requeued 104 for retry: connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.030Z [ERROR] [TRACKING BUFFER] open batch: 36 events permanently dropped after 3 retries
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.030Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.505Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.506Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:24 +02:00: 2026-06-05T04:38:24.503Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:24 +02:00: 2026-06-05T04:38:24.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:24 +02:00: 2026-06-05T04:38:24.504Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:24 +02:00: 2026-06-05T04:38:24.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.503Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.504Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.651Z [ERROR] Error in short unsubscribe route: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.182Z [ERROR] Error in short click route: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.504Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.912Z [ERROR] Error in short click route: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.503Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.503Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.504Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.505Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.506Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.885Z [ERROR] Error in short click route: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.283Z [ERROR] Error in short unsubscribe route: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.504Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.505Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:20 +02:00: 2026-06-05T04:38:20.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:20 +02:00: 2026-06-05T04:38:20.428Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 1/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 525ms
+2026-06-05 06:38:20 +02:00: 2026-06-05T04:38:20.428Z [ERROR] Error in flush job polling: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:20 +02:00: 2026-06-05T04:38:20.954Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 2/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 1055ms
+2026-06-05 06:38:20 +02:00: 2026-06-05T04:38:20.980Z [ERROR] Error checking MTA recovery: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:20 +02:00: 2026-06-05T04:38:20.982Z [ERROR] [DB_RECOVERY] Error checking DB connection recovery: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:20 +02:00: 2026-06-05T04:38:20.983Z [ERROR] [SCHEDULE_POLL] Error polling scheduled campaigns: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:21 +02:00: 2026-06-05T04:38:21.339Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:21 +02:00: 2026-06-05T04:38:21.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:21 +02:00: 2026-06-05T04:38:21.811Z [ERROR] Error in tag queue processing: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.010Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 3/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 2115ms
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.339Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:22 +02:00: 2026-06-05T04:38:22.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.305Z [ERROR] Error in import job polling: connect ECONNREFUSED 157.180.98.150:5432 {"stack":"Error: connect ECONNREFUSED 157.180.98.150:5432\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.P2 [as claimNextImportJob] (/home/ubuntu/critsend/dist/worker-main.cjs:481:2518)\n    at async yn (/home/ubuntu/critsend/dist/worker-main.cjs:971:29626)\n    at async Timeout.Sx [as _onTimeout] (/home/ubuntu/critsend/dist/worker-main.cjs:1654:898)"}
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.339Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.810Z [ERROR] Error in tag queue processing: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:23 +02:00: 2026-06-05T04:38:23.903Z [ERROR] [AUTOMATION] Error in enrollment processor: connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:24 +02:00: 2026-06-05T04:38:24.126Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 4/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 4086ms
+2026-06-05 06:38:24 +02:00: 2026-06-05T04:38:24.339Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:24 +02:00: 2026-06-05T04:38:24.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.339Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.339Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.427Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 1/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 578ms
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.427Z [ERROR] Error in flush job polling: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.735Z [ERROR] [JOB_POLL] Error in job polling: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:25 +02:00: 2026-06-05T04:38:25.811Z [ERROR] Error in tag queue processing: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.006Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 2/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 1129ms
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.339Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:26 +02:00: 2026-06-05T04:38:26.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.136Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 3/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 2047ms
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.340Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:27 +02:00: 2026-06-05T04:38:27.812Z [ERROR] Error in tag queue processing: {"errno":-111,"code":"ECONNREFUSED","syscall":"connect","address":"157.180.98.150","port":5432}
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.214Z [ERROR] Error in import job polling: connect ECONNREFUSED 157.180.98.150:5432 {"stack":"Error: connect ECONNREFUSED 157.180.98.150:5432\n    at /home/ubuntu/critsend/dist/worker-main.cjs:2:13326\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.P2 [as claimNextImportJob] (/home/ubuntu/critsend/dist/worker-main.cjs:481:2518)\n    at async yn (/home/ubuntu/critsend/dist/worker-main.cjs:971:29626)\n    at async Timeout.Sx [as _onTimeout] (/home/ubuntu/critsend/dist/worker-main.cjs:1654:898)"}
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.340Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:28 +02:00: 2026-06-05T04:38:28.340Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.184Z [WARN] [IMPORT] transient claimNextImportJob connect failure (attempt 4/4): connect ECONNREFUSED 157.180.98.150:5432; retrying in 4062ms
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.340Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+2026-06-05 06:38:29 +02:00: 2026-06-05T04:38:29.341Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): connect ECONNREFUSED 157.180.98.150:5432
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 13 │ critsend-drainer   │ fork     │ 9    │ online    │ 0%       │ 103.8mb  │
+│ 10 │ critsend-web       │ cluster  │ 8    │ online    │ 0%       │ 300.2mb  │
+│ 11 │ critsend-web       │ cluster  │ 8    │ online    │ 0%       │ 302.0mb  │
+│ 12 │ critsend-worker    │ fork     │ 9    │ online    │ 0%       │ 253.1mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 80.3mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+[sudo] password for ubuntu: 
+Unit postgresql.service could not be found.
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 
