@@ -1,0 +1,45 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ grep -hE 'SSL enabled|CONNECTION BUDGET|now listening|startup complete|serving on|password authentication|no pg_hba|ECONNREFUSED|ETIMEDOUT|self.signed|getaddrinfo|FATAL|terminating connection' \
+  /var/log/critsend/web-out.log /var/log/critsend/web-err.log \
+  /var/log/critsend/worker-out.log /var/log/critsend/worker-err.log \
+  /var/log/critsend/drainer-out.log 2>/dev/null | tail -40
+2026-06-05 04:58:28 +02:00: 2026-06-05T02:58:28.125Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:28 +02:00: 2026-06-05T02:58:28.368Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:28 +02:00: 2026-06-05T02:58:28.375Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:28 +02:00: 2026-06-05T02:58:28.403Z [WARN] [TRACKING BUFFER] open batch (16 rows) failed, requeued 13 for retry: self-signed certificate
+2026-06-05 04:58:28 +02:00: 2026-06-05T02:58:28.403Z [ERROR] [TRACKING BUFFER] flushType(open) outer error: self-signed certificate
+2026-06-05 04:58:29 +02:00: 2026-06-05T02:58:29.118Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:29 +02:00: 2026-06-05T02:58:29.125Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:29 +02:00: 2026-06-05T02:58:29.367Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:29 +02:00: 2026-06-05T02:58:29.374Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:30 +02:00: 2026-06-05T02:58:30.119Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:30 +02:00: 2026-06-05T02:58:30.126Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:30 +02:00: 2026-06-05T02:58:30.367Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:30 +02:00: 2026-06-05T02:58:30.374Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:31 +02:00: 2026-06-05T02:58:31.119Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:31 +02:00: 2026-06-05T02:58:31.126Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:31 +02:00: 2026-06-05T02:58:31.369Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:31 +02:00: 2026-06-05T02:58:31.376Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:32 +02:00: 2026-06-05T02:58:32.119Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:32 +02:00: 2026-06-05T02:58:32.127Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:32 +02:00: 2026-06-05T02:58:32.368Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:32 +02:00: 2026-06-05T02:58:32.376Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:33 +02:00: 2026-06-05T02:58:33.119Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:33 +02:00: 2026-06-05T02:58:33.126Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:33 +02:00: 2026-06-05T02:58:33.369Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:33 +02:00: 2026-06-05T02:58:33.377Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:58:34 +02:00: 2026-06-05T02:58:34.119Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): self-signed certificate
+2026-06-05 04:58:34 +02:00: 2026-06-05T02:58:34.126Z [WARN] [URGENT_FLUSH] claim failed (non-fatal): self-signed certificate
+2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.793Z [INFO] Database SSL enabled for external connection (Neon)
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.054Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: worker | Main pool: 18 | Tracking pool: 0 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 23 | External: true
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.054Z [INFO] [CONNECTION BUDGET] Split-process aggregate: web(20)+worker(18)+tracking(10)+import(4)+notify(2) = 54 of 250 (headroom 196, required >= 2) OK
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.084Z [WARN] [tracking_tokens] Bootstrap lock error: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.085Z [ERROR] [AUTOMATION] Bootstrap migration FAILED: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.086Z [WARN] [LOCK_RECOVERY] (worker-boot) failed to acquire client (non-fatal): self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.119Z [WARN] [INVALID_INDEX_REAPER(worker-boot)] Bootstrap lock error: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.119Z [ERROR] [IMPORT POOL] startup probe FAILED — CSV imports will not work until connectivity is restored. mode=direct, error=self-signed certificate. Fix: check NEON_DATABASE_URL, or set IMPORT_POOL_USE_DIRECT=true to bypass pooler auto-derivation.
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.120Z [ERROR] [IMPORT] Bootstrap migration FAILED (forced_tags/forced_refs): self-signed certificate
+2026-06-05 04:56:06 +02:00: Error: self-signed certificate
+2026-06-05 04:56:06 +02:00: 2026-06-05T02:56:06.125Z [ERROR] [WORKER] Unhandled Promise Rejection {"reason":"self-signed certificate"}
+2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.788Z [INFO] Database SSL enabled for external connection (Neon)
+2026-06-05 04:56:05 +02:00: 2026-06-05T02:56:05.792Z [INFO] [CONNECTION BUDGET] Limit: 250 | Process: drainer | Main pool: 6 | Tracking pool: 10 | Import pool: 4 (concurrency: 4) | LISTEN/NOTIFY: 1 | Total direct: 21 | External: true
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
