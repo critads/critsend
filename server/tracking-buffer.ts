@@ -22,6 +22,7 @@
 import type { TrackingContext } from "./repositories/campaign-repository";
 import { trackingPool, flushPool, getTrackingPoolStats, getFlushPoolStats, safeTrackingQuery } from "./tracking-pool";
 import { isPoolCheckoutError } from "./db";
+import { isTransientConnError } from "./services/conn-retry";
 import { logger } from "./logger";
 import {
   trackingBufferEnqueued,
@@ -55,6 +56,11 @@ const DEDUPE_WINDOW_MS = Number(process.env.TRACKING_DEDUPE_WINDOW_MS || 60_000)
 const DROP_WARN_INTERVAL_MS = 10_000;
 const LINK_CACHE_MAX = Number(process.env.TRACKING_LINK_CACHE_MAX || 5_000);
 const MAX_FLUSH_RETRIES = Number(process.env.TRACKING_MAX_FLUSH_RETRIES || 3);
+// During a transient DB outage we retry a failed flush WITHOUT consuming the
+// bounded MAX_FLUSH_RETRIES budget — instead we retain events and keep retrying
+// until they age past this window. Default 30 min comfortably outlasts a typical
+// DB restart / failover so brief blips no longer cost open/click events.
+const MAX_EVENT_AGE_MS = Number(process.env.TRACKING_MAX_EVENT_AGE_MS || 1_800_000);
 const BACKOFF_MAX_INTERVAL_MS = Number(process.env.TRACKING_BACKOFF_MAX_MS || 10_000);
 const POOL_PRESSURE_THRESHOLD = 0.85;
 
@@ -69,6 +75,20 @@ const dedupe = new Map<string, number>();
 
 // ── LRU for link destinations (Map preserves insertion order) ───────────
 const linkCache = new Map<string, string>();
+
+/**
+ * True when a flush failure is a transient DB-connectivity problem — pool
+ * checkout timeout, connection reset/refused, or the DB restarting/failing over
+ * — as opposed to a genuine/poison error (constraint violation, malformed data).
+ *
+ * Transient failures are retried indefinitely (age-bounded by MAX_EVENT_AGE_MS)
+ * so a multi-minute DB outage no longer drops open/click events the moment the
+ * small MAX_FLUSH_RETRIES budget is spent. Genuine errors keep the bounded
+ * count-based cap so a poison batch can't loop forever.
+ */
+export function isTransientFlushError(err: unknown): boolean {
+  return isPoolCheckoutError(err) || isTransientConnError(err);
+}
 
 function dedupeKey(e: { campaignId: string; subscriberId: string; type: TrackingEventType; link?: string }): string {
   // Clicks include the link so a subscriber clicking two different links in
@@ -86,6 +106,32 @@ function pruneDedupe(now: number): void {
   const cutoff = now - DEDUPE_WINDOW_MS;
   for (const [k, ts] of dedupe) {
     if (ts < cutoff) dedupe.delete(k);
+  }
+}
+
+/**
+ * Enforce MAX_QUEUE after the flusher requeues a failed batch. The normal
+ * enqueue() path already drops-oldest at the cap, but requeued events are
+ * pushed directly onto the queue and bypass that check; during a sustained
+ * outage the requeue + live-traffic combination could otherwise grow the queue
+ * unbounded. We drop the OLDEST events (newer ones are closer to the user's
+ * actual current behavior), clear their dedupe entries, and count them as
+ * queue_full so the metric reason stays accurate.
+ */
+function enforceQueueCap(): void {
+  if (queue.length <= MAX_QUEUE) return;
+  const overflow = queue.length - MAX_QUEUE;
+  const evicted = queue.splice(0, overflow);
+  for (const ev of evicted) dedupe.delete(dedupeKey(ev));
+  trackingBufferDropped.inc({ reason: "queue_full" }, overflow);
+  droppedSinceLastWarn += overflow;
+  const now = Date.now();
+  if (now - lastDropWarnAt > DROP_WARN_INTERVAL_MS) {
+    logger.warn(
+      `[TRACKING BUFFER] Queue over cap (${MAX_QUEUE}) after requeue; dropped ${droppedSinceLastWarn} oldest events in last ${Math.round((now - lastDropWarnAt) / 1000)}s`,
+    );
+    lastDropWarnAt = now;
+    droppedSinceLastWarn = 0;
   }
 }
 
@@ -406,25 +452,48 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
   } catch (err: any) {
     for (const ev of toWrite) dedupe.delete(dedupeKey(ev));
 
+    // Distinguish a transient DB-connectivity blip (DB down/restarting, pool
+    // checkout timeout, connection reset) from a genuine/poison error.
+    //   • Transient  → retry indefinitely, age-bounded by MAX_EVENT_AGE_MS, so a
+    //     multi-minute outage no longer drops events once the small retry budget
+    //     is spent. Memory stays bounded by enforceQueueCap() (drop-oldest).
+    //   • Non-transient → keep the bounded count-based cap so a batch that can
+    //     never succeed (bad data) can't loop forever.
+    const transient = isTransientFlushError(err);
+    const now = Date.now();
     const retryable: BaseEvent[] = [];
     let permanentlyDropped = 0;
+    let staleDropped = 0;
     for (const ev of toWrite) {
-      const retries = (ev._retryCount ?? 0) + 1;
-      if (retries >= MAX_FLUSH_RETRIES) {
-        permanentlyDropped++;
+      if (transient) {
+        if (now - ev.enqueuedAt <= MAX_EVENT_AGE_MS) {
+          retryable.push(ev); // keep _retryCount untouched — budget is reserved for poison errors
+        } else {
+          staleDropped++;
+        }
       } else {
-        retryable.push({ ...ev, _retryCount: retries });
+        const retries = (ev._retryCount ?? 0) + 1;
+        if (retries >= MAX_FLUSH_RETRIES) {
+          permanentlyDropped++;
+        } else {
+          retryable.push({ ...ev, _retryCount: retries });
+        }
       }
     }
 
     if (retryable.length > 0) {
       queue.push(...retryable);
+      enforceQueueCap();
       trackingBufferQueueDepth.set(queue.length);
-      logger.warn(`[TRACKING BUFFER] ${type} batch (${toWrite.length} rows) failed, requeued ${retryable.length} for retry: ${err?.message || err}`);
+      logger.warn(`[TRACKING BUFFER] ${type} batch (${toWrite.length} rows) failed (${transient ? "transient" : "non-transient"}), requeued ${retryable.length} for retry: ${err?.message || err}`);
     }
     if (permanentlyDropped > 0) {
       trackingBufferDropped.inc({ reason: "flush_error" }, permanentlyDropped);
       logger.error(`[TRACKING BUFFER] ${type} batch: ${permanentlyDropped} events permanently dropped after ${MAX_FLUSH_RETRIES} retries`);
+    }
+    if (staleDropped > 0) {
+      trackingBufferDropped.inc({ reason: "flush_stale" }, staleDropped);
+      logger.error(`[TRACKING BUFFER] ${type} batch: ${staleDropped} events dropped after exceeding max age ${Math.round(MAX_EVENT_AGE_MS / 1000)}s during sustained flush failure`);
     }
 
     throw err;
@@ -1069,7 +1138,7 @@ export function startTrackingBufferFlusher(): void {
   }, 250);
   poolSampleTimer.unref();
   logger.info(
-    `[TRACKING BUFFER] flusher started: interval=${FLUSH_INTERVAL_MS}ms, counterCoalesce=${COUNTER_COALESCE_MS}ms, maxQueue=${MAX_QUEUE}, maxBatchPerType=${MAX_BATCH_PER_TYPE}, dedupeWindow=${DEDUPE_WINDOW_MS}ms, maxRetries=${MAX_FLUSH_RETRIES}, backoffMax=${BACKOFF_MAX_INTERVAL_MS}ms, sequential=true`,
+    `[TRACKING BUFFER] flusher started: interval=${FLUSH_INTERVAL_MS}ms, counterCoalesce=${COUNTER_COALESCE_MS}ms, maxQueue=${MAX_QUEUE}, maxBatchPerType=${MAX_BATCH_PER_TYPE}, dedupeWindow=${DEDUPE_WINDOW_MS}ms, maxRetries=${MAX_FLUSH_RETRIES}, maxEventAge=${Math.round(MAX_EVENT_AGE_MS / 1000)}s, backoffMax=${BACKOFF_MAX_INTERVAL_MS}ms, sequential=true`,
   );
 }
 
