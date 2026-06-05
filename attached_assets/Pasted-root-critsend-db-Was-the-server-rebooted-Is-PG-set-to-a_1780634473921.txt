@@ -1,0 +1,133 @@
+root@critsend-db ~ # # Was the server rebooted? Is PG set to auto-start?
+uptime
+systemctl is-enabled postgresql@17-main
+
+# Why it stopped — correct v17 paths
+sudo systemctl status postgresql@17-main --no-pager | head -30
+sudo journalctl -u postgresql@17-main --since "1 hour ago" --no-pager | tail -50 
+sudo ls -lt /var/lib/postgresql/17/main/log/ | head
+sudo tail -80 "$(sudo ls -t /var/lib/postgresql/17/main/log/postgresql-*.log | head -1)"
+ 06:40:55 up 18:11,  2 users,  load average: 0.00, 0.00, 0.15
+enabled-runtime
+× postgresql@17-main.service - PostgreSQL Cluster 17-main
+     Loaded: loaded (/usr/lib/systemd/system/postgresql@.service; enabled-runtime; preset: enabled)
+    Drop-In: /etc/systemd/system/postgresql@17-main.service.d
+             └─override.conf
+     Active: failed (Result: protocol) since Fri 2026-06-05 06:15:21 CEST; 25min ago
+   Duration: 17h 9min 28.622s
+        CPU: 54ms
+
+Jun 05 06:15:21 critsend-db systemd[1]: Starting postgresql@17-main.service - PostgreSQL Cluster 17-main...
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: Error: /usr/lib/postgresql/17/bin/pg_ctl /usr/lib/postgresql/17/bin/pg_ctl start -D /var/lib/postgresql/17/main -l /var/log/postgresql/postgresql-17-main.log -s -o  -c config_file="/etc/postgresql/17/main/postgresql.conf"  exited with status 1:
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: 2026-06-05 04:15:21.126 UTC [80758] FATAL:  private key file "/etc/postgresql/17/main/server.key" has group or world access
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: 2026-06-05 04:15:21.126 UTC [80758] DETAIL:  File must have permissions u=rw (0600) or less if owned by the database user, or permissions u=rw,g=r (0640) or less if owned by root.
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: 2026-06-05 04:15:21.126 UTC [80758] LOG:  database system is shut down
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: pg_ctl: could not start server
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: Examine the log output.
+Jun 05 06:15:21 critsend-db systemd[1]: postgresql@17-main.service: Can't open PID file /run/postgresql/17-main.pid (yet?) after start: No such file or directory
+Jun 05 06:15:21 critsend-db systemd[1]: postgresql@17-main.service: Failed with result 'protocol'.
+Jun 05 06:15:21 critsend-db systemd[1]: Failed to start postgresql@17-main.service - PostgreSQL Cluster 17-main.
+Jun 05 06:15:13 critsend-db systemd[1]: Stopping postgresql@17-main.service - PostgreSQL Cluster 17-main...
+Jun 05 06:15:21 critsend-db systemd[1]: postgresql@17-main.service: Deactivated successfully.
+Jun 05 06:15:21 critsend-db systemd[1]: Stopped postgresql@17-main.service - PostgreSQL Cluster 17-main.
+Jun 05 06:15:21 critsend-db systemd[1]: postgresql@17-main.service: Consumed 3h 20min 33.301s CPU time, 141.7G memory peak, 0B memory swap peak.
+Jun 05 06:15:21 critsend-db systemd[1]: Starting postgresql@17-main.service - PostgreSQL Cluster 17-main...
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: Error: /usr/lib/postgresql/17/bin/pg_ctl /usr/lib/postgresql/17/bin/pg_ctl start -D /var/lib/postgresql/17/main -l /var/log/postgresql/postgresql-17-main.log -s -o  -c config_file="/etc/postgresql/17/main/postgresql.conf"  exited with status 1:
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: 2026-06-05 04:15:21.126 UTC [80758] FATAL:  private key file "/etc/postgresql/17/main/server.key" has group or world access
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: 2026-06-05 04:15:21.126 UTC [80758] DETAIL:  File must have permissions u=rw (0600) or less if owned by the database user, or permissions u=rw,g=r (0640) or less if owned by root.
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: 2026-06-05 04:15:21.126 UTC [80758] LOG:  database system is shut down
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: pg_ctl: could not start server
+Jun 05 06:15:21 critsend-db postgresql@17-main[80752]: Examine the log output.
+Jun 05 06:15:21 critsend-db systemd[1]: postgresql@17-main.service: Can't open PID file /run/postgresql/17-main.pid (yet?) after start: No such file or directory
+Jun 05 06:15:21 critsend-db systemd[1]: postgresql@17-main.service: Failed with result 'protocol'.
+Jun 05 06:15:21 critsend-db systemd[1]: Failed to start postgresql@17-main.service - PostgreSQL Cluster 17-main.
+total 553072
+-rw------- 1 postgres postgres 566327833 Jun  5 06:15 postgresql-Fri.log
+-rw------- 1 postgres postgres      8251 Jun  4 13:37 postgresql-Thu.log
+2026-06-05 04:15:20.351 UTC [80673] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.351 UTC [80674] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.353 UTC [80675] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.353 UTC [80676] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.355 UTC [80677] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.357 UTC [80679] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.358 UTC [80678] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.358 UTC [80680] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.359 UTC [80681] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.361 UTC [80682] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.363 UTC [80683] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.364 UTC [80684] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.366 UTC [80686] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.366 UTC [80685] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.367 UTC [80687] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.370 UTC [80688] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.372 UTC [80690] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.373 UTC [80691] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.373 UTC [80689] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.374 UTC [80692] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.375 UTC [80694] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.376 UTC [80693] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.376 UTC [80695] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.376 UTC [80696] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.378 UTC [80697] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.379 UTC [80699] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.380 UTC [80698] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.380 UTC [80700] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.383 UTC [80702] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.384 UTC [80701] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.385 UTC [80703] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.386 UTC [80704] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.387 UTC [80705] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.388 UTC [80706] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.390 UTC [80707] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.392 UTC [80708] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.392 UTC [80710] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.393 UTC [80709] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.393 UTC [80711] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.394 UTC [80712] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.397 UTC [80713] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.398 UTC [80714] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.398 UTC [80715] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.399 UTC [80716] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.400 UTC [80717] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.403 UTC [80718] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.404 UTC [80720] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.405 UTC [80721] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.405 UTC [80719] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.406 UTC [80722] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.409 UTC [80723] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.410 UTC [80724] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.411 UTC [80725] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.412 UTC [80726] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.412 UTC [80727] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.416 UTC [80728] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.417 UTC [80729] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.418 UTC [80730] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.419 UTC [80731] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.419 UTC [80732] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.422 UTC [80733] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.425 UTC [80734] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.428 UTC [80736] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.431 UTC [80735] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.436 UTC [80737] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.659 UTC [80738] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.666 UTC [80739] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.672 UTC [80740] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.763 UTC [80741] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.769 UTC [80742] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.776 UTC [80743] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.845 UTC [80744] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.852 UTC [80745] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.858 UTC [80746] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.880 UTC [80747] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.979 UTC [80748] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.981 UTC [80749] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:20.987 UTC [80750] critsend@critsend FATAL:  the database system is shutting down
+2026-06-05 04:15:21.004 UTC [8018] LOG:  checkpoint complete: wrote 189226 buffers (2.3%); 0 WAL file(s) added, 147 removed, 0 recycled; write=2.100 s, sync=0.002 s, total=2.505 s; sync files=100, longest=0.002 s, average=0.001 s; distance=2416130 kB, estimate=12794771 kB; lsn=26/C9D1B28, redo lsn=26/C9D1B28
+2026-06-05 04:15:21.031 UTC [8016] LOG:  database system is shut down
+root@critsend-db ~ # sudo systemctl start postgresql@17-main
+sudo systemctl is-active postgresql@17-main
+ss -ltnp | grep 5432
+Job for postgresql@17-main.service failed because the service did not take the steps required by its unit configuration.
+See "systemctl status postgresql@17-main.service" and "journalctl -xeu postgresql@17-main.service" for details.
+failed
+root@critsend-db ~ # 
