@@ -1,0 +1,64 @@
+root@critsend-db ~ # # See current ownership/perms (and whether it's a symlink)
+sudo ls -l /etc/postgresql/17/main/server.key /etc/postgresql/17/main/server.crt 
+
+# Secure the private key (0600 owned by postgres is always accepted)
+sudo chown postgres:postgres /etc/postgresql/17/main/server.key
+sudo chmod 0600 /etc/postgresql/17/main/server.key
+
+# Start and confirm it's listening
+sudo systemctl start postgresql@17-main
+sudo systemctl is-active postgresql@17-main
+ss -ltnp | grep 5432
+-rw-r--r-- 1 postgres postgres 1159 Jun  4 12:57 /etc/postgresql/17/main/server.crt
+-rw-r----- 1 postgres postgres 1704 Jun  4 12:57 /etc/postgresql/17/main/server.key
+active
+LISTEN 0      600          0.0.0.0:5432      0.0.0.0:*    users:(("postgres",pid=102940,fd=7))                    
+LISTEN 0      600             [::]:5432         [::]:*    users:(("postgres",pid=102940,fd=8))                    
+root@critsend-db ~ # sudo systemctl enable postgresql@17-main
+Created symlink /etc/systemd/system/multi-user.target.wants/postgresql@17-main.service → /usr/lib/systemd/system/postgresql@.service.
+root@critsend-db ~ # sudo stat -c '%n  perms=%a  owner=%U:%G  mtime=%y' /etc/postgresql/17/main/server.key /etc/postgresql/17/main/server.crt
+sudo journalctl --since "06:05" --until "06:20" --no-pager | grep -iE 'postgres|apt|upgrade|dpkg|cert|ssl|key' | tail -30
+grep -iE 'Start-Date|Upgrade|Install' /var/log/apt/history.log 2>/dev/null | tail -10
+/etc/postgresql/17/main/server.key  perms=600  owner=postgres:postgres  mtime=2026-06-04 12:57:29.189249804 +0200
+/etc/postgresql/17/main/server.crt  perms=644  owner=postgres:postgres  mtime=2026-06-04 12:57:29.191249826 +0200
+Jun 05 06:16:43 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:16:43 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:16:45 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:16:45 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:16:56 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:16:56 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:09 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:09 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:10 critsend-db systemd[1]: Reloading requested from client PID 101076 ('systemctl') (unit apt-daily-upgrade.service)...
+Jun 05 06:17:12 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:12 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:15 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:15 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:17 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:17 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:21 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:21 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:23 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:23 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:26 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:26 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:28 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:28 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:31 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:31 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:33 critsend-db apt.systemd.daily[69589]: /usr/bin/unattended-upgrade:567: DeprecationWarning: This process (pid=69589) is multi-threaded, use of fork() may lead to deadlocks in the child.
+Jun 05 06:17:33 critsend-db apt.systemd.daily[69589]:   pid = os.fork()
+Jun 05 06:17:36 critsend-db systemd[1]: apt-daily-upgrade.service: Deactivated successfully.
+Jun 05 06:17:36 critsend-db systemd[1]: Finished apt-daily-upgrade.service - Daily apt upgrade and clean activities.
+Jun 05 06:17:36 critsend-db systemd[1]: apt-daily-upgrade.service: Consumed 3min 26.186s CPU time, 1.6G memory peak, 0B memory swap peak.
+Upgrade: sudo:amd64 (1.9.15p5-3ubuntu5.24.04.1, 1.9.15p5-3ubuntu5.24.04.2)
+Start-Date: 2026-06-05  06:17:29
+Commandline: /usr/bin/unattended-upgrade
+Upgrade: sed:amd64 (4.9-2build1, 4.9-2ubuntu0.24.04.1)
+Start-Date: 2026-06-05  06:17:31
+Commandline: /usr/bin/unattended-upgrade
+Upgrade: libpng16-16t64:amd64 (1.6.43-5ubuntu0.4, 1.6.43-5ubuntu0.6)
+Start-Date: 2026-06-05  06:17:33
+Commandline: /usr/bin/unattended-upgrade
+Upgrade: python3-pyasn1:amd64 (0.4.8-4ubuntu0.1, 0.4.8-4ubuntu0.2)
+root@critsend-db ~ # 
