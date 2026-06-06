@@ -175,8 +175,16 @@ module.exports = {
         NODE_OPTIONS: "--max-old-space-size=6144 --expose-gc",
         // tracking_tokens partition retention (see web block). Daily DROP job.
         TRACKING_TOKEN_RETENTION_DAYS: dotenvVars.TRACKING_TOKEN_RETENTION_DAYS || "7",
-        WORKER_PG_POOL_MAX: "18",
-        MAX_CONCURRENT_CAMPAIGNS: "12",
+        // Dedicated Hetzner PG17 (max_connections=300, 251 GB RAM) — far more
+        // headroom than the old Neon Launch 50-conn direct cap. Worker concurrency
+        // is bound by the formula in pressure-guard.ts:
+        //   MAX_CONCURRENT_CAMPAIGNS × PRESSURE_GUARD_PARALLEL_CHUNKS (default 3)
+        //   ≤ WORKER_PG_POOL_MAX + 6
+        // 18 × 3 = 54 ≤ 60 + 6 = 66 (comfortable). Direct conns: worker ~65
+        // (60 pool + import 4 + notify 1) + web ~35 + drainer 6 ≈ 106 of 300.
+        // If you raise PRESSURE_GUARD_PARALLEL_CHUNKS, re-derive the pool first.
+        WORKER_PG_POOL_MAX: "60",
+        MAX_CONCURRENT_CAMPAIGNS: "18",
         MAX_CONNECTIONS_PER_REQUEST: "2",
         // Worker reads CSVs by absolute path stored in import_job_queue, but
         // we set the same env vars here for consistency and so any future
