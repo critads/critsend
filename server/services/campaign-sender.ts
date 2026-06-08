@@ -238,7 +238,21 @@ export const SPEED_CONFIG: Record<string, { emailsPerMinute: number; concurrency
   godzilla: { emailsPerMinute: 60000, concurrency: 250 },
 };
 
-export async function processCampaignInternal(campaignId: string, jobId?: string) {
+/**
+ * Optional liveness/cancellation hooks supplied by the worker (Task #199).
+ * - `onProgress`: called on every heartbeat tick so the worker's per-process
+ *   watchdog can tell a genuinely-running campaign from a wedged one.
+ * - `signal`: aborted by the watchdog/duplicate-guard when this job's slot is
+ *   force-released; the send loop checks it and stops cleanly if it can reach
+ *   a checkpoint (a never-settling `await` still can't, which is why the
+ *   worker also releases the in-memory slot independently).
+ */
+export interface CampaignJobHooks {
+  onProgress?: () => void;
+  signal?: AbortSignal;
+}
+
+export async function processCampaignInternal(campaignId: string, jobId?: string, hooks?: CampaignJobHooks) {
   const logPrefix = `[CAMPAIGN ${campaignId}${jobId ? ` job:${jobId.substring(0, 8)}` : ''}]`;
 
   logger.info(`${logPrefix} processCampaignInternal started`);
@@ -520,6 +534,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   let lastHeartbeat = Date.now();
 
   async function checkStatusAndHeartbeat(): Promise<void> {
+    // Task #199: report liveness to the worker watchdog on every checkpoint
+    // (this function is called frequently inside the send loop) so a wedged
+    // entry is only flagged when the loop truly stops advancing.
+    hooks?.onProgress?.();
+    // The watchdog/duplicate-guard aborts this job's signal when it
+    // force-releases the slot; honour it as a clean stop.
+    if (hooks?.signal?.aborted && !shouldStop) {
+      logger.warn(`${logPrefix} Abort signal received - stopping send loop`);
+      shouldStop = true;
+    }
     const now = Date.now();
     if (jobId && now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
       await retryDbOp(() => storage.heartbeatJob(jobId!), `${logPrefix} heartbeat`);

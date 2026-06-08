@@ -174,6 +174,49 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
 /**
+ * Hard upper bound (ms) on a single `transporter.sendMail` call (Task #199).
+ * Nodemailer's `socketTimeout` only bounds an ALREADY-ASSIGNED socket; when a
+ * pooled transporter has no free connection (all sockets stuck), `sendMail`
+ * queues and can wait indefinitely. That never-settling await was the root of
+ * the campaign hung-tick wedge. Bounding the call converts an indefinite hang
+ * into a retryable `ETIMEDOUT`, so the send loop keeps heartbeating and the
+ * job never silently freezes. Default 60s = 2× the pooled socketTimeout (30s)
+ * so a normal slow send is not preempted. Env: `SMTP_SEND_TIMEOUT_MS`.
+ */
+const SMTP_SEND_TIMEOUT_MS = Math.max(
+  10_000,
+  parseInt(process.env.SMTP_SEND_TIMEOUT_MS || '60000', 10) || 60000,
+);
+
+/**
+ * Races `transporter.sendMail` against a timeout. On timeout, rejects with an
+ * error tagged `code='ETIMEDOUT'` so `isTransientError` classifies it as
+ * retryable. Always clears the timer to avoid a dangling handle.
+ */
+export async function sendMailBounded(
+  transporter: Pick<nodemailer.Transporter, 'sendMail'>,
+  mailOptions: nodemailer.SendMailOptions,
+): Promise<any> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      transporter.sendMail(mailOptions),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => {
+          const err: any = new Error(
+            `SMTP sendMail timed out after ${SMTP_SEND_TIMEOUT_MS}ms (no free pooled connection or unresponsive server)`,
+          );
+          err.code = 'ETIMEDOUT';
+          reject(err);
+        }, SMTP_SEND_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
  * Maps a user-facing protocol label to Nodemailer transport security options.
  *   SSL     → implicit TLS from the start  (secure: true,  port 465)
  *   TLS     → same as SSL (alternate label used by some providers)
@@ -697,7 +740,7 @@ export async function sendEmail(
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const info = await transporter.sendMail(mailOptions);
+      const info = await sendMailBounded(transporter, mailOptions);
       
       return {
         success: true,
@@ -1045,7 +1088,7 @@ export async function sendTestEmailViaSMTP(
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       logger.info('Sending via SMTP', { hostname: mta.hostname, port: mta.port, to: options.to, attempt });
-      const info = await transporter.sendMail(mailOptions);
+      const info = await sendMailBounded(transporter, mailOptions);
       logger.info('Sent successfully', { messageId: info.messageId });
       return {
         success: true,

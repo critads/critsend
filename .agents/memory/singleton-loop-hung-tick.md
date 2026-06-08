@@ -42,3 +42,38 @@ TTL and a fresh process resumes. Stranded `attempting` rows are swept failed
 accepted (send resolves late) can duplicate on retry — same accepted risk as
 the existing catch→failed→auto-requeue path. Proper fix = transport-level
 cancellation (AbortSignal), not yet implemented.
+
+## Variant: in-memory active-job registry (campaign sender)
+
+A second hung-tick shape, distinct from the leader-lease singleton above: a
+worker tracks in-flight campaign jobs in a process-local registry that is
+cleared ONLY by a fire-and-forget promise's `finally{}`. If
+`processCampaignInternal`'s promise never settles, `finally` never runs, the
+campaign stays "active" forever, and the duplicate-job guard rejects every
+re-enqueued successor → permanent wedge, only a PM2 restart clears it.
+
+**Why the DB guardian can't save you:** the wedge lives in ANOTHER process's
+memory. The DB stale-heartbeat guardian can fail+re-enqueue the row, but the
+successor still hits the in-memory dup guard. No SQL reaches process-local
+state — recovery MUST be in-process.
+
+**How to apply (defenses that actually un-wedge):**
+1. Track `lastProgressAt` per active entry, refreshed by the sender's
+   heartbeat callback (`onProgress` hook). Liveness, not mere presence, is the
+   wedge signal.
+2. Self-healing dup guard + a per-process watchdog interval that aborts and
+   **force-deletes** entries stalled past a threshold (≫ heartbeat interval),
+   freeing the concurrency slot so a successor can take over. Per-process,
+   in-memory only — no leader election needed (unlike DB singletons).
+3. Make the fire-and-forget `finally` **ownership-aware** (delete only if the
+   entry's jobId still equals this job's id) so a late-settling zombie can't
+   evict the successor that already took its slot.
+4. Bound the external await itself: nodemailer `socketTimeout` only bounds an
+   ALREADY-ASSIGNED socket — a pooled `sendMail` with no free connection waits
+   forever. Wrap `sendMail` in `Promise.race` vs a timeout that rejects
+   `code='ETIMEDOUT'` (classified retryable) so the loop keeps progressing.
+
+**Why wire-level double-send is bounded here:** the send loop reserves each
+recipient via an atomic CAS (`pressureGuardReserveSendSlots`); two concurrent
+loops (zombie + successor) can't both win the same subscriber, so DB-level
+single-send holds even during the eviction overlap window.

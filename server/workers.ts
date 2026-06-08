@@ -638,7 +638,46 @@ async function processFlushJob(jobId: string, subscriberCount: number): Promise<
 }
 
 const MAX_CONCURRENT_CAMPAIGNS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CAMPAIGNS || '8', 10) || 8);
-const activeCampaigns = new Set<string>();
+
+/**
+ * Liveness record for a campaign job running IN THIS PROCESS. Task #199:
+ * `activeCampaigns` used to be a plain `Set<string>` and the duplicate-job
+ * guard checked `.has()`. That made an in-memory "hung-tick freeze" fatal:
+ * if `processCampaignInternal`'s promise never settles (an `await` that
+ * never resolves — e.g. waiting forever for a free pooled SMTP connection),
+ * `runCampaignJob`'s `finally{}` never runs, the campaign stays "active"
+ * forever, and every re-enqueued successor is rejected as a duplicate. No
+ * SQL can clear another process's in-memory state, so the only escape was a
+ * manual PM2 restart. We now track `lastProgressAt` (refreshed by the
+ * sender's heartbeat callback) plus an `AbortController`, so both the
+ * duplicate guard and a periodic watchdog can detect a wedged entry, abort
+ * it, and release the slot automatically.
+ */
+interface ActiveCampaignEntry {
+  jobId: string;
+  startedAt: number;
+  lastProgressAt: number;
+  abort: AbortController;
+}
+const activeCampaigns = new Map<string, ActiveCampaignEntry>();
+
+/**
+ * How long an active campaign may make NO forward progress (no sender
+ * heartbeat tick) before we treat its in-memory entry as wedged and release
+ * it. The sender heartbeats every 30s, so 5min of silence is unambiguous.
+ * Aligned with the guardian's stale-heartbeat detection so the guardian's
+ * re-enqueued successor and the released slot meet.
+ */
+const CAMPAIGN_STALL_RELEASE_MS = Math.max(
+  60_000,
+  parseInt(process.env.CAMPAIGN_STALL_RELEASE_MS || '300000', 10) || 300000,
+);
+const CAMPAIGN_WATCHDOG_INTERVAL_MS = Math.max(
+  10_000,
+  parseInt(process.env.CAMPAIGN_WATCHDOG_INTERVAL_MS || '60000', 10) || 60000,
+);
+let campaignWatchdogInterval: NodeJS.Timeout | null = null;
+
 let isPolling = false;
 let campaignJobWakeup: (() => void) | null = null;
 
@@ -806,19 +845,68 @@ async function handleJobError(job: CampaignJob, error: any) {
   }
 }
 
-async function runCampaignJob(job: CampaignJob) {
+async function runCampaignJob(job: CampaignJob, entry: ActiveCampaignEntry) {
   logger.info(`[JOB_POLL] Worker ${WORKER_ID} started job ${job.id} for campaign ${job.campaignId} (${activeCampaigns.size}/${MAX_CONCURRENT_CAMPAIGNS} active)`);
 
   try {
-    await processCampaignInternal(job.campaignId, job.id);
+    await processCampaignInternal(job.campaignId, job.id, {
+      signal: entry.abort.signal,
+      // Refresh liveness on every sender heartbeat tick so the watchdog and
+      // duplicate guard can distinguish a genuinely-running job from a wedged
+      // one. Only touch the entry if it is still ours — the watchdog may have
+      // force-released a wedged predecessor and a successor may now own the
+      // slot for this campaign.
+      onProgress: () => {
+        const cur = activeCampaigns.get(job.campaignId);
+        if (cur && cur.jobId === job.id) cur.lastProgressAt = Date.now();
+      },
+    });
     await handleJobCompletion(job);
   } catch (error: any) {
     logger.error(`[JOB_POLL] Error processing job ${job.id} for campaign ${job.campaignId}:`, error);
     await handleJobError(job, error);
   } finally {
-    activeCampaigns.delete(job.campaignId);
+    // Ownership-aware release (Task #199): if the watchdog/duplicate-guard
+    // already force-released this entry and a successor took over the slot,
+    // a late-settling zombie promise must NOT delete the successor's entry.
+    const cur = activeCampaigns.get(job.campaignId);
+    if (cur && cur.jobId === job.id) {
+      activeCampaigns.delete(job.campaignId);
+    }
     logger.info(`[JOB_POLL] Campaign ${job.campaignId} finished (${activeCampaigns.size}/${MAX_CONCURRENT_CAMPAIGNS} active)`);
   }
+}
+
+/**
+ * Task #199: force-release in-memory campaign entries whose send loop has
+ * made no progress for CAMPAIGN_STALL_RELEASE_MS. This is the safety net for
+ * a never-settling `await` inside `processCampaignInternal` — `finally{}`
+ * cannot run for a promise that never settles, so without this the slot
+ * would be held forever and the duplicate guard would reject every
+ * successor. Purely in-memory, per-process cleanup (no DB singleton / no
+ * leader election needed): aborting the entry signals the loop to stop if it
+ * is in a checkable state, and deleting the entry frees the slot so the next
+ * poll can claim the guardian's re-enqueued successor. The wedged DB job is
+ * failed + re-enqueued separately by the stale-heartbeat campaign guardian.
+ */
+function sweepWedgedActiveCampaigns(): void {
+  const now = Date.now();
+  for (const [campaignId, entry] of activeCampaigns) {
+    const stalledMs = now - entry.lastProgressAt;
+    if (stalledMs > CAMPAIGN_STALL_RELEASE_MS) {
+      logger.error(
+        `[CAMPAIGN_WATCHDOG] Force-releasing wedged campaign ${campaignId} ` +
+        `(job ${job_id_short(entry.jobId)}, no progress for ${Math.round(stalledMs / 1000)}s) — ` +
+        `aborting and freeing slot so a successor can resume`,
+      );
+      try { entry.abort.abort(); } catch { /* AbortController.abort never throws, defensive */ }
+      activeCampaigns.delete(campaignId);
+    }
+  }
+}
+
+function job_id_short(jobId: string): string {
+  return jobId.length > 8 ? jobId.substring(0, 8) : jobId;
 }
 
 export async function triggerCampaignJobPoll(): Promise<void> {
@@ -844,18 +932,44 @@ async function pollForJobs() {
       logger.info(`[JOB_POLL] Cleaned up ${staleCount} stale jobs`);
     }
 
+    // Task #199: reclaim any wedged in-memory entries before counting slots,
+    // so a hung predecessor cannot permanently consume a concurrency slot.
+    sweepWedgedActiveCampaigns();
+
     while (activeCampaigns.size < MAX_CONCURRENT_CAMPAIGNS) {
       const job = await storage.claimNextJob(WORKER_ID);
       if (!job) break;
 
-      if (activeCampaigns.has(job.campaignId)) {
-        await storage.completeJob(job.id, "failed", "Duplicate job for already-active campaign");
-        logger.warn(`[JOB_POLL] Skipped duplicate job ${job.id} - campaign ${job.campaignId} already active`);
-        continue;
+      const existing = activeCampaigns.get(job.campaignId);
+      if (existing) {
+        const stalledMs = Date.now() - existing.lastProgressAt;
+        if (stalledMs <= CAMPAIGN_STALL_RELEASE_MS) {
+          // Genuinely active in this process — reject the duplicate as before.
+          await storage.completeJob(job.id, "failed", "Duplicate job for already-active campaign");
+          logger.warn(`[JOB_POLL] Skipped duplicate job ${job.id} - campaign ${job.campaignId} already active`);
+          continue;
+        }
+        // Self-heal (Task #199): the in-memory entry is wedged (no sender
+        // progress for stalledMs — its promise likely never settled). Abort
+        // and evict it so this freshly-claimed successor can take over,
+        // instead of looping "Duplicate job for already-active campaign"
+        // forever until a manual restart.
+        logger.error(
+          `[JOB_POLL] Releasing wedged campaign ${job.campaignId} (prior job ${job_id_short(existing.jobId)}, ` +
+          `no progress for ${Math.round(stalledMs / 1000)}s) — successor job ${job.id} taking over`,
+        );
+        try { existing.abort.abort(); } catch { /* never throws */ }
+        activeCampaigns.delete(job.campaignId);
       }
 
-      activeCampaigns.add(job.campaignId);
-      runCampaignJob(job);
+      const entry: ActiveCampaignEntry = {
+        jobId: job.id,
+        startedAt: Date.now(),
+        lastProgressAt: Date.now(),
+        abort: new AbortController(),
+      };
+      activeCampaigns.set(job.campaignId, entry);
+      runCampaignJob(job, entry);
     }
   } catch (error) {
     logger.error("[JOB_POLL] Error in job polling:", error);
@@ -1242,6 +1356,14 @@ async function startJobProcessor() {
 
   jobPollingInterval = setInterval(pollForJobs, 10000);
 
+  // Task #199: per-process watchdog that force-releases wedged in-memory
+  // campaign entries (a never-settling send loop) even when no successor job
+  // is being claimed — guarantees the slot is freed without a manual restart.
+  if (!campaignWatchdogInterval) {
+    campaignWatchdogInterval = setInterval(sweepWedgedActiveCampaigns, CAMPAIGN_WATCHDOG_INTERVAL_MS);
+    logger.info(`[CAMPAIGN_WATCHDOG] Started (every ${Math.round(CAMPAIGN_WATCHDOG_INTERVAL_MS / 1000)}s, stall threshold ${Math.round(CAMPAIGN_STALL_RELEASE_MS / 1000)}s)`);
+  }
+
   messageQueue.onMessage("campaign_jobs", (payload) => {
     logger.info(`[JOB_POLL] NOTIFY received for campaign_jobs, triggering immediate poll`);
     pollForJobs();
@@ -1298,6 +1420,11 @@ function stopJobProcessor() {
     clearInterval(mtaRecoveryInterval);
     mtaRecoveryInterval = null;
     logger.info("MTA recovery checker stopped");
+  }
+  if (campaignWatchdogInterval) {
+    clearInterval(campaignWatchdogInterval);
+    campaignWatchdogInterval = null;
+    logger.info("[CAMPAIGN_WATCHDOG] Stopped");
   }
   stopImportJobProcessor();
   stopFlushJobProcessor();
@@ -2395,7 +2522,7 @@ export function getActiveJobCount(): { campaigns: number; importJob: boolean; fl
  * if the drain timeout expires.
  */
 export function getActiveCampaignIds(): string[] {
-  return Array.from(activeCampaigns);
+  return Array.from(activeCampaigns.keys());
 }
 
 /**
