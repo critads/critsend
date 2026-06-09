@@ -125,6 +125,7 @@ export interface IStorage {
   incrementCampaignFailedCount(campaignId: string, increment?: number): Promise<void>;
   decrementCampaignPendingCount(campaignId: string, decrement?: number): Promise<void>;
   updateCampaignStatusAtomic(campaignId: string, newStatus: string, expectedStatus?: string): Promise<boolean>;
+  completeCampaignIfDrained(campaignId: string, maxAutoRetries: number): Promise<boolean>;
   reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean>;
   finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void>;
   recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>;

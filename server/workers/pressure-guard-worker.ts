@@ -1515,7 +1515,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
           logger.warn(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} auto-retry limit reached (${MAX_AUTO_RETRIES}/${MAX_AUTO_RETRIES}); ${failedRemaining} drain-failed send(s) remain for manual retry`);
         }
       }
-      const flipped = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
+      const flipped = await storage.completeCampaignIfDrained(campaignId, MAX_AUTO_RETRIES);
       if (flipped) {
         // 2026-05-22 urgent-mode audit: clear the flag on natural drain
         // completion (mirrors the two completion sites in campaign-sender).

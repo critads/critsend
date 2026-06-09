@@ -1158,7 +1158,40 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       return;
     }
 
-    const wasCompleted = await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
+    // DB-authoritative failed-gate (2026-06-09): symmetric to the pressure-guard
+    // worker's post-drain failed check (pressure-guard-worker.ts). The in-memory
+    // auto-requeue above keys off `totalFailed`, which under-counts when the
+    // failures were finalized by an earlier crashed/requeued run (or when this
+    // finalizing run never accumulated them in memory). With the worker holding
+    // the only DB-authoritative gate, the two completion paths RACED: this sender
+    // path could flip the campaign to 'completed' off a stale `totalFailed` before
+    // the worker's gate fired, stranding tens of thousands of un-retried `failed`
+    // rows after a transient MTA outage (observed: a campaign "completed" with
+    // 106k failures at retry_count=0). Read the real failed count straight from
+    // the DB and auto-requeue instead of completing while retry budget remains —
+    // so NEITHER completion path can ever abandon failed sends with budget left.
+    const failedGate = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM campaign_sends
+      WHERE campaign_id = ${campaignId} AND status = 'failed'
+    `);
+    const dbFailedRemaining = Number((failedGate.rows[0] as { n?: number } | undefined)?.n ?? 0);
+    if (dbFailedRemaining > 0) {
+      const freshForFailGate = await storage.getCampaign(campaignId);
+      const currentAutoRetries = freshForFailGate?.autoRetryCount ?? 0;
+      if (currentAutoRetries < MAX_AUTO_RETRIES) {
+        const newCount = currentAutoRetries + 1;
+        const requeued = await storage.autoRequeueCampaignFailed(campaignId, newCount);
+        if (requeued) {
+          await messageQueue.notify("campaign_jobs", { campaignId });
+          logger.info(`${logPrefix} DB failed-gate auto-retry ${newCount}/${MAX_AUTO_RETRIES}: requeued ${dbFailedRemaining} failed send(s) before completion`);
+          return;
+        }
+      } else {
+        logger.warn(`${logPrefix} DB failed-gate: auto-retry limit reached (${MAX_AUTO_RETRIES}/${MAX_AUTO_RETRIES}); ${dbFailedRemaining} failed send(s) remain for manual retry`);
+      }
+    }
+
+    const wasCompleted = await storage.completeCampaignIfDrained(campaignId, MAX_AUTO_RETRIES);
     if (wasCompleted) {
       await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false, urgentFlushJobId: null });
       const finalCampaign = await storage.getCampaign(campaignId);

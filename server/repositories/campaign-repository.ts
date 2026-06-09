@@ -684,6 +684,46 @@ export async function updateCampaignStatusAtomic(campaignId: string, newStatus: 
   return changed;
 }
 
+// Atomically flip 'sending' → 'completed' ONLY when the campaign is genuinely
+// drained: no active (pending/attempting) rows AND no retryable failed rows
+// (failed rows are retryable while auto_retry_count < maxAutoRetries). This is
+// the race-safe completion primitive used by BOTH finalization paths
+// (campaign-sender.ts and pressure-guard-worker.ts).
+//
+// Why this exists (2026-06-09): a plain CAS `status='sending' → 'completed'`
+// is a non-atomic check-then-act when the caller first reads failed/active
+// counts in separate statements. The two completion paths could interleave so
+// that path A requeues (failed → pending) in the window between path B's
+// count-read and B's completion CAS — and B would then complete a campaign that
+// now has live pending retry rows, stranding them (a requeued job aborts when
+// the campaign is no longer 'sending'). Folding both guards INTO the UPDATE's
+// WHERE clause makes the decision atomic: if anything is still in flight or
+// retryable-with-budget, the UPDATE matches 0 rows and we hold 'sending'.
+export async function completeCampaignIfDrained(campaignId: string, maxAutoRetries: number): Promise<boolean> {
+  const result = await db.execute(sql`
+    WITH c AS (
+      SELECT auto_retry_count FROM campaigns WHERE id = ${campaignId} AND status = 'sending'
+    )
+    UPDATE campaigns
+    SET status = 'completed'
+    WHERE id = ${campaignId}
+      AND status = 'sending'
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_sends
+        WHERE campaign_id = ${campaignId} AND status IN ('pending', 'attempting')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_sends cs, c
+        WHERE cs.campaign_id = ${campaignId} AND cs.status = 'failed'
+          AND c.auto_retry_count < ${maxAutoRetries}
+      )
+    RETURNING id
+  `);
+  const changed = result.rows.length > 0;
+  if (changed) publishCampaignsListInvalidation();
+  return changed;
+}
+
 export async function reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean> {
   const result = await db.execute(sql`
     INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at)
