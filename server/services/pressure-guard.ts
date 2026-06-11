@@ -74,14 +74,14 @@ export const PRESSURE_WINDOW_HOURS = (() => {
 // it bounds the worst-case "stuck deferred" latency without ever
 // shortening the 6h gap (the per-recipient last_sent_at is still
 // stamped to NOW() when we force-dispatch, so the 6h guard re-engages
-// forward in time). Default 72h, range 6h..30d. Out-of-range or non-
+// forward in time). Default 52h, range 6h..30d. Out-of-range or non-
 // finite values cause the module to throw at import time so a typo
 // can't reach the running guard.
 const PRESSURE_MAX_DEFER_MIN_HOURS = 6;
 const PRESSURE_MAX_DEFER_MAX_HOURS = 720;
 export const PRESSURE_MAX_DEFER_HOURS = (() => {
   const raw = process.env.PRESSURE_MAX_DEFER_HOURS;
-  if (!raw) return 72;
+  if (!raw) return 52;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < PRESSURE_MAX_DEFER_MIN_HOURS || parsed > PRESSURE_MAX_DEFER_MAX_HOURS) {
     throw new Error(
