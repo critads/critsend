@@ -59,10 +59,15 @@ export function verifyTrackingSignature(
 export function generateSignedOpenTrackingUrl(
   baseUrl: string,
   campaignId: string,
-  subscriberId: string
+  subscriberId: string,
+  mid?: string
 ): string {
   const sig = signTrackingUrl(campaignId, subscriberId, "open");
-  return `${baseUrl}/api/track/open/${campaignId}/${subscriberId}?sig=${sig}`;
+  // `mid` is a per-message cache-buster so image proxies / webmail caches
+  // can't collapse the open URL across recipients or re-opens. It is NOT
+  // part of the HMAC payload — the endpoint ignores it for verification.
+  const messageId = mid ?? crypto.randomUUID();
+  return `${baseUrl}/api/track/open/${campaignId}/${subscriberId}?sig=${sig}&mid=${messageId}`;
 }
 
 export function generateSignedClickTrackingUrl(

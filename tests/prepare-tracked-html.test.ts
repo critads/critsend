@@ -34,6 +34,14 @@ describe("prepareTrackedHtml — guard against silent tracking regression", () =
     // and resolve to the same handler. The point of this guard is to fail
     // loudly if any send path bypasses the open-pixel injection.
     expect(out.html).toMatch(/<img[^>]+src=["']https:\/\/track\.example\.test\/(o\/|api\/track\/open\/)/);
+    // The pixel must NOT use display:none — some clients / image proxies /
+    // anti-spam scanners refuse to load hidden images, silently dropping
+    // real opens (Task #202). It stays invisible via opacity:0 + 1×1 sizing.
+    const pixelTag = out.html.match(/<img[^>]+src=["']https:\/\/track\.example\.test\/(?:o\/|api\/track\/open\/)[^>]*>/)?.[0] ?? "";
+    expect(pixelTag).not.toMatch(/display\s*:\s*none/i);
+    expect(pixelTag).toMatch(/opacity\s*:\s*0/i);
+    // Each rendered pixel carries a unique per-send cache-buster (mid).
+    expect(pixelTag).toMatch(/[?&]mid=/);
   });
 
   it("rewrites raw <a href> URLs to go through the click tracker", () => {

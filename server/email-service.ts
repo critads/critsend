@@ -370,7 +370,11 @@ export function addTrackingToHtml(
         options.subscriberId
       );
       
-      const trackingPixel = `<img src="${pixelUrl}" width="1" height="1" alt="" style="display:none;width:1px;height:1px;border:0;" />`;
+      // No `display:none` — some clients / image proxies / anti-spam scanners
+      // refuse to load hidden images, which silently drops real opens. The
+      // pixel is a normally-loaded 1×1 <img> kept visually invisible via
+      // opacity:0 + clamped dimensions instead.
+      const trackingPixel = `<img src="${pixelUrl}" width="1" height="1" alt="" border="0" style="width:1px;height:1px;border:0;outline:none;text-decoration:none;display:block;opacity:0;max-width:1px;max-height:1px;" />`;
       
       if (processedHtml.includes("</body>")) {
         processedHtml = processedHtml.replace("</body>", `${trackingPixel}</body>`);
