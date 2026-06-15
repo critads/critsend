@@ -921,7 +921,7 @@ function OverallAnalyticsView() {
             Campaign Performance
           </CardTitle>
           <CardDescription>
-            Top 20 campaigns by volume — {rangeLabel}
+            Top 20 campaigns by engagement received — {rangeLabel}
           </CardDescription>
         </CardHeader>
         <CardContent>

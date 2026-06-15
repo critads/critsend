@@ -1583,73 +1583,45 @@ export const ANALYTICS_RANGES = [
 ] as const;
 export type AnalyticsRange = (typeof ANALYTICS_RANGES)[number];
 
-// Builds the SQL predicate restricting campaigns to the chosen period. The
-// campaign's "activity" instant is when sending began (started_at), falling
-// back to creation time for never-started rows. Stored timestamps are
-// naive-UTC, so we re-anchor to UTC then convert to Europe/Paris before
-// truncating to day/week/month. Postgres date_trunc('week') starts Monday,
-// which matches the French calendar.
-function analyticsPeriodCondition(range: AnalyticsRange) {
-  const ts = sql`((COALESCE(started_at, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Paris')`;
+// Builds the UTC half-open bounds [lower, upper) for an engagement-scoped
+// period. Boundaries are computed against the operator's Europe/Paris wall
+// clock (so "today"/"this week"/etc. match the calendar the user sees), then
+// converted back to naive-UTC instants to match how `campaign_stats.timestamp`
+// is stored. Comparing the raw column against plain UTC bounds lets Postgres
+// use `campaign_stats_timestamp_idx` directly instead of a functional scan.
+// Returns null for "all" (no time bound). date_trunc('week') starts Monday,
+// which matches the French calendar; the day/week/month boundaries are all at
+// local midnight, which is never the DST switch instant in Europe/Paris.
+function analyticsPeriodBoundsUtc(range: AnalyticsRange) {
   const now = sql`(now() AT TIME ZONE 'Europe/Paris')`;
+  const day = sql`date_trunc('day', ${now})`;
+  const week = sql`date_trunc('week', ${now})`;
+  const month = sql`date_trunc('month', ${now})`;
+  // A Paris wall-clock timestamp -> the equivalent naive-UTC instant.
+  const toUtc = (parisWall: ReturnType<typeof sql>) =>
+    sql`((${parisWall}) AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC'`;
   switch (range) {
     case "today":
-      return sql`${ts} >= date_trunc('day', ${now}) AND ${ts} < date_trunc('day', ${now}) + interval '1 day'`;
+      return { lower: toUtc(day), upper: toUtc(sql`${day} + interval '1 day'`) };
     case "yesterday":
-      return sql`${ts} >= date_trunc('day', ${now}) - interval '1 day' AND ${ts} < date_trunc('day', ${now})`;
+      return { lower: toUtc(sql`${day} - interval '1 day'`), upper: toUtc(day) };
     case "this_week":
-      return sql`${ts} >= date_trunc('week', ${now}) AND ${ts} < date_trunc('week', ${now}) + interval '1 week'`;
+      return { lower: toUtc(week), upper: toUtc(sql`${week} + interval '1 week'`) };
     case "last_week":
-      return sql`${ts} >= date_trunc('week', ${now}) - interval '1 week' AND ${ts} < date_trunc('week', ${now})`;
+      return { lower: toUtc(sql`${week} - interval '1 week'`), upper: toUtc(week) };
     case "this_month":
-      return sql`${ts} >= date_trunc('month', ${now}) AND ${ts} < date_trunc('month', ${now}) + interval '1 month'`;
+      return { lower: toUtc(month), upper: toUtc(sql`${month} + interval '1 month'`) };
     case "last_month":
-      return sql`${ts} >= date_trunc('month', ${now}) - interval '1 month' AND ${ts} < date_trunc('month', ${now})`;
+      return { lower: toUtc(sql`${month} - interval '1 month'`), upper: toUtc(month) };
     default:
-      return sql`TRUE`;
+      return null;
   }
 }
 
-export async function getOverallAnalytics(range: AnalyticsRange = "all") {
-  const normalizedRange: AnalyticsRange = (ANALYTICS_RANGES as readonly string[]).includes(range)
-    ? range
-    : "all";
-  const cond = analyticsPeriodCondition(normalizedRange);
-  const TOP_N = 20;
-
-  // Everything below reads only the small `campaigns` table via its cached
-  // engagement counters (unique_opens_count / unique_clicks_count / sent_count,
-  // kept fresh by the counter-reconciler). This deliberately avoids scanning the
-  // ~89M-row campaign_sends or the large campaign_stats table on every page load.
-  // Only campaigns that actually sent (sent_count > 0) are considered so rates
-  // have a meaningful denominator.
-  const [aggResult, topResult] = await Promise.all([
-    db.execute(sql`
-      SELECT
-        COUNT(*)::int AS total_campaigns,
-        COALESCE(SUM(unique_opens_count), 0)::int  AS total_opens,
-        COALESCE(SUM(unique_clicks_count), 0)::int AS total_clicks,
-        COALESCE(AVG(unique_opens_count::float  / NULLIF(sent_count, 0) * 100), 0)::float AS avg_open_rate,
-        COALESCE(AVG(unique_clicks_count::float / NULLIF(sent_count, 0) * 100), 0)::float AS avg_click_rate
-      FROM campaigns
-      WHERE sent_count > 0 AND (${cond})
-    `),
-    db.execute(sql`
-      SELECT
-        id,
-        name,
-        sent_count,
-        COALESCE(unique_opens_count, 0)  AS unique_opens,
-        COALESCE(unique_clicks_count, 0) AS unique_clicks,
-        COALESCE(unique_opens_count::float  / NULLIF(sent_count, 0) * 100, 0) AS open_rate,
-        COALESCE(unique_clicks_count::float / NULLIF(sent_count, 0) * 100, 0) AS click_rate
-      FROM campaigns
-      WHERE sent_count > 0 AND (${cond})
-      ORDER BY sent_count DESC
-      LIMIT ${TOP_N}
-    `),
-  ]);
-
+// Normalizes the two SQL result sets (aggregate row + top-N rows) into the
+// shape the /analytics overview expects. Shared by both the "all time" and the
+// bounded-period branches so the response contract stays identical.
+function shapeOverallAnalytics(aggResult: any, topResult: any) {
   const agg = aggResult.rows[0] as any;
   const recentCampaigns = (topResult.rows as any[]).map((r) => ({
     id: r.id,
@@ -1660,7 +1632,6 @@ export async function getOverallAnalytics(range: AnalyticsRange = "all") {
     openRate: Number(r.open_rate || 0),
     clickRate: Number(r.click_rate || 0),
   }));
-
   return {
     totalOpens: Number(agg?.total_opens || 0),
     totalClicks: Number(agg?.total_clicks || 0),
@@ -1669,6 +1640,102 @@ export async function getOverallAnalytics(range: AnalyticsRange = "all") {
     avgClickRate: Number(agg?.avg_click_rate || 0),
     recentCampaigns,
   };
+}
+
+export async function getOverallAnalytics(range: AnalyticsRange = "all") {
+  const normalizedRange: AnalyticsRange = (ANALYTICS_RANGES as readonly string[]).includes(range)
+    ? range
+    : "all";
+  const TOP_N = 20;
+  const bounds = analyticsPeriodBoundsUtc(normalizedRange);
+
+  // ── "All time" ──────────────────────────────────────────────────────────
+  // No time bound, so read the small `campaigns` table via its cached
+  // engagement counters (unique_opens_count / unique_clicks_count / sent_count,
+  // kept fresh by the counter-reconciler). This deliberately avoids scanning the
+  // large campaign_stats / ~89M-row campaign_sends tables on every page load.
+  // Only campaigns that actually received engagement are shown, ranked by traffic.
+  if (!bounds) {
+    const [aggResult, topResult] = await Promise.all([
+      db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total_campaigns,
+          COALESCE(SUM(unique_opens_count), 0)::int  AS total_opens,
+          COALESCE(SUM(unique_clicks_count), 0)::int AS total_clicks,
+          COALESCE(AVG(unique_opens_count::float  / NULLIF(sent_count, 0) * 100), 0)::float AS avg_open_rate,
+          COALESCE(AVG(unique_clicks_count::float / NULLIF(sent_count, 0) * 100), 0)::float AS avg_click_rate
+        FROM campaigns
+        WHERE sent_count > 0 AND (unique_opens_count > 0 OR unique_clicks_count > 0)
+      `),
+      db.execute(sql`
+        SELECT
+          id,
+          name,
+          sent_count,
+          COALESCE(unique_opens_count, 0)  AS unique_opens,
+          COALESCE(unique_clicks_count, 0) AS unique_clicks,
+          COALESCE(unique_opens_count::float  / NULLIF(sent_count, 0) * 100, 0) AS open_rate,
+          COALESCE(unique_clicks_count::float / NULLIF(sent_count, 0) * 100, 0) AS click_rate
+        FROM campaigns
+        WHERE sent_count > 0 AND (unique_opens_count > 0 OR unique_clicks_count > 0)
+        ORDER BY (unique_opens_count + unique_clicks_count) DESC
+        LIMIT ${TOP_N}
+      `),
+    ]);
+    return shapeOverallAnalytics(aggResult, topResult);
+  }
+
+  // ── Bounded period ──────────────────────────────────────────────────────
+  // Scope by ENGAGEMENT event time: only campaigns that received open/click
+  // traffic inside [lower, upper) are included, and the unique open/click
+  // counts are the DISTINCT subscribers who engaged DURING the window (not
+  // lifetime). We range-scan campaign_stats by its `timestamp`
+  // (campaign_stats_timestamp_idx) and join the tiny campaigns table for the
+  // name + sent_count (the rate denominator). Heavier than the cached-counter
+  // path, but bounded by the window's event volume.
+  const periodCte = sql`
+    period AS (
+      SELECT
+        campaign_id,
+        COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'open')::int  AS unique_opens,
+        COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click')::int AS unique_clicks
+      FROM campaign_stats
+      WHERE timestamp >= ${bounds.lower} AND timestamp < ${bounds.upper}
+        AND type IN ('open', 'click')
+      GROUP BY campaign_id
+    )
+  `;
+  const [aggResult, topResult] = await Promise.all([
+    db.execute(sql`
+      WITH ${periodCte}
+      SELECT
+        COUNT(*)::int AS total_campaigns,
+        COALESCE(SUM(p.unique_opens), 0)::int  AS total_opens,
+        COALESCE(SUM(p.unique_clicks), 0)::int AS total_clicks,
+        COALESCE(AVG(p.unique_opens::float  / NULLIF(c.sent_count, 0) * 100), 0)::float AS avg_open_rate,
+        COALESCE(AVG(p.unique_clicks::float / NULLIF(c.sent_count, 0) * 100), 0)::float AS avg_click_rate
+      FROM period p
+      JOIN campaigns c ON c.id = p.campaign_id
+      WHERE p.unique_opens > 0 OR p.unique_clicks > 0
+    `),
+    db.execute(sql`
+      WITH ${periodCte}
+      SELECT
+        c.id,
+        c.name,
+        c.sent_count,
+        p.unique_opens,
+        p.unique_clicks,
+        COALESCE(p.unique_opens::float  / NULLIF(c.sent_count, 0) * 100, 0) AS open_rate,
+        COALESCE(p.unique_clicks::float / NULLIF(c.sent_count, 0) * 100, 0) AS click_rate
+      FROM period p
+      JOIN campaigns c ON c.id = p.campaign_id
+      WHERE p.unique_opens > 0 OR p.unique_clicks > 0
+      ORDER BY (p.unique_opens + p.unique_clicks) DESC
+      LIMIT ${TOP_N}
+    `),
+  ]);
+  return shapeOverallAnalytics(aggResult, topResult);
 }
 
 export async function getCampaignBatchOpenStats(
