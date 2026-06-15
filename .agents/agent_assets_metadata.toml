@@ -12,3 +12,9 @@ id = "p-b3ztWvF7l1zPUickqTz"
 uri = "file://exports/clickers-283ebdfa-d0ca-486d-8621-bd9ea6492e91.csv"
 type = "table"
 title = "Unique clicker emails — campaign 283ebdfa (676 emails)"
+
+[[outputs]]
+id = "iCVshKph5LCFU_k1-cn_Z"
+uri = "file://exports/clickers-with-ips-283ebdfa.csv"
+type = "table"
+title = "Clicker emails + IPs — campaign 283ebdfa (726 rows)"
