@@ -18,3 +18,9 @@ id = "iCVshKph5LCFU_k1-cn_Z"
 uri = "file://exports/clickers-with-ips-283ebdfa.csv"
 type = "table"
 title = "Clicker emails + IPs — campaign 283ebdfa (726 rows)"
+
+[[outputs]]
+id = "ichWyQjIWPR0oXyoohVtG"
+uri = "file://exports/all-click-ips-2026-06-14.csv"
+type = "table"
+title = "All click IPs — all campaigns, June 14 2026 (18,063 events / 8,913 IPs)"
