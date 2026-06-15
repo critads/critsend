@@ -1569,72 +1569,101 @@ export async function resolveTrackingToken(token: string): Promise<{
   };
 }
 
-export async function getOverallAnalytics() {
-  // Pull the 10 most recent completed campaigns first, then aggregate their
-  // unique opens / unique clicks in a SINGLE GROUP BY query — no per-campaign
-  // round-trips. Combined opens/clicks totals also collapse into one query.
-  const [statsResult, allCampaigns] = await Promise.all([
+// Supported date-range filters for the overall analytics view. Boundaries are
+// computed in Europe/Paris local time (the operator's calendar) so "today",
+// "this week", etc. line up with what the user sees on a wall clock.
+export const ANALYTICS_RANGES = [
+  "all",
+  "today",
+  "yesterday",
+  "this_week",
+  "last_week",
+  "this_month",
+  "last_month",
+] as const;
+export type AnalyticsRange = (typeof ANALYTICS_RANGES)[number];
+
+// Builds the SQL predicate restricting campaigns to the chosen period. The
+// campaign's "activity" instant is when sending began (started_at), falling
+// back to creation time for never-started rows. Stored timestamps are
+// naive-UTC, so we re-anchor to UTC then convert to Europe/Paris before
+// truncating to day/week/month. Postgres date_trunc('week') starts Monday,
+// which matches the French calendar.
+function analyticsPeriodCondition(range: AnalyticsRange) {
+  const ts = sql`((COALESCE(started_at, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Paris')`;
+  const now = sql`(now() AT TIME ZONE 'Europe/Paris')`;
+  switch (range) {
+    case "today":
+      return sql`${ts} >= date_trunc('day', ${now}) AND ${ts} < date_trunc('day', ${now}) + interval '1 day'`;
+    case "yesterday":
+      return sql`${ts} >= date_trunc('day', ${now}) - interval '1 day' AND ${ts} < date_trunc('day', ${now})`;
+    case "this_week":
+      return sql`${ts} >= date_trunc('week', ${now}) AND ${ts} < date_trunc('week', ${now}) + interval '1 week'`;
+    case "last_week":
+      return sql`${ts} >= date_trunc('week', ${now}) - interval '1 week' AND ${ts} < date_trunc('week', ${now})`;
+    case "this_month":
+      return sql`${ts} >= date_trunc('month', ${now}) AND ${ts} < date_trunc('month', ${now}) + interval '1 month'`;
+    case "last_month":
+      return sql`${ts} >= date_trunc('month', ${now}) - interval '1 month' AND ${ts} < date_trunc('month', ${now})`;
+    default:
+      return sql`TRUE`;
+  }
+}
+
+export async function getOverallAnalytics(range: AnalyticsRange = "all") {
+  const normalizedRange: AnalyticsRange = (ANALYTICS_RANGES as readonly string[]).includes(range)
+    ? range
+    : "all";
+  const cond = analyticsPeriodCondition(normalizedRange);
+  const TOP_N = 20;
+
+  // Everything below reads only the small `campaigns` table via its cached
+  // engagement counters (unique_opens_count / unique_clicks_count / sent_count,
+  // kept fresh by the counter-reconciler). This deliberately avoids scanning the
+  // ~89M-row campaign_sends or the large campaign_stats table on every page load.
+  // Only campaigns that actually sent (sent_count > 0) are considered so rates
+  // have a meaningful denominator.
+  const [aggResult, topResult] = await Promise.all([
     db.execute(sql`
       SELECT
-        COUNT(*) FILTER (WHERE type = 'open')::int  AS open_count,
-        COUNT(*) FILTER (WHERE type = 'click')::int AS click_count
-      FROM campaign_stats
+        COUNT(*)::int AS total_campaigns,
+        COALESCE(SUM(unique_opens_count), 0)::int  AS total_opens,
+        COALESCE(SUM(unique_clicks_count), 0)::int AS total_clicks,
+        COALESCE(AVG(unique_opens_count::float  / NULLIF(sent_count, 0) * 100), 0)::float AS avg_open_rate,
+        COALESCE(AVG(unique_clicks_count::float / NULLIF(sent_count, 0) * 100), 0)::float AS avg_click_rate
+      FROM campaigns
+      WHERE sent_count > 0 AND (${cond})
     `),
-    db.select().from(campaigns)
-      .where(eq(campaigns.status, "completed"))
-      .orderBy(desc(campaigns.completedAt))
-      .limit(10),
-  ]);
-  const statsRow = statsResult.rows[0] as any;
-  const openCount = Number(statsRow?.open_count || 0);
-  const clickCount = Number(statsRow?.click_count || 0);
-
-  let campaignMetrics: Array<{
-    id: string; name: string; sentCount: number; openRate: number; clickRate: number;
-  }> = [];
-
-  if (allCampaigns.length > 0) {
-    const ids = allCampaigns.map((c) => c.id);
-    const aggResult = await db.execute(sql`
+    db.execute(sql`
       SELECT
-        campaign_id,
-        COUNT(*) FILTER (WHERE first_open_at IS NOT NULL)::int  AS unique_opens,
-        COUNT(*) FILTER (WHERE first_click_at IS NOT NULL)::int AS unique_clicks
-      FROM campaign_sends
-      WHERE campaign_id = ANY(${toPgTextArray(ids)}::text[])
-      GROUP BY campaign_id
-    `);
-    const byId = new Map<string, { uo: number; uc: number }>();
-    for (const row of aggResult.rows as any[]) {
-      byId.set(row.campaign_id, {
-        uo: Number(row.unique_opens || 0),
-        uc: Number(row.unique_clicks || 0),
-      });
-    }
-    campaignMetrics = allCampaigns.map((c) => {
-      const agg = byId.get(c.id) || { uo: 0, uc: 0 };
-      return {
-        id: c.id,
-        name: c.name,
-        sentCount: c.sentCount,
-        openRate: c.sentCount > 0 ? (agg.uo / c.sentCount) * 100 : 0,
-        clickRate: c.sentCount > 0 ? (agg.uc / c.sentCount) * 100 : 0,
-      };
-    });
-  }
+        id,
+        name,
+        sent_count,
+        COALESCE(unique_opens_count::float  / NULLIF(sent_count, 0) * 100, 0) AS open_rate,
+        COALESCE(unique_clicks_count::float / NULLIF(sent_count, 0) * 100, 0) AS click_rate
+      FROM campaigns
+      WHERE sent_count > 0 AND (${cond})
+      ORDER BY sent_count DESC
+      LIMIT ${TOP_N}
+    `),
+  ]);
 
-  const avgOpenRate = campaignMetrics.length > 0
-    ? campaignMetrics.reduce((a, c) => a + c.openRate, 0) / campaignMetrics.length : 0;
-  const avgClickRate = campaignMetrics.length > 0
-    ? campaignMetrics.reduce((a, c) => a + c.clickRate, 0) / campaignMetrics.length : 0;
+  const agg = aggResult.rows[0] as any;
+  const recentCampaigns = (topResult.rows as any[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    sentCount: Number(r.sent_count || 0),
+    openRate: Number(r.open_rate || 0),
+    clickRate: Number(r.click_rate || 0),
+  }));
 
   return {
-    totalOpens: openCount,
-    totalClicks: clickCount,
-    totalCampaigns: allCampaigns.length,
-    avgOpenRate,
-    avgClickRate,
-    recentCampaigns: campaignMetrics,
+    totalOpens: Number(agg?.total_opens || 0),
+    totalClicks: Number(agg?.total_clicks || 0),
+    totalCampaigns: Number(agg?.total_campaigns || 0),
+    avgOpenRate: Number(agg?.avg_open_rate || 0),
+    avgClickRate: Number(agg?.avg_click_rate || 0),
+    recentCampaigns,
   };
 }
 

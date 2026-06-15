@@ -302,7 +302,7 @@ export interface IStorage {
     recentImports: ImportJob[];
   }>;
   getDashboardChartData(): Promise<Array<{ name: string; opens: number; clicks: number }>>;
-  getOverallAnalytics(): Promise<{
+  getOverallAnalytics(range?: string): Promise<{
     totalOpens: number; totalClicks: number; totalCampaigns: number;
     avgOpenRate: number; avgClickRate: number;
     recentCampaigns: Array<{ id: string; name: string; openRate: number; clickRate: number; sentCount: number }>;

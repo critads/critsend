@@ -286,6 +286,16 @@ function LinkSummaryTable({
   );
 }
 
+const RANGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "all", label: "All time" },
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "this_week", label: "This week" },
+  { value: "last_week", label: "Last week" },
+  { value: "this_month", label: "This month" },
+  { value: "last_month", label: "Last month" },
+];
+
 const BATCH_SIZE_OPTIONS = [
   { label: "1,000", value: 1000 },
   { label: "5,000", value: 5000 },
@@ -816,9 +826,11 @@ function OverallAnalyticsView() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const [range, setRange] = useState("all");
   const { data, isLoading } = useQuery<OverallAnalytics>({
-    queryKey: ["/api/analytics/overall"],
+    queryKey: ["/api/analytics/overall", { range }],
   });
+  const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)?.label ?? "All time";
 
   // Server-side analytics responses are cached for 5 minutes. The Refresh
   // button busts that cache (cross-process via Redis pub/sub) and then
@@ -847,16 +859,30 @@ function OverallAnalyticsView() {
             Track opens, clicks, and engagement across all campaigns
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={refreshAll}
-          disabled={refreshing}
-          data-testid="button-refresh-analytics"
-        >
-          <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={range} onValueChange={setRange}>
+            <SelectTrigger className="w-40" data-testid="select-analytics-range">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} data-testid={`option-range-${opt.value}`}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshAll}
+            disabled={refreshing}
+            data-testid="button-refresh-analytics"
+          >
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -893,7 +919,7 @@ function OverallAnalyticsView() {
             Campaign Performance
           </CardTitle>
           <CardDescription>
-            View detailed analytics for each campaign
+            Top 20 campaigns by volume — {rangeLabel}
           </CardDescription>
         </CardHeader>
         <CardContent>
