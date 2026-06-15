@@ -1639,6 +1639,8 @@ export async function getOverallAnalytics(range: AnalyticsRange = "all") {
         id,
         name,
         sent_count,
+        COALESCE(unique_opens_count, 0)  AS unique_opens,
+        COALESCE(unique_clicks_count, 0) AS unique_clicks,
         COALESCE(unique_opens_count::float  / NULLIF(sent_count, 0) * 100, 0) AS open_rate,
         COALESCE(unique_clicks_count::float / NULLIF(sent_count, 0) * 100, 0) AS click_rate
       FROM campaigns
@@ -1653,6 +1655,8 @@ export async function getOverallAnalytics(range: AnalyticsRange = "all") {
     id: r.id,
     name: r.name,
     sentCount: Number(r.sent_count || 0),
+    uniqueOpens: Number(r.unique_opens || 0),
+    uniqueClicks: Number(r.unique_clicks || 0),
     openRate: Number(r.open_rate || 0),
     clickRate: Number(r.click_rate || 0),
   }));

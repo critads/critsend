@@ -83,6 +83,8 @@ interface OverallAnalytics {
   recentCampaigns: Array<{
     id: string;
     name: string;
+    uniqueOpens: number;
+    uniqueClicks: number;
     openRate: number;
     clickRate: number;
     sentCount: number;
@@ -936,6 +938,8 @@ function OverallAnalyticsView() {
                   <TableRow>
                     <TableHead>Campaign</TableHead>
                     <TableHead className="text-right">Sent</TableHead>
+                    <TableHead className="text-right">Unique Opens</TableHead>
+                    <TableHead className="text-right">Unique Clicks</TableHead>
                     <TableHead className="text-right">Open Rate</TableHead>
                     <TableHead className="text-right">Click Rate</TableHead>
                     <TableHead className="w-[100px]"></TableHead>
@@ -947,6 +951,12 @@ function OverallAnalyticsView() {
                       <TableCell className="font-medium">{campaign.name}</TableCell>
                       <TableCell className="text-right">
                         {campaign.sentCount.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right" data-testid={`text-unique-opens-${campaign.id}`}>
+                        {campaign.uniqueOpens.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right" data-testid={`text-unique-clicks-${campaign.id}`}>
+                        {campaign.uniqueClicks.toLocaleString()}
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge
