@@ -29,4 +29,4 @@ title = "All click IPs — all campaigns, June 14 2026 (18,063 events / 8,913 IP
 id = "Lx-MxgPTVfTPgqqB3QhEu"
 uri = "file://exports/ovh-clickers-since-2026-06-01.csv"
 type = "table"
-title = "Subscribers ayant clicé via IP OVH depuis le 1er juin (+ flag non-OVH sur 2 mois)"
+title = "Subscribers clic OVH depuis le 1er juin (+ flag non-OVH + liste IP OVH)"
