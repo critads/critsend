@@ -32,7 +32,8 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
   app.get("/api/analytics/overall", async (req: Request, res: Response) => {
     try {
       const range = typeof req.query.range === "string" ? req.query.range : "all";
-      const analytics = await storage.getOverallAnalytics(range);
+      const search = typeof req.query.search === "string" ? req.query.search : undefined;
+      const analytics = await storage.getOverallAnalytics(range, search);
       res.json(analytics);
     } catch (error) {
       logger.error("Error fetching overall analytics:", error);

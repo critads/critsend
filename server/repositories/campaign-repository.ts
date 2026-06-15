@@ -1642,12 +1642,21 @@ function shapeOverallAnalytics(aggResult: any, topResult: any) {
   };
 }
 
-export async function getOverallAnalytics(range: AnalyticsRange = "all") {
+export async function getOverallAnalytics(range: AnalyticsRange = "all", search?: string) {
   const normalizedRange: AnalyticsRange = (ANALYTICS_RANGES as readonly string[]).includes(range)
     ? range
     : "all";
   const TOP_N = 20;
   const bounds = analyticsPeriodBoundsUtc(normalizedRange);
+
+  // Optional campaign-name search. Applied ONLY to the Top-N campaign list, not
+  // the aggregate stat cards (those stay scoped to the whole period). Empty when
+  // no search term so the SQL is unchanged. The term is bound as a parameter
+  // (no string concatenation into SQL).
+  const term = (search ?? "").trim();
+  const likePattern = `%${term}%`;
+  const nameFilterAll = term ? sql`AND name ILIKE ${likePattern}` : sql``;
+  const nameFilterC = term ? sql`AND c.name ILIKE ${likePattern}` : sql``;
 
   // ── "All time" ──────────────────────────────────────────────────────────
   // No time bound, so read the small `campaigns` table via its cached
@@ -1677,8 +1686,8 @@ export async function getOverallAnalytics(range: AnalyticsRange = "all") {
           COALESCE(unique_opens_count::float  / NULLIF(sent_count, 0) * 100, 0) AS open_rate,
           COALESCE(unique_clicks_count::float / NULLIF(sent_count, 0) * 100, 0) AS click_rate
         FROM campaigns
-        WHERE sent_count > 0 AND (unique_opens_count > 0 OR unique_clicks_count > 0)
-        ORDER BY (unique_opens_count + unique_clicks_count) DESC
+        WHERE sent_count > 0 AND (unique_opens_count > 0 OR unique_clicks_count > 0) ${nameFilterAll}
+        ORDER BY unique_clicks_count DESC, unique_opens_count DESC
         LIMIT ${TOP_N}
       `),
     ]);
@@ -1730,8 +1739,8 @@ export async function getOverallAnalytics(range: AnalyticsRange = "all") {
         COALESCE(p.unique_clicks::float / NULLIF(c.sent_count, 0) * 100, 0) AS click_rate
       FROM period p
       JOIN campaigns c ON c.id = p.campaign_id
-      WHERE p.unique_opens > 0 OR p.unique_clicks > 0
-      ORDER BY (p.unique_opens + p.unique_clicks) DESC
+      WHERE (p.unique_opens > 0 OR p.unique_clicks > 0) ${nameFilterC}
+      ORDER BY p.unique_clicks DESC, p.unique_opens DESC
       LIMIT ${TOP_N}
     `),
   ]);

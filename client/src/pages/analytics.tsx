@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -829,8 +830,15 @@ function OverallAnalyticsView() {
   const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [range, setRange] = useState("all");
+  // Campaign-name search. Debounced so we don't refetch on every keystroke.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const { data, isLoading } = useQuery<OverallAnalytics>({
-    queryKey: ["/api/analytics/overall", { range }],
+    queryKey: ["/api/analytics/overall", { range, search }],
   });
   const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)?.label ?? "All time";
 
@@ -916,13 +924,27 @@ function OverallAnalyticsView() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Campaign Performance
-          </CardTitle>
-          <CardDescription>
-            Top 20 campaigns by engagement received — {rangeLabel}
-          </CardDescription>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Campaign Performance
+              </CardTitle>
+              <CardDescription>
+                Top 20 campaigns by unique clicks — {rangeLabel}
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search campaigns…"
+                className="pl-8"
+                data-testid="input-campaign-search"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -983,6 +1005,14 @@ function OverallAnalyticsView() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          ) : search ? (
+            <div className="text-center py-16 text-muted-foreground" data-testid="text-no-search-results">
+              <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No campaigns match “{search}”</p>
+              <p className="text-sm mt-1">
+                with engagement in this period
+              </p>
             </div>
           ) : (
             <div className="text-center py-16 text-muted-foreground">
