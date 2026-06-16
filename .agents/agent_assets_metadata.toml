@@ -30,3 +30,9 @@ id = "Lx-MxgPTVfTPgqqB3QhEu"
 uri = "file://exports/ovh-clickers-since-2026-06-01.csv"
 type = "table"
 title = "Subscribers clic OVH depuis le 1er juin (+ flag non-OVH + liste IP OVH)"
+
+[[outputs]]
+id = "6MQiFiW6__nM1RCjmivu9"
+uri = "file://exports/small-image-clickers-30px.csv"
+type = "table"
+title = "Cliqueurs >3 petites images (≤30×30) — 2 derniers mois (259 emails + IP)"
