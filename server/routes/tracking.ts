@@ -140,9 +140,11 @@ async function _fetchTagsCached(campaignId: string): Promise<CachedTags | null> 
 }
 
 // ─── Complaint bot IPs ──────────────────────────────────────────────────────
-const COMPLAINT_BOT_IPS = new Set([
-  "195.154.17.225",
-]);
+// Disabled (2026-06-16): per operator request, no IP is treated as a complaint
+// signal anymore. Opens from any IP are recorded as plain opens. The FBL webhook
+// (POST /api/webhooks) remains the source of complaint events. To re-enable
+// IP-based complaint detection, add IPs back to this set.
+const COMPLAINT_BOT_IPS = new Set<string>([]);
 
 // ─── Shared HTML helpers ────────────────────────────────────────────────────
 
