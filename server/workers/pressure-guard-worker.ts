@@ -521,6 +521,7 @@ async function pollDeferredQueueInner() {
   let backPressuredCount = 0;
   let pickedVolume = 0;
   let pickedFairness = 0;
+  let pickedAged = 0;
   let windingDownActive = 0;
   try {
     const bs = getPressureGuardBootstrapState();
@@ -675,12 +676,25 @@ async function pollDeferredQueueInner() {
         campaign_id: string;
         created_at: Date | null;
         drainable_count: string;
+        aged_count: string;
         pending_count: number;
         sent_count: number;
         urgent_mode: boolean;
       }>(
+        // Task #205 — aged rows ALWAYS take priority. Campaigns holding any
+        // row whose first_deferred_at has crossed PRESSURE_MAX_DEFER_HOURS
+        // are sorted ahead of every non-aged campaign (the `(aged_count>0)
+        // DESC` leading key), then by aged severity, then the legacy
+        // volume-priority ordering for the non-aged tail. The JS allocation
+        // below also force-includes aged campaigns first so the volume +
+        // fairness slicing can never starve them.
         `WITH per_campaign AS (
-           SELECT cs.campaign_id, COUNT(*)::bigint AS drainable_count
+           SELECT cs.campaign_id,
+                  COUNT(*)::bigint AS drainable_count,
+                  COUNT(*) FILTER (
+                    WHERE cs.first_deferred_at IS NOT NULL
+                      AND cs.first_deferred_at <= NOW() - ($2::numeric || ' hours')::interval
+                  )::bigint AS aged_count
            FROM campaign_sends cs
            WHERE cs.status = 'pending'
              AND cs.eligible_at IS NOT NULL
@@ -696,13 +710,17 @@ async function pollDeferredQueueInner() {
          SELECT pc.campaign_id,
                 c.created_at,
                 pc.drainable_count,
+                pc.aged_count,
                 c.pending_count,
                 c.sent_count,
                 COALESCE(c.urgent_mode, false) AS urgent_mode
          FROM per_campaign pc
          JOIN campaigns c ON c.id = pc.campaign_id
          WHERE c.status IN ('sending', 'paused')
-         ORDER BY pc.drainable_count DESC, c.created_at ASC NULLS FIRST
+         ORDER BY (pc.aged_count > 0) DESC,
+                  pc.aged_count DESC,
+                  pc.drainable_count DESC,
+                  c.created_at ASC NULLS FIRST
          LIMIT $1`,
         [MAX_CAMPAIGNS_PER_TICK * 3, PRESSURE_MAX_DEFER_HOURS],
       );
@@ -740,6 +758,7 @@ async function pollDeferredQueueInner() {
     const nowMs = Date.now();
     type EligRow = (typeof campaignsRes.rows)[number] & {
       drainable_count: string | number;
+      aged_count?: string | number;
       pending_count: number;
       created_at: Date | null;
       urgent_mode?: boolean;
@@ -776,22 +795,42 @@ async function pollDeferredQueueInner() {
       // throttling on a urgent flush would silently extend the flush
       // duration by 4×, defeating the feature.
       const isUrgent = row.urgent_mode === true;
-      if (!isUrgent && isWindingDown && (tickCounter - lastTick) < WINDING_DOWN_TICKS_GAP) {
+      // Task #205 — aged campaigns ALSO bypass the winding-down throttle:
+      // a row past PRESSURE_MAX_DEFER_HOURS must never be held back by the
+      // 1-tick-in-N back-pressure schedule.
+      const hasAged = Number(row.aged_count) > 0;
+      if (!isUrgent && !hasAged && isWindingDown && (tickCounter - lastTick) < WINDING_DOWN_TICKS_GAP) {
         backPressuredCount += 1;
         continue;
       }
       eligibleForDrain.push(row);
     }
 
-    // (3) volume + fairness split. Volume-picks come from the front of the
-    // (already drainable_count DESC, created_at ASC) ordered list. Fairness
-    // picks are the OLDEST remaining campaigns by created_at ASC, regardless
-    // of drainable_count.
-    const fairnessSlots = Math.floor((MAX_CAMPAIGNS_PER_TICK * FAIRNESS_PCT) / 100);
-    const volumeSlots = Math.max(0, MAX_CAMPAIGNS_PER_TICK - fairnessSlots);
-    const volumePicks = eligibleForDrain.slice(0, volumeSlots);
+    // (3a) Task #205 — aged campaigns ALWAYS take priority. Any campaign
+    // holding a row past PRESSURE_MAX_DEFER_HOURS is force-included at the
+    // FRONT of finalPicks before the volume/fairness slicing runs, so a
+    // low-volume campaign whose backlog crossed the cap can never be
+    // starved by high-volume younger campaigns. The SQL already ordered
+    // aged campaigns first (aged_count DESC) so slicing the front honours
+    // aged severity. Aged force-CAS bypasses the 6h gap and clears fast,
+    // so this cannot permanently monopolise the per-tick slots.
+    const agedPicks = eligibleForDrain
+      .filter((r) => Number(r.aged_count) > 0)
+      .slice(0, MAX_CAMPAIGNS_PER_TICK);
+    const agedPickIds = new Set(agedPicks.map((r) => r.campaign_id));
+    const remainingSlots = Math.max(0, MAX_CAMPAIGNS_PER_TICK - agedPicks.length);
+
+    // (3b) volume + fairness split over the NON-aged tail, filling whatever
+    // slots remain after aged campaigns are seated. Volume-picks come from
+    // the front of the (drainable_count DESC, created_at ASC) ordered list.
+    // Fairness picks are the OLDEST remaining campaigns by created_at ASC,
+    // regardless of drainable_count.
+    const nonAged = eligibleForDrain.filter((r) => !agedPickIds.has(r.campaign_id));
+    const fairnessSlots = Math.floor((remainingSlots * FAIRNESS_PCT) / 100);
+    const volumeSlots = Math.max(0, remainingSlots - fairnessSlots);
+    const volumePicks = nonAged.slice(0, volumeSlots);
     const volumePickIds = new Set(volumePicks.map((r) => r.campaign_id));
-    const fairnessCandidates = eligibleForDrain
+    const fairnessCandidates = nonAged
       .filter((r) => !volumePickIds.has(r.campaign_id))
       .sort((a, b) => {
         const ta = a.created_at ? a.created_at.getTime() : 0;
@@ -799,7 +838,7 @@ async function pollDeferredQueueInner() {
         return ta - tb;
       });
     const fairnessPicks = fairnessCandidates.slice(0, fairnessSlots);
-    let finalPicks = [...volumePicks, ...fairnessPicks];
+    let finalPicks = [...agedPicks, ...volumePicks, ...fairnessPicks];
 
     // 2026-05-23 — urgent-mode slot cap. Previously urgent campaigns
     // ALSO bypassed the slot allocation: a single urgent campaign with
@@ -816,12 +855,16 @@ async function pollDeferredQueueInner() {
     // changes is they cannot consume more than ~50% of the parallelism
     // budget. Non-urgent campaigns get the remaining slots so the rest
     // of the platform keeps progressing.
+    // Task #205 — aged picks are exempt from the urgent cap: a campaign that
+    // is BOTH aged and urgent keeps its force-included slot (aged priority is
+    // absolute). Only non-aged urgent picks are subject to the 50% cap.
     const URGENT_CAP = Math.max(1, Math.floor(MAX_CAMPAIGNS_PER_TICK / 2));
-    const urgentInPicks = finalPicks.filter((p) => p.urgent_mode === true);
+    const urgentInPicks = finalPicks.filter((p) => p.urgent_mode === true && !agedPickIds.has(p.campaign_id));
     if (urgentInPicks.length > URGENT_CAP) {
       const keepUrgentIds = new Set(urgentInPicks.slice(0, URGENT_CAP).map((p) => p.campaign_id));
-      // Drop excess urgent picks from the final list…
-      finalPicks = finalPicks.filter((p) => p.urgent_mode !== true || keepUrgentIds.has(p.campaign_id));
+      // Drop excess urgent picks from the final list… (aged picks are always
+      // retained — aged priority outranks the urgent cap).
+      finalPicks = finalPicks.filter((p) => p.urgent_mode !== true || keepUrgentIds.has(p.campaign_id) || agedPickIds.has(p.campaign_id));
       // …and backfill from the next non-urgent eligible campaigns we hadn't picked.
       const pickedIds = new Set(finalPicks.map((p) => p.campaign_id));
       const backfillPool = eligibleForDrain
@@ -854,6 +897,7 @@ async function pollDeferredQueueInner() {
     // Track for the per-tick log + heartbeat publication.
     pickedVolume = volumePicks.length;
     pickedFairness = fairnessPicks.length;
+    pickedAged = agedPicks.length;
 
     // Task #153: bounded-parallel drain. The previous implementation
     // awaited each drainCampaign sequentially, which capped per-tick
@@ -896,7 +940,7 @@ async function pollDeferredQueueInner() {
     logger.info(
       `[PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=${bootstrapStateLabel}, ` +
       `has_pending=${hasPending ? "Y" : "N"}, eligible_campaigns=${eligibleCampaigns}, ` +
-      `picked=${pickedVolume}+${pickedFairness}, winding_down=${windingDownActive}, ` +
+      `picked=${pickedVolume}+${pickedFairness}+aged${pickedAged}, winding_down=${windingDownActive}, ` +
       `back_pressured=${backPressuredCount}, drained_calls=${drainedCalls}, errors=${errorCount}`,
     );
     // Task #160: publish per-tick heartbeat to the leader-lease row so
