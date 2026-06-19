@@ -36,3 +36,9 @@ id = "6MQiFiW6__nM1RCjmivu9"
 uri = "file://exports/small-image-clickers-30px.csv"
 type = "table"
 title = "Cliqueurs >3 petites images (≤30×30) — 2 derniers mois (259 emails + IP)"
+
+[[outputs]]
+id = "pA-wndWwmsqe4ClRJAq0O"
+uri = "file://exports/clickers-90147797-jun18-19-paris.csv"
+type = "table"
+title = "Cliqueurs uniques — campagne 90147797 (18-19 juin, Paris)"
