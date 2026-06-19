@@ -42,3 +42,9 @@ id = "pA-wndWwmsqe4ClRJAq0O"
 uri = "file://exports/clickers-90147797-jun18-19-paris.csv"
 type = "table"
 title = "Cliqueurs uniques — campagne 90147797 (18-19 juin, Paris)"
+
+[[outputs]]
+id = "SitEpeVa9GVuRnE3xLnLS"
+uri = "file://exports/clicking-ips-90147797-jun18-19-paris.csv"
+type = "table"
+title = "IPs uniques cliqueuses — campagne 90147797 (18-19 juin, Paris)"
