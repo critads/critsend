@@ -6,7 +6,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
-import { startAllWorkers, stopAllBackgroundWorkers, startImportGuardian, stopImportGuardian, triggerGuardianPoll, startCampaignGuardian, stopCampaignGuardian } from "./workers";
+import { startAllWorkers, stopAllBackgroundWorkers, startImportGuardian, stopImportGuardian, triggerGuardianPoll, startCampaignGuardian, stopCampaignGuardian, startMtaRecoveryChecker } from "./workers";
 import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMetricsCollector } from "./metrics";
 import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
@@ -948,6 +948,13 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   if (process.env.PROCESS_TYPE === 'web' || process.env.DISABLE_WORKERS === 'true') {
     startImportGuardian();
     startCampaignGuardian();
+
+    // MTA-recovery checker also runs here (not just in the worker). The worker
+    // is the crash-prone process; if it restart-loops, paused/mta_down
+    // campaigns would otherwise never auto-resume and need a manual restart.
+    // The always-up web process guarantees recovery keeps running; the atomic
+    // guarded flip in resumeCampaignAtomic makes the concurrent run safe.
+    startMtaRecoveryChecker();
 
     // Pressure-guard deferred-drain worker (Task #144).
     // In split-process or DISABLE_WORKERS=true deployments, the dedicated

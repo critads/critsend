@@ -32,6 +32,30 @@ let jobPollingInterval: NodeJS.Timeout | null = null;
 let importJobPollingInterval: NodeJS.Timeout | null = null;
 let flushJobPollingInterval: NodeJS.Timeout | null = null;
 let mtaRecoveryInterval: NodeJS.Timeout | null = null;
+// In-memory backstop timer for the MTA-recovery checker. Maps a paused
+// (pause_reason='mta_down') campaign id -> the first time THIS process saw its
+// SMTP verify still failing. After MTA_FORCE_RESUME_AFTER_MS of continuous
+// verify failure we force a re-enqueue anyway, so a campaign can NEVER stay
+// stuck in paused/mta_down forever (e.g. an MTA that rate-limits the verify
+// probe even though real sends would succeed). Per-process state is fine: the
+// checker now also runs in the always-up web process, the entry self-clears as
+// soon as the campaign leaves the paused list, and the atomic flip in
+// resumeCampaignAtomic guarantees exactly-once resume across processes.
+const mtaRecoveryFirstFailureAt = new Map<string, number>();
+// Validated so a bad env value can't silently disable the backstop (a NaN
+// comparison would never fire force-resume, re-breaking the "never stuck"
+// guarantee). Must be finite and >= 60s; otherwise fall back to 15 minutes.
+const MTA_FORCE_RESUME_AFTER_MS = (() => {
+  const DEFAULT = 15 * 60 * 1000;
+  const raw = process.env.MTA_FORCE_RESUME_AFTER_MS;
+  if (raw === undefined || raw === "") return DEFAULT;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 60_000) {
+    logger.warn(`[MTA_RECOVERY] Invalid MTA_FORCE_RESUME_AFTER_MS=${raw} — falling back to ${DEFAULT}ms`);
+    return DEFAULT;
+  }
+  return parsed;
+})();
 let memoryCheckInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
 let trackingTokenDailyTimer: NodeJS.Timeout | null = null;
@@ -978,36 +1002,94 @@ async function pollForJobs() {
   }
 }
 
+/**
+ * Atomically flip a paused campaign back to 'sending' and re-enqueue its job.
+ *
+ * The status flip is a guarded conditional UPDATE (only rows still in
+ * paused/<fromReason> are touched), so when this runs concurrently in BOTH the
+ * worker and the web process exactly ONE caller wins the flip and proceeds to
+ * enqueue — the loser sees 0 rows and no-ops. This makes checkMtaRecovery safe
+ * to run in multiple processes (decoupling recovery from worker health, which
+ * was the root cause of campaigns staying stuck in paused/mta_down until a
+ * manual restart when the worker process crash-looped).
+ *
+ * Returns true if THIS caller performed the resume.
+ */
+async function resumeCampaignAtomic(campaignId: string, fromReason: string): Promise<boolean> {
+  const flipped = await db.execute(sql`
+    UPDATE campaigns
+    SET status = 'sending', pause_reason = NULL
+    WHERE id = ${campaignId} AND status = 'paused' AND pause_reason = ${fromReason}
+    RETURNING id
+  `);
+  if (flipped.rows.length === 0) return false; // another process already resumed it
+  await storage.clearStuckJobsForCampaign(campaignId);
+  await storage.enqueueCampaignJob(campaignId);
+  // Match storage.updateCampaign's side-effect: drop the campaigns-list cache so
+  // the UI reflects the paused→sending transition immediately (the raw guarded
+  // UPDATE above bypasses updateCampaign, which is where this normally fires).
+  publishCampaignsListInvalidation();
+  return true;
+}
+
 async function checkMtaRecovery() {
+  // Track which mta_down campaigns we observed this tick so we can prune stale
+  // backstop-timer entries for campaigns that have since left the paused list.
+  const seenMtaDown = new Set<string>();
   try {
     const pausedCampaigns = await storage.getCampaignsByPauseReason("mta_down");
 
     for (const campaign of pausedCampaigns) {
       if (!campaign.mtaId) continue;
+      seenMtaDown.add(campaign.id);
 
       const mta = await storage.getMta(campaign.mtaId);
       if (!mta) continue;
 
       const isNullsinkMta = (mta as any).mode === "nullsink";
       if (isNullsinkMta) {
-        logger.info(`Nullsink MTA ${mta.name} - auto-resuming campaign ${campaign.id} (no SMTP to verify)`);
-        await storage.clearStuckJobsForCampaign(campaign.id);
-        await storage.updateCampaign(campaign.id, { status: "sending", pauseReason: null });
-        await storage.enqueueCampaignJob(campaign.id);
+        if (await resumeCampaignAtomic(campaign.id, "mta_down")) {
+          logger.info(`Nullsink MTA ${mta.name} - auto-resuming campaign ${campaign.id} (no SMTP to verify)`);
+        }
+        mtaRecoveryFirstFailureAt.delete(campaign.id);
         continue;
       }
 
       const verifyResult = await verifyTransporter(mta);
 
       if (verifyResult.success) {
-        logger.info(`MTA ${mta.name} is back online - resuming campaign ${campaign.id} (${campaign.name})`);
-        await storage.clearStuckJobsForCampaign(campaign.id);
-        await storage.updateCampaign(campaign.id, { status: "sending", pauseReason: null });
-        await storage.enqueueCampaignJob(campaign.id);
+        if (await resumeCampaignAtomic(campaign.id, "mta_down")) {
+          logger.info(`MTA ${mta.name} is back online - resuming campaign ${campaign.id} (${campaign.name})`);
+        }
+        mtaRecoveryFirstFailureAt.delete(campaign.id);
+        continue;
+      }
+
+      // Verify still failing. Arm/check the bounded backstop so a campaign can
+      // NEVER stay paused/mta_down indefinitely (e.g. an MTA that rate-limits
+      // the verify probe even though real sends would go through).
+      const firstFailureAt = mtaRecoveryFirstFailureAt.get(campaign.id);
+      if (firstFailureAt === undefined) {
+        mtaRecoveryFirstFailureAt.set(campaign.id, Date.now());
+      } else if (Date.now() - firstFailureAt >= MTA_FORCE_RESUME_AFTER_MS) {
+        if (await resumeCampaignAtomic(campaign.id, "mta_down")) {
+          logger.warn(
+            `[MTA_RECOVERY] MTA ${mta.name} still failing verify after ${Math.round((Date.now() - firstFailureAt) / 60000)}m ` +
+            `— FORCE-resuming campaign ${campaign.id} (${campaign.name}) as a backstop; it will re-pause if the MTA is truly down. ` +
+            `Last verify error: ${verifyResult.error}`,
+          );
+        }
+        mtaRecoveryFirstFailureAt.delete(campaign.id);
       }
     }
   } catch (error) {
     logger.error("Error checking MTA recovery:", error);
+  } finally {
+    // Prune backstop entries for campaigns no longer paused/mta_down so the map
+    // can't leak across restarts of the (long-lived) web process.
+    for (const id of mtaRecoveryFirstFailureAt.keys()) {
+      if (!seenMtaDown.has(id)) mtaRecoveryFirstFailureAt.delete(id);
+    }
   }
 
   try {
@@ -1016,10 +1098,9 @@ async function checkMtaRecovery() {
     for (const campaign of dbPausedCampaigns) {
       try {
         await db.execute(sql`SELECT 1`);
-        logger.info(`[DB_RECOVERY] DB connection healthy — auto-resuming campaign ${campaign.id} (${campaign.name})`);
-        await storage.clearStuckJobsForCampaign(campaign.id);
-        await storage.updateCampaign(campaign.id, { status: "sending", pauseReason: null });
-        await storage.enqueueCampaignJob(campaign.id);
+        if (await resumeCampaignAtomic(campaign.id, "db_connection_error")) {
+          logger.info(`[DB_RECOVERY] DB connection healthy — auto-resuming campaign ${campaign.id} (${campaign.name})`);
+        }
       } catch (pingErr) {
         logger.warn(`[DB_RECOVERY] DB still unhealthy for campaign ${campaign.id}: ${(pingErr as Error).message}`);
         break;
@@ -1028,6 +1109,23 @@ async function checkMtaRecovery() {
   } catch (error) {
     logger.error("[DB_RECOVERY] Error checking DB connection recovery:", error);
   }
+}
+
+/**
+ * Start the MTA-recovery checker (30s interval). Idempotent — guarded on the
+ * shared module-level handle so it is a no-op if already running.
+ *
+ * Deliberately called from BOTH the worker (startJobProcessor) and the web
+ * process (server/index.ts, PROCESS_TYPE='web'). The checker used to live only
+ * in the worker, so a crash-looping worker meant paused/mta_down campaigns
+ * never auto-resumed and required a manual restart. resumeCampaignAtomic's
+ * guarded flip makes the concurrent web+worker runs safe (exactly-once resume).
+ */
+export function startMtaRecoveryChecker() {
+  if (mtaRecoveryInterval) return;
+  mtaRecoveryInterval = setInterval(checkMtaRecovery, 30000);
+  mtaRecoveryInterval.unref?.();
+  logger.info("MTA recovery checker started (30s interval)");
 }
 
 async function resumeInterruptedCampaigns() {
@@ -1396,10 +1494,7 @@ async function startJobProcessor() {
 
   startFlushJobProcessor();
 
-  if (!mtaRecoveryInterval) {
-    mtaRecoveryInterval = setInterval(checkMtaRecovery, 30000);
-    logger.info("MTA recovery checker started (30s interval)");
-  }
+  startMtaRecoveryChecker();
 
   setInterval(() => {
     resumeInterruptedCampaigns();
