@@ -1,0 +1,164 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && git pull && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+pm2 restart critsend-drainer critsend-worker critsend-web
+remote: Enumerating objects: 18, done.
+remote: Counting objects: 100% (18/18), done.
+remote: Compressing objects: 100% (2/2), done.
+remote: Total 11 (delta 9), reused 11 (delta 9), pack-reused 0 (from 0)
+Unpacking objects: 100% (11/11), 287.78 KiB | 1.96 MiB/s, done.
+From https://github.com/critads/critsend
+   c3ad341..a9e0bc3  main       -> origin/main
+Updating c3ad341..a9e0bc3
+Fast-forward
+ ...hot_2026-06-23_at_10.30.56_AM_1782196261911.png | Bin 0 -> 351969 bytes
+ replit.md                                          |   2 +-
+ server/metrics.ts                                  |   4 +--
+ server/services/pressure-guard.ts                  |  27 +++++++++++----------
+ 4 files changed, 17 insertions(+), 16 deletions(-)
+ create mode 100644 attached_assets/Screenshot_2026-06-23_at_10.30.56_AM_1782196261911.png
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: a9e0bc3 Update the marketing pressure guard to a 2-hour interval
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 896 packages, and audited 897 packages in 8s
+
+139 packages are looking for funding
+  run `npm fund` for details
+
+53 vulnerabilities (2 low, 33 moderate, 16 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.17.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.17.0
+npm notice To update run: npm install -g npm@11.17.0
+npm notice
+[deploy] ✓ Dependencies installed
+
+[deploy] ▶ Building frontend and server bundles (npm run build)...
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+vite v7.3.0 building client environment for production...
+transforming (1) src/main.tsxBrowserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+✓ 3332 modules transformed.
+../dist/public/index.html                     2.22 kB │ gzip:   0.87 kB
+../dist/public/assets/index-BxEJ7Nkb.css     95.85 kB │ gzip:  15.33 kB
+../dist/public/assets/index-DuCApLsu.js   1,460.04 kB │ gzip: 386.06 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.57s
+building server...
+
+  dist/index.cjs  2.0mb ⚠️
+
+⚡ Done in 100ms
+building import worker...
+
+  dist/import-worker.cjs  678.1kb
+
+⚡ Done in 63ms
+building background worker...
+
+  dist/worker-main.cjs  1.1mb ⚠️
+
+⚡ Done in 80ms
+building drainer...
+
+  dist/drainer-main.cjs  668.8kb
+
+⚡ Done in 67ms
+[deploy] ✓ Build complete
+
+[deploy] ▶ Skipping database schema push (SKIP_SCHEMA_PUSH=1)
+[deploy] ✓ Schema push skipped
+
+[deploy] ▶ Ensuring required directories exist...
+[deploy] ✓ Directories ready (images)
+[deploy] ✓ Import upload dirs writable: /var/lib/critsend/uploads/imports, /var/lib/critsend/uploads/chunks
+
+[deploy] ▶ Updating Nginx configuration...
+[deploy]   Skipping Nginx update (sudo not available or passwordless sudo not configured)
+[deploy]   Run manually: sudo cp deploy/nginx.conf /etc/nginx/sites-available/critsend && sudo nginx -t && sudo systemctl reload nginx
+
+[deploy] ▶ Reloading PM2 processes (zero-downtime when possible)...
+[deploy]   No env_production key changes detected — using zero-downtime reload.
+[deploy]   Reloading critsend-web first (runs bootstrap migrations)...
+[PM2] Applying action reloadProcessId on app [critsend-web](ids: [ 10, 11 ])
+[PM2] [critsend-web](10) ✓
+[PM2] [critsend-web](11) ✓
+[deploy]   Waiting 25s for web bootstrap to finish (CREATE INDEX CONCURRENTLY)...
+[deploy]   Reloading critsend-worker...
+[PM2] Applying action reloadProcessId on app [critsend-worker](ids: [ 12 ])
+[PM2] [critsend-worker](12) ✓
+[deploy]   Reloading critsend-drainer...
+[PM2] Applying action reloadProcessId on app [critsend-drainer](ids: [ 13 ])
+[PM2] [critsend-drainer](13) ✓
+[PM2] Saving current process list...
+[PM2] Successfully saved in /home/ubuntu/.pm2/dump.pm2
+[deploy] ✓ PM2 processes reloaded
+
+[deploy] ▶ Verifying PM2 processes started successfully...
+[deploy] ✓ critsend-worker: boot line present
+[deploy] ✓ critsend-drainer: boot line present
+[deploy] ⚠ critsend-web: boot line 'serving on port' not found in /var/log/critsend/web-out.log after 45 s
+[deploy]   Last 30 lines from critsend-web:
+[deploy]     2026-06-24 12:08:17 +02:00: 2026-06-24T10:08:17.406Z [INFO] Short unsubscribe: campaign=713070f7-6215-4d4b-94a9-b438628d5bfc, subscriber=3e1a3141-0a5d-445f-9945-d4b83d8fcfdf
+[deploy]     2026-06-24 12:08:18 +02:00: 2026-06-24T10:08:18.422Z [INFO] [TRACKING] Bootstrap migration: suppressed_until column already populated — skipping backfill
+[deploy]     2026-06-24 12:08:18 +02:00: 2026-06-24T10:08:18.425Z [INFO] [TRACKING] Bootstrap migration: campaign_stats covering index already exists — skipping
+[deploy]     2026-06-24 12:08:46 +02:00: 2026-06-24T10:08:46.641Z [INFO] [TRACKING QUERIES] Token cache warmed: 49994 tokens loaded for active campaigns
+[deploy]     2026-06-24 12:08:50 +02:00: 2026-06-24T10:08:50.691Z [INFO] Short unsubscribe: campaign=713070f7-6215-4d4b-94a9-b438628d5bfc, subscriber=ae39f6e3-79f5-4c36-88fa-454e3aaa197c
+[deploy]     2026-06-24 12:08:51 +02:00: 2026-06-24T10:08:51.984Z [INFO] Short unsubscribe: campaign=713070f7-6215-4d4b-94a9-b438628d5bfc, subscriber=ae39f6e3-79f5-4c36-88fa-454e3aaa197c
+[deploy]     2026-06-24 12:08:52 +02:00: 2026-06-24T10:08:52.117Z [INFO] Short unsubscribe: campaign=713070f7-6215-4d4b-94a9-b438628d5bfc, subscriber=ae39f6e3-79f5-4c36-88fa-454e3aaa197c
+[deploy]     2026-06-24 12:08:52 +02:00: 2026-06-24T10:08:52.562Z [INFO] Short unsubscribe: campaign=713070f7-6215-4d4b-94a9-b438628d5bfc, subscriber=ae39f6e3-79f5-4c36-88fa-454e3aaa197c
+[deploy]     2026-06-24 12:09:00 +02:00: 2026-06-24T10:09:00.840Z [INFO] Short unsubscribe: campaign=9f771bd3-b32c-4a55-a788-2e5b8636bbad, subscriber=303d390f-c43b-4447-9044-ff522ffbba27
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.215Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued f3f9c0da-da33-4891-b334-9119db137150 (#3265 Caroll - rndaserver) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.218Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued e8717f5c-252f-4535-aaa8-7418cf22aa31 (#3232 Rouge Gorge - Mahlesoldes) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.221Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued bd05c48e-0f60-429a-a2c5-616e3e63a830 (#3248 Atlas for men - Kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.224Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 4cda703a-5f53-4827-adbf-03ddf022beee (#3246 Chantelle - Rndaserver) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.227Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 814e759a-9e4b-4ab5-9cd6-4c1d3d080759 (#3262 Petit Bateau - mayesale) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.230Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued fbd25234-46b1-4543-9a9a-a3d878c0159e (#3251 Dyson - rndaserver) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.233Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 941e8c7e-7538-40af-9911-421346dd57d2 (#3251 Dyson - rndaserver) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:17 +02:00: 2026-06-24T10:09:17.235Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued f9504aee-cbb2-4744-961f-79e1918443aa (#3232 Rouge Gorge - mayesale) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:09:24 +02:00: 2026-06-24T10:09:24.789Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+[deploy]     2026-06-24 12:09:24 +02:00: 2026-06-24T10:09:24.847Z [INFO] [PRESSURE_GUARD] Historical last_sent_at backfill skipped by design — guard auto-engages from first send onward (NULL is semantically correct, see comment)
+[deploy]     2026-06-24 12:09:24 +02:00: 2026-06-24T10:09:24.925Z [INFO] [PRESSURE_GUARD] Bootstrap ready (window=2h, max_defer=52h, near_aging=28h, lock=ran, schema_verified=true)
+[deploy]     2026-06-24 12:09:24 +02:00: 2026-06-24T10:09:24.979Z [INFO] [PRESSURE_GUARD] Bootstrap ready (window=2h, max_defer=52h, near_aging=28h, lock=ran, schema_verified=true)
+[deploy]     2026-06-24 12:09:36 +02:00: 2026-06-24T10:09:36.580Z [INFO] Short unsubscribe: campaign=0d4c6693-be52-44ef-8e12-c036e7559878, subscriber=9a4f1c68-1381-41fa-8888-090d6e0c7023
+[deploy]     2026-06-24 12:09:48 +02:00: 2026-06-24T10:09:48.595Z [INFO] Short unsubscribe: campaign=ba1a19ba-0b42-447c-9bc7-252993823d05, subscriber=afc59dec-fbf0-40a7-8248-d5858f21ef99
+[deploy]     2026-06-24 12:10:08 +02:00: 2026-06-24T10:10:08.609Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued b1e7f407-9bb3-407d-ad60-136189223af0 (#3256 Maison 123 - server2) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:10:08 +02:00: 2026-06-24T10:10:08.613Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued bd05c48e-0f60-429a-a2c5-616e3e63a830 (#3248 Atlas for men - Kamma) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:10:08 +02:00: 2026-06-24T10:10:08.615Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 4cda703a-5f53-4827-adbf-03ddf022beee (#3246 Chantelle - Rndaserver) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:10:08 +02:00: 2026-06-24T10:10:08.618Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued fbd25234-46b1-4543-9a9a-a3d878c0159e (#3251 Dyson - rndaserver) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:10:08 +02:00: 2026-06-24T10:10:08.620Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued 941e8c7e-7538-40af-9911-421346dd57d2 (#3251 Dyson - rndaserver) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:10:08 +02:00: 2026-06-24T10:10:08.623Z [INFO] [CAMPAIGN_GUARDIAN] Re-enqueued f9504aee-cbb2-4744-961f-79e1918443aa (#3232 Rouge Gorge - mayesale) [reason=sending_no_active_job]
+[deploy]     2026-06-24 12:10:08 +02:00: 2026-06-24T10:10:08.820Z [INFO] Short unsubscribe: campaign=f1ae7e67-9da9-4139-9862-f26d5150cfb2, subscriber=6279a91f-e264-478f-b2a7-2ccf4af4d043
+[deploy]   (web readiness is verified by the HTTP health check in Step 8 — not failing on this)
+
+[deploy] ▶ Waiting for app to become healthy...
+[deploy]   Health check attempt 1/20: HTTP 200 body={"status":"ready","uptime":140,"timestamp":"2026-06-24T10:10:27.967Z"}
+[deploy] ✓ App is healthy
+
+[deploy] ▶ Scanning post-deploy error logs for fatal patterns (last 60 s)...
+
