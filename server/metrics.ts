@@ -76,7 +76,7 @@ export const campaignSendRate = new client.Gauge({
 // without coordinating with deliverability dashboards.
 export const pressureGuardDeferredTotal = new client.Counter({
   name: 'critsend_pressure_deferred_total',
-  help: 'Total send attempts deferred by the 4h pressure guard',
+  help: 'Total send attempts deferred by the 2h pressure guard',
   labelNames: ['campaign_id'] as const,
   registers: [register],
 });
@@ -178,7 +178,7 @@ export const pressureGuardBackPressuredLastTick = new client.Gauge({
 
 // ── Snowball Auto-Throttle (Task #154) ────────────────────────────────
 // When too many campaigns target overlapping audiences, the main sender
-// keeps reserving fresh sends that get deferred behind the 4h pressure
+// keeps reserving fresh sends that get deferred behind the 2h pressure
 // window faster than the drain worker can evacuate them. The auto-throttle
 // in server/services/campaign-sender.ts pauses a campaign's sender loop
 // when its `currently-deferred / processed` ratio crosses a threshold,
