@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, Link } from "wouter";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -38,6 +39,7 @@ import {
   Loader2,
   Save,
   Filter,
+  AlertTriangle,
 } from "lucide-react";
 import type { Mta, Segment, InsertCampaign } from "@shared/schema";
 import DateTimePicker from "@/components/date-time-picker";
@@ -51,6 +53,56 @@ function withBaseHref(html: string): string {
     return html.replace(/<head[^>]*>/i, (m) => `${m}${base}`);
   }
   return `${base}${html}`;
+}
+
+/** Normalize a domain (with or without scheme/path) to a bare lowercase hostname. */
+function normalizeHost(domain: string | null | undefined): string | null {
+  if (!domain) return null;
+  let d = domain.trim().replace(/\/+$/, "");
+  if (!d) return null;
+  if (!/^https?:\/\//i.test(d)) d = `https://${d}`;
+  try {
+    return new URL(d).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Hostname of an image src, or null for relative / data: / cid: URLs — those
+ *  are hosted locally (or inline) and rewritten at send time, so never count
+ *  as "external". */
+function imageSrcHost(rawSrc: string): string | null {
+  const raw = rawSrc.trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("data:") || lower.startsWith("cid:")) return null;
+  if (/^https?:\/\//i.test(raw)) {
+    try { return new URL(raw).hostname.toLowerCase(); } catch { return null; }
+  }
+  if (raw.startsWith("//")) {
+    try { return new URL(`https:${raw}`).hostname.toLowerCase(); } catch { return null; }
+  }
+  return null; // relative path (/images/..., /campaigns/...) — rehosted on send
+}
+
+/** Every external <img> src in `html` whose host is NOT one of `ourHosts`.
+ *  Parses with DOMParser so only real image elements are inspected (never
+ *  <script>/<iframe> src) and unquoted attributes are handled. DOMParser does
+ *  not fetch resources or run scripts, so this is safe for untrusted HTML. */
+function findExternalImageSrcs(html: string, ourHosts: Set<string>): string[] {
+  if (!html) return [];
+  const urls: string[] = [];
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("img[src], source[src]").forEach((el) => {
+      const src = el.getAttribute("src") ?? "";
+      const host = imageSrcHost(src);
+      if (host && !ourHosts.has(host)) urls.push(src.trim());
+    });
+  } catch {
+    // ignore parse failures — alert simply won't show
+  }
+  return urls;
 }
 
 const steps = [
@@ -205,6 +257,35 @@ export default function CampaignNew() {
   const { data: mtas, isLoading: loadingMtas } = useQuery<Mta[]>({
     queryKey: ["/api/mtas"],
   });
+
+  // Safeguard: flag image src= URLs in the uploaded/pasted HTML that point to a
+  // domain we don't own. The send-time image rewriter only rehosts RELATIVE
+  // paths (/images/, /campaigns/) — absolute external URLs are left untouched,
+  // so they ship as-is and can hurt deliverability / expose a third-party host.
+  // "Our" hosts are derived from the configured MTAs (image/tracking domains).
+  const ourImageHosts = useMemo(() => {
+    const set = new Set<string>();
+    for (const mta of mtas ?? []) {
+      for (const d of [mta.imageHostingDomain, mta.trackingDomain, mta.openTrackingDomain]) {
+        const h = normalizeHost(d);
+        if (h) set.add(h);
+      }
+    }
+    return set;
+  }, [mtas]);
+
+  const externalImageSrcs = useMemo(
+    () => findExternalImageSrcs(formData.htmlContent ?? "", ourImageHosts),
+    [formData.htmlContent, ourImageHosts],
+  );
+  const externalImageHosts = useMemo(() => {
+    const hosts = new Set<string>();
+    for (const u of externalImageSrcs) {
+      const h = imageSrcHost(u);
+      if (h) hosts.add(h);
+    }
+    return [...hosts];
+  }, [externalImageSrcs]);
 
   const { data: segments, isLoading: loadingSegments } = useQuery<Segment[]>({
     queryKey: ["/api/segments"],
@@ -654,6 +735,28 @@ export default function CampaignNew() {
             </div>
             <div className="space-y-2">
               <Label>HTML Content *</Label>
+              {externalImageSrcs.length > 0 && (
+                <Alert variant="destructive" data-testid="alert-external-images">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>External images detected</AlertTitle>
+                  <AlertDescription className="space-y-2">
+                    <p>
+                      {externalImageSrcs.length} image{externalImageSrcs.length > 1 ? "s" : ""} use an external URL not hosted on your domains. These are <strong>not</strong> re-hosted when sending — they can hurt deliverability or expose recipients to a third-party domain.
+                    </p>
+                    <ul className="list-disc list-inside text-xs font-mono break-all">
+                      {externalImageHosts.slice(0, 8).map((h) => (
+                        <li key={h} data-testid={`text-external-host-${h}`}>{h}</li>
+                      ))}
+                      {externalImageHosts.length > 8 && (
+                        <li>…and {externalImageHosts.length - 8} more host(s)</li>
+                      )}
+                    </ul>
+                    <p className="text-xs">
+                      Tip: re-drop the HTML file in the upload zone to download &amp; host the images locally, or fix the URLs.
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              )}
               {!htmlLoaded ? (
                 <div
                   className={`border-2 border-dashed rounded-md p-8 text-center transition-colors ${
