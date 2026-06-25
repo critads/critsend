@@ -28,7 +28,7 @@ import {
   Server, Plus, MoreVertical, Trash2, Edit2,
   CheckCircle2, XCircle, FlaskConical, Wifi, WifiOff, Loader2,
   Lightbulb, ChevronDown, ChevronRight, Clock, Search,
-  ChevronLeft, ChevronRight as ChevronRightIcon,
+  ChevronLeft, ChevronRight as ChevronRightIcon, Send, Mail,
 } from "lucide-react";
 import type { Mta } from "@shared/schema";
 
@@ -41,6 +41,21 @@ interface SmtpTestResult {
   smtpCode?: number;
   suggestions?: string[];
   serverBanner?: string;
+}
+
+interface PlainTestResult {
+  success: boolean;
+  connectionTimeMs: number;
+  messageId?: string;
+  accepted?: string[];
+  rejected?: string[];
+  from?: string;
+  to?: string;
+  stage?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  smtpCode?: number;
+  suggestions?: string[];
 }
 
 interface PaginatedMtas {
@@ -58,6 +73,10 @@ export default function MTAs() {
   const [testingMta, setTestingMta] = useState<Mta | null>(null);
   const [testResult, setTestResult] = useState<SmtpTestResult | null>(null);
   const [showRawError, setShowRawError] = useState(false);
+  const [plainTestMta, setPlainTestMta] = useState<Mta | null>(null);
+  const [plainTestTo, setPlainTestTo] = useState("");
+  const [plainTestResult, setPlainTestResult] = useState<PlainTestResult | null>(null);
+  const [showPlainRawError, setShowPlainRawError] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -138,6 +157,41 @@ export default function MTAs() {
     setTestResult(null);
     setShowRawError(false);
     testMutation.mutate(mta.id);
+  };
+
+  const plainTestMutation = useMutation({
+    mutationFn: async ({ id, to }: { id: string; to: string }) => {
+      const res = await apiRequest("POST", `/api/mtas/${id}/plain-test`, { to });
+      return res.json() as Promise<PlainTestResult>;
+    },
+    onSuccess: (data) => {
+      setPlainTestResult(data);
+    },
+    onError: () => {
+      setPlainTestResult({
+        success: false,
+        connectionTimeMs: 0,
+        stage: "Unknown",
+        errorMessage: "Unexpected error while sending the plain test email.",
+        suggestions: ["Check server logs for more details."],
+      });
+    },
+  });
+
+  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
+  const openPlainTest = (mta: Mta) => {
+    setPlainTestMta(mta);
+    setPlainTestTo("");
+    setPlainTestResult(null);
+    setShowPlainRawError(false);
+  };
+
+  const submitPlainTest = () => {
+    if (!plainTestMta || !plainTestMta.fromEmail || !isValidEmail(plainTestTo)) return;
+    setPlainTestResult(null);
+    setShowPlainRawError(false);
+    plainTestMutation.mutate({ id: plainTestMta.id, to: plainTestTo.trim() });
   };
 
   return (
@@ -229,6 +283,13 @@ export default function MTAs() {
                     >
                       <Wifi className="h-4 w-4 mr-2" />
                       Test Connection
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => openPlainTest(mta)}
+                      data-testid={`button-plain-test-mta-${mta.id}`}
+                    >
+                      <Send className="h-4 w-4 mr-2" />
+                      Plain Test
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -519,6 +580,201 @@ export default function MTAs() {
               data-testid="button-close-test-dialog"
             >
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Plain Test Dialog */}
+      <Dialog
+        open={!!plainTestMta}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPlainTestMta(null);
+            setPlainTestResult(null);
+            setShowPlainRawError(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg" data-testid="dialog-plain-test-mta">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5" />
+              Plain Test
+            </DialogTitle>
+            <DialogDescription>
+              Sends a raw email via{" "}
+              <span className="font-medium text-foreground">{plainTestMta?.name}</span> with
+              subject <span className="font-mono">"Hello moon"</span> and body{" "}
+              <span className="font-mono">"I'm the sun"</span>. No custom headers, no
+              unsubscribe link, no open or click tracking — only the MTA's own From.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label htmlFor="plain-test-to" className="text-sm font-medium">
+                Recipient email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="plain-test-to"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={plainTestTo}
+                  onChange={(e) => setPlainTestTo(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && isValidEmail(plainTestTo) && !plainTestMutation.isPending) {
+                      submitPlainTest();
+                    }
+                  }}
+                  className="pl-9"
+                  disabled={plainTestMutation.isPending}
+                  data-testid="input-plain-test-to"
+                />
+              </div>
+              {plainTestMta?.fromEmail ? (
+                <p className="text-xs text-muted-foreground">
+                  From:{" "}
+                  <span className="font-mono">
+                    {plainTestMta.fromName ? `${plainTestMta.fromName} <${plainTestMta.fromEmail}>` : plainTestMta.fromEmail}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  This MTA has no From email configured.
+                </p>
+              )}
+            </div>
+
+            {plainTestMutation.isPending && (
+              <div className="flex flex-col items-center justify-center py-6 gap-3" data-testid="plain-test-loading">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Sending plain test email…</p>
+              </div>
+            )}
+
+            {plainTestResult?.success && (
+              <div className="space-y-3" data-testid="plain-test-success">
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="font-semibold text-emerald-800 dark:text-emerald-300">Email sent</p>
+                    <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                      The MTA accepted the message for delivery.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span>Sent in <strong>{plainTestResult.connectionTimeMs} ms</strong></span>
+                </div>
+                {plainTestResult.messageId && (
+                  <div className="p-3 rounded-md bg-muted text-xs font-mono break-all" data-testid="plain-test-message-id">
+                    <span className="text-muted-foreground">Message-ID: </span>{plainTestResult.messageId}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {plainTestResult && !plainTestResult.success && (
+              <div className="space-y-4" data-testid="plain-test-failure">
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                  <XCircle className="h-8 w-8 text-red-600 dark:text-red-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-red-800 dark:text-red-300">Send failed</p>
+                    {plainTestResult.stage && (
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-red-700 dark:text-red-400">Failed at:</span>
+                        <Badge variant="outline" className="text-xs border-red-400 text-red-700 dark:text-red-400">
+                          {plainTestResult.stage}
+                        </Badge>
+                        {plainTestResult.smtpCode && (
+                          <Badge variant="outline" className="text-xs border-red-400 text-red-700 dark:text-red-400">
+                            SMTP {plainTestResult.smtpCode}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {plainTestResult.suggestions && plainTestResult.suggestions.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <Lightbulb className="h-4 w-4 text-amber-500" />
+                      What to check
+                    </div>
+                    <ul className="space-y-1.5 pl-1">
+                      {plainTestResult.suggestions.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                          <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {plainTestResult.errorMessage && (
+                  <div className="space-y-1.5">
+                    <button
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowPlainRawError(!showPlainRawError)}
+                      data-testid="button-toggle-plain-raw-error"
+                    >
+                      {showPlainRawError
+                        ? <ChevronDown className="h-3.5 w-3.5" />
+                        : <ChevronRight className="h-3.5 w-3.5" />
+                      }
+                      Raw error details
+                    </button>
+                    {showPlainRawError && (
+                      <div
+                        className="p-3 rounded-md bg-muted text-xs font-mono break-all leading-relaxed"
+                        data-testid="plain-raw-error-details"
+                      >
+                        {plainTestResult.errorCode && (
+                          <div><span className="text-muted-foreground">Code: </span>{plainTestResult.errorCode}</div>
+                        )}
+                        <div><span className="text-muted-foreground">Message: </span>{plainTestResult.errorMessage}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPlainTestMta(null);
+                setPlainTestResult(null);
+                setShowPlainRawError(false);
+              }}
+              data-testid="button-close-plain-test-dialog"
+            >
+              Close
+            </Button>
+            <Button
+              onClick={submitPlainTest}
+              disabled={!isValidEmail(plainTestTo) || !plainTestMta?.fromEmail || plainTestMutation.isPending}
+              data-testid="button-send-plain-test"
+            >
+              {plainTestMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  {plainTestResult ? "Send again" : "Send test"}
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

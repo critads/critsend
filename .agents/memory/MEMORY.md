@@ -1,5 +1,6 @@
 - [Hetzner DB resilience gaps](hetzner-db-resilience.md) — critsend-db had no backups, archive_mode off, unattended-upgrades un-blacklisted for PG, systemd Restart=no, no replica; conn budget healthy.
 - [Campaign status-flip guards](campaign-status-flip-guards.md) — any path that sets a campaign back to 'sending' (auto-requeue, retry, ghost-sweep) must guard on current status or it resurrects a manually Ended/Paused campaign.
+- [Critsend tsc baseline](critsend-tsc-baseline.md) — repo has no clean tsc (builds via esbuild); only fix NEW error classes. nodemailer createTransport pool:false trips a tolerated TS2769 overload.
 - [Campaign completion failed-gate](campaign-completion-failed-gate.md) — two finalization paths can complete a campaign; both must ATOMICALLY refuse to complete while retryable failed sends remain, else a transient outage strands un-retried failures.
 - [node-pg sslmode overrides ssl object](node-pg-sslmode-override.md) — connection-string `sslmode` wins over code's `ssl:{rejectUnauthorized:false}`; self-signed server cert needs `sslmode=no-verify` in the URL (pg ≥8.11 `require` verifies).
 - [PostgreSQL huge pages](postgres-huge-pages.md) — verify usage via (Total-Free)+Rsvd == shared_memory_size_in_huge_pages; don't misread high HugePages_Free as a fallback.

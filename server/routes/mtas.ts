@@ -5,6 +5,7 @@ import { insertMtaSchema, insertEmailHeaderSchema } from "@shared/schema";
 import { z } from "zod";
 import { closeTransporter, resolveSmtpSecurity, invalidateDefaultHeadersCache } from "../email-service";
 import nodemailer from "nodemailer";
+import rateLimit from "express-rate-limit";
 import type { Mta } from "@shared/schema";
 
 interface SmtpTestResult {
@@ -175,6 +176,135 @@ async function testSmtpConnection(mta: Mta): Promise<SmtpTestResult> {
   }
 }
 
+interface PlainTestResult {
+  success: boolean;
+  connectionTimeMs: number;
+  messageId?: string;
+  accepted?: string[];
+  rejected?: string[];
+  from?: string;
+  to?: string;
+  stage?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  smtpCode?: number;
+  suggestions?: string[];
+}
+
+const PLAIN_TEST_SUBJECT = "Hello moon";
+const PLAIN_TEST_BODY = "I'm the sun";
+
+/**
+ * Sends a deliberately *raw* test email through the MTA, bypassing the entire
+ * `prepareTrackedHtml` pipeline. NONE of our machinery is applied: no custom
+ * email headers, no List-Unsubscribe / unsubscribe footer, no open-tracking
+ * pixel, no click/link rewriting, no image rewriting, no preheader. Just the
+ * MTA's own From, the recipient, subject "Hello moon" and a plain-text body
+ * "I'm the sun". Useful for isolating raw deliverability of an MTA from any
+ * tracking/header that content scanners might react to.
+ *
+ * A one-off, non-pooled transport is used on purpose so this manual test never
+ * touches the production sending pool (`createTransporter`).
+ */
+async function sendPlainTestEmail(mta: Mta, to: string): Promise<PlainTestResult> {
+  const start = Date.now();
+
+  if ((mta as any).mode === "nullsink") {
+    return {
+      success: false,
+      connectionTimeMs: 0,
+      stage: "Not supported",
+      errorMessage: "Plain Test sends a real email and is not available for a nullsink (test mode) MTA.",
+      suggestions: ["Use a real SMTP MTA to send a plain test email."],
+    };
+  }
+
+  const fromEmail = (mta.fromEmail || "").trim();
+  if (!fromEmail) {
+    return {
+      success: false,
+      connectionTimeMs: 0,
+      stage: "Configuration",
+      errorMessage: "This MTA has no From email configured, so a plain test cannot set a sender.",
+      suggestions: ["Edit the MTA and set a From email (and optionally a From name)."],
+    };
+  }
+
+  const port = mta.port || 587;
+  const protocol = (mta as any).protocol || "STARTTLS";
+  const { secure, ignoreTLS } = resolveSmtpSecurity(protocol);
+
+  const transporter = nodemailer.createTransport({
+    host: mta.hostname || "localhost",
+    port,
+    secure,
+    ignoreTLS,
+    auth: mta.username && mta.password
+      ? { user: mta.username, pass: mta.password }
+      : undefined,
+    pool: false,
+    connectionTimeout: 15000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
+    tls: {
+      rejectUnauthorized: process.env.SMTP_SKIP_TLS_VERIFY !== "true",
+    },
+  });
+
+  const fromName = (mta.fromName || "").trim();
+  const from = fromName ? { name: fromName, address: fromEmail } : fromEmail;
+
+  try {
+    // Raw on purpose: only From / To / Subject / plain-text body. No headers,
+    // no unsubscribe, no tracking, no footer — bypasses prepareTrackedHtml.
+    const info = await transporter.sendMail({
+      from,
+      to,
+      subject: PLAIN_TEST_SUBJECT,
+      text: PLAIN_TEST_BODY,
+    });
+    const connectionTimeMs = Date.now() - start;
+    const normalizeAddrs = (arr: any[] | undefined): string[] =>
+      (arr || []).map((a) => (typeof a === "string" ? a : a?.address)).filter(Boolean);
+    return {
+      success: true,
+      connectionTimeMs,
+      messageId: info.messageId,
+      accepted: normalizeAddrs(info.accepted as any[]),
+      rejected: normalizeAddrs(info.rejected as any[]),
+      from: typeof from === "string" ? from : `${from.name} <${from.address}>`,
+      to,
+    };
+  } catch (error: any) {
+    const connectionTimeMs = Date.now() - start;
+    const { stage, suggestions } = classifySmtpError(error);
+    return {
+      success: false,
+      connectionTimeMs,
+      stage,
+      errorCode: error.code || undefined,
+      errorMessage: error.message || "Unknown error",
+      smtpCode: error.responseCode || undefined,
+      suggestions,
+    };
+  } finally {
+    transporter.close();
+  }
+}
+
+// Plain Test sends a REAL outbound email to an arbitrary recipient, so it gets a
+// strict per-user/IP limiter (well below the general /api 200/min) to bound abuse
+// if an operator account is compromised. Auth middleware runs first, so the
+// keyGenerator can rely on req.session.userId being present.
+const plainTestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => (req.session?.userId as string) || req.ip || "anonymous",
+  message: { error: "Plain test rate limit exceeded — 5 per minute" },
+});
+
 export function registerMtaRoutes(app: Express, helpers: {
   parsePagination: (query: any) => { page: number; limit: number };
   validateId: (id: string) => boolean;
@@ -237,6 +367,31 @@ export function registerMtaRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error testing MTA:", error);
       res.status(500).json({ error: "Failed to run connection test" });
+    }
+  });
+
+  app.post("/api/mtas/:id/plain-test", plainTestLimiter, async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const parsed = z.object({ to: z.string().trim().email() }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "A valid recipient email is required" });
+      }
+      const mta = await storage.getMta(req.params.id);
+      if (!mta) {
+        return res.status(404).json({ error: "MTA not found" });
+      }
+      // Log only the recipient domain to avoid writing a full address (PII) to logs.
+      const toDomain = parsed.data.to.split("@")[1] || "unknown";
+      logger.info(`[MTA PLAIN TEST] Sending plain test via MTA ${mta.name} → @${toDomain}`);
+      const result = await sendPlainTestEmail(mta, parsed.data.to);
+      logger.info(`[MTA PLAIN TEST] Result for ${mta.name}: ${result.success ? "SENT" : "FAILED — " + result.stage}`);
+      res.json(result);
+    } catch (error) {
+      logger.error("Error sending plain test email:", error);
+      res.status(500).json({ error: "Failed to send plain test email" });
     }
   });
 
