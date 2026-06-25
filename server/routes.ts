@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
 import rateLimit from "express-rate-limit";
@@ -71,6 +71,10 @@ export async function registerRoutes(
   app.use("/api/unsubscribe/", trackingLimiter);
   app.use("/c/", trackingLimiter);
   app.use("/u/", trackingLimiter);
+  // Pretty/disguised open-pixel alias (/o/.../p.gif) shares the legacy open
+  // handler — it MUST share its rate limiter too, otherwise default-ON pretty
+  // mode moves every open hit onto an unbounded public path.
+  app.use("/o/", trackingLimiter);
 
   const webhookLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -84,9 +88,13 @@ export async function registerRoutes(
   // Legacy static serving — backward compat for old campaign image URLs
   app.use("/images", express.static(IMAGES_DIR));
 
-  // Stable branded image URLs: /campaigns/{year}/{month}/{campaignId}/{filename}
-  // Year/month are semantic only — files live at images/{campaignId}/{filename} on disk
-  app.get("/campaigns/:year/:month/:campaignId/:filename", (req, res) => {
+  // Campaign image serving. Two paths resolve to the SAME on-disk files
+  // (images/{campaignId}/{filename}); year/month are semantic only:
+  //   • /campaigns/{year}/{month}/{campaignId}/{filename} — legacy, kept forever
+  //     so already-sent emails keep loading.
+  //   • /i/{year}/{month}/{campaignId}/{filename} — pretty/neutral path new sends
+  //     emit when PRETTY_TRACKING_URLS != "false".
+  const serveCampaignImage = (req: Request, res: Response) => {
     const { year, month, campaignId, filename } = req.params;
     // Validate all path segments to prevent directory traversal
     const segmentPattern = /^[a-zA-Z0-9_-]+$/;
@@ -101,7 +109,9 @@ export async function registerRoutes(
     res.sendFile(filePath, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
-  });
+  };
+  app.get("/campaigns/:year/:month/:campaignId/:filename", serveCampaignImage);
+  app.get("/i/:year/:month/:campaignId/:filename", serveCampaignImage);
   
   cleanupOrphanedTempSessions();
   setInterval(cleanupOrphanedTempSessions, 60 * 60 * 1000);

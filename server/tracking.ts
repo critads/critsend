@@ -60,13 +60,24 @@ export function generateSignedOpenTrackingUrl(
   baseUrl: string,
   campaignId: string,
   subscriberId: string,
-  mid?: string
+  mid?: string,
+  pretty?: boolean
 ): string {
   const sig = signTrackingUrl(campaignId, subscriberId, "open");
   // `mid` is a per-message cache-buster so image proxies / webmail caches
   // can't collapse the open URL across recipients or re-opens. It is NOT
   // part of the HMAC payload — the endpoint ignores it for verification.
   const messageId = mid ?? crypto.randomUUID();
+  if (pretty) {
+    // Pretty/disguised variant served from `/o/.../p.gif`. The path no longer
+    // advertises "open tracking" to anti-spam content scanners, but the query
+    // contract (sig + mid) is byte-identical to the legacy route so BOTH share
+    // the exact same handler + HMAC verification. The trailing `p.gif` segment
+    // is cosmetic (the endpoint ignores it) — it only sells the static-image
+    // disguise. The legacy `/api/track/open/` route stays alive forever so
+    // already-sent emails keep recording opens.
+    return `${baseUrl}/o/${campaignId}/${subscriberId}/p.gif?sig=${sig}&mid=${messageId}`;
+  }
   return `${baseUrl}/api/track/open/${campaignId}/${subscriberId}?sig=${sig}&mid=${messageId}`;
 }
 

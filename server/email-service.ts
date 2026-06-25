@@ -284,6 +284,20 @@ export function closeAllTransporters(): void {
   transporterPool.clear();
 }
 
+/**
+ * Pretty (disguised) image + open-pixel URLs are emitted by default. New sends
+ * use the neutral `/i/...` (images) and `/o/.../p.gif` (open pixel) paths
+ * instead of the legacy `/campaigns/...` and `/api/track/open/...` paths, which
+ * advertise marketing/tracking intent to anti-spam content scanners.
+ *
+ * Set `PRETTY_TRACKING_URLS=false` to revert NEW sends to the legacy paths.
+ * Already-sent emails are unaffected either way: BOTH the legacy and pretty
+ * serving routes are registered permanently, so historical URLs keep resolving.
+ */
+export function prettyTrackingUrlsEnabled(): boolean {
+  return process.env.PRETTY_TRACKING_URLS !== "false";
+}
+
 export interface TrackingOptions {
   campaignId: string;
   subscriberId: string;
@@ -293,6 +307,8 @@ export interface TrackingOptions {
   openTrackingDomain?: string | null;
   openTag?: string | null;
   clickTag?: string | null;
+  /** Emit the disguised `/o/.../p.gif` open pixel path. Defaults to `prettyTrackingUrlsEnabled()`. */
+  prettyUrls?: boolean;
   /** Opaque link-ID map from preregisterCampaignLinks: Map<destinationUrl, linkId>. When set, click URLs use ?lid= instead of ?url=. */
   linkMap?: Map<string, string>;
   /**
@@ -363,11 +379,13 @@ export function addTrackingToHtml(
       : baseUrl;
     
     if (openTrackingBase) {
-      // Generate signed open tracking URL
+      // Generate signed open tracking URL (disguised /o/ path by default).
       const pixelUrl = generateSignedOpenTrackingUrl(
         openTrackingBase,
         options.campaignId,
-        options.subscriberId
+        options.subscriberId,
+        undefined,
+        options.prettyUrls ?? prettyTrackingUrlsEnabled()
       );
       
       // No `display:none` — some clients / image proxies / anti-spam scanners
@@ -516,7 +534,7 @@ export function prepareTrackedHtml(
     campaignId: String(campaign.id),
     year: createdAt.getUTCFullYear().toString(),
     month: String(createdAt.getUTCMonth() + 1).padStart(2, "0"),
-  });
+  }, tracking.prettyUrls);
 
   // 3. resolve unsubscribe URL: prefer branded /u/{token}, else HMAC-signed.
   const baseUrl = normalizeBaseUrl(tracking.trackingDomain);
@@ -592,7 +610,8 @@ function campaignContext(campaign: Campaign): ImageRewriteContext {
 export function rewriteImageUrls(
   html: string,
   imageHostingDomain: string | null | undefined,
-  context?: ImageRewriteContext
+  context?: ImageRewriteContext,
+  prettyUrls?: boolean
 ): string {
   // Fall back to PUBLIC_URL env var so campaigns with relative image paths
   // still get absolute URLs in sent emails even when no MTA domain is configured.
@@ -604,24 +623,31 @@ export function rewriteImageUrls(
   // Normalize: remove trailing slash, ensure https:// scheme
   const raw = effectiveDomain.replace(/\/$/, "");
   const domain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  
+
+  // Pretty mode (default) serves campaign images from the neutral `/i/...`
+  // path instead of `/campaigns/...`. Both paths serve the exact same on-disk
+  // files (the legacy route stays registered forever), so already-sent emails
+  // pointing at `/campaigns/...` keep loading.
+  const pretty = prettyUrls ?? prettyTrackingUrlsEnabled();
+  const imgPrefix = pretty ? "i" : "campaigns";
+
   let result = html;
 
-  // Upgrade legacy /images/{campaignId}/ paths to new branded /campaigns/ format
+  // Upgrade legacy /images/{campaignId}/ paths to the dated campaign format
   if (context) {
     const { campaignId, year, month } = context;
     // Escape campaignId for use in regex (UUIDs and integers are safe, but guard anyway)
     const escapedId = campaignId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     result = result.replace(
       new RegExp(`src=(["'])/images/${escapedId}/`, 'g'),
-      `src=$1${domain}/campaigns/${year}/${month}/${campaignId}/`
+      `src=$1${domain}/${imgPrefix}/${year}/${month}/${campaignId}/`
     );
   }
 
   // Rewrite any remaining relative /images/ paths (other campaigns / no context)
   result = result.replace(/src=(["'])\/images\//g, `src=$1${domain}/images/`);
-  // Rewrite new-style /campaigns/ paths (both absolute domain and remaining relatives)
-  result = result.replace(/src=(["'])\/campaigns\//g, `src=$1${domain}/campaigns/`);
+  // Rewrite stored relative /campaigns/ paths to the (pretty or legacy) prefix
+  result = result.replace(/src=(["'])\/campaigns\//g, `src=$1${domain}/${imgPrefix}/`);
 
   return result;
 }

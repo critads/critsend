@@ -339,7 +339,7 @@ export function registerTrackingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/track/open/:campaignId/:subscriberId", async (req: Request, res: Response) => {
+  const handleOpenTracking = async (req: Request, res: Response) => {
     const { campaignId, subscriberId } = req.params;
     const sig = req.query.sig as string;
 
@@ -407,7 +407,14 @@ export function registerTrackingRoutes(app: Express) {
       // Response already sent; just log and move on.
       logger.error("Error queuing open event:", error);
     }
-  });
+  };
+
+  // Legacy open-pixel route (kept forever so already-sent emails keep recording
+  // opens) + the pretty/disguised `/o/.../p.gif` alias new sends use. Both share
+  // the exact same handler: campaignId/subscriberId from the path, sig + mid from
+  // the query. The trailing `:file` (e.g. p.gif) is cosmetic and ignored.
+  app.get("/api/track/open/:campaignId/:subscriberId", handleOpenTracking);
+  app.get("/o/:campaignId/:subscriberId/:file", handleOpenTracking);
 
   app.get("/api/track/click/:campaignId/:subscriberId", async (req: Request, res: Response) => {
     const { campaignId, subscriberId } = req.params;
