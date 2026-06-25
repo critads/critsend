@@ -77,6 +77,7 @@ export default function MTAs() {
   const [plainTestTo, setPlainTestTo] = useState("");
   const [plainTestResult, setPlainTestResult] = useState<PlainTestResult | null>(null);
   const [showPlainRawError, setShowPlainRawError] = useState(false);
+  const [plainTestHeaders, setPlainTestHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -160,8 +161,8 @@ export default function MTAs() {
   };
 
   const plainTestMutation = useMutation({
-    mutationFn: async ({ id, to }: { id: string; to: string }) => {
-      const res = await apiRequest("POST", `/api/mtas/${id}/plain-test`, { to });
+    mutationFn: async ({ id, to, headers }: { id: string; to: string; headers: Array<{ key: string; value: string }> }) => {
+      const res = await apiRequest("POST", `/api/mtas/${id}/plain-test`, { to, headers });
       return res.json() as Promise<PlainTestResult>;
     },
     onSuccess: (data) => {
@@ -179,19 +180,34 @@ export default function MTAs() {
   });
 
   const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+  const isValidHeaderName = (v: string) => /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(v);
+  const hasInvalidHeader = plainTestHeaders.some(
+    (h) => h.key.trim().length > 0 && !isValidHeaderName(h.key.trim()),
+  );
 
   const openPlainTest = (mta: Mta) => {
     setPlainTestMta(mta);
     setPlainTestTo("");
     setPlainTestResult(null);
     setShowPlainRawError(false);
+    setPlainTestHeaders([]);
   };
 
+  const addPlainTestHeader = () =>
+    setPlainTestHeaders((prev) => [...prev, { key: "", value: "" }]);
+  const updatePlainTestHeader = (i: number, field: "key" | "value", val: string) =>
+    setPlainTestHeaders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
+  const removePlainTestHeader = (i: number) =>
+    setPlainTestHeaders((prev) => prev.filter((_, idx) => idx !== i));
+
   const submitPlainTest = () => {
-    if (!plainTestMta || !plainTestMta.fromEmail || !isValidEmail(plainTestTo)) return;
+    if (!plainTestMta || !plainTestMta.fromEmail || !isValidEmail(plainTestTo) || hasInvalidHeader) return;
     setPlainTestResult(null);
     setShowPlainRawError(false);
-    plainTestMutation.mutate({ id: plainTestMta.id, to: plainTestTo.trim() });
+    const cleanedHeaders = plainTestHeaders
+      .map((h) => ({ key: h.key.trim(), value: h.value }))
+      .filter((h) => h.key.length > 0);
+    plainTestMutation.mutate({ id: plainTestMta.id, to: plainTestTo.trim(), headers: cleanedHeaders });
   };
 
   return (
@@ -606,8 +622,8 @@ export default function MTAs() {
               Sends a raw email via{" "}
               <span className="font-medium text-foreground">{plainTestMta?.name}</span> with
               subject <span className="font-mono">"Hello moon"</span> and body{" "}
-              <span className="font-mono">"I'm the sun"</span>. No custom headers, no
-              unsubscribe link, no open or click tracking — only the MTA's own From.
+              <span className="font-mono">"I'm the sun"</span>. No unsubscribe link and no
+              open or click tracking. You can optionally add custom headers below.
             </DialogDescription>
           </DialogHeader>
 
@@ -644,6 +660,78 @@ export default function MTAs() {
               ) : (
                 <p className="text-xs text-red-600 dark:text-red-400">
                   This MTA has no From email configured.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Custom headers (optional)</label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={addPlainTestHeader}
+                  disabled={plainTestMutation.isPending || plainTestHeaders.length >= 25}
+                  data-testid="button-add-plain-test-header"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add header
+                </Button>
+              </div>
+              {plainTestHeaders.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No custom headers — the test sends a raw email by default.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {plainTestHeaders.map((h, i) => {
+                    const invalidName = h.key.trim().length > 0 && !isValidHeaderName(h.key.trim());
+                    return (
+                      <div key={i} className="flex items-start gap-2" data-testid={`row-plain-test-header-${i}`}>
+                        <div className="flex-1 space-y-1">
+                          <Input
+                            placeholder="Header-Name"
+                            value={h.key}
+                            onChange={(e) => updatePlainTestHeader(i, "key", e.target.value)}
+                            disabled={plainTestMutation.isPending}
+                            className={`font-mono text-sm ${invalidName ? "border-red-400 focus-visible:ring-red-400" : ""}`}
+                            data-testid={`input-plain-test-header-key-${i}`}
+                          />
+                          {invalidName && (
+                            <p className="text-[11px] text-red-600 dark:text-red-400">
+                              Use letters, digits and hyphens (e.g. X-Custom-Tag).
+                            </p>
+                          )}
+                        </div>
+                        <Input
+                          placeholder="value"
+                          value={h.value}
+                          onChange={(e) => updatePlainTestHeader(i, "value", e.target.value)}
+                          disabled={plainTestMutation.isPending}
+                          className="flex-1 font-mono text-sm"
+                          data-testid={`input-plain-test-header-value-${i}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => removePlainTestHeader(i)}
+                          disabled={plainTestMutation.isPending}
+                          data-testid={`button-remove-plain-test-header-${i}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {plainTestHeaders.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Advanced: re-defining standard headers (From, Subject, Message-ID) can produce a malformed test email.
                 </p>
               )}
             </div>
@@ -761,7 +849,7 @@ export default function MTAs() {
             </Button>
             <Button
               onClick={submitPlainTest}
-              disabled={!isValidEmail(plainTestTo) || !plainTestMta?.fromEmail || plainTestMutation.isPending}
+              disabled={!isValidEmail(plainTestTo) || !plainTestMta?.fromEmail || hasInvalidHeader || plainTestMutation.isPending}
               data-testid="button-send-plain-test"
             >
               {plainTestMutation.isPending ? (

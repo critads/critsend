@@ -206,7 +206,11 @@ const PLAIN_TEST_BODY = "I'm the sun";
  * A one-off, non-pooled transport is used on purpose so this manual test never
  * touches the production sending pool (`createTransporter`).
  */
-async function sendPlainTestEmail(mta: Mta, to: string): Promise<PlainTestResult> {
+async function sendPlainTestEmail(
+  mta: Mta,
+  to: string,
+  headers?: Array<{ key: string; value: string }>,
+): Promise<PlainTestResult> {
   const start = Date.now();
 
   if ((mta as any).mode === "nullsink") {
@@ -255,13 +259,15 @@ async function sendPlainTestEmail(mta: Mta, to: string): Promise<PlainTestResult
   const from = fromName ? { name: fromName, address: fromEmail } : fromEmail;
 
   try {
-    // Raw on purpose: only From / To / Subject / plain-text body. No headers,
-    // no unsubscribe, no tracking, no footer — bypasses prepareTrackedHtml.
+    // Raw on purpose: only From / To / Subject / plain-text body, plus any custom
+    // headers the operator added explicitly. No unsubscribe, no tracking, no
+    // footer — bypasses prepareTrackedHtml.
     const info = await transporter.sendMail({
       from,
       to,
       subject: PLAIN_TEST_SUBJECT,
       text: PLAIN_TEST_BODY,
+      ...(headers && headers.length > 0 ? { headers } : {}),
     });
     const connectionTimeMs = Date.now() - start;
     const normalizeAddrs = (arr: any[] | undefined): string[] =>
@@ -375,9 +381,34 @@ export function registerMtaRoutes(app: Express, helpers: {
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
-      const parsed = z.object({ to: z.string().trim().email() }).safeParse(req.body);
+      const parsed = z
+        .object({
+          to: z.string().trim().email(),
+          // Optional manual headers. Names are restricted to a header token so a
+          // value can never smuggle a CRLF into the message (header injection).
+          headers: z
+            .array(
+              z.object({
+                key: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(200)
+                  .regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, "Invalid header name"),
+                value: z
+                  .string()
+                  .max(2000)
+                  .refine((v) => !/[\r\n]/.test(v), "Header value cannot contain line breaks"),
+              }),
+            )
+            .max(25)
+            .optional(),
+        })
+        .safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "A valid recipient email is required" });
+        return res
+          .status(400)
+          .json({ error: parsed.error.issues[0]?.message || "A valid recipient email is required" });
       }
       const mta = await storage.getMta(req.params.id);
       if (!mta) {
@@ -385,8 +416,12 @@ export function registerMtaRoutes(app: Express, helpers: {
       }
       // Log only the recipient domain to avoid writing a full address (PII) to logs.
       const toDomain = parsed.data.to.split("@")[1] || "unknown";
-      logger.info(`[MTA PLAIN TEST] Sending plain test via MTA ${mta.name} → @${toDomain}`);
-      const result = await sendPlainTestEmail(mta, parsed.data.to);
+      const headerCount = parsed.data.headers?.length || 0;
+      logger.info(
+        `[MTA PLAIN TEST] Sending plain test via MTA ${mta.name} → @${toDomain}` +
+          (headerCount ? ` (+${headerCount} custom header${headerCount === 1 ? "" : "s"})` : ""),
+      );
+      const result = await sendPlainTestEmail(mta, parsed.data.to, parsed.data.headers);
       logger.info(`[MTA PLAIN TEST] Result for ${mta.name}: ${result.success ? "SENT" : "FAILED — " + result.stage}`);
       res.json(result);
     } catch (error) {
