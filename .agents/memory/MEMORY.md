@@ -5,4 +5,5 @@
 - [node-pg sslmode overrides ssl object](node-pg-sslmode-override.md) — connection-string `sslmode` wins over code's `ssl:{rejectUnauthorized:false}`; self-signed server cert needs `sslmode=no-verify` in the URL (pg ≥8.11 `require` verifies).
 - [PostgreSQL huge pages](postgres-huge-pages.md) — verify usage via (Total-Free)+Rsvd == shared_memory_size_in_huge_pages; don't misread high HugePages_Free as a fallback.
 - [Singleton loop hung-tick freeze](singleton-loop-hung-tick.md) — re-entrancy guard + self-refreshing leader lease = no recovery from a never-settling await; needs per-unit timeout + heartbeat watchdog (safeInterval catches errors, not hangs).
+- [Import staging cleanup & completion invariants](import-staging-cleanup.md) — batch import_staging deletes (single DELETE → 57014, not retried, fails before merge); never complete an import from row counters; startup orphan-fail must count 'pending' queue rows as active.
 - [Pressure-drain held vs due](pressure-drain-held-vs-due.md) — "held" mixes future-eligible + due; due-but-not-aged is normal; aged-force-send doesn't boost drain priority (volume-DESC), so low-volume campaigns starve.

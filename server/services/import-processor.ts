@@ -10,6 +10,7 @@ import { jobEvents, JobProgressEvent } from "../job-events";
 import { getObjectStorageService, useObjectStorageForImports, ObjectStorageTransientError } from "../storage-backends";
 import { IMPORT_CONCURRENCY } from "../connection-budget";
 import { withConnRetry } from "./conn-retry";
+import { deleteInBatches } from "./batch-delete";
 
 const objectStorageService = getObjectStorageService();
 
@@ -782,8 +783,90 @@ async function mergeRefsFromStaging(importJobId: string): Promise<{ inserted: nu
   return { inserted: insertedCount, updated: Math.max(totalProcessed - insertedCount, 0) };
 }
 
+/**
+ * Bounded batch size for ctid-keyed deletes of `import_staging`. A single
+ * `DELETE FROM import_staging WHERE job_id = ...` over a large per-job set
+ * (millions of rows accumulated by the append-only COPY across requeues)
+ * exceeds the import pool's default statement_timeout and throws PG 57014 —
+ * which is NOT connection-class, so execWithRetry/queryWithRetry never retries
+ * it. The phase then HARD-FAILS *before* the real merge runs, so the import
+ * "completes" without writing a single subscriber. Deleting in small ctid
+ * batches keeps every statement well under the timeout and always finishes.
+ */
+const STAGING_DELETE_BATCH = (() => {
+  const n = Number(process.env.IMPORT_STAGING_DELETE_BATCH);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 20_000;
+})();
+
+/**
+ * Max batches a single orphan-sweep run will delete, so the background sweeper
+ * never hogs the pool or floods WAL while it drains historic bloat over several
+ * runs. Default 100 * 20k = 2M rows/run.
+ */
+const STAGING_SWEEP_MAX_BATCHES = (() => {
+  const n = Number(process.env.IMPORT_STAGING_SWEEP_MAX_BATCHES);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 100;
+})();
+
+/**
+ * Timeout-safe, idempotent cleanup of ONE job's staged rows. Loops bounded
+ * ctid-keyed deletes until the job has no rows left. Safe under PgBouncer
+ * transaction pooling (every statement is short and independent) and safe to
+ * run concurrently with the sweeper below (ctid races simply no-op).
+ */
 async function cleanupStagingData(importJobId: string): Promise<void> {
-  await execWithRetry(sql`DELETE FROM import_staging WHERE job_id = ${importJobId}`);
+  await deleteInBatches(
+    async (limit) => {
+      const result = await queryWithRetry(
+        `DELETE FROM import_staging
+           WHERE ctid IN (
+             SELECT ctid FROM import_staging WHERE job_id = $1 LIMIT $2
+           )`,
+        [importJobId, limit],
+      );
+      return result.rowCount ?? 0;
+    },
+    { batchSize: STAGING_DELETE_BATCH, sleepMs: 20 },
+  );
+}
+
+/**
+ * Background sweeper that drains ORPHANED import_staging rows — rows whose job
+ * is no longer live (not pending/processing/awaiting_confirmation) AND has no
+ * active queue row (pending/processing). This auto-drains the historic
+ * multi-million-row bloat after deploy and replaces the old single-shot startup
+ * DELETE that timed out on a large table. Bounded per run (batch count) so it
+ * never hogs the pool / floods WAL; intended to be called on an interval.
+ * Returns rows removed this run. ctid-batched ⇒ safe under PgBouncer and safe
+ * to run from more than one PM2 process concurrently.
+ */
+export async function sweepOrphanedImportStaging(
+  maxBatches: number = STAGING_SWEEP_MAX_BATCHES,
+): Promise<number> {
+  return deleteInBatches(
+    async (limit) => {
+      const result = await queryWithRetry(
+        `DELETE FROM import_staging
+           WHERE ctid IN (
+             SELECT s.ctid FROM import_staging s
+             WHERE NOT EXISTS (
+               SELECT 1 FROM import_jobs j
+               WHERE j.id = s.job_id
+                 AND j.status IN ('pending', 'processing', 'awaiting_confirmation')
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM import_job_queue q
+               WHERE q.import_job_id = s.job_id
+                 AND q.status IN ('pending', 'processing')
+             )
+             LIMIT $1
+           )`,
+        [limit],
+      );
+      return result.rowCount ?? 0;
+    },
+    { batchSize: STAGING_DELETE_BATCH, maxBatches, sleepMs: 50 },
+  );
 }
 
 async function peekCsvHasRefsColumn(csvFilePath: string): Promise<boolean> {

@@ -11,7 +11,7 @@ import { workerRestartsTotal, flushJobsTotal } from "./metrics";
 import { type JobProgressEvent, publishJobProgress } from "./job-events";
 import { publishCampaignsListInvalidation } from "./repositories/campaigns-list-cache";
 import { redisConnection, isRedisConfigured } from "./redis";
-import { processImportJob } from "./services/import-processor";
+import { processImportJob, sweepOrphanedImportStaging } from "./services/import-processor";
 import { withConnRetry } from "./services/conn-retry";
 import { ObjectStorageTransientError } from "./storage-backends";
 import { classifyDbError } from "./db-errors";
@@ -30,6 +30,7 @@ let tagQueueInterval: NodeJS.Timeout | null = null;
 let tagCleanupInterval: NodeJS.Timeout | null = null;
 let jobPollingInterval: NodeJS.Timeout | null = null;
 let importJobPollingInterval: NodeJS.Timeout | null = null;
+let importStagingSweepInterval: NodeJS.Timeout | null = null;
 let flushJobPollingInterval: NodeJS.Timeout | null = null;
 let mtaRecoveryInterval: NodeJS.Timeout | null = null;
 // In-memory backstop timer for the MTA-recovery checker. Maps a paused
@@ -1230,20 +1231,11 @@ async function resumeInterruptedCampaigns() {
       logger.info(`[RECOVERY] Reset ${stuckImportQueue.rows.length} stuck import queue item(s)`);
     }
 
-    const completedImports = await db.execute(sql`
-      UPDATE import_jobs SET status = 'completed',
-        error_message = NULL,
-        completed_at = COALESCE(completed_at, NOW())
-      WHERE status = 'processing'
-        AND COALESCE(total_rows, 0) > 0
-        AND COALESCE(processed_rows, 0) >= COALESCE(total_rows, 0)
-      RETURNING id, filename
-    `);
-
-    if (completedImports.rows.length > 0) {
-      logger.info(`[RECOVERY] Marked ${completedImports.rows.length} interrupted import(s) as completed (all rows processed)`);
-    }
-
+    // NOTE: We intentionally do NOT auto-complete a stuck 'processing' import
+    // from `processed_rows >= total_rows`. Those counters reflect rows PARSED /
+    // STAGED, not subscribers COMMITTED — declaring "completed" from them is what
+    // made imports finish having written nothing. Stuck 'processing' imports fall
+    // through to the reset-to-pending below and re-run idempotently instead.
     const stuckImports = await db.execute(sql`
       UPDATE import_jobs SET status = 'pending', error_message = 'Interrupted by server restart - will retry'
       WHERE status = 'processing'
@@ -1532,16 +1524,13 @@ function startImportJobProcessor() {
 
   logger.info(`Starting import job processor with worker ID: ${WORKER_ID}`);
 
-  db.execute(sql`
-    DELETE FROM import_staging s
-    WHERE NOT EXISTS (
-      SELECT 1 FROM import_jobs j 
-      WHERE j.id = s.job_id 
-      AND j.status = 'processing'
-    )
-  `)
-    .then(() => logger.info('[IMPORT] Cleaned up orphaned import_staging data on startup (excluding active jobs)'))
-    .catch((err: any) => logger.error('[IMPORT] Failed to clean up import_staging on startup:', err.message));
+  // Drain orphaned import_staging rows in bounded ctid batches (timeout-safe).
+  // A single DELETE over a large/bloated table breaches statement_timeout and
+  // never finishes (this is how prod accumulated tens of millions of rows); the
+  // batched sweeper auto-drains historic bloat across this run + the periodic one.
+  sweepOrphanedImportStaging()
+    .then((removed: number) => logger.info(`[IMPORT] Startup orphan staging sweep removed ${removed} row(s)`))
+    .catch((err: any) => logger.error('[IMPORT] Startup orphan staging sweep failed:', err.message));
 
   storage.areGinIndexesPresent().then(async (present) => {
     if (!present) {
@@ -1589,32 +1578,26 @@ function startImportJobProcessor() {
       if (staleCount > 0) {
         logger.info(`[IMPORT] Startup recovery: cleaned up ${staleCount} stale import jobs`);
       }
-      const orphanCompletedResult = await db.execute(sql`
-        UPDATE import_jobs
-        SET status = 'completed',
-            error_message = NULL,
-            completed_at = COALESCE(completed_at, NOW())
-        WHERE status = 'processing'
-          AND COALESCE(total_rows, 0) > 0
-          AND COALESCE(processed_rows, 0) >= COALESCE(total_rows, 0)
-          AND id NOT IN (
-            SELECT import_job_id FROM import_job_queue
-            WHERE status = 'processing'
-          )
-        RETURNING id
-      `);
-      if (orphanCompletedResult.rows.length > 0) {
-        logger.info(`[IMPORT] Startup recovery: completed ${orphanCompletedResult.rows.length} orphaned import_jobs (all rows were processed)`);
-      }
+      // Removed: counter-based auto-completion of orphaned 'processing' imports.
+      // `processed_rows >= total_rows` means rows were PARSED, not that the merge
+      // COMMITTED — completing on it silently dropped imports. Orphaned processing
+      // jobs (no active queue row) are instead failed below so the user re-imports.
       const orphanResult = await db.execute(sql`
         UPDATE import_jobs
         SET status = 'failed',
             error_message = 'Server restarted while import was processing',
             completed_at = NOW()
         WHERE status = 'processing'
+          -- Only fail a 'processing' job that has NO active queue row. This MUST
+          -- include 'pending', not just 'processing': resumeInterruptedCampaigns()
+          -- (launched un-awaited, racing this block) resets a crashed queue row
+          -- 'processing'->'pending' for retry BEFORE it resets the job row. If we
+          -- ignored 'pending' here we'd fail a job that is legitimately queued for
+          -- retry, and alreadyFailedResult below would then close its pending queue —
+          -- silently killing the intended reset->pending->retry path.
           AND id NOT IN (
             SELECT import_job_id FROM import_job_queue
-            WHERE status = 'processing'
+            WHERE status IN ('pending', 'processing')
           )
         RETURNING id
       `);
@@ -1622,20 +1605,10 @@ function startImportJobProcessor() {
         logger.info(`[IMPORT] Startup recovery: failed ${orphanResult.rows.length} orphaned import_jobs with no active queue item`);
       }
 
-      const csvMissingFixResult = await db.execute(sql`
-        UPDATE import_jobs
-        SET status = 'completed',
-            error_message = NULL,
-            completed_at = COALESCE(completed_at, NOW())
-        WHERE status = 'failed'
-          AND error_message LIKE '%CSV file not found%'
-          AND COALESCE(total_rows, 0) > 0
-          AND COALESCE(processed_rows, 0) >= COALESCE(total_rows, 0)
-        RETURNING id
-      `);
-      if (csvMissingFixResult.rows.length > 0) {
-        logger.info(`[IMPORT] Startup recovery: fixed ${csvMissingFixResult.rows.length} import(s) wrongly marked failed (all rows were actually imported)`);
-      }
+      // Removed: counter-based "fix" that flipped CSV-not-found failures to
+      // 'completed' when `processed_rows >= total_rows`. Same flaw — parsed rows
+      // are not committed subscribers — so a genuinely failed import was hidden as
+      // a success. A failed import stays failed and the user re-imports the CSV.
 
       // Close queue items whose import_job is already 'completed' — these were orphaned
       // by recoverStuckImportJobs resetting the queue row during GIN index recreation.
@@ -1672,6 +1645,16 @@ function startImportJobProcessor() {
 
   importJobPollingInterval = setInterval(pollForImportJobs, 5000);
 
+  // Periodic background drain of orphaned staging rows (bounded per run). Keeps
+  // draining historic bloat and reclaims rows left behind by any future crash
+  // mid-cleanup, without ever blocking a request or breaching statement_timeout.
+  const STAGING_SWEEP_INTERVAL_MS = Number(process.env.IMPORT_STAGING_SWEEP_INTERVAL_MS) || 5 * 60 * 1000;
+  importStagingSweepInterval = setInterval(() => {
+    sweepOrphanedImportStaging()
+      .then((removed: number) => { if (removed > 0) logger.info(`[IMPORT] Periodic orphan staging sweep removed ${removed} row(s)`); })
+      .catch((err: any) => logger.error('[IMPORT] Periodic orphan staging sweep failed:', err.message));
+  }, STAGING_SWEEP_INTERVAL_MS);
+
   pollForImportJobs();
 }
 
@@ -1680,6 +1663,10 @@ function stopImportJobProcessor() {
     clearInterval(importJobPollingInterval);
     importJobPollingInterval = null;
     logger.info("Import job processor stopped");
+  }
+  if (importStagingSweepInterval) {
+    clearInterval(importStagingSweepInterval);
+    importStagingSweepInterval = null;
   }
   if (isActiveImportJob) {
     logger.info("[IMPORT] Active in-process import job will complete naturally during shutdown");
