@@ -635,6 +635,50 @@ export async function getCampaignStats(campaignId: string): Promise<CampaignStat
   return db.select().from(campaignStats).where(eq(campaignStats.campaignId, campaignId)).orderBy(desc(campaignStats.timestamp));
 }
 
+/**
+ * Counts DISTINCT subscribers who unsubscribed from ANY campaign of a given
+ * brand within the last `windowDays` calendar days (Europe/Paris boundaries).
+ *
+ * "Brand" is matched against `campaigns.subject` in its bracketed form
+ * (`[brand]`, case-insensitive) so unrelated mentions of the word in body or
+ * subject text don't false-match. Wildcards in the brand are escaped so a
+ * brand containing `%` or `_` can't broaden the match.
+ *
+ * Performance: `campaign_stats` is huge and (per the live schema) effectively
+ * indexed on `campaign_id`. We therefore resolve the SMALL set of this brand's
+ * campaign IDs first (CTE), then count distinct unsubscribers across only those
+ * campaigns via the campaign-id index — never a full-table scan by timestamp.
+ *
+ * The window lower bound is the start of `(today - (windowDays-1))` at
+ * Europe/Paris local midnight, converted to the naive-UTC instant that matches
+ * how `campaign_stats.timestamp` is stored (same convention as the analytics
+ * period bounds).
+ */
+export async function countBrandUnsubscribes(brand: string, windowDays: number): Promise<number> {
+  const days = Math.max(1, Math.floor(windowDays));
+  const parisDayStart = sql`date_trunc('day', (now() AT TIME ZONE 'Europe/Paris')) - make_interval(days => ${days - 1})`;
+  const windowStart = sql`((${parisDayStart}) AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC'`;
+  // Resolve this brand's campaigns using the SAME rule as shared/brand.ts
+  // extractBrand(): the FIRST `[...]` group, trimmed, compared case-insensitively.
+  // The regex MUST stay in lockstep with extractBrand's /\[([^\]]+)\]/ — a plain
+  // ILIKE '%[brand]%' would mis-match (any bracket, untrimmed) and over/undercount.
+  // MATERIALIZED forces the small campaign-id set to be computed first so
+  // campaign_stats is only ever accessed via its campaign_id index, never a
+  // full scan by type/timestamp (which are unindexed on that huge table).
+  const result = await db.execute<{ count: number }>(sql`
+    WITH brand_campaigns AS MATERIALIZED (
+      SELECT id FROM campaigns
+      WHERE lower(btrim(substring(subject from '\\[([^\\]]+)\\]'))) = lower(${brand})
+    )
+    SELECT COUNT(DISTINCT cs.subscriber_id)::int AS count
+    FROM campaign_stats cs
+    JOIN brand_campaigns bc ON cs.campaign_id = bc.id
+    WHERE cs.type = 'unsubscribe'
+      AND cs.timestamp >= ${windowStart}
+  `);
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 export async function recordCampaignSend(_campaignId: string, _subscriberId: string, _status: string = "sent"): Promise<boolean> {
   throw new Error("DEPRECATED: recordCampaignSend() is no longer supported. Use reserveSendSlot() + finalizeSend() for proper two-phase send.");
 }

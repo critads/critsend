@@ -137,6 +137,26 @@ function normalizeForApi(data: Partial<InsertCampaign>) {
   };
 }
 
+// Shape returned by GET /api/campaigns/brand-unsub-check (Task #209).
+type BrandUnsubResult = {
+  brand: string | null;
+  count: number;
+  warnThreshold: number;
+  limit: number;
+  windowDays: number;
+  status: "ok" | "warn" | "blocked";
+};
+
+// French operator-facing message for the brand-unsubscribe safeguard. Counts
+// are formatted with French digit grouping (e.g. "2 134").
+function buildBrandMessage(data: BrandUnsubResult): string {
+  const fmt = (n: number) => (n ?? 0).toLocaleString("fr-FR");
+  if (data.status === "blocked") {
+    return `La marque ${data.brand} a déjà généré ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (limite : ${fmt(data.limit)}). Impossible de continuer.`;
+  }
+  return `La marque ${data.brand} approche de sa limite : ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (limite : ${fmt(data.limit)}).`;
+}
+
 export default function CampaignNew() {
   const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
@@ -178,6 +198,10 @@ export default function CampaignNew() {
   const [assetSessionId, setAssetSessionId] = useState<string | null>(null);
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
+  // Brand-unsubscribe safeguard (Task #209): gates the Content -> Tracking step.
+  const [brandCheckPending, setBrandCheckPending] = useState(false);
+  const [brandWarning, setBrandWarning] = useState<string | null>(null);
+  const [brandBlock, setBrandBlock] = useState<string | null>(null);
   const { toast } = useToast();
 
   const {
@@ -443,15 +467,42 @@ export default function CampaignNew() {
     }
   };
 
-  const nextStep = () => {
-    if (currentStep < 5 && isStepValid(currentStep)) {
-      saveDraftMutation.mutate(formData);
-      setCurrentStep(currentStep + 1);
+  const nextStep = async () => {
+    if (currentStep >= 5 || !isStepValid(currentStep)) return;
+    // Reset any prior brand-safeguard messages whenever the operator clicks Next.
+    setBrandBlock(null);
+    setBrandWarning(null);
+    // The brand-unsubscribe safeguard only gates Content (3) -> Tracking (4).
+    if (currentStep === 3) {
+      setBrandCheckPending(true);
+      try {
+        const res = await apiRequest(
+          "GET",
+          `/api/campaigns/brand-unsub-check?subject=${encodeURIComponent(formData.subject || "")}`,
+        );
+        const data = (await res.json()) as BrandUnsubResult;
+        if (data?.status === "blocked") {
+          setBrandBlock(buildBrandMessage(data));
+          return; // hard stop: do not advance to Tracking
+        }
+        if (data?.status === "warn") {
+          setBrandWarning(buildBrandMessage(data));
+        }
+      } catch (err) {
+        // Fail-open: an infra blip must never trap the operator in the wizard.
+        console.error("Brand unsubscribe check failed, allowing advance:", err);
+      } finally {
+        setBrandCheckPending(false);
+      }
     }
+    saveDraftMutation.mutate(formData);
+    setCurrentStep(currentStep + 1);
   };
 
   const prevStep = () => {
     if (currentStep > 1) {
+      setBrandBlock(null);
+      setBrandWarning(null);
       setCurrentStep(currentStep - 1);
     }
   };
@@ -1239,6 +1290,19 @@ export default function CampaignNew() {
         <CardContent>{renderStepContent()}</CardContent>
       </Card>
 
+      {brandBlock && (
+        <Alert variant="destructive" data-testid="alert-brand-block">
+          <AlertTitle>Limite de désabonnements atteinte</AlertTitle>
+          <AlertDescription>{brandBlock}</AlertDescription>
+        </Alert>
+      )}
+      {brandWarning && (
+        <Alert data-testid="alert-brand-warning">
+          <AlertTitle>Attention</AlertTitle>
+          <AlertDescription>{brandWarning}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <Button
           variant="outline"
@@ -1271,11 +1335,20 @@ export default function CampaignNew() {
           {currentStep < 5 ? (
             <Button
               onClick={nextStep}
-              disabled={!isStepValid(currentStep) || processingImages}
+              disabled={!isStepValid(currentStep) || processingImages || brandCheckPending}
               data-testid="button-next-step"
             >
-              Next
-              <ArrowRight className="h-4 w-4 ml-2" />
+              {brandCheckPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  Next
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </>
+              )}
             </Button>
           ) : (
             <Button

@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs, errorLogs } from "@shared/schema";
+import { extractBrand } from "@shared/brand";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
@@ -18,6 +19,26 @@ import * as cheerio from "cheerio";
 import * as fs from "fs";
 import * as path from "path";
 import type { RateLimitRequestHandler } from "express-rate-limit";
+
+// Brand-unsubscribe safeguard (Task #209). Two configurable thresholds gate the
+// campaign wizard's Content -> Tracking step based on how many DISTINCT
+// subscribers have unsubscribed from the subject's brand over a rolling window:
+//   count <= warn            -> "ok"      (silent)
+//   warn < count <= limit    -> "warn"    (non-blocking alert in the wizard)
+//   count > limit            -> "blocked" (wizard refuses to advance)
+// envInt allows an explicit "0" (unlike `parseInt(...) || default`) and rejects
+// values below `min` / non-numeric input by falling back to the default.
+function envInt(name: string, def: number, min: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return def;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= min ? n : def;
+}
+const BRAND_UNSUB_LIMIT = envInt("BRAND_UNSUB_LIMIT", 2000, 0);
+// Warn threshold can never exceed the hard limit (otherwise the warn tier would
+// be unreachable); clamp defensively.
+const BRAND_UNSUB_WARN_THRESHOLD = Math.min(envInt("BRAND_UNSUB_WARN_THRESHOLD", 1500, 0), BRAND_UNSUB_LIMIT);
+const BRAND_UNSUB_WINDOW_DAYS = envInt("BRAND_UNSUB_WINDOW_DAYS", 10, 1);
 
 
 // Bootstrap: add auto_retry_count column to campaigns if upgrading from older schema.
@@ -484,6 +505,33 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error fetching campaign stats:", error);
       res.status(500).json({ error: "Failed to fetch campaign stats" });
+    }
+  });
+
+  // Brand-unsubscribe safeguard (Task #209). Authenticated read used by the
+  // campaign wizard before advancing from Content (step 3) to Tracking (step 4).
+  // MUST be registered BEFORE "/api/campaigns/:id" so the literal path isn't
+  // captured as an :id. Fail-open is the client's job: a 500 here lets the
+  // wizard advance rather than trapping the operator.
+  app.get("/api/campaigns/brand-unsub-check", async (req: Request, res: Response) => {
+    try {
+      const subject = typeof req.query.subject === "string" ? req.query.subject : "";
+      const brand = extractBrand(subject);
+      const base = {
+        warnThreshold: BRAND_UNSUB_WARN_THRESHOLD,
+        limit: BRAND_UNSUB_LIMIT,
+        windowDays: BRAND_UNSUB_WINDOW_DAYS,
+      };
+      if (!brand) {
+        return res.json({ brand: null, count: 0, status: "ok", ...base });
+      }
+      const count = await storage.countBrandUnsubscribes(brand, BRAND_UNSUB_WINDOW_DAYS);
+      const status =
+        count > BRAND_UNSUB_LIMIT ? "blocked" : count > BRAND_UNSUB_WARN_THRESHOLD ? "warn" : "ok";
+      res.json({ brand, count, status, ...base });
+    } catch (error) {
+      logger.error("Error checking brand unsubscribes:", error);
+      res.status(500).json({ error: "Failed to check brand unsubscribes" });
     }
   });
 
