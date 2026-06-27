@@ -546,6 +546,10 @@ export const pendingTagOperations = pgTable("pending_tag_operations", {
   createdAtIdx: index("pending_tag_ops_created_at_idx").on(table.createdAt),
   nextRetryIdx: index("pending_tag_ops_next_retry_idx").on(table.nextRetryAt),
   statusRetryIdx: index("pending_tag_ops_status_retry_idx").on(table.status, table.nextRetryAt),
+  // FK-backing index: without it, deleting a campaign forces a full seq scan of
+  // this 2.8M-row table both for the manual `DELETE ... WHERE campaign_id` and
+  // for the FK integrity check on `DELETE FROM campaigns` (campaign delete hang).
+  campaignIdx: index("pending_tag_ops_campaign_idx").on(table.campaignId),
 }));
 
 export const pendingTagOperationsRelations = relations(pendingTagOperations, ({ one }) => ({
