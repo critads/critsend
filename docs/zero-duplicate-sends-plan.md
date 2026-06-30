@@ -4,8 +4,43 @@
 > même campagne. Aucune tolérance, y compris en cas de crash, redémarrage,
 > retry, auto-requeue ou requeue manuel.
 >
-> **Statut** : plan + audit. **Aucune modification du chemin d'envoi n'a encore
-> été faite.** À valider avant implémentation.
+> **Statut** : **implémenté derrière le flag `ZERO_DUP_SEND_GUARD` (OFF par
+> défaut → déploiement inerte, réversible).**
+
+---
+
+## 0. Écart d'implémentation vs ce plan (À LIRE EN PREMIER)
+
+Le plan d'origine (§3.1/§3.2) proposait **deux nouvelles valeurs de statut**
+(`uncertain`, `failed_retryable`). **Cette approche a été abandonnée** après
+audit des lecteurs (`campaign_sends.status` est lu par ~10 endroits :
+stats, compteurs, UI, SSE, exports) : introduire de nouvelles valeurs aurait
+silencieusement cassé ces lecteurs. Conception **réellement livrée** :
+
+- **Statut inchangé** : `status ∈ {pending, attempting, sent, failed}`.
+- **Une seule colonne discriminante nullable** : `smtp_outcome_class`
+  (`'delivered'` | `'pre_data_retryable'` | `'ambiguous'`).
+- **Équivalences** :
+  - `uncertain` (plan) **≡** `status='failed'` **+** `smtp_outcome_class='ambiguous'` (terminal, jamais renvoyé).
+  - `failed_retryable` (plan) **≡** `status='failed'` **AND** `smtp_outcome_class IS DISTINCT FROM 'ambiguous'` (inclut le `NULL` legacy → rétro-compatible).
+- Les colonnes `wire_attempted_at` / `smtp_error_code` / `finalized_at` du plan
+  n'ont **pas** été ajoutées (non nécessaires : le discriminant seul suffit à la
+  règle « 0 doublon »). Le ledger §7 (`campaign_send_attempts`) reste optionnel.
+
+### Couverture des DEUX chemins d'envoi
+La règle est appliquée sur **tout** chemin qui finalise une ligne `campaign_sends` :
+1. **Sender principal** — `campaign-sender.ts` (boucle + phase de retry).
+2. **Drain pressure-guard** — `pressure-guard-worker.ts` (envoi des `deferred`).
+   Ce 2ᵉ chemin **n'était pas dans le plan initial** : il envoie via
+   `sendEmailWithNullsink`, finalise `attempting→sent/failed` et possède son
+   propre auto-requeue. Sans correctif il renvoyait les résultats ambigus →
+   doublons. Désormais : timeout/exception/`success=false` sans classe
+   pré-DATA ⇒ `failed` + `ambiguous` ; son auto-requeue passe par
+   `autoRequeueCampaignFailed` (déjà filtré sur le discriminant).
+
+> **Invariant** : tout nouveau chemin d'envoi DOIT router les issues ambiguës
+> vers `failed` + `smtp_outcome_class='ambiguous'`, sinon il réintroduit des
+> doublons. Garde unitaire : `tests/send-guard.test.ts`.
 
 ---
 

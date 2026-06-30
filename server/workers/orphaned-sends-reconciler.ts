@@ -28,15 +28,22 @@
  *
  * Risk of (A): if the SMTP RTT genuinely exceeded the grace period
  * (e.g. relay holding the connection open during a slow handshake),
- * we could mark a successful send as failed. Mitigations:
+ * the message may have ALREADY been delivered. Marking the row plain
+ * 'failed' makes it eligible for the campaign-sender retry phase (which
+ * selects status='failed' while the campaign is still 'sending') — a real
+ * duplicate-send risk for a possibly-delivered message. (The earlier
+ * "bookkeeping-only, no duplicate risk" claim was wrong for the retry path.)
+ * Mitigations:
  *   - Default grace is 1 h, far above any reasonable SMTP RTT (the
  *     campaign-sender timeout is typically 30 s, drainer 60 s).
- *   - Marking failed is bookkeeping-only: it does NOT re-enqueue the
- *     subscriber, so there is no risk of duplicate send.
+ *   - Zero-Duplicate Send Guard (when ON): Pass A also stamps
+ *     smtp_outcome_class='ambiguous', which every retry selector excludes,
+ *     so a possibly-delivered orphan is never resent.
  */
 import { pool } from "../db";
 import { logger } from "../logger";
 import { orphanedSendsReconciledTotal } from "../metrics";
+import { zeroDupSendGuardEnabled } from "../config/send-guard";
 
 const RECONCILE_INTERVAL_MS = Number(
   process.env.ORPHANED_SENDS_RECONCILE_INTERVAL_MS || 60 * 60_000,
@@ -57,9 +64,13 @@ export async function reconcileOrphanedSends(): Promise<{
 }> {
   // Pass A: attempting rows orphaned by a sender/drainer crash.
   // Unconditional on campaign status — see file header for rationale.
+  // Under the Zero-Duplicate Send Guard, an orphaned 'attempting' row had a
+  // wire attempt of UNKNOWN outcome (it may have been delivered before the
+  // crash), so it is stamped 'ambiguous' → terminal, never resent.
+  const guardOn = zeroDupSendGuardEnabled();
   const attemptingRes = await pool.query(
     `UPDATE campaign_sends
-        SET status = 'failed'
+        SET status = 'failed'${guardOn ? `, smtp_outcome_class = 'ambiguous'` : ``}
       WHERE status = 'attempting'
         AND sent_at < NOW() - ($1 || ' hours')::interval`,
     [String(ATTEMPTING_GRACE_HOURS)],

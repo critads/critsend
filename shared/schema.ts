@@ -339,6 +339,22 @@ export const campaignSends = pgTable("campaign_sends", {
   // PRESSURE_MAX_DEFER_HOURS (default 72h). NULL on non-deferred rows
   // and on legacy pre-#169 rows (backfill = sent_at).
   firstDeferredAt: timestamp("first_deferred_at"),
+  // Zero-Duplicate Send Guard discriminator. NULL by default and only ever
+  // written when the ZERO_DUP_SEND_GUARD feature flag is ON, so the column
+  // is inert (and the deploy reversible) until the flag is enabled.
+  // Values:
+  //   'delivered'          — SMTP sendMail resolved; the message reached the wire.
+  //   'pre_data_retryable' — failure provably BEFORE message data was accepted
+  //                          (connect/DNS/auth refusals, 4xx/5xx rejections);
+  //                          safe to resend, no duplicate risk.
+  //   'ambiguous'          — outcome unknown (timeouts, mid/post-DATA socket
+  //                          drops, unexpected throws); the message MAY have
+  //                          been delivered, so it must NEVER be resent.
+  // The status column stays {pending,attempting,sent,failed}; "ambiguous" is
+  // expressed as status='failed' + smtp_outcome_class='ambiguous' (terminal,
+  // excluded from every resend selector). Legacy NULL on a failed row is
+  // treated as retryable (preserves pre-guard behaviour).
+  smtpOutcomeClass: text("smtp_outcome_class"),
 }, (table) => ({
   // UNIQUE constraint ensures no email is sent twice per campaign per subscriber
   uniqueSend: uniqueIndex("campaign_sends_unique_idx").on(table.campaignId, table.subscriberId),

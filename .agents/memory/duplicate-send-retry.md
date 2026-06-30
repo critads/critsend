@@ -1,49 +1,57 @@
 ---
-name: Duplicate sends from failed-send retry
-description: Why the same campaign reaches a recipient twice (different message-ids) — the retry phase re-delivers ambiguous/possibly-delivered "failed" sends.
+name: Duplicate sends — ambiguous SMTP outcomes must be terminal
+description: Why a recipient gets the same campaign twice (different message-ids), and the invariant every send/finalize path must uphold to prevent it.
 ---
 
-# Duplicate sends: retry-of-"failed" re-delivers already-delivered email
+# Duplicate sends: never resend an ambiguous SMTP outcome
 
-The campaign sender runs a **retry phase** after the main pass: it pulls every
-`campaign_sends` row in status `'failed'` and re-sends it over SMTP (fresh
-message-id), looping with backoff up to a 12h deadline. `autoRequeueCampaignFailed`
-also resets `failed`→`pending` and re-enqueues a fresh job across restarts
-(observable via `campaigns.auto_retry_count > 0`).
+## Root cause (durable)
+`campaign_sends.status='failed'` does **NOT** mean "not delivered." SMTP is
+**at-least-once**: a timeout / connection drop **after** the message body (`DATA`)
+was sent, a post-send bookkeeping exception, or a crash-orphaned `attempting` row,
+all land as `failed` even though the MTA may have already delivered. Any path that
+re-sends such a row produces a duplicate: **same campaign, same recipient, different
+message-id** — exactly what anti-spam FBL reports as duplicates. (Incident: an
+anti-spam filter reported duplicate-receivers massively over-represented among
+complainers, even though the visible `retry_count>=1` rate was low — the invisible
+retries, inline-retry + DELETE-then-re-reserve, hid the true rate.)
 
-The flaw: **`'failed'` does NOT mean "not delivered."** SMTP is at-least-once. A row
-becomes `'failed'` even when the MTA already accepted+delivered the message:
-- SMTP timeout / connection drop **after** DATA (very common under a loaded PMTA) —
-  the relay queued/delivered it but we never saw the final 250.
-- a post-send exception (the per-recipient `Promise.allSettled` rejecting after a
-  successful `sendMail` pushes the id into `pendingFailedIds`).
-- crash-orphaned `'attempting'` rows that the orphaned-sends reconciler flips to
-  `'failed'`. Its in-code comment claims "marking failed is bookkeeping-only ... no
-  risk of duplicate send" — that claim is **false**, because the retry phase and
-  `autoRequeueCampaignFailed` both re-send `'failed'` rows.
+## Design decision (durable — why it's shaped this way)
+Keep `status ∈ {pending,attempting,sent,failed}` UNCHANGED and add ONE nullable
+discriminator column `smtp_outcome_class ∈ {delivered, pre_data_retryable, ambiguous}`.
+- **ambiguous** ≡ `status='failed'` + `smtp_outcome_class='ambiguous'` → **terminal, never resent**.
+- **retryable** ≡ `status='failed' AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'`
+  (legacy `NULL` counts as retryable → backward compatible).
+- **Why no new status VALUES** (the original plan proposed `uncertain`/`failed_retryable`):
+  ~10 readers of `status` (stats, counters, UI, SSE, exports) would silently break.
+  A discriminator column is invisible to them.
+- Classifier default for post-`DATA`/unknown errors (timeout, reset, ESOCKET,
+  exception) is **ambiguous** (the safe default). `pre_data_retryable` only on PROOF
+  the body was never accepted (ECONNREFUSED, auth fail, 4xx/5xx on MAIL/RCPT, or
+  error before `sendMail`). A successful `sendMail` resolve is authoritative = `sent`
+  even if later bookkeeping throws.
 
-Re-sending these = same campaign, same recipient, **different message-id** → exactly
-what anti-spam FBL reports as duplicates.
+## THE structural invariant (most important lesson)
+`campaign_sends` is finalized or resurrected by **MANY independent paths**, not one.
+Every path that (a) finalizes a send, (b) flips `attempting→failed`, or
+(c) flips/deletes `failed→pending` MUST treat ambiguous as terminal, or it
+re-introduces duplicates. Known paths that must stay in lockstep:
+- **TWO full send paths**: `campaign-sender.ts` (main loop + retry phase) **and**
+  `pressure-guard-worker.ts` drain (deferred sends — easy to forget; it has its own
+  finalize + auto-requeue).
+- `attempting→failed`: `orphaned-sends-reconciler.ts` Pass A **and** the startup
+  stale-attempting cleanup in `workers.ts` (both must stamp `ambiguous` when guard ON).
+- `failed→pending`/retry: `autoRequeueCampaignFailed`, `getFailedSendsForRetry`,
+  `markSendForRetry`/bulk, the `/retry-failed` route, `resetOrphanedFailedSends`
+  (DELETE-then-re-reserve), and the **manual** `scripts/requeue-failed-campaigns.ts`.
+- The completion gate (`completeCampaignIfDrained`) must treat ambiguous as terminal
+  so the campaign can finish without waiting to "retry" ambiguous rows.
 
-**Why:** an anti-spam filter reported ~1.7 spam complaints per recipient (different
-message-ids, same campaign, same sending env). Measured on prod (2026-06-30): the
-per-campaign duplicate rate is small (~0.2–1.7% of recipients have `retry_count>=1`,
-`max retry_count` up to 3), but duplicate-receivers are massively over-represented
-among complainers (people who get the same email 2–3x are far likelier to hit
-"spam"), which reconciles the low rate with the high complaint ratio.
-
-**Ruled out (not the cause):** duplicate subscriber rows (subscribers.email is
-globally UNIQUE); same logical campaign split across multiple campaign_ids
-(measured audience overlap between same-brand/same-server same-day sends = 0);
-A/B variants (share campaign_id, blocked by `campaign_sends_unique_idx`);
-pressure-guard drain vs main sender double-send; resume/guardian re-runs (main pass
-reserves via INSERT … ON CONFLICT DO NOTHING, so already-sent/failed rows are not
-re-reserved). The pressure guard only **spaces** sends ≥2h apart — it never dedupes.
-
-**How to apply:** any change to retry / orphan-reconcile / auto-requeue logic must
-classify the SMTP outcome into delivered / hard-fail / ambiguous, and **only retry
-hard pre-DATA failures** (conn refused, auth, 4xx/5xx on MAIL/RCPT/DATA-command).
-Outcomes that are ambiguous after the message body was sent, and crash-orphaned
-`'attempting'` rows, must move to a terminal status the retry phase IGNORES — never
-back to `'failed'`/`'pending'`. Treat a successful `sendMail` resolve as
-authoritative even if later bookkeeping throws.
+## How to apply
+All of it is gated behind `ZERO_DUP_SEND_GUARD` (OFF by default → **byte-identical**
+to legacy; conditional drizzle fragment pattern `guardOn ? sql\`, ...\` : sql\`\``).
+Guard truth-table test: `tests/send-guard.test.ts`. When adding any new send or
+requeue path, route ambiguous → `failed`+`smtp_outcome_class='ambiguous'` and exclude
+it from selection with `smtp_outcome_class IS DISTINCT FROM 'ambiguous'`.
+**Operational caveat:** do NOT toggle the guard OFF after it has produced terminal
+ambiguous rows unless you accept that legacy retry semantics will resend them.

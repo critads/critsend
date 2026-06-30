@@ -23,6 +23,7 @@ import { logger } from "../logger";
 import { storage } from "../storage";
 import { messageQueue } from "../message-queue";
 import { sendEmailWithNullsink, preregisterCampaignLinks } from "../email-service";
+import { zeroDupSendGuardEnabled } from "../config/send-guard";
 import {
   PRESSURE_WINDOW_HOURS,
   PRESSURE_MAX_DEFER_HOURS,
@@ -1426,6 +1427,14 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   // free between awaits. Default SMTP_CONCURRENCY=20 — see env var comment.
   const successIds: string[] = [];
   const failedIds: string[] = [];
+  // Zero-Duplicate Send Guard: rows whose SMTP outcome was AMBIGUOUS — the
+  // wire send was attempted but its delivery is unknown (success=false with no
+  // pre-DATA classification, or the call timed out / threw). When the flag is
+  // ON these finalise as status='failed' + smtp_outcome_class='ambiguous' so
+  // the guarded autoRequeueCampaignFailed selector never resends them. Always
+  // empty when the flag is OFF, so OFF behaviour is byte-identical.
+  const ambiguousIds: string[] = [];
+  const guardOn = zeroDupSendGuardEnabled();
   const sendQueue = [...eligibleSubs];
   // Watchdog heartbeat at the send-phase boundary: gives the SMTP fan-out a
   // fresh no-progress budget independent of how long the pre-send DB phases
@@ -1445,11 +1454,24 @@ export async function drainCampaign(campaignId: string): Promise<void> {
           SEND_TIMEOUT_MS,
           `drain send ${sub.email}`,
         );
-        if (result.success) successIds.push(sub.id);
-        else failedIds.push(sub.id);
+        if (result.success) {
+          successIds.push(sub.id);
+        } else if (guardOn && result.outcomeClass === "pre_data_retryable") {
+          // Definitively failed BEFORE the DATA phase — safe to resend.
+          failedIds.push(sub.id);
+        } else if (guardOn) {
+          // Ambiguous outcome (includes the undefined class returned by the
+          // nullsink failure simulator) — the wire was touched, never resend.
+          ambiguousIds.push(sub.id);
+        } else {
+          failedIds.push(sub.id);
+        }
       } catch (err: any) {
         logger.warn(`[PRESSURE_GUARD_WORKER] send failed for ${sub.email}: ${err?.message || err}`);
-        failedIds.push(sub.id);
+        // Timeout / thrown exception: the send may have reached the wire, so
+        // treat as ambiguous when the guard is ON; legacy 'failed' when OFF.
+        if (guardOn) ambiguousIds.push(sub.id);
+        else failedIds.push(sub.id);
       } finally {
         // Watchdog heartbeat: every settled send (success, fail, or
         // timeout) is forward progress, so a slow-but-moving tick never
@@ -1474,21 +1496,27 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   await db.transaction(async (tx) => {
     if (successIds.length > 0) {
       await tx.execute(sql`
-        UPDATE campaign_sends SET status = 'sent', eligible_at = NULL, sent_at = NOW()
+        UPDATE campaign_sends SET status = 'sent', eligible_at = NULL, sent_at = NOW()${guardOn ? sql`, smtp_outcome_class = 'delivered'` : sql``}
         WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(successIds)}::text[]) AND status = 'attempting'
       `);
     }
     if (failedIds.length > 0) {
       await tx.execute(sql`
-        UPDATE campaign_sends SET status = 'failed', eligible_at = NULL
+        UPDATE campaign_sends SET status = 'failed', eligible_at = NULL${guardOn ? sql`, smtp_outcome_class = 'pre_data_retryable'` : sql``}
         WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(failedIds)}::text[]) AND status = 'attempting'
+      `);
+    }
+    if (guardOn && ambiguousIds.length > 0) {
+      await tx.execute(sql`
+        UPDATE campaign_sends SET status = 'failed', eligible_at = NULL, smtp_outcome_class = 'ambiguous'
+        WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(ambiguousIds)}::text[]) AND status = 'attempting'
       `);
     }
     await tx.execute(sql`
       UPDATE campaigns SET
         sent_count = sent_count + ${successIds.length},
-        failed_count = failed_count + ${failedIds.length},
-        pending_count = GREATEST(pending_count - ${successIds.length + failedIds.length}, 0),
+        failed_count = failed_count + ${failedIds.length + (guardOn ? ambiguousIds.length : 0)},
+        pending_count = GREATEST(pending_count - ${successIds.length + failedIds.length + (guardOn ? ambiguousIds.length : 0)}, 0),
         aged_forced_count = aged_forced_count + ${agedDelivered}
       WHERE id = ${campaignId}
     `);
@@ -1504,7 +1532,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     try { pressureGuardAgedForceSendsTotal.inc(agedDelivered); } catch {}
   }
 
-  logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, deferred=${losers.length}, dropped=${dropIds.length}, aged_force_delivered=${agedDelivered}`);
+  logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, ambiguous=${ambiguousIds.length}, deferred=${losers.length}, dropped=${dropIds.length}, aged_force_delivered=${agedDelivered}`);
 
   // Task #165: push a near-real-time SSE event so the campaigns-list
   // progress bar updates within ~1s of each drain wave instead of having
@@ -1512,8 +1540,10 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   // the finalize-transaction mutations (which match the in-memory id
   // lists) and emit via the shared helper.
   sentDelta += successIds.length;
-  failedDelta += failedIds.length;
-  pendingDelta -= successIds.length + failedIds.length;
+  // Ambiguous rows are persisted as status='failed', so they move the same SSE
+  // segments as plain failures (empty when the guard is OFF → unchanged).
+  failedDelta += failedIds.length + ambiguousIds.length;
+  pendingDelta -= successIds.length + failedIds.length + ambiguousIds.length;
   emitProgress("sending");
 
   // Post-drain completion check (Task #144): the campaign-sender held the

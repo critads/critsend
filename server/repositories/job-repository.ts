@@ -14,6 +14,7 @@ import { db, pool } from "../db";
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { campaignQueue, flushQueue } from "../queues";
+import { zeroDupSendGuardEnabled } from "../config/send-guard";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -175,11 +176,15 @@ export async function cleanupStaleJobs(maxAgeMinutes: number = 30): Promise<numb
 }
 
 export async function getFailedSendsForRetry(campaignId: string, limit: number): Promise<Array<{subscriberId: string, email: string, retryCount: number}>> {
+  // Zero-Duplicate Send Guard: ambiguous rows (possibly delivered) are terminal
+  // and must NEVER be re-selected for retry. IS DISTINCT FROM keeps legacy NULL
+  // and 'pre_data_retryable' rows retryable. No-op when the flag is OFF.
+  const klassPredicate = zeroDupSendGuardEnabled() ? sql` AND cs.smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``;
   const result = await db.execute(sql`
     SELECT cs.subscriber_id, s.email, cs.retry_count
     FROM campaign_sends cs
     JOIN subscribers s ON cs.subscriber_id = s.id
-    WHERE cs.campaign_id = ${campaignId} AND cs.status = 'failed'
+    WHERE cs.campaign_id = ${campaignId} AND cs.status = 'failed'${klassPredicate}
     ORDER BY cs.retry_count ASC, cs.sent_at ASC
     LIMIT ${limit}
   `);
@@ -191,13 +196,20 @@ export async function getFailedSendsForRetry(campaignId: string, limit: number):
 }
 
 export async function markSendForRetry(campaignId: string, subscriberId: string): Promise<void> {
-  await db.execute(sql`
+  const guardOn = zeroDupSendGuardEnabled();
+  const result = await db.execute(sql`
     UPDATE campaign_sends SET status = 'pending', retry_count = retry_count + 1, last_retry_at = NOW()
-    WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'failed'
+    WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'failed'${guardOn ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``}
+    RETURNING id
   `);
-  await db.execute(sql`
-    UPDATE campaigns SET failed_count = failed_count - 1, pending_count = pending_count + 1 WHERE id = ${campaignId}
-  `);
+  // Flag OFF: decrement unconditionally (byte-identical to legacy). Flag ON:
+  // only decrement when a retryable row actually matched, so excluding an
+  // ambiguous row can't drift failed_count.
+  if (!guardOn || result.rows.length > 0) {
+    await db.execute(sql`
+      UPDATE campaigns SET failed_count = failed_count - 1, pending_count = pending_count + 1 WHERE id = ${campaignId}
+    `);
+  }
 }
 
 export async function bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number> {
@@ -208,7 +220,7 @@ export async function bulkMarkSendsForRetry(campaignId: string, subscriberIds: s
     SET status = 'pending', retry_count = retry_count + 1, last_retry_at = NOW()
     WHERE campaign_id = ${campaignId}
       AND subscriber_id = ANY(${arrayStr}::text[])
-      AND status = 'failed'
+      AND status = 'failed'${zeroDupSendGuardEnabled() ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``}
     RETURNING id
   `);
   const matchCount = result.rows.length;

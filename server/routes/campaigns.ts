@@ -2,6 +2,7 @@ import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
+import { zeroDupSendGuardEnabled } from "../config/send-guard";
 import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs, errorLogs } from "@shared/schema";
 import { extractBrand } from "@shared/brand";
 import { eq, and } from "drizzle-orm";
@@ -1533,7 +1534,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
               retry_count = retry_count + 1,
               last_retry_at = NOW(),
               sent_at = NOW()
-          WHERE campaign_id = ${req.params.id} AND status = 'failed'
+          WHERE campaign_id = ${req.params.id} AND status = 'failed'${zeroDupSendGuardEnabled() ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``}
           RETURNING id
         `);
         const resetCount = resetResult.rows.length;
@@ -1549,7 +1550,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
           // bypass on a fresh retry would silently push the new wave
           // ahead of every other campaign's pressure window. They can
           // re-click /urgent if they actually want that.
-          .set({ status: "sending", failedCount: 0, pauseReason: null, retryUntil: null, autoRetryCount: 0, urgentMode: false, urgentFlushJobId: null })
+          // Zero-Duplicate Send Guard: ambiguous rows stay 'failed' (excluded from
+          // the reset above), so failed_count must reflect them, not reset to 0.
+          .set({ status: "sending", failedCount: zeroDupSendGuardEnabled() ? sql`(SELECT COUNT(*) FROM campaign_sends WHERE campaign_id = ${req.params.id} AND status = 'failed' AND smtp_outcome_class = 'ambiguous')` : 0, pauseReason: null, retryUntil: null, autoRetryCount: 0, urgentMode: false, urgentFlushJobId: null })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
         if (!updated) return { campaign: null, resetCount };

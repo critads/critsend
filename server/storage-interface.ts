@@ -29,6 +29,7 @@ import type {
 } from "@shared/schema";
 import type { SegmentRulesV2 } from "@shared/schema";
 import type { LockResult } from "./bootstrap-lock";
+import type { SmtpOutcomeClass } from "./config/send-guard";
 
 export interface IStorage {
   // ═══════════════════════════════════════════════════════════════
@@ -128,15 +129,15 @@ export interface IStorage {
   updateCampaignStatusAtomic(campaignId: string, newStatus: string, expectedStatus?: string): Promise<boolean>;
   completeCampaignIfDrained(campaignId: string, maxAutoRetries: number): Promise<boolean>;
   reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean>;
-  finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void>;
+  finalizeSend(campaignId: string, subscriberId: string, success: boolean, outcomeClass?: SmtpOutcomeClass): Promise<void>;
   recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>;
   recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes?: number): Promise<number>;
   resetOrphanedFailedSends(campaignId: string): Promise<number>;
   autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean>;
-  forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean>;
+  forceFailPendingSend(campaignId: string, subscriberId: string, outcomeClass?: SmtpOutcomeClass): Promise<boolean>;
   bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]>;
   pressureGuardReserveSendSlots(campaignId: string, subscriberIds: string[], windowHours?: number): Promise<string[]>;
-  bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void>;
+  bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[], ambiguousIds?: string[]): Promise<void>;
   heartbeatJob(jobId: string): Promise<void>;
   recordFirstOpen(campaignId: string, subscriberId: string): Promise<boolean>;
   recordFirstClick(campaignId: string, subscriberId: string): Promise<boolean>;

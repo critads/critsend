@@ -18,6 +18,7 @@ import {
 } from "../metrics";
 import type { InsertNullsinkCapture, Subscriber } from "@shared/schema";
 import { jobEvents } from "../job-events";
+import { zeroDupSendGuardEnabled, classifySmtpFailure } from "../config/send-guard";
 import { messageQueue } from "../message-queue";
 import { classifyDbError, SenderRetriesExhaustedError } from "../db-errors";
 import { db } from "../db";
@@ -139,10 +140,15 @@ async function tieredFinalizeFallback(
   failedBatch: string[],
   logPrefix: string,
   initialError: Error,
+  // Zero-Duplicate Send Guard: ambiguous rows (possibly delivered) must be
+  // finalized as terminal-never-resend even on this rare DB-error fallback
+  // path, or they'd be written as plain retryable 'failed' and risk a resend.
+  ambiguousBatch: string[] = [],
 ): Promise<void> {
-  let remaining = [
-    ...successBatch.map(id => ({ id, success: true })),
-    ...failedBatch.map(id => ({ id, success: false })),
+  let remaining: { id: string; kind: "success" | "failed" | "ambiguous" }[] = [
+    ...successBatch.map(id => ({ id, kind: "success" as const })),
+    ...failedBatch.map(id => ({ id, kind: "failed" as const })),
+    ...ambiguousBatch.map(id => ({ id, kind: "ambiguous" as const })),
   ];
   const originalTotal = remaining.length;
 
@@ -159,10 +165,11 @@ async function tieredFinalizeFallback(
 
     for (let i = 0; i < remaining.length; i += batchSize) {
       const chunk = remaining.slice(i, i + batchSize);
-      const chunkSuccess = chunk.filter(c => c.success).map(c => c.id);
-      const chunkFailed = chunk.filter(c => !c.success).map(c => c.id);
+      const chunkSuccess = chunk.filter(c => c.kind === "success").map(c => c.id);
+      const chunkFailed = chunk.filter(c => c.kind === "failed").map(c => c.id);
+      const chunkAmbiguous = chunk.filter(c => c.kind === "ambiguous").map(c => c.id);
       try {
-        await storage.bulkFinalizeSends(campaignId, chunkSuccess, chunkFailed);
+        await storage.bulkFinalizeSends(campaignId, chunkSuccess, chunkFailed, chunkAmbiguous);
       } catch (err: any) {
         tierFailed = true;
         stillPending.push(...chunk);
@@ -196,12 +203,13 @@ async function tieredFinalizeFallback(
       while (active < FALLBACK_CONCURRENCY && idx < items.length) {
         const item = items[idx++];
         active++;
-        storage.finalizeSend(campaignId, item.id, item.success)
+        const isAmbiguous = item.kind === "ambiguous";
+        storage.finalizeSend(campaignId, item.id, item.kind === "success", isAmbiguous ? "ambiguous" : undefined)
           .then(() => {
             finalizeFallbackRowsTotal.inc({ outcome: "ok" });
           })
           .catch(() =>
-            storage.forceFailPendingSend(campaignId, item.id)
+            storage.forceFailPendingSend(campaignId, item.id, isAmbiguous ? "ambiguous" : undefined)
               .then(() => { finalizeFallbackRowsTotal.inc({ outcome: "force_failed" }); })
               .catch((err: Error) => {
                 finalizeFallbackRowsTotal.inc({ outcome: "lost" });
@@ -459,6 +467,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
   const pendingSuccessIds: string[] = [];
   const pendingFailedIds: string[] = [];
+  // Zero-Duplicate Send Guard: rows whose SMTP outcome was AMBIGUOUS (possibly
+  // delivered). Buffered separately so the flush finalizes them as
+  // terminal-never-resend (status='failed' + class='ambiguous'). Always empty
+  // while the flag is OFF, so OFF behaviour is unchanged.
+  const pendingAmbiguousIds: string[] = [];
+  const guardOn = zeroDupSendGuardEnabled();
   const pendingCaptures: InsertNullsinkCapture[] = [];
   let lastFlushTime = Date.now();
   let flushPromise: Promise<void> | null = null;
@@ -467,16 +481,17 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     if (flushPromise) {
       await flushPromise;
     }
-    if (pendingSuccessIds.length === 0 && pendingFailedIds.length === 0) return;
+    if (pendingSuccessIds.length === 0 && pendingFailedIds.length === 0 && pendingAmbiguousIds.length === 0) return;
 
     const successBatch = pendingSuccessIds.splice(0);
     const failedBatch = pendingFailedIds.splice(0);
+    const ambiguousBatch = pendingAmbiguousIds.splice(0);
     const captureBatch = pendingCaptures.splice(0);
 
     const doFlush = async () => {
       try {
         const flushOps: Promise<void>[] = [
-          retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch), `${logPrefix} flushBuffer`),
+          retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch, ambiguousBatch), `${logPrefix} flushBuffer`),
         ];
         if (captureBatch.length > 0) {
           flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch((e: any) => {
@@ -486,7 +501,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         await Promise.all(flushOps);
       } catch (err: any) {
         logger.error(`${logPrefix} Bulk finalize failed, entering tiered fallback: ${err.message}`);
-        await tieredFinalizeFallback(campaignId, successBatch, failedBatch, logPrefix, err);
+        await tieredFinalizeFallback(campaignId, successBatch, failedBatch, logPrefix, err, ambiguousBatch);
       }
       lastFlushTime = Date.now();
     };
@@ -498,16 +513,17 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
   async function flushBufferAsync(): Promise<void> {
     if (flushPromise) return;
-    if (pendingSuccessIds.length === 0 && pendingFailedIds.length === 0) return;
+    if (pendingSuccessIds.length === 0 && pendingFailedIds.length === 0 && pendingAmbiguousIds.length === 0) return;
 
     const successBatch = pendingSuccessIds.splice(0);
     const failedBatch = pendingFailedIds.splice(0);
+    const ambiguousBatch = pendingAmbiguousIds.splice(0);
     const captureBatch = pendingCaptures.splice(0);
 
     flushPromise = (async () => {
       try {
         const flushOps: Promise<void>[] = [
-          retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch), `${logPrefix} flushBufferAsync`),
+          retryDbOp(() => storage.bulkFinalizeSends(campaignId, successBatch, failedBatch, ambiguousBatch), `${logPrefix} flushBufferAsync`),
         ];
         if (captureBatch.length > 0) {
           flushOps.push(storage.bulkCreateNullsinkCaptures(captureBatch).catch((e: any) => {
@@ -517,7 +533,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         await Promise.all(flushOps);
       } catch (err: any) {
         logger.error(`${logPrefix} Async flush failed, entering tiered fallback: ${err.message}`);
-        await tieredFinalizeFallback(campaignId, successBatch, failedBatch, logPrefix, err);
+        await tieredFinalizeFallback(campaignId, successBatch, failedBatch, logPrefix, err, ambiguousBatch);
       }
       lastFlushTime = Date.now();
       flushPromise = null;
@@ -525,7 +541,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   }
 
   function shouldFlush(): boolean {
-    const bufferSize = pendingSuccessIds.length + pendingFailedIds.length;
+    const bufferSize = pendingSuccessIds.length + pendingFailedIds.length + pendingAmbiguousIds.length;
     return bufferSize >= FLUSH_THRESHOLD || (bufferSize > 0 && Date.now() - lastFlushTime >= FLUSH_INTERVAL_MS);
   }
 
@@ -805,9 +821,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
               return (async () => {
                 try {
                   const result = await sendEmailWithNullsink(mta, subscriber, campaign, trackingOpts, customHeadersMap);
-                  return { success: result.success, subscriberId: subscriber.id, email: subscriber.email, error: result.error };
+                  return { success: result.success, subscriberId: subscriber.id, email: subscriber.email, error: result.error, outcomeClass: result.outcomeClass };
                 } catch (error: any) {
-                  return { success: false, subscriberId: subscriber.id, email: subscriber.email, error: error.message };
+                  return { success: false, subscriberId: subscriber.id, email: subscriber.email, error: error.message, outcomeClass: guardOn ? classifySmtpFailure(error) : undefined };
                 }
               })();
             })
@@ -823,7 +839,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
                 consecutiveSmtpFailures = 0;
               } else {
                 totalFailed++;
-                pendingFailedIds.push(result.value.subscriberId);
+                if (guardOn && result.value.outcomeClass === "ambiguous") {
+                  pendingAmbiguousIds.push(result.value.subscriberId);
+                } else {
+                  pendingFailedIds.push(result.value.subscriberId);
+                }
                 consecutiveSmtpFailures++;
                 storage.logError({ type: "send_failed", severity: "error", message: `Failed: ${result.value.error}`, email: result.value.email, campaignId, subscriberId: result.value.subscriberId }).catch((err: any) => {
                   logger.warn(`${logPrefix} logError DB write failed: ${err.message}`);
@@ -831,7 +851,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
               }
             } else {
               totalFailed++;
-              pendingFailedIds.push(chunk[j].id);
+              // Promise rejection here means the per-send wrapper threw OUTSIDE its
+              // own try/catch — a truly unknown outcome. Under the guard, treat as
+              // ambiguous (never resend) rather than retryable.
+              if (guardOn) {
+                pendingAmbiguousIds.push(chunk[j].id);
+              } else {
+                pendingFailedIds.push(chunk[j].id);
+              }
               consecutiveSmtpFailures++;
             }
           }
@@ -1030,12 +1057,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
           const results = await Promise.allSettled(
             chunk.map(async (s) => {
               const sub = await storage.getSubscriber(s.subscriberId);
-              if (!sub) return { success: false, subscriberId: s.subscriberId, email: s.email, error: 'Subscriber not found' };
+              if (!sub) return { success: false, subscriberId: s.subscriberId, email: s.email, error: 'Subscriber not found', outcomeClass: undefined };
               try {
                 const result = await sendEmailWithNullsink(mta, sub, campaign, trackingOpts, customHeadersMap);
-                return { success: result.success, subscriberId: sub.id, email: sub.email, error: result.error };
+                return { success: result.success, subscriberId: sub.id, email: sub.email, error: result.error, outcomeClass: result.outcomeClass };
               } catch (error: any) {
-                return { success: false, subscriberId: sub.id, email: sub.email, error: error.message };
+                return { success: false, subscriberId: sub.id, email: sub.email, error: error.message, outcomeClass: guardOn ? classifySmtpFailure(error) : undefined };
               }
             })
           );
@@ -1046,6 +1073,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
                 totalSent++;
                 totalFailed--;
                 pendingSuccessIds.push(result.value.subscriberId);
+              } else if (guardOn && result.value.outcomeClass === "ambiguous") {
+                // Terminal: stays counted as failed in the DB (class='ambiguous')
+                // but is excluded from future retry selection, so it is never
+                // resent. No totalFailed change (DB still counts it as failed).
+                pendingAmbiguousIds.push(result.value.subscriberId);
               } else {
                 pendingFailedIds.push(result.value.subscriberId);
               }

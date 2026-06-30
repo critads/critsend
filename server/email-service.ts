@@ -10,6 +10,11 @@ import {
 import { getNullsinkServer } from "./nullsink-smtp";
 import { logger } from "./logger";
 import { getDefaultHeaders } from "./repositories/mta-repository";
+import {
+  zeroDupSendGuardEnabled,
+  classifySmtpFailure,
+  type SmtpOutcomeClass,
+} from "./config/send-guard";
 
 // ── Default email headers cache ────────────────────────────────────────
 // Operator-configured "Default" headers (e.g. List-Unsubscribe-Post,
@@ -707,6 +712,10 @@ export interface SendEmailResult {
   messageId?: string;
   error?: string;
   retryable?: boolean;
+  // Set only when the Zero-Duplicate Send Guard flag is ON. Drives whether the
+  // finalize path marks a failure as resendable ('pre_data_retryable') or
+  // terminal-never-resend ('ambiguous'); 'delivered' on success.
+  outcomeClass?: SmtpOutcomeClass;
 }
 
 export async function sendEmail(
@@ -767,6 +776,7 @@ export async function sendEmail(
   sanitizeOutboundHeaders(mailOptions.headers);
 
   let lastError: Error | null = null;
+  const guardOn = zeroDupSendGuardEnabled();
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -775,10 +785,34 @@ export async function sendEmail(
       return {
         success: true,
         messageId: info.messageId,
+        ...(guardOn ? { outcomeClass: "delivered" as const } : {}),
       };
     } catch (error: any) {
       lastError = error;
-      
+
+      if (guardOn) {
+        // Zero-Duplicate Send Guard: classify the failure. ONLY a
+        // 'pre_data_retryable' outcome (provably never accepted by the MTA) may
+        // be retried. Retrying an 'ambiguous' outcome — e.g. a socket timeout
+        // that may have delivered — is exactly the duplicate this guard exists
+        // to prevent, so we return immediately and let the row be finalized as
+        // terminal-never-resend upstream.
+        const outcomeClass = classifySmtpFailure(error);
+        const canRetry = outcomeClass === "pre_data_retryable" && isTransientError(error);
+        if (canRetry && attempt < MAX_RETRIES) {
+          logger.warn('Retrying email send (pre-data failure)', { email: subscriber.email, attempt, maxRetries: MAX_RETRIES, errorMessage: error.message });
+          await sleep(RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        logger.error('Email send failed', { email: subscriber.email, attempt, maxRetries: MAX_RETRIES, errorMessage: error.message, outcomeClass });
+        return {
+          success: false,
+          error: error.message || "Unknown error",
+          retryable: outcomeClass === "pre_data_retryable",
+          outcomeClass,
+        };
+      }
+
       const isRetryable = isTransientError(error);
       
       if (!isRetryable || attempt === MAX_RETRIES) {
@@ -799,6 +833,7 @@ export async function sendEmail(
     success: false,
     error: lastError?.message || "Max retries exceeded",
     retryable: false,
+    ...(guardOn ? { outcomeClass: classifySmtpFailure(lastError) } : {}),
   };
 }
 

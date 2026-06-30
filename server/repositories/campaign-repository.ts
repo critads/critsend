@@ -26,6 +26,7 @@ import { classifyDbError, isDiskFullError } from "../db-errors";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
 import { toPgTextArray } from "../utils/pg-array";
 import { publishCampaignsListInvalidation } from "./campaigns-list-cache";
+import { zeroDupSendGuardEnabled, type SmtpOutcomeClass } from "../config/send-guard";
 import {
   isTrackingTokensPartitioned,
   relationExists,
@@ -764,6 +765,10 @@ export async function updateCampaignStatusAtomic(campaignId: string, newStatus: 
 // WHERE clause makes the decision atomic: if anything is still in flight or
 // retryable-with-budget, the UPDATE matches 0 rows and we hold 'sending'.
 export async function completeCampaignIfDrained(campaignId: string, maxAutoRetries: number): Promise<boolean> {
+  // Zero-Duplicate Send Guard: ambiguous rows are terminal 'failed' rows that are
+  // never retried, so they must NOT block completion — otherwise the campaign
+  // stays stranded in 'sending' forever. No-op when the flag is OFF.
+  const klassPredicate = zeroDupSendGuardEnabled() ? sql` AND cs.smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``;
   const result = await db.execute(sql`
     WITH c AS (
       SELECT auto_retry_count FROM campaigns WHERE id = ${campaignId} AND status = 'sending'
@@ -778,7 +783,7 @@ export async function completeCampaignIfDrained(campaignId: string, maxAutoRetri
       )
       AND NOT EXISTS (
         SELECT 1 FROM campaign_sends cs, c
-        WHERE cs.campaign_id = ${campaignId} AND cs.status = 'failed'
+        WHERE cs.campaign_id = ${campaignId} AND cs.status = 'failed'${klassPredicate}
           AND c.auto_retry_count < ${maxAutoRetries}
       )
     RETURNING id
@@ -798,10 +803,15 @@ export async function reserveSendSlot(campaignId: string, subscriberId: string):
   return result.rows.length > 0;
 }
 
-export async function finalizeSend(campaignId: string, subscriberId: string, success: boolean): Promise<void> {
+export async function finalizeSend(campaignId: string, subscriberId: string, success: boolean, outcomeClass?: SmtpOutcomeClass): Promise<void> {
+  // Zero-Duplicate Send Guard: write the discriminator ONLY when the flag is ON
+  // AND the caller explicitly classified the outcome. Legacy callers (no
+  // outcomeClass) stay byte-identical — a failed row with NULL class is treated
+  // as retryable, exactly as before the guard existed.
+  const writeClass = zeroDupSendGuardEnabled() && outcomeClass != null;
   const result = await db.execute(sql`
     WITH updated_send AS (
-      UPDATE campaign_sends SET status = ${success ? 'sent' : 'failed'}
+      UPDATE campaign_sends SET status = ${success ? 'sent' : 'failed'}${writeClass ? sql`, smtp_outcome_class = ${outcomeClass}` : sql``}
       WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'pending'
       RETURNING id
     ),
@@ -867,6 +877,14 @@ export async function recoverOrphanedPendingSends(campaignId: string, maxAgeMinu
  * Returns true when the new job was enqueued, false when there were no failed rows.
  */
 export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean> {
+  // Zero-Duplicate Send Guard: never resurrect ambiguous (possibly delivered)
+  // rows back to 'pending', and keep failed_count reflecting the ambiguous rows
+  // that legitimately remain 'failed'. Both no-ops when the flag is OFF.
+  const guardOn = zeroDupSendGuardEnabled();
+  const klassPredicate = guardOn ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``;
+  const failedCountExpr = guardOn
+    ? sql`(SELECT COUNT(*) FROM campaign_sends WHERE campaign_id = ${campaignId} AND status = 'failed' AND smtp_outcome_class = 'ambiguous')`
+    : sql`0`;
   const result = await db.execute(sql`
     WITH eligible AS (
       -- Guard (2026-06-04): only auto-requeue while the campaign is STILL
@@ -886,7 +904,7 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
           retry_count = retry_count + 1,
           last_retry_at = NOW(),
           sent_at = NOW()
-      WHERE campaign_id = ${campaignId} AND status = 'failed'
+      WHERE campaign_id = ${campaignId} AND status = 'failed'${klassPredicate}
         AND EXISTS (SELECT 1 FROM eligible)
       RETURNING id
     ),
@@ -897,7 +915,7 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
       -- automated retry. Operator can re-click /urgent if needed.
       UPDATE campaigns
       SET status = 'sending',
-          failed_count = 0,
+          failed_count = ${failedCountExpr},
           retry_until = NULL,
           auto_retry_count = ${newAutoRetryCount},
           urgent_mode = false,
@@ -924,10 +942,14 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
 }
 
 export async function resetOrphanedFailedSends(campaignId: string): Promise<number> {
+  // Zero-Duplicate Send Guard: never DELETE an ambiguous (possibly delivered)
+  // row — removing it would make the subscriber eligible for a fresh send and
+  // risk a duplicate. No-op when the flag is OFF.
+  const klassPredicate = zeroDupSendGuardEnabled() ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``;
   const result = await db.execute(sql`
     WITH orphaned AS (
       DELETE FROM campaign_sends
-      WHERE campaign_id = ${campaignId} AND status = 'failed'
+      WHERE campaign_id = ${campaignId} AND status = 'failed'${klassPredicate}
         AND retry_count = 0 AND first_open_at IS NULL AND first_click_at IS NULL
       RETURNING id
     ),
@@ -944,10 +966,14 @@ export async function resetOrphanedFailedSends(campaignId: string): Promise<numb
   return resetCount;
 }
 
-export async function forceFailPendingSend(campaignId: string, subscriberId: string): Promise<boolean> {
+export async function forceFailPendingSend(campaignId: string, subscriberId: string, outcomeClass?: SmtpOutcomeClass): Promise<boolean> {
+  // Zero-Duplicate Send Guard: see finalizeSend — class is written only when the
+  // flag is ON and the caller passed an explicit outcomeClass (the ambiguous
+  // fallback path); otherwise byte-identical to legacy force-fail.
+  const writeClass = zeroDupSendGuardEnabled() && outcomeClass != null;
   const result = await db.execute(sql`
     WITH updated AS (
-      UPDATE campaign_sends SET status = 'failed'
+      UPDATE campaign_sends SET status = 'failed'${writeClass ? sql`, smtp_outcome_class = ${outcomeClass}` : sql``}
       WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'pending'
       RETURNING id
     ),
@@ -999,9 +1025,20 @@ export async function bulkInsertCampaignSendAttempts(campaignId: string, subscri
   }
 }
 
-export async function bulkFinalizeSends(campaignId: string, successIds: string[], failedIds: string[]): Promise<void> {
+export async function bulkFinalizeSends(
+  campaignId: string,
+  successIds: string[],
+  failedIds: string[],
+  // Zero-Duplicate Send Guard: rows whose SMTP outcome was AMBIGUOUS (possibly
+  // delivered). They are persisted as status='failed' + smtp_outcome_class=
+  // 'ambiguous' so every resend selector excludes them. Always empty when the
+  // flag is OFF (callers never populate it), so OFF behaviour is unchanged.
+  ambiguousIds: string[] = [],
+): Promise<void> {
+  const guardOn = zeroDupSendGuardEnabled();
   const sentCount = successIds.length;
-  const failCount = failedIds.length;
+  // Ambiguous rows are status='failed' too, so they count toward failed_count.
+  const failCount = failedIds.length + (guardOn ? ambiguousIds.length : 0);
   const totalProcessed = sentCount + failCount;
   if (totalProcessed === 0) return;
 
@@ -1012,7 +1049,7 @@ export async function bulkFinalizeSends(campaignId: string, successIds: string[]
         const chunk = successIds.slice(i, i + CHUNK_SIZE);
         const arr = `{${chunk.map(id => `"${id}"`).join(',')}}`;
         await tx.execute(sql`
-          UPDATE campaign_sends SET status = 'sent'
+          UPDATE campaign_sends SET status = 'sent'${guardOn ? sql`, smtp_outcome_class = 'delivered'` : sql``}
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arr}::text[]) AND status IN ('pending', 'attempting')
         `);
       }
@@ -1022,7 +1059,17 @@ export async function bulkFinalizeSends(campaignId: string, successIds: string[]
         const chunk = failedIds.slice(i, i + CHUNK_SIZE);
         const arr = `{${chunk.map(id => `"${id}"`).join(',')}}`;
         await tx.execute(sql`
-          UPDATE campaign_sends SET status = 'failed'
+          UPDATE campaign_sends SET status = 'failed'${guardOn ? sql`, smtp_outcome_class = 'pre_data_retryable'` : sql``}
+          WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arr}::text[]) AND status IN ('pending', 'attempting')
+        `);
+      }
+    }
+    if (guardOn && ambiguousIds.length > 0) {
+      for (let i = 0; i < ambiguousIds.length; i += CHUNK_SIZE) {
+        const chunk = ambiguousIds.slice(i, i + CHUNK_SIZE);
+        const arr = `{${chunk.map(id => `"${id}"`).join(',')}}`;
+        await tx.execute(sql`
+          UPDATE campaign_sends SET status = 'failed', smtp_outcome_class = 'ambiguous'
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arr}::text[]) AND status IN ('pending', 'attempting')
         `);
       }

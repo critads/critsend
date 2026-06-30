@@ -18,6 +18,7 @@ import { classifyDbError } from "./db-errors";
 import { processAutomationEnrollments, checkAndEnrollForTrigger, runAutomationBootstrapMigrations } from "./services/automation-engine";
 import { startPressureGuardWorker, stopPressureGuardWorker } from "./workers/pressure-guard-worker";
 import { runPressureGuardBootstrap } from "./services/pressure-guard";
+import { zeroDupSendGuardEnabled } from "./config/send-guard";
 import {
   isTrackingTokensPartitioned,
   ensureTrackingTokenPartitions,
@@ -1464,15 +1465,22 @@ async function startJobProcessor() {
     logger.info(`[JOB_POLL] Startup: cleaned up ${startupStaleCount} orphaned processing jobs`);
   }
 
+  // Zero-Duplicate Send Guard: stale 'attempting' rows are crash victims whose
+  // SMTP wire outcome is UNKNOWN. When the guard is ON they MUST be stamped
+  // smtp_outcome_class='ambiguous' (identical 1h threshold + semantics as
+  // orphaned-sends-reconciler Pass A) so every retry selector excludes them and
+  // never resends a possibly-delivered message. When OFF the discriminator is
+  // omitted → byte-identical to the legacy cleanup.
+  const staleAttemptingGuardOn = zeroDupSendGuardEnabled();
   db.execute(sql`
     UPDATE campaign_sends
-    SET status = 'failed'
+    SET status = 'failed'${staleAttemptingGuardOn ? sql`, smtp_outcome_class = 'ambiguous'` : sql``}
     WHERE status = 'attempting'
       AND sent_at < NOW() - INTERVAL '1 hour'
   `).then((r: any) => {
     const count = Number(r.rowCount ?? 0);
     if (count > 0) {
-      logger.warn(`[JOB_POLL] Startup: marked ${count} stale 'attempting' campaign_sends as 'failed' (process crash during send)`);
+      logger.warn(`[JOB_POLL] Startup: marked ${count} stale 'attempting' campaign_sends as 'failed'${staleAttemptingGuardOn ? " + smtp_outcome_class='ambiguous'" : ""} (process crash during send)`);
     }
   }).catch((err: any) => {
     logger.error(`[JOB_POLL] Startup: failed to clean up stale attempting sends: ${err.message}`);

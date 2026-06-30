@@ -51,7 +51,7 @@ async function main() {
       SELECT
         (SELECT name FROM campaigns WHERE id = ${id}) AS name,
         (SELECT status FROM campaigns WHERE id = ${id}) AS status,
-        (SELECT COUNT(*)::int FROM campaign_sends WHERE campaign_id = ${id} AND status = 'failed') AS failed
+        (SELECT COUNT(*)::int FROM campaign_sends WHERE campaign_id = ${id} AND status = 'failed' AND smtp_outcome_class IS DISTINCT FROM 'ambiguous') AS failed
     `);
     const row = countRes.rows[0] as { name?: string; status?: string; failed?: number } | undefined;
     if (!row || row.name == null) {
@@ -73,6 +73,11 @@ async function main() {
     // `cs.status = 'failed'` recheck inside the UPDATE (not only in the CTE
     // snapshot) guards against double-touch (a second retry_count++) if another
     // requeue/route races us on the same rows.
+    // Zero-Duplicate Send Guard: NEVER resurrect a row whose SMTP outcome was
+    // ambiguous (status='failed' + smtp_outcome_class='ambiguous') — it may
+    // already be delivered. The predicate is applied unconditionally (not gated
+    // on the flag): if the guard was never on, no row carries that class so it
+    // is a no-op; if it was on then turned off, those rows must STILL be spared.
     const BATCH = 5000;
     let reset = 0;
     for (;;) {
@@ -80,6 +85,7 @@ async function main() {
         WITH batch AS (
           SELECT id FROM campaign_sends
           WHERE campaign_id = ${id} AND status = 'failed'
+            AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'
           LIMIT ${BATCH}
           FOR UPDATE SKIP LOCKED
         )
@@ -90,6 +96,7 @@ async function main() {
             sent_at = NOW()
         FROM batch
         WHERE cs.id = batch.id AND cs.status = 'failed'
+          AND cs.smtp_outcome_class IS DISTINCT FROM 'ambiguous'
         RETURNING cs.id
       `);
       const n = r.rows.length;
