@@ -48,3 +48,9 @@ id = "SitEpeVa9GVuRnE3xLnLS"
 uri = "file://exports/clicking-ips-90147797-jun18-19-paris.csv"
 type = "table"
 title = "IPs uniques cliqueuses — campagne 90147797 (18-19 juin, Paris)"
+
+[[outputs]]
+id = "5CLxHf6Fry8--hfmckxhF"
+uri = "file://docs/zero-duplicate-sends-plan.md"
+type = "text"
+title = "Plan 0 doublon — exactly-once par (campagne, destinataire)"
