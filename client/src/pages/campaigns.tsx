@@ -115,16 +115,24 @@ function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; 
   return badge;
 }
 
-// apiRequest throws `${status}: ${body}` on non-2xx (see queryClient.ts).
-// When the server blocks a delete because of a pending follow-up (Task #56)
-// it returns 409 with `{ error: "follow_up_pending", message, ... }`. Pull
-// that message out so we can show it instead of a generic toast.
-function parseFollowUpPendingError(err: Error): string | null {
-  const m = err?.message?.match(/^409:\s*(\{.*\})$/);
+// Generic parser for the structured delete-error responses. apiRequest throws
+// `${status}: ${body}` on non-2xx. Pulls out the server-provided `message` for
+// follow-up blocks (409), busy-DB timeouts (503, Task #211), and partial bulk
+// failures (500) so the toast tells the user exactly what to do next.
+function parseDeleteError(err: Error): { title: string; message: string } | null {
+  const m = err?.message?.match(/^(\d{3}):\s*(\{.*\})$/);
   if (!m) return null;
   try {
-    const body = JSON.parse(m[1]);
-    if (body?.error === "follow_up_pending") return body.message ?? "A follow-up is pending for this campaign.";
+    const body = JSON.parse(m[2]);
+    if (body?.error === "follow_up_pending") {
+      return { title: "Follow-up pending", message: body.message ?? "A follow-up is pending for this campaign." };
+    }
+    if (body?.error === "delete_timeout") {
+      return { title: "Database busy", message: body.message ?? "The database is busy right now. Please try again in a moment." };
+    }
+    if (body?.error === "bulk_delete_partial_failure") {
+      return { title: "Some deletes failed", message: body.message ?? "Some campaigns could not be deleted. Please try again." };
+    }
   } catch {
     // body wasn't JSON — fall back to generic toast
   }
@@ -310,13 +318,13 @@ export default function Campaigns() {
       });
     },
     onError: (err: Error) => {
-      // Server returns 409 with `error: "follow_up_pending"` when an active
-      // follow-up is blocking the delete (Task #56). Surface that text so the
-      // user knows which action to take next.
-      const parsed = parseFollowUpPendingError(err);
+      // Surface the server's structured error: a pending follow-up block (409,
+      // Task #56) or a busy-DB timeout (503, Task #211) so the user knows which
+      // action to take next.
+      const parsed = parseDeleteError(err);
       toast({
-        title: parsed ? "Follow-up pending" : "Error",
-        description: parsed ?? "Failed to delete campaign. Please try again.",
+        title: parsed?.title ?? "Error",
+        description: parsed?.message ?? "Failed to delete campaign. Please try again.",
         variant: "destructive",
       });
     },
@@ -334,10 +342,17 @@ export default function Campaigns() {
       });
     },
     onError: (err: Error) => {
-      const parsed = parseFollowUpPendingError(err);
+      // Bulk deletes can partially fail: some blocked by a pending follow-up,
+      // some timed out against a busy DB (Task #211). The server returns a
+      // structured message listing exactly what happened — surface it and
+      // refresh the list since some deletes may have succeeded.
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+      const parsed = parseDeleteError(err);
       toast({
-        title: parsed ? "Follow-up pending" : "Error",
-        description: parsed ?? "Failed to delete campaigns. Please try again.",
+        title: parsed?.title ?? "Error",
+        description: parsed?.message ?? "Failed to delete campaigns. Please try again.",
         variant: "destructive",
       });
     },

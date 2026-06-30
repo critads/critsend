@@ -14,7 +14,7 @@ import { emitServiceBusy } from "../middleware/service-busy";
 import { buildCampaignsListCacheKey, getCampaignsListCached, publishCampaignsListInvalidation } from "../repositories/campaigns-list-cache";
 import { messageQueue } from "../message-queue";
 import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
-import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62 } from "../utils";
+import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62, mapWithConcurrency } from "../utils";
 import * as cheerio from "cheerio";
 import * as fs from "fs";
 import * as path from "path";
@@ -178,6 +178,11 @@ class FollowUpPendingError extends Error {
  *     poll if appropriate.
  */
 const PENDING_CHILD_STATUSES = new Set(["draft", "scheduled", "sending", "paused"]);
+
+// Cap on simultaneous delete transactions in the bulk route so a large
+// selection can't open dozens of concurrent cascades and starve the
+// connection pool against the live sender (Task #211). Override via env.
+const BULK_DELETE_CONCURRENCY = envInt("CAMPAIGN_BULK_DELETE_CONCURRENCY", 4, 1);
 
 async function deleteCampaignWithFollowUpCleanup(id: string): Promise<void> {
   const target = await storage.getCampaign(id);
@@ -986,23 +991,56 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (ids.some((id) => !validateId(id))) {
         return res.status(400).json({ error: "One or more invalid ID formats" });
       }
-      const results = await Promise.allSettled(
-        ids.map((id) => deleteCampaignWithFollowUpCleanup(id)),
+      // Run deletes with BOUNDED concurrency (not all-at-once) so a large
+      // selection can't open dozens of simultaneous delete transactions and
+      // starve the connection pool against the live sender (Task #211). Each
+      // delete already runs under a bounded lock/statement timeout, so a busy
+      // DB now fails fast per-id instead of hanging the whole request.
+      const settled = await mapWithConcurrency(ids, BULK_DELETE_CONCURRENCY, async (id) => {
+        try {
+          await deleteCampaignWithFollowUpCleanup(id);
+          return { id, ok: true as const };
+        } catch (err) {
+          return { id, ok: false as const, err };
+        }
+      });
+      const blocked = settled.filter((r) => !r.ok && (r as any).err instanceof FollowUpPendingError);
+      const timedOut = settled.filter(
+        (r) => !r.ok && !((r as any).err instanceof FollowUpPendingError) && classifyDbError((r as any).err).kind === "timeout",
       );
-      const blocked = results
-        .map((r, i) => ({ r, id: ids[i] }))
-        .filter(({ r }) => r.status === "rejected" && (r as any).reason instanceof FollowUpPendingError);
-      if (blocked.length > 0) {
-        return res.status(409).json({
-          error: "follow_up_pending",
-          message: `${blocked.length} campaign(s) have a pending follow-up. Cancel or delete the follow-up first.`,
-          blockedIds: blocked.map((b) => b.id),
+      const otherFailures = settled.filter(
+        (r) => !r.ok && !((r as any).err instanceof FollowUpPendingError) && classifyDbError((r as any).err).kind !== "timeout",
+      );
+      const deletedIds = settled.filter((r) => r.ok).map((r) => r.id);
+
+      // Surface partial failures clearly so the UI can report exactly what
+      // succeeded and what to retry, rather than appearing stuck or silently
+      // dropping failures. Any failure -> 207-style payload with a 409/503/500
+      // status reflecting the most actionable failure class.
+      if (blocked.length > 0 || timedOut.length > 0 || otherFailures.length > 0) {
+        if (otherFailures.length > 0) {
+          logger.error("Error bulk-deleting campaigns:", (otherFailures[0] as any).err);
+        }
+        if (timedOut.length > 0) {
+          logger.warn(`[CAMPAIGN_DELETE] ${timedOut.length} bulk delete(s) timed out (busy DB)`);
+        }
+        // Pick the status that best describes the failure mix: follow-up blocks
+        // are a user action (409); a busy DB is retryable (503); anything else
+        // is a server error (500).
+        const status = otherFailures.length > 0 ? 500 : blocked.length > 0 ? 409 : 503;
+        const messages: string[] = [];
+        if (deletedIds.length > 0) messages.push(`${deletedIds.length} deleted`);
+        if (blocked.length > 0) messages.push(`${blocked.length} have a pending follow-up (cancel or delete the follow-up first)`);
+        if (timedOut.length > 0) messages.push(`${timedOut.length} could not be deleted because the database is busy — please retry`);
+        if (otherFailures.length > 0) messages.push(`${otherFailures.length} failed unexpectedly`);
+        return res.status(status).json({
+          error: otherFailures.length > 0 ? "bulk_delete_partial_failure" : blocked.length > 0 ? "follow_up_pending" : "delete_timeout",
+          message: messages.join("; ") + ".",
+          deletedIds,
+          blockedIds: blocked.map((r) => r.id),
+          timedOutIds: timedOut.map((r) => r.id),
+          failedIds: otherFailures.map((r) => r.id),
         });
-      }
-      const otherFailures = results.filter((r) => r.status === "rejected");
-      if (otherFailures.length > 0) {
-        logger.error("Error bulk-deleting campaigns:", (otherFailures[0] as any).reason);
-        return res.status(500).json({ error: "Failed to delete campaigns" });
       }
       res.status(204).send();
     } catch (error) {
@@ -1024,6 +1062,18 @@ export function registerCampaignRoutes(app: Express, helpers: {
           error: "follow_up_pending",
           message: `Cannot delete: this campaign has a ${error.childStatus} follow-up. Cancel or delete the follow-up first.`,
           childId: error.childId,
+        });
+      }
+      // The delete cascade runs under a bounded lock_timeout/statement_timeout
+      // (Task #211). When the DB is busy (live sender holding locks, large
+      // cascade) it now fails fast with 55P03/57014 instead of hanging. Surface
+      // that as a clear, retryable 503 rather than a generic 500.
+      const classified = classifyDbError(error);
+      if (classified.kind === "timeout") {
+        logger.warn(`[CAMPAIGN_DELETE] Delete timed out (busy DB): ${classified.message}`);
+        return res.status(503).json({
+          error: "delete_timeout",
+          message: "The database is busy right now, so the campaign couldn't be deleted. Please try again in a moment.",
         });
       }
       logger.error("Error deleting campaign:", error);

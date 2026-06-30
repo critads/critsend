@@ -385,14 +385,34 @@ export async function updateCampaign(id: string, data: Partial<Campaign>): Promi
   return campaign;
 }
 
+// Bounded timeouts for the campaign delete cascade. Without these a genuinely
+// large cascade or a hot row-lock (e.g. the live sender holding `campaigns`)
+// can make the DELETE hang indefinitely, turning the UI into an infinite
+// spinner with no feedback (the original symptom of Task #211). `lock_timeout`
+// caps how long we wait to ACQUIRE a contended lock; `statement_timeout` caps
+// total runtime of any single statement. On breach Postgres raises 55P03
+// (lock_not_available) / 57014 (query_canceled) and the whole transaction
+// rolls back atomically — an infinite spinner becomes a clear, retryable error.
+const DELETE_LOCK_TIMEOUT_MS = Number(process.env.CAMPAIGN_DELETE_LOCK_TIMEOUT_MS) || 5000;
+const DELETE_STATEMENT_TIMEOUT_MS = Number(process.env.CAMPAIGN_DELETE_STATEMENT_TIMEOUT_MS) || 30000;
+
 export async function deleteCampaign(id: string): Promise<void> {
-  await db.delete(nullsinkCaptures).where(eq(nullsinkCaptures.campaignId, id));
-  // campaign_sends and campaign_stats cascade from campaign FK
-  await db.delete(campaignJobs).where(eq(campaignJobs.campaignId, id));
-  await db.delete(errorLogs).where(eq(errorLogs.campaignId, id));
-  await db.execute(sql`DELETE FROM pending_tag_operations WHERE campaign_id = ${id}`);
-  await db.execute(sql`DELETE FROM analytics_daily WHERE campaign_id = ${id}`);
-  await db.delete(campaigns).where(eq(campaigns.id, id));
+  // Run the whole cascade in ONE transaction so SET LOCAL applies to every
+  // statement (SET LOCAL only lives for the current transaction) and so a
+  // timeout mid-cascade rolls back cleanly instead of leaving orphan rows.
+  // SET LOCAL is also the only correct choice under Neon's PgBouncer
+  // transaction pooling, which strips connection-level startup parameters.
+  await db.transaction(async (tx) => {
+    await tx.execute(sql.raw(`SET LOCAL lock_timeout = ${DELETE_LOCK_TIMEOUT_MS}`));
+    await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${DELETE_STATEMENT_TIMEOUT_MS}`));
+    await tx.delete(nullsinkCaptures).where(eq(nullsinkCaptures.campaignId, id));
+    // campaign_sends and campaign_stats cascade from campaign FK
+    await tx.delete(campaignJobs).where(eq(campaignJobs.campaignId, id));
+    await tx.delete(errorLogs).where(eq(errorLogs.campaignId, id));
+    await tx.execute(sql`DELETE FROM pending_tag_operations WHERE campaign_id = ${id}`);
+    await tx.execute(sql`DELETE FROM analytics_daily WHERE campaign_id = ${id}`);
+    await tx.delete(campaigns).where(eq(campaigns.id, id));
+  });
   publishCampaignsListInvalidation();
 }
 
