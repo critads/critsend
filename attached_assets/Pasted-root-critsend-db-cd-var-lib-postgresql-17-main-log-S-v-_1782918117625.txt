@@ -1,0 +1,86 @@
+root@critsend-db ~ # cd /var/lib/postgresql/17/main/log
+
+# Sévérités du jour d'exposition (30/06)
+grep -aoE ' (LOG|WARNING|ERROR|FATAL|PANIC):' postgresql-Mon.log | sort | uniq -c | sort -rn
+
+# FATAL d'auth par jour
+for f in postgresql-{Thu,Fri,Sat,Sun,Mon,Tue,Wed}.log; do [ -f "$f" ] && printf '%-22s ' "$f" && grep -acE 'FATAL.*(authentication|pg_hba)' "$f"; done
+
+# IP externes ayant tenté d'autres bases/users (ces lignes CONTIENNENT l'IP)
+grep -ahoE 'no pg_hba.conf entry for host "[0-9a-fA-F:.]+"' postgresql-*.log | sort | uniq -c | sort -rn
+
+# Brute-force sur la base critsend (échecs de mot de passe)
+grep -ahoE 'password authentication failed for user "[^"]+"' postgresql-*.log | sort | uniq -c | sort -rn
+ 273282  LOG:
+   1107  FATAL:
+    101  ERROR:
+postgresql-Thu.log     1149
+postgresql-Fri.log     1159
+postgresql-Sat.log     1054
+postgresql-Sun.log     1081
+postgresql-Mon.log     1008
+postgresql-Tue.log     953
+postgresql-Wed.log     504
+   4154 no pg_hba.conf entry for host "186.236.240.56"
+   2455 no pg_hba.conf entry for host "159.65.148.75"
+     84 no pg_hba.conf entry for host "213.209.159.66"
+     49 no pg_hba.conf entry for host "85.11.167.7"
+     49 no pg_hba.conf entry for host "85.11.167.11"
+     48 no pg_hba.conf entry for host "77.90.185.248"
+     10 no pg_hba.conf entry for host "64.89.163.137"
+      8 no pg_hba.conf entry for host "64.89.163.133"
+      6 no pg_hba.conf entry for host "45.156.87.10"
+      4 no pg_hba.conf entry for host "80.82.77.139"
+      2 no pg_hba.conf entry for host "64.89.163.83"
+      2 no pg_hba.conf entry for host "64.89.163.82"
+      2 no pg_hba.conf entry for host "64.89.163.81"
+      2 no pg_hba.conf entry for host "64.89.163.134"
+      2 no pg_hba.conf entry for host "35.241.130.26"
+      2 no pg_hba.conf entry for host "35.233.42.65"
+      2 no pg_hba.conf entry for host "34.79.93.108"
+      2 no pg_hba.conf entry for host "34.79.151.177"
+      2 no pg_hba.conf entry for host "34.77.24.24"
+      2 no pg_hba.conf entry for host "34.53.252.202"
+      2 no pg_hba.conf entry for host "176.65.132.39"
+      2 no pg_hba.conf entry for host "115.231.78.10"
+      1 no pg_hba.conf entry for host "94.231.206.2"
+      1 no pg_hba.conf entry for host "94.231.206.133"
+      1 no pg_hba.conf entry for host "91.230.168.205"
+      1 no pg_hba.conf entry for host "81.19.216.126"
+      1 no pg_hba.conf entry for host "69.5.169.252"
+      1 no pg_hba.conf entry for host "69.5.169.193"
+      1 no pg_hba.conf entry for host "69.5.169.128"
+      1 no pg_hba.conf entry for host "5.226.140.126"
+      1 no pg_hba.conf entry for host "44.220.185.2"
+      1 no pg_hba.conf entry for host "34.38.119.76"
+      1 no pg_hba.conf entry for host "34.156.222.106"
+      1 no pg_hba.conf entry for host "31.14.254.16"
+      1 no pg_hba.conf entry for host "217.146.80.121"
+      1 no pg_hba.conf entry for host "195.184.76.70"
+      1 no pg_hba.conf entry for host "194.187.176.9"
+      1 no pg_hba.conf entry for host "193.176.31.204"
+      1 no pg_hba.conf entry for host "152.32.211.139"
+root@critsend-db /var/lib/postgresql/17/main/log # # 1) D'ABORD, vérifie que tu as une clé SSH qui marche (dans une 2e fenêtre) :
+cat ~/.ssh/authorized_keys        # doit contenir ta clé publique
+# ➜ Ouvre une NOUVELLE session SSH par CLÉ et garde-la ouverte avant l'étape 2.
+
+# 2) Seulement ensuite, désactive mot de passe + root par mot de passe :
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/'   /etc/ssh/sshd_config
+sshd -t && systemctl reload ssh   # -t valide la config avant d'appliquer
+
+# 3) fail2ban pour bloquer les brute-forcers
+apt-get install -y fail2ban && systemctl enable --now fail2ban
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+fail2ban is already the newest version (1.0.2-3ubuntu0.1).
+The following packages were automatically installed and are no longer required:
+  bpfcc-tools bpftrace ieee-data libbpfcc libc-dev-bin libc6-dev libclang-cpp18
+  libclang1-18 libcrypt-dev libllvm18 linux-libc-dev manpages-dev python3-bpfcc
+  python3-netaddr rpcsvc-proto ubuntu-kernel-accessories
+Use 'apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 32 not upgraded.
+Synchronizing state of fail2ban.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable fail2ban
+root@critsend-db /var/lib/postgresql/17/main/log # 
