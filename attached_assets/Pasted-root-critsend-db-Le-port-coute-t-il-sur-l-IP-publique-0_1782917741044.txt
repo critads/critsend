@@ -1,0 +1,202 @@
+root@critsend-db ~ # # Le port écoute-t-il sur l'IP publique ? (0.0.0.0:5432 = exposé)
+ss -tlnp | grep 5432
+
+# Règles pg_hba réelles : un 0.0.0.0/0 ou ::/0 = tout Internet pouvait tenter l'auth
+grep -vE '^\s*#|^\s*$' /etc/postgresql/17/main/pg_hba.conf
+LISTEN 0      600          0.0.0.0:5432      0.0.0.0:*    users:(("postgres",pid=102940,fd=7))                    
+LISTEN 0      600             [::]:5432         [::]:*    users:(("postgres",pid=102940,fd=8))                    
+local   all             postgres                                peer
+local   all             all                                     peer
+host    all             all             127.0.0.1/32            scram-sha-256
+host    all             all             ::1/128                 scram-sha-256
+local   replication     all                                     peer
+host    replication     all             127.0.0.1/32            scram-sha-256
+host    replication     all             ::1/128                 scram-sha-256
+hostssl  all  all  37.27.117.222/32   scram-sha-256
+host     all  all  127.0.0.1/32          scram-sha-256
+host     all  all  ::1/128               scram-sha-256
+hostssl critsend critsend 0.0.0.0/0 scram-sha-256
+hostssl critsend critsend ::/0      scram-sha-256
+root@critsend-db ~ # # Un seul passage sur le fichier du jour d'exposition (30/06) 
+grep -aoE ' (LOG|WARNING|ERROR|FATAL|PANIC):' "$LOGDIR/postgresql-Mon.log" | sort | uniq -c | sort -rn
+grep: /postgresql-Mon.log: No such file or directory
+root@critsend-db ~ # # Nb de FATAL d'auth par jour-fichier
+for f in "$LOGDIR"/postgresql-{Thu,Fri,Sat,Sun,Mon,Tue,Wed}.log; do
+  [ -f "$f" ] && printf '%-28s ' "$(basename "$f")" && grep -acE 'FATAL.*(authentication|pg_hba)' "$f"
+done
+
+# IP sources des rejets pg_hba (CES lignes contiennent l'IP) — les plus parlantes
+grep -ahoE 'no pg_hba.conf entry for host "[0-9a-fA-F:.]+"' "$LOGDIR"/postgresql-*.log \
+  | sort | uniq -c | sort -rn
+
+# Brute-force : échecs de mot de passe par utilisateur (sans IP, prefix sans %h)
+grep -ahoE 'password authentication failed for user "[^"]+"' "$LOGDIR"/postgresql-*.log \
+  | sort | uniq -c | sort -rn
+
+# Panorama de tous les types de FATAL (motifs normalisés)
+grep -ahoE 'FATAL:  .+' "$LOGDIR"/postgresql-*.log | sed -E 's/"[^"]*"/"X"/g; s/[0-9]+/N/g' \
+  | sort | uniq -c | sort -rn | head -40
+grep: /postgresql-*.log: No such file or directory
+grep: /postgresql-*.log: No such file or directory
+grep: /postgresql-*.log: No such file or directory
+root@critsend-db ~ # # Connexions live vers 5432 + IP distantes
+ss -tnp state established '( sport = :5432 )'
+
+# SSH : brute-force et connexions réussies sur la machine
+grep -aiE 'Failed password|Invalid user' /var/log/auth.log* | awk '{print $(NF-3)}' | sort | uniq -c | sort -rn | head
+grep -aiE 'Accepted (password|publickey)' /var/log/auth.log* | tail -30
+lastb 2>/dev/null | head -30      # tentatives échouées
+last -aw | head -30               # connexions réussies
+
+# Persistance éventuelle : comptes, clés SSH, cron inattendus
+awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd
+cat /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys 2>/dev/null
+ls -la /etc/cron.d /etc/cron.*/ /var/spool/cron/crontabs 2>/dev/null
+Recv-Q     Send-Q            Local Address:Port            Peer Address:Port      Process                                                                           
+0          0                157.180.98.150:5432           37.27.117.222:55646      users:(("postgres",pid=1490441,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:40244      users:(("postgres",pid=1486338,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:58618      users:(("postgres",pid=1492013,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:55632      users:(("postgres",pid=1490442,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43518      users:(("postgres",pid=1492377,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43494      users:(("postgres",pid=1492354,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43478      users:(("postgres",pid=1492355,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:47602      users:(("postgres",pid=1489517,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:54582      users:(("postgres",pid=1488115,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:44616      users:(("postgres",pid=1427727,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:60288      users:(("postgres",pid=1492190,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:32770      users:(("postgres",pid=1488766,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:38760      users:(("postgres",pid=1421509,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:60264      users:(("postgres",pid=1492176,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43508      users:(("postgres",pid=1492368,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:57746      users:(("postgres",pid=1482733,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43526      users:(("postgres",pid=1492378,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:55316      users:(("postgres",pid=1486013,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:54266      users:(("postgres",pid=1489943,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43344      users:(("postgres",pid=1135825,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:60272      users:(("postgres",pid=1492191,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43426      users:(("postgres",pid=1489610,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:54252      users:(("postgres",pid=1489942,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:41404      users:(("postgres",pid=1486335,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:35068      users:(("postgres",pid=1485681,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:60278      users:(("postgres",pid=1492189,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43462      users:(("postgres",pid=1492352,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43468      users:(("postgres",pid=1492353,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:59756      users:(("postgres",pid=1135881,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:45378      users:(("postgres",pid=1484379,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43534      users:(("postgres",pid=1492379,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:33970      users:(("postgres",pid=1405982,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43352      users:(("postgres",pid=1135827,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43528      users:(("postgres",pid=1492380,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:43162      users:(("postgres",pid=1135805,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:37010      users:(("postgres",pid=1484221,fd=11))                                           
+0          0                157.180.98.150:5432           37.27.117.222:32776      users:(("postgres",pid=1488767,fd=11))                                           
+   2283 from
+   1032 45.198.224.46
+    551 78.128.112.74
+    374 45.148.10.121
+    300 2.57.121.25
+    273 195.178.110.30
+    223 176.65.139.181
+    214 2.57.121.112
+    192 45.227.254.170
+    180 45.148.10.151
+/var/log/auth.log:2026-07-01T16:48:25.323624+02:00 critsend-db sshd[1489952]: Accepted password for root from 5.194.247.52 port 63827 ssh2
+user     ssh:notty    78.128.112.74    Wed Jul  1 16:53 - 16:53  (00:00)
+user     ssh:notty    78.128.112.74    Wed Jul  1 16:53 - 16:53  (00:00)
+root     ssh:notty    195.178.110.232  Wed Jul  1 16:50 - 16:50  (00:00)
+root     ssh:notty    45.198.224.46    Wed Jul  1 16:48 - 16:48  (00:00)
+root     ssh:notty    195.178.110.232  Wed Jul  1 16:48 - 16:48  (00:00)
+ubuntu   ssh:notty    163.7.8.178      Wed Jul  1 16:47 - 16:47  (00:00)
+ubuntu   ssh:notty    163.7.8.178      Wed Jul  1 16:47 - 16:47  (00:00)
+root     ssh:notty    195.178.110.232  Wed Jul  1 16:45 - 16:45  (00:00)
+root     ssh:notty    123.25.97.130    Wed Jul  1 16:45 - 16:45  (00:00)
+suliyile ssh:notty    185.242.3.195    Wed Jul  1 16:44 - 16:44  (00:00)
+suliyile ssh:notty    185.242.3.195    Wed Jul  1 16:44 - 16:44  (00:00)
+dspace   ssh:notty    8.219.159.94     Wed Jul  1 16:44 - 16:44  (00:00)
+dspace   ssh:notty    8.219.159.94     Wed Jul  1 16:44 - 16:44  (00:00)
+www-data ssh:notty    45.198.224.46    Wed Jul  1 16:38 - 16:38  (00:00)
+root     ssh:notty    38.248.6.103     Wed Jul  1 16:37 - 16:37  (00:00)
+root     ssh:notty    91.92.40.231     Wed Jul  1 16:35 - 16:35  (00:00)
+root     ssh:notty    91.92.40.231     Wed Jul  1 16:33 - 16:33  (00:00)
+root     ssh:notty    91.92.40.231     Wed Jul  1 16:30 - 16:30  (00:00)
+root     ssh:notty    45.198.224.46    Wed Jul  1 16:28 - 16:28  (00:00)
+root     ssh:notty    45.198.224.46    Wed Jul  1 16:18 - 16:18  (00:00)
+root     ssh:notty    163.7.8.178      Wed Jul  1 16:13 - 16:13  (00:00)
+user     ssh:notty    78.128.112.74    Wed Jul  1 16:09 - 16:09  (00:00)
+user     ssh:notty    78.128.112.74    Wed Jul  1 16:09 - 16:09  (00:00)
+root     ssh:notty    45.198.224.46    Wed Jul  1 16:08 - 16:08  (00:00)
+admin    ssh:notty    45.148.10.121    Wed Jul  1 16:06 - 16:06  (00:00)
+admin    ssh:notty    45.148.10.121    Wed Jul  1 16:06 - 16:06  (00:00)
+ecard    ssh:notty    160.251.197.41   Wed Jul  1 16:06 - 16:06  (00:00)
+ecard    ssh:notty    160.251.197.41   Wed Jul  1 16:06 - 16:06  (00:00)
+newsroom ssh:notty    160.251.197.41   Wed Jul  1 16:03 - 16:03  (00:00)
+newsroom ssh:notty    160.251.197.41   Wed Jul  1 16:03 - 16:03  (00:00)
+root     pts/0        Wed Jul  1 16:48   still logged in    5.194.247.52
+root     pts/0        Fri Jun  5 07:38 - 11:47  (04:08)     102.209.96.7
+root     pts/0        Fri Jun  5 06:40 - 07:05  (00:25)     102.117.238.40
+root     pts/0        Fri Jun  5 04:51 - 05:14  (00:23)     102.117.222.142
+root     pts/2        Fri Jun  5 04:16 - 04:44  (00:27)     102.117.222.142
+root     pts/1        Fri Jun  5 04:07   still logged in    tmux(27561).%0
+root     pts/0        Fri Jun  5 04:07 - 04:44  (00:36)     102.117.222.142
+root     pts/0        Thu Jun  4 12:43 - 14:29  (01:45)     102.209.96.7
+reboot   system boot  Thu Jun  4 12:29   still running      6.8.0-100-generic
+
+wtmp begins Thu Jun  4 12:29:10 2026
+/etc/cron.d:
+total 20
+drwxr-xr-x   2 root root 4096 Aug  5  2025 .
+drwxr-xr-x 110 root root 4096 Jun 30 06:26 ..
+-rw-r--r--   1 root root  102 Aug  5  2025 .placeholder
+-rw-r--r--   1 root root  201 Apr  8  2024 e2scrub_all
+-rw-r--r--   1 root root  396 Aug  5  2025 sysstat
+
+/etc/cron.d/:
+total 20
+drwxr-xr-x   2 root root 4096 Aug  5  2025 .
+drwxr-xr-x 110 root root 4096 Jun 30 06:26 ..
+-rw-r--r--   1 root root  102 Aug  5  2025 .placeholder
+-rw-r--r--   1 root root  201 Apr  8  2024 e2scrub_all
+-rw-r--r--   1 root root  396 Aug  5  2025 sysstat
+
+/etc/cron.daily/:
+total 36
+drwxr-xr-x   2 root root 4096 Jun  5 06:17 .
+drwxr-xr-x 110 root root 4096 Jun 30 06:26 ..
+-rw-r--r--   1 root root  102 Aug  5  2025 .placeholder
+-rwxr-xr-x   1 root root  376 Jul  8  2025 apport
+-rwxr-xr-x   1 root root 1478 Mar 22  2024 apt-compat
+-rwxr-xr-x   1 root root  123 Feb  5  2024 dpkg
+-rwxr-xr-x   1 root root  377 Aug  5  2025 logrotate
+-rwxr-xr-x   1 root root 1395 Aug  5  2025 man-db
+-rwxr-xr-x   1 root root  518 Aug  5  2025 sysstat
+
+/etc/cron.hourly/:
+total 12
+drwxr-xr-x   2 root root 4096 Aug  5  2025 .
+drwxr-xr-x 110 root root 4096 Jun 30 06:26 ..
+-rw-r--r--   1 root root  102 Aug  5  2025 .placeholder
+
+/etc/cron.monthly/:
+total 12
+drwxr-xr-x   2 root root 4096 Aug  5  2025 .
+drwxr-xr-x 110 root root 4096 Jun 30 06:26 ..
+-rw-r--r--   1 root root  102 Aug  5  2025 .placeholder
+
+/etc/cron.weekly/:
+total 16
+drwxr-xr-x   2 root root 4096 Aug  5  2025 .
+drwxr-xr-x 110 root root 4096 Jun 30 06:26 ..
+-rw-r--r--   1 root root  102 Aug  5  2025 .placeholder
+-rwxr-xr-x   1 root root 1055 Aug  5  2025 man-db
+
+/etc/cron.yearly/:
+total 12
+drwxr-xr-x   2 root root 4096 Aug  5  2025 .
+drwxr-xr-x 110 root root 4096 Jun 30 06:26 ..
+-rw-r--r--   1 root root  102 Aug  5  2025 .placeholder
+
+/var/spool/cron/crontabs:
+total 8
+drwx-wx--T 2 root crontab 4096 Aug  5  2025 .
+drwxr-xr-x 5 root root    4096 Feb  8 05:21 ..
+root@critsend-db ~ # 
