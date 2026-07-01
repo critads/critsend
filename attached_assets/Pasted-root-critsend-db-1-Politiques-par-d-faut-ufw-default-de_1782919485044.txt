@@ -1,0 +1,50 @@
+root@critsend-db ~ # # 1) Politiques par défaut
+ufw default deny incoming
+ufw default allow outgoing
+
+# 2) Accès admin via Tailscale (INDISPENSABLE avant d'activer)
+ufw allow in on tailscale0 comment 'Tailscale'
+ufw allow 41641/udp        comment 'Tailscale direct'
+
+# 3) App -> base : uniquement le serveur applicatif
+ufw allow from 37.27.117.222 to any port 5432 proto tcp comment 'App->Postgres'
+ufw allow from 37.27.117.222 to any port 6432 proto tcp comment 'App->PgBouncer' 
+
+# 4) Activer
+ufw --force enable
+
+# 5) Vérifier les règles
+ufw status verbose
+Default incoming policy changed to 'deny'
+(be sure to update your rules accordingly)
+Default outgoing policy changed to 'allow'
+(be sure to update your rules accordingly)
+Rule added
+Rule added (v6)
+Rule added
+Rule added (v6)
+Rule updated
+Rule updated
+Firewall is active and enabled on system startup
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+22/tcp (OpenSSH)           ALLOW IN    Anywhere                  
+5432/tcp                   ALLOW IN    37.27.117.222              # App->Postgres
+6432/tcp                   ALLOW IN    37.27.117.222              # App->PgBouncer
+5432/tcp                   ALLOW IN    Anywhere                  
+Anywhere on tailscale0     ALLOW IN    Anywhere                   # Tailscale
+41641/udp                  ALLOW IN    Anywhere                   # Tailscale direct
+22/tcp (OpenSSH (v6))      ALLOW IN    Anywhere (v6)             
+5432/tcp (v6)              ALLOW IN    Anywhere (v6)             
+Anywhere (v6) on tailscale0 ALLOW IN    Anywhere (v6)              # Tailscale
+41641/udp (v6)             ALLOW IN    Anywhere (v6)              # Tailscale direct
+
+root@critsend-db ~ # # a) L'app est-elle toujours connectée ? (doit rester ~39 depuis 37.27.117.222)
+ss -Htn state established '( sport = :5432 )' | awk '{print $4}' | sed -E 's/:[0-9]+$//' | sort | uniq -c
+     28 37.27.117.222
+root@critsend-db ~ # 
