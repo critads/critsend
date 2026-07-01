@@ -1,0 +1,18 @@
+root@critsend-db ~ # # 1) Tous les ports en écoute (pour ne rien bloquer par erreur)
+ss -tlnp
+
+# 2) Qui est connecté à PostgreSQL en ce moment (doit être uniquement 37.27.117.222)
+ss -Htn state established '( sport = :5432 )' | awk '{print $4}' | sed -E 's/:[0-9]+$//' | sort | uniq -c
+State   Recv-Q  Send-Q                 Local Address:Port    Peer Address:Port  Process                                                                         
+LISTEN  0       4096                   127.0.0.53%lo:53           0.0.0.0:*      users:(("systemd-resolve",pid=2121583,fd=15))                                  
+LISTEN  0       4096                  100.127.120.53:49570        0.0.0.0:*      users:(("tailscaled",pid=1499270,fd=23))                                       
+LISTEN  0       600                          0.0.0.0:5432         0.0.0.0:*      users:(("postgres",pid=102940,fd=7))                                           
+LISTEN  0       128                          0.0.0.0:6432         0.0.0.0:*      users:(("pgbouncer",pid=91384,fd=8))                                           
+LISTEN  0       4096                         0.0.0.0:22           0.0.0.0:*      users:(("sshd",pid=93530,fd=3),("systemd",pid=1,fd=199))                       
+LISTEN  0       4096                      127.0.0.54:53           0.0.0.0:*      users:(("systemd-resolve",pid=2121583,fd=17))                                  
+LISTEN  0       4096     [fd7a:115c:a1e0::6333:7836]:58556           [::]:*      users:(("tailscaled",pid=1499270,fd=24))                                       
+LISTEN  0       600                             [::]:5432            [::]:*      users:(("postgres",pid=102940,fd=8))                                           
+LISTEN  0       128                             [::]:6432            [::]:*      users:(("pgbouncer",pid=91384,fd=9))                                           
+LISTEN  0       4096                            [::]:22              [::]:*      users:(("sshd",pid=93530,fd=4),("systemd",pid=1,fd=200))                       
+     39 37.27.117.222
+root@critsend-db ~ # 
