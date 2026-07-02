@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Tag, Mail, Calendar, Globe, Layers, X } from "lucide-react";
+import { Plus, Tag, Mail, Calendar, Globe, Layers, X, Activity } from "lucide-react";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2 } from "@shared/schema";
 import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/schema";
 
@@ -18,6 +18,7 @@ export const fieldLabels: Record<string, string> = {
   email: "Email",
   date_added: "Date Added",
   ip_address: "IP Address",
+  engagement: "Engagement",
 };
 
 export const fieldIcons: Record<string, typeof Tag> = {
@@ -26,6 +27,7 @@ export const fieldIcons: Record<string, typeof Tag> = {
   email: Mail,
   date_added: Calendar,
   ip_address: Globe,
+  engagement: Activity,
 };
 
 export const unaryOperators = [
@@ -35,6 +37,8 @@ export const unaryOperators = [
   "has_no_tags",
   "has_any_ref",
   "has_no_refs",
+  "engaged_recently",
+  "not_engaged_recently",
 ];
 
 export function makeEmptyCondition(): SegmentCondition {

@@ -876,12 +876,13 @@ export type FlushJobStatus = "pending" | "processing" | "completed" | "failed" |
 
 export const segmentConditionSchema = z.object({
   type: z.literal("condition"),
-  field: z.enum(["email", "tags", "refs", "date_added", "ip_address"]),
+  field: z.enum(["email", "tags", "refs", "date_added", "ip_address", "engagement"]),
   operator: z.enum([
     "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty",
     "has_tag", "not_has_tag", "has_any_tag", "has_no_tags", "tag_contains",
     "has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains",
     "before", "after", "between", "in_last_days", "not_in_last_days",
+    "engaged_recently", "not_engaged_recently",
   ]),
   value: z.union([z.string(), z.array(z.string()), z.null()]),
   value2: z.string().nullable().default(null),
@@ -916,6 +917,7 @@ export const fieldOperatorsV2 = {
   refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
+  engagement: ["engaged_recently", "not_engaged_recently"],
 } as const;
 
 export const operatorLabelsV2: Record<string, string> = {
@@ -942,6 +944,8 @@ export const operatorLabelsV2: Record<string, string> = {
   between: "is between",
   in_last_days: "in the last N days",
   not_in_last_days: "not in the last N days",
+  engaged_recently: "opened/clicked in last 60 days",
+  not_engaged_recently: "no open/click in last 60 days",
 };
 
 export const segmentRulesInputSchema = z.union([

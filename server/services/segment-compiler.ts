@@ -7,10 +7,14 @@ function escapeLikeValue(value: string): string {
   return value.replace(/[%_\\]/g, "\\$&");
 }
 
+// Fixed re-engagement window (days) for the "engagement" segment field.
+// Single source of truth so the window is trivial to change later.
+export const ENGAGEMENT_RECENCY_DAYS = 60;
+
 function compileCondition(cond: SegmentCondition): SQL {
   const { field, operator, value, value2 } = cond;
 
-  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs"];
+  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently"];
   if (!unaryOps.includes(operator)) {
     if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) {
       logger.warn("Empty value for non-unary segment operator", { field, operator });
@@ -106,6 +110,21 @@ function compileCondition(cond: SegmentCondition): SQL {
         return sql`${subscribers.importDate} < NOW() - INTERVAL '1 day' * ${v}::int`;
       default:
         logger.warn("Unknown operator for date_added field", { operator, field });
+        return sql`FALSE`;
+    }
+  }
+
+  if (field === "engagement") {
+    // Recency filter on the maintained per-subscriber engagement timestamp
+    // (analytics rollup keeps `last_engaged_at` fresh for type IN ('open','click')).
+    // Unary operators — the window is fixed, no value input.
+    switch (operator) {
+      case "engaged_recently":
+        return sql`${subscribers.lastEngagedAt} >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int`;
+      case "not_engaged_recently":
+        return sql`(${subscribers.lastEngagedAt} IS NULL OR ${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int)`;
+      default:
+        logger.warn("Unknown operator for engagement field", { operator, field });
         return sql`FALSE`;
     }
   }
