@@ -1,0 +1,78 @@
+Rôle & contexte
+Tu m'aides à sécuriser le serveur distant en réponse à une alerte de sécurité. Le serveur 65.108.142.198 (hébergé chez Hetzner, Ubuntu) a été signalé par le BSI/CERT-Bund (relayé par Hetzner) le 2026-06-30 : son PostgreSQL est exposé directement sur Internet (port 5432). Ce serveur fait tourner mes outils d'analyse/tracking avec leur propre base PostgreSQL.
+
+Méthode de travail
+
+Je n'exécute pas l'app dans Replit : c'est un serveur distant. Guide-moi pas à pas en me donnant les commandes SSH ; je les lance et je te colle les sorties. Analyse chaque sortie avant l'étape suivante.
+Réponds en français, de façon concise, et demande-moi avant tout changement majeur.
+Objectif
+Fermer l'exposition de PostgreSQL (et de tout autre service de base de données) à Internet, sans couper l'accès des clients légitimes ni me verrouiller hors du serveur.
+
+⚠️ Règles de sécurité impératives (ne jamais enfreindre)
+
+Ne jamais fermer le port SSH public ni désactiver l'authentification par mot de passe tant qu'une nouvelle méthode d'accès (Tailscale SSH) n'est pas testée et confirmée.
+Toujours garder la session SSH en cours ouverte pendant les changements de pare-feu.
+Sauvegarde datée de tout fichier de config avant modification (cp fichier fichier.bak.$(date +%s)).
+La console Hetzner (KVM/rescue) est l'accès de secours ultime — me le rappeler avant toute opération risquée.
+Étape 1 — Diagnostic (ne rien modifier)
+Fais-moi lancer et colle les sorties :
+
+# Fichier pg_hba et règles trop ouvertes
+HBA=$(sudo -u postgres psql -tAc 'SHOW hba_file;'); echo "$HBA"
+sudo grep -nE '0\.0\.0\.0/0|::/0' "$HBA"
+# Sur quelles adresses PostgreSQL écoute
+sudo -u postgres psql -tAc 'SHOW listen_addresses;'
+# Ports en écoute (repérer 5432, un éventuel pgbouncer 6432, SSH 22)
+ss -tlnp
+# Qui se connecte réellement à la base (pour savoir quelles IP autoriser)
+sudo -u postgres psql -c "SELECT datname,usename,client_addr,count(*) FROM pg_stat_activity WHERE client_addr IS NOT NULL GROUP BY 1,2,3 ORDER BY 4 DESC;"
+ss -Htn state established '( sport = :5432 )' | awk '{print $4}' | sed -E 's/:[0-9]+$//' | sort | uniq -c
+
+Point clé à déterminer : est-ce que les outils de tracking tournent sur ce serveur (connexions 127.0.0.1 uniquement) ou depuis une machine distante ?
+
+Si tout est en localhost → PostgreSQL n'a besoin d'aucun accès externe : on restreint pg_hba à 127.0.0.1 et on bloque 5432 à Internet complètement.
+Si un serveur applicatif distant s'y connecte → on n'autorise que son IP.
+Étape 2 — Corriger pg_hba.conf
+Sauvegarde, puis supprime/commente toute ligne host/hostssl ... 0.0.0.0/0 (et ::/0). Garde uniquement : accès local (peer), 127.0.0.1/32 (scram), et si nécessaire hostssl <db> <user> <IP_APP>/32 scram-sha-256. Puis :
+
+sudo -u postgres psql -c 'SELECT pg_reload_conf();'
+
+Vérifie ensuite qu'une connexion depuis une IP non autorisée est refusée (no pg_hba.conf entry for host ...).
+
+Étape 3 — Mettre en place Tailscale SSH (accès admin résilient)
+Avant de toucher au pare-feu, sécurise l'accès admin :
+
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --ssh
+
+Ouvre l'URL affichée, connecte-toi avec le même compte Tailscale que mes autres machines. Installe Tailscale sur mon Mac (et mon téléphone), même compte. Teste ssh root@<nom-tailscale> depuis le Mac et confirme que ça marche AVANT l'étape suivante.
+
+Étape 4 — Pare-feu (ufw)
+D'abord repère d'éventuelles règles héritées ouvertes à tous (ufw status verbose) : piège connu — une règle ALLOW ... Anywhere a priorité et annule les règles restrictives ; il faut la supprimer.
+
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow in on tailscale0            # accès admin via Tailscale
+ufw allow 41641/udp                   # Tailscale (connexions directes)
+# Autoriser la base UNIQUEMENT depuis l'IP légitime trouvée à l'étape 1 (omettre si tout est en localhost) :
+ufw allow from <IP_APP> to any port 5432 proto tcp
+# Si un pgbouncer écoute (port 6432 vu à l'étape 1) :
+ufw allow from <IP_APP> to any port 6432 proto tcp
+ufw --force enable
+ufw status verbose
+# Supprimer les règles héritées trop permissives si présentes :
+ufw delete allow OpenSSH              # ferme le SSH public (Tailscale prend le relais)
+ufw delete allow 5432/tcp            # si une règle 5432 "Anywhere" existe
+
+Vérifie après coup : la base est toujours accessible au client légitime (ss ... :5432), le SSH public timeout depuis l'extérieur, et ssh root@<nom-tailscale> marche toujours.
+
+Étape 5 — Contrôle post-incident (forensics rapide)
+
+sudo -u postgres psql -c '\du'                                   # rôles superutilisateurs / rôles suspects
+sudo grep -aiE 'password authentication failed|no pg_hba' /var/log/postgresql/*.log | tail -50
+
+Comme la base a été exposée, envisage de changer le mot de passe du rôle applicatif (ALTER ROLE <role> WITH PASSWORD '...'), puis mets à jour la chaîne de connexion de l'app (secret) et redémarre l'app (+ pgbouncer si présent).
+
+Étape 6 — Hygiène
+Vérifie fail2ban (SSH), les mises à jour de sécurité en attente (apt list --upgradable) et un éventuel redémarrage requis.
+
