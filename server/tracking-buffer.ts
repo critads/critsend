@@ -24,6 +24,7 @@ import { trackingPool, flushPool, getTrackingPoolStats, getFlushPoolStats, safeT
 import { isPoolCheckoutError } from "./db";
 import { isTransientConnError } from "./services/conn-retry";
 import { logger } from "./logger";
+import { UNSUBSCRIBE_COOLING_OFF_DAYS } from "./config/suppression";
 import {
   trackingBufferEnqueued,
   trackingBufferFlushed,
@@ -920,19 +921,20 @@ async function processSideEffects(
   }
 
   if (type === "unsubscribe" || type === "complaint") {
-    // Only real unsubscribes get the 7-day suppression window. Complaints
-    // skip suppression entirely — they instead get the campaign's plain
-    // unsubscribeTag below, which existing segments already exclude via
-    // NOT has_tag(...). See processSideEffects header comment.
+    // Only real unsubscribes get the suppression window (cooling-off =
+    // UNSUBSCRIBE_COOLING_OFF_DAYS). Complaints skip suppression entirely —
+    // they instead get the campaign's plain unsubscribeTag below, which
+    // existing segments already exclude via NOT has_tag(...). See
+    // processSideEffects header comment.
     if (type === "unsubscribe") {
       const subscriberIds = [...new Set(events.map((e) => e.subscriberId))];
       if (subscriberIds.length > 0) {
         try {
           await flushPool.query(
-            `UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '7 days'
+            `UPDATE subscribers SET suppressed_until = NOW() + make_interval(days => $2)
              WHERE id = ANY($1::varchar[])
-               AND (suppressed_until IS NULL OR suppressed_until < NOW() + INTERVAL '7 days')`,
-            [subscriberIds],
+               AND (suppressed_until IS NULL OR suppressed_until < NOW() + make_interval(days => $2))`,
+            [subscriberIds, UNSUBSCRIBE_COOLING_OFF_DAYS],
           );
         } catch (err: any) {
           logger.error(`[TRACKING BUFFER] bulk setSuppressedUntil failed: ${err?.message || err}`);

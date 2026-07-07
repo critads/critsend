@@ -12,6 +12,7 @@ import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { logger } from "../logger";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
 import { compileSegmentRules } from "../services/segment-compiler";
+import { UNSUBSCRIBE_COOLING_OFF_DAYS } from "../config/suppression";
 import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
 import { redisConnection, isRedisConfigured } from "../redis";
 
@@ -176,7 +177,7 @@ export async function updateSubscriber(id: string, data: Partial<InsertSubscribe
 
 export async function setSuppressedUntil(subscriberId: string): Promise<void> {
   await db.execute(
-    sql`UPDATE subscribers SET suppressed_until = NOW() + INTERVAL '7 days' WHERE id = ${subscriberId}`
+    sql`UPDATE subscribers SET suppressed_until = NOW() + make_interval(days => ${UNSUBSCRIBE_COOLING_OFF_DAYS}) WHERE id = ${subscriberId}`
   );
 }
 

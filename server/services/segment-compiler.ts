@@ -193,7 +193,9 @@ export function compileSegmentRules(rules: SegmentRulesV2): SQL {
   return compileGroup(rules.root);
 }
 
-// Suppression guard: excludes subscribers within their 7-day cooling-off window.
+// Suppression guard: excludes subscribers within their cooling-off window
+// (duration = UNSUBSCRIBE_COOLING_OFF_DAYS, baked into suppressed_until at
+// unsubscribe time; here we only check whether it is still in the future).
 const notSuppressed = sql`(suppressed_until IS NULL OR suppressed_until < NOW())`;
 
 export function compileCountQuery(rules: SegmentRulesV2): SQL {
