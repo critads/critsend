@@ -22,3 +22,9 @@ what link scanners / prefetchers trigger.
 confirmation page (no mutation) and mutate only on `POST`. As of 2026-07 this is NOT
 fixed — the user opted to extend the cooling-off window (7 → 21d,
 `UNSUBSCRIBE_COOLING_OFF_DAYS` in server/config/suppression.ts) instead.
+
+Related: a per-IP unsubscribe blocklist exists (`BLOCKED_UNSUBSCRIBE_IPS`, same config
+file) that BCK-tags subscribers whose unsubscribe came from a proven-spurious IP
+(185.187.30.19 → 3 397 false unsubscribes, retro-tagged in prod 2026-07). CAUTION:
+it applies to the RFC 8058 POST path too — never blocklist Google/Apple/Microsoft
+provider ranges or legitimate one-click unsubscribes get permanently excluded.

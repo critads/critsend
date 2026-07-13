@@ -24,7 +24,11 @@ import { trackingPool, flushPool, getTrackingPoolStats, getFlushPoolStats, safeT
 import { isPoolCheckoutError } from "./db";
 import { isTransientConnError } from "./services/conn-retry";
 import { logger } from "./logger";
-import { UNSUBSCRIBE_COOLING_OFF_DAYS } from "./config/suppression";
+import {
+  UNSUBSCRIBE_COOLING_OFF_DAYS,
+  BLOCKED_UNSUBSCRIBE_IPS,
+  blockedUnsubMarkerTag,
+} from "./config/suppression";
 import {
   trackingBufferEnqueued,
   trackingBufferFlushed,
@@ -938,6 +942,38 @@ async function processSideEffects(
           );
         } catch (err: any) {
           logger.error(`[TRACKING BUFFER] bulk setSuppressedUntil failed: ${err?.message || err}`);
+        }
+      }
+
+      // Blocked-IP auto-exclusion: unsubscribes originating from a
+      // blocklisted source IP (automated scanners mass-firing the
+      // unsubscribe link) permanently exclude the subscriber from every
+      // segment/audience via the BCK tag, plus a marker tag recording the
+      // source IP. Mirrors the retroactive SQL applied in prod for
+      // 185.187.30.19. See server/config/suppression.ts. Webhook/FBL
+      // unsubscribes carry no source IP and are unaffected.
+      const blockedByIp = new Map<string, Set<string>>();
+      for (const ev of events) {
+        const ip = ev.ctx?.ipAddress;
+        if (ip && BLOCKED_UNSUBSCRIBE_IPS.has(ip)) {
+          let ids = blockedByIp.get(ip);
+          if (!ids) blockedByIp.set(ip, (ids = new Set()));
+          ids.add(ev.subscriberId);
+        }
+      }
+      for (const [ip, ids] of blockedByIp) {
+        try {
+          await flushPool.query(
+            `UPDATE subscribers
+                SET tags = ARRAY(SELECT DISTINCT unnest(COALESCE(tags, '{}'::text[]) || $2::text[]))
+              WHERE id = ANY($1::varchar[])`,
+            [[...ids], ["BCK", blockedUnsubMarkerTag(ip)]],
+          );
+          logger.warn(
+            `[TRACKING BUFFER] blocked-IP unsubscribe: tagged ${ids.size} subscriber(s) BCK (source IP ${ip})`,
+          );
+        } catch (err: any) {
+          logger.error(`[TRACKING BUFFER] blocked-IP BCK tagging failed for ${ip}: ${err?.message || err}`);
         }
       }
     }
