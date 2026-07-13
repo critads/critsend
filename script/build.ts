@@ -61,21 +61,6 @@ async function buildAll() {
     logLevel: "info",
   });
 
-  console.log("building import worker...");
-  await esbuild({
-    entryPoints: ["server/import-worker.ts"],
-    platform: "node",
-    bundle: true,
-    format: "cjs",
-    outfile: "dist/import-worker.cjs",
-    define: {
-      "process.env.NODE_ENV": '"production"',
-    },
-    minify: true,
-    external: externals,
-    logLevel: "info",
-  });
-
   console.log("building background worker...");
   await esbuild({
     entryPoints: ["server/worker-main.ts"],

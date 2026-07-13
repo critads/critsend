@@ -30,6 +30,7 @@ function mapJobRow(row: any): CampaignJob {
     completedAt: row.completed_at ? new Date(row.completed_at) : null,
     workerId: row.worker_id,
     errorMessage: row.error_message,
+    heartbeat: row.heartbeat ? new Date(row.heartbeat) : null,
   };
 }
 
@@ -51,13 +52,40 @@ export async function enqueueCampaignJob(campaignId: string): Promise<CampaignJo
     }
     return existingJob[0];
   }
-  const [job] = await db.insert(campaignJobs).values({ campaignId, status: "pending" }).returning();
-  if (USE_BULLMQ && campaignQueue) {
-    await campaignQueue.add("campaign", { campaignId, pgJobId: job.id }, { jobId: `campaign-${campaignId}` }).catch((err: any) =>
-      logger.warn("[BullMQ] Failed to enqueue campaign job:", err.message)
-    );
+  // Anti-race: the SELECT above is a non-atomic check — two concurrent
+  // enqueues can both pass it. The partial unique index
+  // campaign_jobs_one_pending_per_campaign makes the INSERT the real arbiter;
+  // targetless ON CONFLICT DO NOTHING stays valid even before the index
+  // exists in prod (deploy-order-safe). Bounded loop: if we lose the race
+  // AND the winner got claimed+completed before our re-select, retry.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const [job] = await db.insert(campaignJobs)
+      .values({ campaignId, status: "pending" })
+      .onConflictDoNothing()
+      .returning();
+    if (job) {
+      if (USE_BULLMQ && campaignQueue) {
+        await campaignQueue.add("campaign", { campaignId, pgJobId: job.id }, { jobId: `campaign-${campaignId}` }).catch((err: any) =>
+          logger.warn("[BullMQ] Failed to enqueue campaign job:", err.message)
+        );
+      }
+      return job;
+    }
+    // Lost the race: another enqueue just inserted the pending job. Return it.
+    const [winner] = await db.select().from(campaignJobs)
+      .where(and(eq(campaignJobs.campaignId, campaignId), or(eq(campaignJobs.status, "pending"), eq(campaignJobs.status, "processing"))))
+      .orderBy(desc(campaignJobs.createdAt))
+      .limit(1);
+    if (winner) {
+      if (USE_BULLMQ && campaignQueue) {
+        await campaignQueue.add("campaign", { campaignId }, { jobId: `campaign-${campaignId}` }).catch((err: any) =>
+          logger.warn("[BullMQ] Failed to re-enqueue existing campaign job:", err.message)
+        );
+      }
+      return winner;
+    }
   }
-  return job;
+  throw new Error(`enqueueCampaignJob: could not insert or find a job for campaign ${campaignId} after 3 attempts`);
 }
 
 export async function enqueueCampaignJobWithRetry(campaignId: string, retryCount: number, delaySeconds: number): Promise<any> {
@@ -68,11 +96,18 @@ export async function enqueueCampaignJobWithRetry(campaignId: string, retryCount
     const row = existing.rows[0] as any;
     return { id: row.id, campaignId, status: 'pending', retryCount, nextRetryAt: null, createdAt: new Date(), startedAt: null, completedAt: null, workerId: null, errorMessage: null };
   }
+  // Anti-race: same pattern as enqueueCampaignJob — the unique partial index
+  // arbitrates; on conflict return the same synthetic shape as the
+  // existing-job branch above.
   const result = await db.execute(sql`
     INSERT INTO campaign_jobs (id, campaign_id, status, retry_count, next_retry_at, created_at)
     VALUES (gen_random_uuid(), ${campaignId}, 'pending', ${retryCount}, NOW() + INTERVAL '1 second' * ${delaySeconds}, NOW())
+    ON CONFLICT DO NOTHING
     RETURNING *
   `);
+  if (result.rows.length === 0) {
+    return { id: null, campaignId, status: 'pending', retryCount, nextRetryAt: null, createdAt: new Date(), startedAt: null, completedAt: null, workerId: null, errorMessage: null };
+  }
   return mapJobRow(result.rows[0]);
 }
 

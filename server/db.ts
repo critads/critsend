@@ -93,7 +93,7 @@ export function isInStartupGrace(): boolean {
 
 const BG_POOL_SATURATION_THRESHOLD = 0.6;
 
-export async function backgroundQuery<T = any>(
+export async function backgroundQuery<T extends pg.QueryResultRow = any>(
   queryText: string,
   values?: any[],
   label = "background",

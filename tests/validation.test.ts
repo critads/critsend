@@ -51,6 +51,8 @@ describe('Schema Validation', () => {
         name: 'Test MTA',
         hostname: 'smtp.example.com',
         port: 587,
+        fromName: 'Test Sender',
+        fromEmail: 'sender@example.com',
       });
       expect(result.success).toBe(true);
     });

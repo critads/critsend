@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 /**
  * Task #145 R9: end-to-end test for the real reserve → defer →
  * unsubscribe → dispatch timeline.
@@ -27,7 +28,6 @@ vi.mock("../server/email-service", () => ({
 
 d("Pressure Guard worker — full reserve→defer→unsub→dispatch timeline (Task #145 R9)", () => {
   let db: any;
-  let sql: any;
   let storage: any;
   let drainCampaign: (id: string) => Promise<void>;
 
@@ -41,7 +41,7 @@ d("Pressure Guard worker — full reserve→defer→unsub→dispatch timeline (T
   beforeAll(async () => {
     // Strict-bounds compliant 5-minute window.
     process.env.PRESSURE_WINDOW_HOURS = "0.0833";
-    ({ db, sql } = await import("../server/db"));
+    ({ db } = await import("../server/db"));
     ({ storage } = await import("../server/storage"));
     const { runPressureGuardBootstrap } = await import("../server/services/pressure-guard");
     await runPressureGuardBootstrap();
@@ -57,11 +57,11 @@ d("Pressure Guard worker — full reserve→defer→unsub→dispatch timeline (T
       ON CONFLICT (id) DO NOTHING`);
     const t1 = new Date(Date.now() - 60_000);
     const t2 = new Date(Date.now() - 30_000);
-    await db.execute(sql`INSERT INTO campaigns (id, user_id, mta_id, name, subject, html_content, status, started_at, unsubscribe_tag)
-      VALUES (${c1}, ${userId}, ${mtaId}, 'unsub-c1', 's', '<p>x</p>', 'sending', ${t1}, 'UNUSED-1'),
-             (${c2}, ${userId}, ${mtaId}, 'unsub-c2', 's', '<p>x</p>', 'sending', ${t2}, ${unsubTag})
+    await db.execute(sql`INSERT INTO campaigns (id, user_id, mta_id, name, subject, html_content, from_email, from_name, status, started_at, unsubscribe_tag)
+      VALUES (${c1}, ${userId}, ${mtaId}, 'unsub-c1', 's', '<p>x</p>', 'a@b.c', 'T', 'sending', ${t1}, 'UNUSED-1'),
+             (${c2}, ${userId}, ${mtaId}, 'unsub-c2', 's', '<p>x</p>', 'a@b.c', 'T', 'sending', ${t2}, ${unsubTag})
       ON CONFLICT (id) DO NOTHING`);
-  });
+  }, 60000);
 
   afterAll(async () => {
     await db.execute(sql`DELETE FROM campaign_sends WHERE campaign_id IN (${c1}, ${c2})`);
@@ -71,7 +71,7 @@ d("Pressure Guard worker — full reserve→defer→unsub→dispatch timeline (T
     await db.execute(sql`DELETE FROM subscribers WHERE id = ${subId}`);
     await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
     delete process.env.PRESSURE_WINDOW_HOURS;
-  });
+  }, 60000);
 
   it("reserve→defer→unsub→drain: drain skips send and marks the deferred row failed", async () => {
     sendSpy.mockClear();

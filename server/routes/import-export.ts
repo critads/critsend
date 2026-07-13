@@ -313,8 +313,8 @@ export function registerImportExportRoutes(app: Express, helpers: {
       // real path — used by the worker to signal "no source file, run dedup
       // SQL"). For the requeue gate we want the ORIGINAL source CSV row, so
       // we exclude phase2_merge and order by createdAt ASC LIMIT 1 (same
-      // resolution pattern as import-worker.ts:1986 and
-      // import-processor.ts:1565). Status comes from import_jobs (1 row).
+      // resolution pattern as import-processor.ts:1565). Status comes
+      // from import_jobs (1 row).
       const [statusRow] = await db
         .select({ status: importJobs.status })
         .from(importJobs)

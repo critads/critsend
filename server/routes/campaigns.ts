@@ -1566,6 +1566,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
             SELECT 1 FROM campaign_jobs
             WHERE campaign_id = ${updated.id} AND status IN ('pending', 'processing')
           )
+          ON CONFLICT DO NOTHING
         `);
         return { campaign: updated, resetCount };
       });

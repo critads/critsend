@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 const HAS_DB = !!process.env.DATABASE_URL;
@@ -5,7 +6,6 @@ const d = HAS_DB ? describe : describe.skip;
 
 d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () => {
   let db: any;
-  let sql: any;
   let storage: any;
   let runPressureGuardBootstrap: any;
 
@@ -15,7 +15,7 @@ d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () =
   const userId = `pg-test-user-${Date.now()}`;
 
   beforeAll(async () => {
-    ({ db, sql } = await import("../server/db"));
+    ({ db } = await import("../server/db"));
     ({ storage } = await import("../server/storage"));
     ({ runPressureGuardBootstrap } = await import("../server/services/pressure-guard"));
     await runPressureGuardBootstrap();
@@ -26,18 +26,18 @@ d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () =
       VALUES (${subId}, ${`${subId}@example.com`}, NULL) ON CONFLICT (id) DO NOTHING`);
     const olderStarted = new Date(Date.now() - 60_000);
     const newerStarted = new Date(Date.now() - 30_000);
-    await db.execute(sql`INSERT INTO campaigns (id, user_id, name, status, started_at)
-      VALUES (${olderCampaignId}, ${userId}, 'older', 'sending', ${olderStarted}),
-             (${newerCampaignId}, ${userId}, 'newer', 'sending', ${newerStarted})
+    await db.execute(sql`INSERT INTO campaigns (id, user_id, name, subject, html_content, from_email, from_name, status, started_at)
+      VALUES (${olderCampaignId}, ${userId}, 'older', 's', '<p>x</p>', 'a@b.c', 'T', 'sending', ${olderStarted}),
+             (${newerCampaignId}, ${userId}, 'newer', 's', '<p>x</p>', 'a@b.c', 'T', 'sending', ${newerStarted})
       ON CONFLICT (id) DO NOTHING`);
-  });
+  }, 60000);
 
   afterAll(async () => {
     await db.execute(sql`DELETE FROM campaign_sends WHERE subscriber_id = ${subId}`);
     await db.execute(sql`DELETE FROM campaigns WHERE id IN (${olderCampaignId}, ${newerCampaignId})`);
     await db.execute(sql`DELETE FROM subscribers WHERE id = ${subId}`);
     await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
-  });
+  }, 60000);
 
   it("10 parallel reserves across 2 campaigns for same subscriber → exactly 1 immediate row, oldest campaign wins", async () => {
     const tasks = Array.from({ length: 10 }, (_, i) =>
@@ -105,7 +105,8 @@ d("Marketing Pressure Guard — strict concurrency invariants (Task #144)", () =
   });
 
   it("deferred sends are scheduled at >= last_sent_at + window", async () => {
-    const windowH = Number(process.env.PRESSURE_WINDOW_HOURS ?? 6);
+    // Default mirrors server/services/pressure-guard.ts (2h since 2026-06-24).
+    const windowH = Number(process.env.PRESSURE_WINDOW_HOURS ?? 2);
     const r = await db.execute(sql`
       SELECT s.last_sent_at, MIN(cs.eligible_at) AS first_eligible
       FROM campaign_sends cs JOIN subscribers s ON s.id = cs.subscriber_id

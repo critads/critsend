@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 /**
  * Task #145 R4: deferred_count idempotency regression test.
  *
@@ -16,7 +17,6 @@ const d = HAS_DB ? describe : describe.skip;
 
 d("Pressure Guard — deferred_count is idempotent across reserve retries (Task #145 R4)", () => {
   let db: any;
-  let sql: any;
   let storage: any;
 
   const userId = `pg-r4-user-${Date.now()}`;
@@ -26,7 +26,7 @@ d("Pressure Guard — deferred_count is idempotent across reserve retries (Task 
 
   beforeAll(async () => {
     process.env.PRESSURE_WINDOW_HOURS = "0.0833";
-    ({ db, sql } = await import("../server/db"));
+    ({ db } = await import("../server/db"));
     ({ storage } = await import("../server/storage"));
     const { runPressureGuardBootstrap } = await import("../server/services/pressure-guard");
     await runPressureGuardBootstrap();
@@ -37,11 +37,11 @@ d("Pressure Guard — deferred_count is idempotent across reserve retries (Task 
       VALUES (${subId}, ${`${subId}@example.com`}, NULL) ON CONFLICT (id) DO NOTHING`);
     const t1 = new Date(Date.now() - 60_000);
     const t2 = new Date(Date.now() - 30_000);
-    await db.execute(sql`INSERT INTO campaigns (id, user_id, name, status, started_at)
-      VALUES (${c1}, ${userId}, 'r4-c1', 'sending', ${t1}),
-             (${c2}, ${userId}, 'r4-c2', 'sending', ${t2})
+    await db.execute(sql`INSERT INTO campaigns (id, user_id, name, subject, html_content, from_email, from_name, status, started_at)
+      VALUES (${c1}, ${userId}, 'r4-c1', 's', '<p>x</p>', 'a@b.c', 'T', 'sending', ${t1}),
+             (${c2}, ${userId}, 'r4-c2', 's', '<p>x</p>', 'a@b.c', 'T', 'sending', ${t2})
       ON CONFLICT (id) DO NOTHING`);
-  });
+  }, 60000);
 
   afterAll(async () => {
     await db.execute(sql`DELETE FROM campaign_sends WHERE subscriber_id = ${subId}`);
@@ -49,7 +49,7 @@ d("Pressure Guard — deferred_count is idempotent across reserve retries (Task 
     await db.execute(sql`DELETE FROM subscribers WHERE id = ${subId}`);
     await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
     delete process.env.PRESSURE_WINDOW_HOURS;
-  });
+  }, 60000);
 
   it("re-reserving the same subscriber on a deferred campaign does not double-count deferred_count", async () => {
     // Wave 1: reserve on c1 (winner) — c1.deferred_count remains 0.

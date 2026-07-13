@@ -19,8 +19,10 @@ export default defineConfig({
   // deploy: without this exclusion, push would see the partitioned parent + its
   // child partitions (tracking_tokens_pYYYYMMDD) + the transient
   // tracking_tokens_legacy as drift and DROP/rewrite them, destroying the table.
-  // Excluding the whole family keeps it out of push's reach on both sides of the
-  // diff. The table still has a Drizzle definition in shared/schema.ts purely for
-  // TypeScript types.
+  // IMPORTANT: tablesFilter only shields the DB-introspection side of push's
+  // diff — it does NOT hide schema-side pgTable definitions. That is why
+  // shared/schema.ts deliberately has NO pgTable for tracking_tokens (only a
+  // plain TS interface): a pgTable there would make every push try
+  // `CREATE TABLE tracking_tokens` and abort with 42P07. Keep BOTH guards.
   tablesFilter: ["!tracking_tokens", "!tracking_tokens_*"],
 });

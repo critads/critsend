@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 /**
  * Task #145 R2: end-to-end cascade test driving the real deferred-drain
  * worker (`drainCampaign`).
@@ -22,7 +23,6 @@ const d = HAS_DB ? describe : describe.skip;
 
 d("Pressure Guard — drainCampaign cascades across 3 campaigns (Task #145 R2)", () => {
   let db: any;
-  let sql: any;
   let drainCampaign: (id: string) => Promise<void>;
 
   const subId = `pg-cascade-sub-${Date.now()}`;
@@ -36,7 +36,7 @@ d("Pressure Guard — drainCampaign cascades across 3 campaigns (Task #145 R2)",
     // Strict-bounds compliant: 5-minute window (0.0833h). Between waves
     // we backdate last_sent_at by 10min to simulate window expiry.
     process.env.PRESSURE_WINDOW_HOURS = "0.0833";
-    ({ db, sql } = await import("../server/db"));
+    ({ db } = await import("../server/db"));
     const { runPressureGuardBootstrap } = await import("../server/services/pressure-guard");
     await runPressureGuardBootstrap();
     ({ drainCampaign } = await import("../server/workers/pressure-guard-worker"));
@@ -53,15 +53,15 @@ d("Pressure Guard — drainCampaign cascades across 3 campaigns (Task #145 R2)",
     const t2 = new Date(Date.now() - 60_000);
     const t3 = new Date(Date.now() - 30_000);
     for (const [id, name, started] of [[c1, "cascade-1", t1], [c2, "cascade-2", t2], [c3, "cascade-3", t3]] as const) {
-      await db.execute(sql`INSERT INTO campaigns (id, user_id, mta_id, name, subject, html_content, status, started_at)
-        VALUES (${id}, ${userId}, ${mtaId}, ${name}, 's', '<p>x</p>', 'sending', ${started})
+      await db.execute(sql`INSERT INTO campaigns (id, user_id, mta_id, name, subject, html_content, from_email, from_name, status, started_at)
+        VALUES (${id}, ${userId}, ${mtaId}, ${name}, 's', '<p>x</p>', 'a@b.c', 'T', 'sending', ${started})
         ON CONFLICT (id) DO NOTHING`);
       await db.execute(sql`
         INSERT INTO campaign_sends (id, campaign_id, subscriber_id, status, sent_at, eligible_at)
         VALUES (gen_random_uuid(), ${id}, ${subId}, 'pending', NOW(), NOW())
       `);
     }
-  });
+  }, 60000);
 
   afterAll(async () => {
     await db.execute(sql`DELETE FROM campaign_sends WHERE subscriber_id = ${subId}`);
@@ -71,7 +71,7 @@ d("Pressure Guard — drainCampaign cascades across 3 campaigns (Task #145 R2)",
     await db.execute(sql`DELETE FROM subscribers WHERE id = ${subId}`);
     await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
     delete process.env.PRESSURE_WINDOW_HOURS;
-  });
+  }, 60000);
 
   async function statusFor(cid: string): Promise<string> {
     const r = await db.execute(sql`

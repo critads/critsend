@@ -220,6 +220,7 @@ async function sweepGhostCampaigns(): Promise<void> {
       )
       INSERT INTO campaign_jobs (campaign_id, status, retry_count)
       SELECT id, 'pending', 0 FROM reset_counters
+      ON CONFLICT DO NOTHING
       RETURNING campaign_id
     `);
     if (result.rows.length > 0) {
@@ -269,6 +270,7 @@ async function sweepGhostCampaigns(): Promise<void> {
       )
       INSERT INTO campaign_jobs (campaign_id, status, retry_count)
       SELECT id, 'pending', 0 FROM stuck
+      ON CONFLICT DO NOTHING
       RETURNING campaign_id
     `);
     if (midFlight.rows.length > 0) {
@@ -1306,6 +1308,7 @@ async function pollScheduledCampaigns() {
         WHERE cj.campaign_id = promoted.id
           AND cj.status IN ('pending', 'processing')
       )
+      ON CONFLICT DO NOTHING
       RETURNING campaign_id, (SELECT name FROM promoted WHERE promoted.id = campaign_id) AS name
     `);
     const launched = result.rows as Array<{ campaign_id: string; name: string }>;

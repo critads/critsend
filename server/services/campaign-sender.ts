@@ -134,7 +134,7 @@ async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxAttempts = S
 const FALLBACK_CONCURRENCY = 5;
 const BATCH_TIERS = [500, 100, 25];
 
-async function tieredFinalizeFallback(
+export async function tieredFinalizeFallback(
   campaignId: string,
   successBatch: string[],
   failedBatch: string[],

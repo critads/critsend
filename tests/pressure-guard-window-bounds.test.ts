@@ -60,10 +60,10 @@ describe("PRESSURE_WINDOW_HOURS boundary validation (Task #145 R14)", () => {
     await expect(import("../server/services/pressure-guard")).rejects.toThrow(/PRESSURE_WINDOW_HOURS/);
   });
 
-  it("ignores the env in production and pins to 4h", async () => {
+  it("ignores the env in production and pins to 2h", async () => {
     process.env.NODE_ENV = "production";
     process.env.PRESSURE_WINDOW_HOURS = "0.0001";
     const mod = await import("../server/services/pressure-guard");
-    expect(mod.PRESSURE_WINDOW_HOURS).toBe(4);
+    expect(mod.PRESSURE_WINDOW_HOURS).toBe(2);
   });
 });

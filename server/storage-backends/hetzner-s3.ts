@@ -25,7 +25,7 @@ import {
  *   uploadLocalFile()  returns  "/objects/imports/{jobId}.csv"
  *   {get,head,delete}*Object accept the same form.
  * The `/objects/` prefix is what `csvFilePath.startsWith("/objects/")` checks
- * for in import-processor.ts / import-worker.ts to route between local-fs
+ * for in import-processor.ts to route between local-fs
  * and object-storage code paths — keeping this prefix means ZERO downstream
  * code changes for the routing logic.
  *

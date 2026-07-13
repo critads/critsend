@@ -24,6 +24,10 @@ export const subscribers = pgTable("subscribers", {
   emailLowerIdx: index("subscribers_email_lower_idx").on(sql`lower(email)`),
   tagsGinIdx: index("tags_gin_idx").using("gin", table.tags),
   refsGinIdx: index("refs_gin_idx").using("gin", table.refs),
+  // Segment DSL filters (imported_before/after/between, days_ago) and the
+  // preview ORDER BY import_date DESC both hit this column on the full table.
+  // Prod: create with CREATE INDEX CONCURRENTLY (same name) BEFORE deploying.
+  importDateIdx: index("subscribers_import_date_idx").on(table.importDate),
 }));
 
 export const subscribersRelations = relations(subscribers, ({ many }) => ({
@@ -361,6 +365,10 @@ export const campaignSends = pgTable("campaign_sends", {
   campaignIdx: index("campaign_sends_campaign_idx").on(table.campaignId),
   // Composite index replaces status-only index — covers (campaign_id, status) lookup pattern
   campaignStatusIdx: index("campaign_sends_campaign_status_idx").on(table.campaignId, table.status),
+  // Global time-range scans (analytics deliverability windows, orphan-send sweeps)
+  // filter on sent_at with NO campaign_id — without this index they seq-scan 89M rows.
+  // Prod: create with CREATE INDEX CONCURRENTLY (same name) BEFORE deploying.
+  sentAtIdx: index("campaign_sends_sent_at_idx").on(table.sentAt),
   // Pressure-guard deferred-drain poll: WHERE status='pending' AND eligible_at <= NOW()
   pressureDeferredIdx: index("campaign_sends_pressure_deferred_idx")
     .on(table.eligibleAt)
@@ -451,6 +459,16 @@ export const campaignJobs = pgTable("campaign_jobs", {
   createdAtIdx: index("campaign_jobs_created_at_idx").on(table.createdAt),
   statusCreatedIdx: index("campaign_jobs_status_created_idx").on(table.status, table.createdAt),
   pendingStatusIdx: index("campaign_jobs_pending_idx").on(table.status).where(sql`status = 'pending'`),
+  // Anti-race (audit 2026-07): every enqueue path used a non-atomic
+  // SELECT-then-INSERT dedup check, so two concurrent enqueues (e.g. the
+  // guardian + LISTEN/NOTIFY poller) could both insert a 'pending' job and
+  // double-process the same campaign. This partial unique index makes the
+  // dedup atomic at the DB level; all insert sites use a targetless
+  // ON CONFLICT DO NOTHING so the code stays deploy-order-safe (works
+  // before AND after the index exists in prod).
+  onePendingPerCampaign: uniqueIndex("campaign_jobs_one_pending_per_campaign")
+    .on(table.campaignId)
+    .where(sql`status = 'pending'`),
 }));
 
 export const campaignJobsRelations = relations(campaignJobs, ({ one }) => ({
@@ -619,23 +637,22 @@ export type CampaignLink = typeof campaignLinks.$inferSelect;
 // retried batch insert may create a duplicate logical row; both resolve to
 // identical metadata so attribution stays correct. The actual table/partitions are
 // created by raw SQL (bootstrap DDL in server/repositories/campaign-repository.ts +
-// scripts/migrate-tracking-tokens-partitioning.ts), NOT by drizzle-kit — this
-// pgTable exists only for TypeScript types and is excluded from `drizzle-kit push`
-// via tablesFilter in drizzle.config.ts.
-export const trackingTokens = pgTable("tracking_tokens", {
-  token: varchar("token", { length: 8 }).notNull(),
-  type: varchar("type", { length: 11 }).notNull(), // 'click' | 'unsubscribe'
-  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: 'cascade' }),
-  subscriberId: varchar("subscriber_id").notNull(),
-  linkId: varchar("link_id").references(() => campaignLinks.id, { onDelete: 'cascade' }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.token, table.createdAt] }),
-  campaignIdx: index("tracking_tokens_campaign_idx").on(table.campaignId),
-  subscriberIdx: index("tracking_tokens_subscriber_idx").on(table.subscriberId),
-}));
-
-export type TrackingToken = typeof trackingTokens.$inferSelect;
+// scripts/migrate-tracking-tokens-partitioning.ts), NOT by drizzle-kit.
+//
+// NO drizzle pgTable definition for tracking_tokens: drizzle-kit push's
+// `tablesFilter` only filters the DB-introspection side of the diff, so a
+// pgTable here makes every push emit `CREATE TABLE tracking_tokens` — which
+// errors (42P07) against any database where the partitioned parent exists and
+// aborts the deploy's schema push. All access goes through raw SQL
+// (server/tracking-queries.ts, server/tracking-partitions.ts).
+export interface TrackingToken {
+  token: string;
+  type: string; // 'click' | 'unsubscribe'
+  campaignId: string;
+  subscriberId: string;
+  linkId: string | null;
+  createdAt: Date;
+}
 
 // Insert schemas
 export const insertSubscriberSchema = createInsertSchema(subscribers).omit({ id: true, importDate: true }).extend({

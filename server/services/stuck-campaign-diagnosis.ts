@@ -94,10 +94,13 @@ export interface StuckCampaign {
  * Read-only — never mutates DB state.
  *
  * Each campaign appears at most once: the first matching branch in
- * priority order wins (scheduled → no-job → stale-heartbeat →
- * retry-exhausted → mid-flight-crash). This keeps the guardian's
- * per-tick action set unambiguous and the Prometheus gauge labels
- * non-overlapping.
+ * priority order wins (scheduled → stale-heartbeat → retry-exhausted →
+ * mid-flight-crash → generic no-job). The generic `sending_no_active_job`
+ * branch runs LAST on purpose: it is the catch-all, and running it first
+ * used to steal campaigns from the specific branches via the `seen`
+ * dedupe — notably re-enqueuing retry-budget-exhausted campaigns forever
+ * instead of pausing them. This keeps the guardian's per-tick action set
+ * unambiguous and the Prometheus gauge labels non-overlapping.
  */
 export async function diagnoseStuckCampaigns(): Promise<StuckCampaign[]> {
   const out: StuckCampaign[] = [];
@@ -129,37 +132,6 @@ export async function diagnoseStuckCampaigns(): Promise<StuckCampaign[]> {
       reason: "scheduled_past_due_no_job",
       action: "reenqueue",
       detail: `scheduled_at=${r.scheduled_at?.toISOString?.() ?? r.scheduled_at} is more than ${STUCK_SCHEDULED_MIN}min in the past with no pending/processing job`,
-    });
-  }
-
-  // (2) `sending` with no active job (existing guardian branch).
-  //     Excludes campaigns whose last job failed within
-  //     STUCK_SENDING_NO_JOB_MIN minutes (retry-in-flight via
-  //     enqueueCampaignJobWithRetry's next_retry_at delay).
-  const sendingNoJob = await db.execute(sql`
-    SELECT c.id, c.name, c.status, c.pause_reason
-    FROM campaigns c
-    WHERE c.status = 'sending'
-      AND NOT EXISTS (
-        SELECT 1 FROM campaign_jobs cj
-        WHERE cj.campaign_id = c.id
-          AND (
-            cj.status IN ('pending', 'processing')
-            OR (cj.status = 'failed' AND cj.completed_at > NOW() - (${STUCK_SENDING_NO_JOB_MIN} || ' minutes')::interval)
-          )
-      )
-  `);
-  for (const r of sendingNoJob.rows as Array<any>) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    out.push({
-      id: r.id,
-      name: r.name,
-      status: r.status,
-      pauseReason: r.pause_reason ?? null,
-      reason: "sending_no_active_job",
-      action: "reenqueue",
-      detail: `status='sending' but no pending/processing/recently-failed job within ${STUCK_SENDING_NO_JOB_MIN}min`,
     });
   }
 
@@ -334,6 +306,38 @@ export async function diagnoseStuckCampaigns(): Promise<StuckCampaign[]> {
       detail: `last send/start at ${last ? new Date(last).toISOString() : "n/a"}; no progress for ≥${STUCK_NO_PROGRESS_MIN}min and no active job`,
     });
   }
+
+  // (2) `sending` with no active job (existing guardian branch).
+  //     Excludes campaigns whose last job failed within
+  //     STUCK_SENDING_NO_JOB_MIN minutes (retry-in-flight via
+  //     enqueueCampaignJobWithRetry's next_retry_at delay).
+  const sendingNoJob = await db.execute(sql`
+    SELECT c.id, c.name, c.status, c.pause_reason
+    FROM campaigns c
+    WHERE c.status = 'sending'
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_jobs cj
+        WHERE cj.campaign_id = c.id
+          AND (
+            cj.status IN ('pending', 'processing')
+            OR (cj.status = 'failed' AND cj.completed_at > NOW() - (${STUCK_SENDING_NO_JOB_MIN} || ' minutes')::interval)
+          )
+      )
+  `);
+  for (const r of sendingNoJob.rows as Array<any>) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push({
+      id: r.id,
+      name: r.name,
+      status: r.status,
+      pauseReason: r.pause_reason ?? null,
+      reason: "sending_no_active_job",
+      action: "reenqueue",
+      detail: `status='sending' but no pending/processing/recently-failed job within ${STUCK_SENDING_NO_JOB_MIN}min`,
+    });
+  }
+
 
   return out;
 }

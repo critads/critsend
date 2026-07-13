@@ -26,13 +26,9 @@ import {
   Mail,
   Server,
   Users,
-  FileText,
-  Settings,
-  Clock,
   Zap,
   Eye,
   MousePointer2,
-  Upload,
   Code,
   X,
   AlertCircle,
@@ -43,24 +39,8 @@ import {
 import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 import DateTimePicker from "@/components/date-time-picker";
 import { SegmentCombobox } from "@/components/segment-combobox";
-
-/** Inject a <base href> into preview HTML so relative image URLs (/campaigns/...)
- *  resolve against the current server instead of about:srcdoc. */
-function withBaseHref(html: string): string {
-  const base = `<base href="${window.location.origin}/">`;
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (m) => `${m}${base}`);
-  }
-  return `${base}${html}`;
-}
-
-const steps = [
-  { id: 1, title: "Basic Info", icon: Mail },
-  { id: 2, title: "Audience", icon: Users },
-  { id: 3, title: "Content", icon: FileText },
-  { id: 4, title: "Tracking", icon: Settings },
-  { id: 5, title: "Schedule", icon: Clock },
-];
+import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
+import { withBaseHref, steps } from "@/lib/campaign-wizard";
 
 const sendingSpeeds = [
   { value: "drip", label: "Drip", description: "100 emails/min" },
@@ -772,81 +752,15 @@ export default function CampaignEdit() {
             <div className="space-y-2">
               <Label>HTML Content *</Label>
               {!htmlLoaded ? (
-                <div
-                  className={`border-2 border-dashed rounded-md p-8 text-center transition-colors ${
-                    isDragging
-                      ? "border-primary bg-primary/5"
-                      : "border-muted-foreground/25 hover:border-muted-foreground/50"
-                  }`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
+                <HtmlDropzone
+                  isDragging={isDragging}
+                  setIsDragging={setIsDragging}
                   onDrop={handleHtmlDrop}
-                  data-testid="dropzone-html"
-                >
-                  {processingImages ? (
-                    <>
-                      <Loader2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-spin" />
-                      <p className="text-lg font-medium mb-2">Processing images...</p>
-                      {imageProgress ? (
-                        <div className="w-48 mx-auto mb-4">
-                          <div className="flex justify-between text-sm text-muted-foreground mb-1">
-                            <span data-testid="text-image-progress">{imageProgress.processed} of {imageProgress.total}</span>
-                            <span>{Math.round((imageProgress.processed / imageProgress.total) * 100)}%</span>
-                          </div>
-                          <div className="h-2 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full transition-all duration-300"
-                              style={{ width: `${(imageProgress.processed / imageProgress.total) * 100}%` }}
-                              data-testid="progress-bar-images"
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground mb-4">
-                          Downloading and saving images locally
-                        </p>
-                      )}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={cancelImageProcessing}
-                        data-testid="button-cancel-image-processing"
-                      >
-                        <X className="h-4 w-4 mr-1" />
-                        Cancel
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                      <p className="text-lg font-medium mb-2">Drop your HTML file here</p>
-                      <p className="text-sm text-muted-foreground mb-4">
-                        or click to browse for a file
-                      </p>
-                      <input
-                        type="file"
-                        accept=".html,.htm,text/html"
-                        onChange={handleHtmlFileSelect}
-                        className="hidden"
-                        id="html-file-input"
-                        data-testid="input-html-file"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => document.getElementById("html-file-input")?.click()}
-                        data-testid="button-browse-html"
-                      >
-                        <Upload className="h-4 w-4 mr-2" />
-                        Browse Files
-                      </Button>
-                    </>
-                  )}
-                </div>
+                  onFileSelect={handleHtmlFileSelect}
+                  processing={processingImages}
+                  progress={imageProgress}
+                  onCancel={cancelImageProcessing}
+                />
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-2">

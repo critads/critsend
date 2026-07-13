@@ -931,6 +931,7 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
           SELECT 1 FROM campaign_jobs
           WHERE campaign_id = ${campaignId} AND status IN ('pending', 'processing')
         )
+      ON CONFLICT DO NOTHING
       RETURNING id
     )
     SELECT (SELECT COUNT(*) FROM reset) AS reset_count
