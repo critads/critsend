@@ -1,0 +1,93 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ cd /home/ubuntu/critsend && git pull && SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh
+pm2 restart critsend-drainer critsend-worker critsend-web
+remote: Enumerating objects: 88, done.
+remote: Counting objects: 100% (88/88), done.
+remote: Compressing objects: 100% (10/10), done.
+remote: Total 48 (delta 36), reused 48 (delta 36), pack-reused 0 (from 0)
+Unpacking objects: 100% (48/48), 60.98 KiB | 1.27 MiB/s, done.
+From https://github.com/critads/critsend
+   efc854b..be8e66e  main       -> origin/main
+Updating efc854b..be8e66e
+Fast-forward
+ .agents/memory/MEMORY.md                           |     1 +
+ .agents/memory/drizzle-push-prod-footgun.md        |    31 +
+ .replit                                            |     5 +-
+ .../components/campaign-wizard/html-dropzone.tsx   |   104 +
+ client/src/lib/campaign-wizard.ts                  |   105 +
+ client/src/pages/campaign-edit.tsx                 |   106 +-
+ client/src/pages/campaign-new.tsx                  |   200 +-
+ drizzle.config.ts                                  |     8 +-
+ package-lock.json                                  | 11770 ++++++++-----------
+ package.json                                       |    14 +-
+ script/build.ts                                    |    15 -
+ server/db.ts                                       |     2 +-
+ server/import-worker.ts                            |  2297 ----
+ server/repositories/campaign-repository.ts         |     1 +
+ server/repositories/job-repository.ts              |    47 +-
+ server/routes/campaigns.ts                         |     1 +
+ server/routes/import-export.ts                     |     4 +-
+ server/services/campaign-sender.ts                 |     2 +-
+ server/services/stuck-campaign-diagnosis.ts        |    74 +-
+ server/storage-backends/hetzner-s3.ts              |     2 +-
+ server/workers.ts                                  |     3 +
+ shared/schema.ts                                   |    51 +-
+ tests/email-service-smtp-down.test.ts              |   162 +
+ tests/lost-sends-terminal.test.ts                  |   113 +
+ tests/pressure-guard-cascade.test.ts               |    12 +-
+ tests/pressure-guard-concurrency.test.ts           |    17 +-
+ tests/pressure-guard-deferred-idempotency.test.ts  |    14 +-
+ tests/pressure-guard-unsub-during-window.test.ts   |    14 +-
+ tests/pressure-guard-window-bounds.test.ts         |     4 +-
+ tests/tracking-routes-signature.test.ts            |   186 +
+ tests/validation.test.ts                           |     2 +
+ 31 files changed, 5910 insertions(+), 9457 deletions(-)
+ create mode 100644 .agents/memory/drizzle-push-prod-footgun.md
+ create mode 100644 client/src/components/campaign-wizard/html-dropzone.tsx
+ create mode 100644 client/src/lib/campaign-wizard.ts
+ delete mode 100644 server/import-worker.ts
+ create mode 100644 tests/email-service-smtp-down.test.ts
+ create mode 100644 tests/lost-sends-terminal.test.ts
+ create mode 100644 tests/tracking-routes-signature.test.ts
+
+[deploy] ▶ Pulling latest code from git...
+Already up to date.
+[deploy] ✓ Code updated: be8e66e Improve campaign sending reliability and test coverage
+
+[deploy] ▶ Installing dependencies (npm ci)...
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+npm warn deprecated recharts@2.15.4: 1.x and 2.x branches are no longer active. Bump to Recharts v3 to receive latest features and bugfixes. See https://github.com/recharts/recharts/wiki/3.0-migration-guide
+npm error code EAI_AGAIN
+npm error syscall getaddrinfo
+npm error errno EAI_AGAIN
+npm error request to http://package-firewall.replit.local/npm/drizzle-orm/-/drizzle-orm-0.45.2.tgz failed, reason: getaddrinfo EAI_AGAIN package-firewall.replit.local
+npm error A complete log of this run can be found in: /home/ubuntu/.npm/_logs/2026-07-13T16_52_59_503Z-debug-0.log
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-drainer](ids: [ 13 ])
+[PM2] [critsend-drainer](13) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-worker](ids: [ 12 ])
+[PM2] [critsend-worker](12) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [critsend-web](ids: [ 10, 11 ])
+[PM2] [critsend-web](10) ✓
+[PM2] [critsend-web](11) ✓
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 13 │ critsend-drainer   │ fork     │ 124  │ …90m│ 0%       │ 0b       │
+│ 10 │ critsend-web       │ cluster  │ 44   │ online    │ 0%       │ 85.1mb   │
+│ 11 │ critsend-web       │ cluster  │ 45   │ online    │ 0%       │ 81.5mb   │
+│ 12 │ critsend-worker    │ fork     │ 44   │ online    │ 0.8%     │ 87.7mb   │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0.1%     │ 74.0mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
