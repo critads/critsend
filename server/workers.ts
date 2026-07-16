@@ -24,6 +24,7 @@ import {
   ensureTrackingTokenPartitions,
   dropExpiredTrackingTokenPartitions,
 } from "./tracking-partitions";
+import { msUntilNextHourInTz } from "./lib/daily-schedule";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -2313,40 +2314,14 @@ function startMaintenanceWorker() {
 // rows observed 2026-05-27). Purging it every 6h with the rest of the cycle
 // risks a multi-hour DELETE landing during business hours. This dedicated
 // scheduler fires once a day at 01:00 Europe/Paris (handles DST via the
-// Intl.DateTimeFormat round-trip) so the big DELETE runs strictly off-peak.
+// Intl.DateTimeFormat round-trip in server/lib/daily-schedule.ts) so the big
+// DELETE runs strictly off-peak.
 //
 // Multi-process safety: the cluster runs 3 PM2 processes (web/worker/drainer).
 // All three will arm a 01:00 timer, so before running we check
 // db_maintenance_logs for any 'success' run of tracking_tokens in the last
 // 23 hours and skip if found. This is a cheap idempotency gate — DELETE LIMIT
 // is already safe to run concurrently, the gate just avoids wasted work.
-function msUntilNextHourInTz(hour: number, tz: string): number {
-  const now = new Date();
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz, hour12: false,
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-  });
-  const parts = Object.fromEntries(
-    fmt.formatToParts(now).filter(p => p.type !== "literal").map(p => [p.type, p.value])
-  );
-  const tzYear = +parts.year, tzMonth = +parts.month, tzDay = +parts.day;
-  const tzHour = +parts.hour, tzMinute = +parts.minute, tzSecond = +parts.second;
-  // Convert "now in tz" treated as UTC to derive tz offset vs real UTC.
-  const tzNowAsUtcMs = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, tzSecond);
-  const offsetMs = tzNowAsUtcMs - (now.getTime() - (now.getTime() % 1000));
-  // Target day: today if before target hour, else tomorrow
-  let targetY = tzYear, targetM = tzMonth, targetD = tzDay;
-  if (tzHour >= hour) {
-    const tomorrow = new Date(Date.UTC(tzYear, tzMonth - 1, tzDay + 1));
-    targetY = tomorrow.getUTCFullYear();
-    targetM = tomorrow.getUTCMonth() + 1;
-    targetD = tomorrow.getUTCDate();
-  }
-  const targetTzAsUtcMs = Date.UTC(targetY, targetM - 1, targetD, hour, 0, 0);
-  const targetMs = targetTzAsUtcMs - offsetMs;
-  return Math.max(targetMs - now.getTime(), 1000);
-}
 
 async function runDailyTrackingTokenPurge(): Promise<void> {
   try {

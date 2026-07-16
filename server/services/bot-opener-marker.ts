@@ -18,10 +18,13 @@
  *      session-level pg_try_advisory_lock (leaks on transaction-pooled
  *      backends — same architectural rule as pmta-collector / pressure guard).
  *   3. The candidate query is heavy (30-day aggregate over campaign_stats).
- *      It runs at most once per BOT_OPENER_RUN_INTERVAL (default 24h),
- *      deferred after boot, inside a transaction with SET LOCAL
- *      statement_timeout so it can exceed the pool's 120s default without
- *      polluting the connection.
+ *      The pass runs once a day, anchored at BOT_OPENER_RUN_HOUR (default
+ *      01:00) Europe/Paris — same off-peak slot as the tracking_tokens
+ *      purge — plus a due-gated catch-up pass shortly after boot (covers
+ *      the retroactive first pass and a VM down at the scheduled hour).
+ *      It executes inside a transaction with SET LOCAL statement_timeout so
+ *      it can exceed the pool's 120s default without polluting the
+ *      connection.
  *   4. Updates are batched (BOT_OPENER_UPDATE_BATCH ids per UPDATE) so the
  *      pass never holds the pool hostage.
  *   5. Every NEWLY marked subscriber gets a timestamped audit row in
@@ -38,7 +41,7 @@
 import os from "node:os";
 import { pool } from "../db";
 import { logger } from "../logger";
-import { safeInterval } from "../lib/safe-interval";
+import { msUntilNextHourInTz } from "../lib/daily-schedule";
 import {
   BOT_OPENER_IPS,
   BOT_OPENER_MIN_OPENED,
@@ -50,21 +53,34 @@ import { botOpenerMarkedTotal, botOpenerLastRunTimestamp } from "../metrics";
 
 const LOCK_KEY = "global";
 
-// How often each process checks whether a pass is due. Cheap query (1 row);
-// only the lease leader actually runs the pass.
-const CHECK_INTERVAL_MS = Math.max(
+// The daily pass is anchored to a fixed wall-clock hour (default 01:00
+// Europe/Paris — same off-peak slot as the tracking_tokens purge). Every PM2
+// process arms the timer; the lease election + due gate ensure a single
+// cluster-wide pass.
+const RUN_AT_HOUR = (() => {
+  const parsed = Number(process.env.BOT_OPENER_RUN_HOUR);
+  const hour = Number.isFinite(parsed) ? Math.trunc(parsed) : 1;
+  return Math.min(Math.max(hour, 0), 23);
+})();
+const SCHEDULE_TZ = "Europe/Paris";
+
+// Retry cadence after a FAILED pass (completed_at stays NULL so the due gate
+// keeps the pass eligible). Bounded by the due gate: once a pass succeeds,
+// retries stop until the next daily fire.
+const RETRY_INTERVAL_MS = Math.max(
   Number(process.env.BOT_OPENER_CHECK_INTERVAL_MS) || 60 * 60 * 1000,
   5 * 60 * 1000,
 );
 
-// Minimum spacing between two completed passes (daily by default). A pass is
-// "due" when the last completed run is older than this minus half a check
-// interval (so the daily run doesn't drift by a full hour every day).
+// Minimum spacing between two completed passes (daily by default). The due
+// gate uses this minus a 2h slack so the fixed-hour fires (spaced exactly
+// 24h — or 23h once a year on the spring DST switch) always qualify, while
+// the boot catch-up pass can't double-run a day that already ran.
 const RUN_INTERVAL_MS = Math.max(
   Number(process.env.BOT_OPENER_RUN_INTERVAL_MS) || 24 * 60 * 60 * 1000,
   60 * 60 * 1000,
 );
-const DUE_AFTER_MS = Math.max(RUN_INTERVAL_MS - CHECK_INTERVAL_MS / 2, RUN_INTERVAL_MS / 2);
+const DUE_AFTER_MS = Math.max(RUN_INTERVAL_MS - 2 * 60 * 60 * 1000, RUN_INTERVAL_MS / 2);
 
 // Lease TTL must comfortably exceed the longest plausible pass duration so a
 // second process can't start a concurrent pass mid-run, yet expire fast
@@ -92,8 +108,10 @@ const UPDATE_BATCH_SIZE = Math.min(
   10_000,
 );
 
-let checkTimer: NodeJS.Timeout | null = null;
+let dailyTimer: NodeJS.Timeout | null = null;
+let retryTimer: NodeJS.Timeout | null = null;
 let firstRunTimer: NodeJS.Timeout | null = null;
+let markerStarted = false;
 let passRunning = false;
 
 function holderId(): string {
@@ -369,14 +387,66 @@ export async function runBotOpenerMarkPassOnce(opts?: { force?: boolean }): Prom
 }
 
 /**
- * Starts the marker: a deferred retroactive pass shortly after boot (only
- * runs if due — i.e. no completed pass within the last ~23h anywhere in the
- * cluster), then a cheap due-check on an hourly cadence. Safe to call from
- * BOTH the web and worker processes: the lease table guarantees a single
- * pass per tick cluster-wide.
+ * One scheduled attempt: run the pass (due-gated + lease-elected), then
+ * always re-arm the next daily 01:00 fire. If the pass FAILED (its
+ * bot_opener_runs row keeps completed_at NULL, so it stays due), arm a
+ * bounded hourly retry so a transient error doesn't push the pass to the
+ * next day; the due gate stops retries as soon as any process succeeds.
+ */
+async function runScheduledPass(trigger: string): Promise<void> {
+  let failed = false;
+  try {
+    const result = await runBotOpenerMarkPassOnce();
+    failed = result.skipped === "error";
+  } catch (err: any) {
+    // runBotOpenerMarkPassOnce catches pass errors itself; this guards the
+    // pre-pass queries (due check / lease upsert) against connection blips.
+    failed = true;
+    logger.error(`[BOT_OPENER] scheduled attempt (${trigger}) failed: ${err?.message || err}`);
+  }
+  if (trigger === "daily") scheduleNextDailyPass();
+  if (failed && markerStarted && !retryTimer) {
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void runScheduledPass("retry");
+    }, RETRY_INTERVAL_MS);
+    retryTimer.unref?.();
+    logger.warn(
+      `[BOT_OPENER] pass failed — retrying in ${Math.round(RETRY_INTERVAL_MS / 60000)} min`,
+    );
+  }
+}
+
+function scheduleNextDailyPass(): void {
+  if (!markerStarted) return;
+  if (dailyTimer) {
+    clearTimeout(dailyTimer);
+    dailyTimer = null;
+  }
+  // Small jitter so the PM2 processes don't race the lease upsert at
+  // exactly 01:00:00.
+  const jitter = Math.floor(Math.random() * 30_000);
+  const ms = msUntilNextHourInTz(RUN_AT_HOUR, SCHEDULE_TZ) + jitter;
+  logger.info(
+    `[BOT_OPENER] next daily pass in ${Math.round(ms / 60000)} min ` +
+    `(next ${String(RUN_AT_HOUR).padStart(2, "0")}:00 ${SCHEDULE_TZ})`,
+  );
+  dailyTimer = setTimeout(() => {
+    dailyTimer = null;
+    void runScheduledPass("daily");
+  }, ms);
+  dailyTimer.unref?.();
+}
+
+/**
+ * Starts the marker: a deferred catch-up pass shortly after boot (only runs
+ * if due — covers the retroactive first pass AND a VM that was down at the
+ * scheduled hour), then a daily pass anchored at RUN_AT_HOUR (default 01:00)
+ * Europe/Paris. Safe to call from BOTH the web and worker processes: the
+ * lease table + due gate guarantee a single pass per day cluster-wide.
  */
 export async function startBotOpenerMarker(): Promise<void> {
-  if (checkTimer) return;
+  if (markerStarted) return;
   if (BOT_OPENER_IPS.length === 0) {
     logger.info("[BOT_OPENER] disabled — empty bot IP list");
     return;
@@ -387,36 +457,38 @@ export async function startBotOpenerMarker(): Promise<void> {
     logger.error(`[BOT_OPENER] failed to ensure schema — marker will not start: ${err?.message || err}`);
     return;
   }
+  markerStarted = true;
   logger.info(
-    `[BOT_OPENER] starting (checkEvery=${Math.round(CHECK_INTERVAL_MS / 1000)}s, ` +
-    `runEvery=${Math.round(RUN_INTERVAL_MS / 3600000)}h, windowDays=${BOT_OPENER_WINDOW_DAYS}, ` +
-    `ips=[${BOT_OPENER_IPS.join(", ")}], minOpened=${BOT_OPENER_MIN_OPENED}, ratio=${BOT_OPENER_OPEN_RATIO}, ` +
+    `[BOT_OPENER] starting (dailyAt=${String(RUN_AT_HOUR).padStart(2, "0")}:00 ${SCHEDULE_TZ}, ` +
+    `windowDays=${BOT_OPENER_WINDOW_DAYS}, ips=[${BOT_OPENER_IPS.join(", ")}], ` +
+    `minOpened=${BOT_OPENER_MIN_OPENED}, ratio=${BOT_OPENER_OPEN_RATIO}, ` +
     `firstCheckIn=${Math.round(STARTUP_DELAY_MS / 1000)}s)`,
   );
-  // Stagger the first (retroactive) pass: fixed deferral to stay out of the
-  // boot storm + jitter so the PM2 processes don't race the lease upsert.
+  // Stagger the boot catch-up pass: fixed deferral to stay out of the boot
+  // storm + jitter so the PM2 processes don't race the lease upsert. The due
+  // gate makes it a no-op when the last completed pass is recent.
   const jitter = Math.floor(Math.random() * 30_000);
   firstRunTimer = setTimeout(() => {
     firstRunTimer = null;
-    void runBotOpenerMarkPassOnce().catch(() => { /* logged inside */ });
+    void runScheduledPass("boot");
   }, STARTUP_DELAY_MS + jitter);
   firstRunTimer.unref?.();
 
-  checkTimer = safeInterval(
-    "bot-opener-marker",
-    () => runBotOpenerMarkPassOnce(),
-    CHECK_INTERVAL_MS,
-  );
-  checkTimer.unref?.();
+  scheduleNextDailyPass();
 }
 
 export function stopBotOpenerMarker(): void {
+  markerStarted = false;
   if (firstRunTimer) {
     clearTimeout(firstRunTimer);
     firstRunTimer = null;
   }
-  if (checkTimer) {
-    clearInterval(checkTimer);
-    checkTimer = null;
+  if (dailyTimer) {
+    clearTimeout(dailyTimer);
+    dailyTimer = null;
+  }
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
   }
 }
