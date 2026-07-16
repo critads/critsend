@@ -956,6 +956,14 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     // guarded flip in resumeCampaignAtomic makes the concurrent run safe.
     startMtaRecoveryChecker();
 
+    // Task #216 — bot-opener DEL marker also runs on the web process so the
+    // retroactive + daily pass survives a restart-looping worker. Lease-table
+    // leader election (bot_opener_leader) guarantees a single pass
+    // cluster-wide, so double-starting web + worker is safe.
+    import('./services/bot-opener-marker').then(({ startBotOpenerMarker }) => {
+      void startBotOpenerMarker();
+    }).catch((err: any) => logger.error(`[BOT_OPENER] failed to start (web): ${err?.message || err}`));
+
     // Pressure-guard deferred-drain worker (Task #144).
     // In split-process or DISABLE_WORKERS=true deployments, the dedicated
     // worker process never runs `startAllWorkers()` (which is the only other

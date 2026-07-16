@@ -53,3 +53,60 @@ export const BLOCKED_UNSUBSCRIBE_IPS: ReadonlySet<string> = new Set([
 export function blockedUnsubMarkerTag(ip: string): string {
   return `unsub-ip-${ip}`;
 }
+
+// ─── Bot-opener DEL marking (Task #216) ─────────────────────────────────────
+//
+// A robot IP (195.154.17.225, Scaleway range) generates tens of thousands of
+// artificial opens. Subscribers whose engagement is essentially fabricated by
+// that IP are auto-tagged with the `DEL` ref so the operator can exclude or
+// segment them. Criterion over a rolling window (default 30 days): received
+// at least BOT_OPENER_MIN_RECEIVED emails (campaign_sends status='sent') AND
+// opened at least BOT_OPENER_OPEN_RATIO (default 70%) of them via one of the
+// BOT_OPENER_IPS (campaign_stats type='open', distinct campaigns).
+//
+// All thresholds are env-overridable (same pattern as UNSUBSCRIBE_IP_BLOCKLIST):
+//   BOT_OPENER_IP_LIST      comma-separated extra IPs, merged with defaults
+//   BOT_OPENER_MIN_RECEIVED minimum emails received in the window (default 4)
+//   BOT_OPENER_OPEN_RATIO   open ratio threshold, 0 < r <= 1 (default 0.7)
+//   BOT_OPENER_WINDOW_DAYS  rolling window in days (default 30)
+// Invalid env values fall back to the defaults (never crash the boot path).
+
+const DEFAULT_BOT_OPENER_IPS = ["195.154.17.225"];
+
+export const BOT_OPENER_IPS: readonly string[] = [
+  ...new Set([
+    ...DEFAULT_BOT_OPENER_IPS,
+    ...(process.env.BOT_OPENER_IP_LIST || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ]),
+];
+
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < min || n > max) return fallback;
+  return n;
+}
+
+function envRatio(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || n > 1) return fallback;
+  return n;
+}
+
+/** Minimum emails received (status='sent') in the window to be evaluated. */
+export const BOT_OPENER_MIN_RECEIVED = envInt("BOT_OPENER_MIN_RECEIVED", 4, 1, 1000);
+
+/** Fraction of received emails that must have been opened via a bot IP. */
+export const BOT_OPENER_OPEN_RATIO = envRatio("BOT_OPENER_OPEN_RATIO", 0.7);
+
+/** Rolling analysis window, in days. */
+export const BOT_OPENER_WINDOW_DAYS = envInt("BOT_OPENER_WINDOW_DAYS", 30, 1, 365);
+
+/** Ref appended to matching subscribers. Never duplicated, never overwrites. */
+export const BOT_OPENER_REF = "DEL";

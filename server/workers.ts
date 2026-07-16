@@ -2561,6 +2561,12 @@ export async function startAllWorkers() {
   import("./services/pmta-collector").then(({ startPmtaCollector }) => {
     void startPmtaCollector();
   }).catch((err: any) => logger.error(`[PMTA_COLLECTOR] failed to start: ${err?.message || err}`));
+  // Task #216 — bot-opener DEL marker. Retroactive pass shortly after boot
+  // then daily recurrence. Lease-table leader election (bot_opener_leader)
+  // makes it safe to also start this from the web process.
+  import("./services/bot-opener-marker").then(({ startBotOpenerMarker }) => {
+    void startBotOpenerMarker();
+  }).catch((err: any) => logger.error(`[BOT_OPENER] failed to start: ${err?.message || err}`));
 }
 
 export function stopAllBackgroundWorkers() {
@@ -2579,6 +2585,10 @@ export function stopAllBackgroundWorkers() {
   // Task #193 — PMTA collector
   import("./services/pmta-collector").then(({ stopPmtaCollector }) => {
     stopPmtaCollector();
+  }).catch(() => { /* shutdown best-effort */ });
+  // Task #216 — bot-opener DEL marker
+  import("./services/bot-opener-marker").then(({ stopBotOpenerMarker }) => {
+    stopBotOpenerMarker();
   }).catch(() => { /* shutdown best-effort */ });
   // Task #160
   import("./workers/orphaned-sends-reconciler").then(({ stopOrphanedSendsReconciler }) => {

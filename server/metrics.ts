@@ -737,6 +737,21 @@ export function stopMetricsCollector(): void {
   }
 }
 
+// ── Bot-opener DEL marking (Task #216) ────────────────────────────────
+// Incremented by each marking pass with the number of subscribers NEWLY
+// tagged with the DEL ref (already-marked subscribers never re-count).
+export const botOpenerMarkedTotal = new client.Counter({
+  name: 'critsend_bot_opener_marked_total',
+  help: 'Subscribers newly tagged with the DEL ref by the bot-opener marking pass',
+  registers: [register],
+});
+
+export const botOpenerLastRunTimestamp = new client.Gauge({
+  name: 'critsend_bot_opener_last_run_timestamp_seconds',
+  help: 'Unix time of the last completed bot-opener marking pass',
+  registers: [register],
+});
+
 export function registerMetricsRoute(app: any): void {
   app.get('/metrics', async (_req: Request, res: Response) => {
     try {
