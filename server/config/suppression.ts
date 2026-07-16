@@ -59,15 +59,15 @@ export function blockedUnsubMarkerTag(ip: string): string {
 // A robot IP (195.154.17.225, Scaleway range) generates tens of thousands of
 // artificial opens. Subscribers whose engagement is essentially fabricated by
 // that IP are auto-tagged with the `DEL` ref so the operator can exclude or
-// segment them. Criterion over a rolling window (default 30 days): received
-// at least BOT_OPENER_MIN_RECEIVED emails (campaign_sends status='sent') AND
-// opened at least BOT_OPENER_OPEN_RATIO (default 70%) of them via one of the
-// BOT_OPENER_IPS (campaign_stats type='open', distinct campaigns).
+// segment them. Criterion over a rolling window (default 30 days): OPENED at
+// least BOT_OPENER_MIN_OPENED emails (campaign_stats type='open', distinct
+// campaigns) AND at least BOT_OPENER_OPEN_RATIO (default 70%) of those
+// opened emails were opened via one of the BOT_OPENER_IPS.
 //
 // All thresholds are env-overridable (same pattern as UNSUBSCRIBE_IP_BLOCKLIST):
 //   BOT_OPENER_IP_LIST      comma-separated extra IPs, merged with defaults
-//   BOT_OPENER_MIN_RECEIVED minimum emails received in the window (default 4)
-//   BOT_OPENER_OPEN_RATIO   open ratio threshold, 0 < r <= 1 (default 0.7)
+//   BOT_OPENER_MIN_OPENED   minimum emails opened in the window (default 5)
+//   BOT_OPENER_OPEN_RATIO   bot-open ratio threshold, 0 < r <= 1 (default 0.7)
 //   BOT_OPENER_WINDOW_DAYS  rolling window in days (default 30)
 // Invalid env values fall back to the defaults (never crash the boot path).
 
@@ -99,10 +99,10 @@ function envRatio(name: string, fallback: number): number {
   return n;
 }
 
-/** Minimum emails received (status='sent') in the window to be evaluated. */
-export const BOT_OPENER_MIN_RECEIVED = envInt("BOT_OPENER_MIN_RECEIVED", 4, 1, 1000);
+/** Minimum emails opened (distinct campaigns) in the window to be evaluated. */
+export const BOT_OPENER_MIN_OPENED = envInt("BOT_OPENER_MIN_OPENED", 5, 1, 1000);
 
-/** Fraction of received emails that must have been opened via a bot IP. */
+/** Fraction of opened emails that must have been opened via a bot IP. */
 export const BOT_OPENER_OPEN_RATIO = envRatio("BOT_OPENER_OPEN_RATIO", 0.7);
 
 /** Rolling analysis window, in days. */

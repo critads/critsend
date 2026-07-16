@@ -43,6 +43,7 @@ import {
   ChevronUp,
   Layers,
   Download,
+  Bot,
 } from "lucide-react";
 import {
   BarChart,
@@ -73,6 +74,13 @@ interface CampaignAnalytics {
     timestamp: string;
     link?: string;
   }>;
+}
+
+interface BotOpenerStats {
+  total: number;
+  granularity: string;
+  days: number;
+  series: Array<{ period: string; count: number }>;
 }
 
 interface OverallAnalytics {
@@ -825,6 +833,103 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
   );
 }
 
+const BOT_OPENER_GRANULARITIES = [
+  { value: "day", label: "Per day", days: 30 },
+  { value: "week", label: "Per week", days: 182 },
+  { value: "month", label: "Per month", days: 365 },
+] as const;
+
+function formatBotOpenerPeriod(iso: string, granularity: string): string {
+  const d = new Date(iso);
+  if (granularity === "month") {
+    return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  }
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/**
+ * Task #216 — subscribers newly marked with the DEL ref by the bot-opener
+ * mechanism (fabricated engagement via the bot IP list). Each subscriber is
+ * counted once, at FIRST mark, so buckets sum to the all-time unique total.
+ * The first bucket after deploy contains the retroactive (30-day) pass.
+ */
+function BotOpenersCard() {
+  const [granularity, setGranularity] = useState<string>("day");
+  const rangeDays =
+    BOT_OPENER_GRANULARITIES.find((g) => g.value === granularity)?.days ?? 30;
+  const { data, isLoading } = useQuery<BotOpenerStats>({
+    queryKey: ["/api/analytics/bot-openers", { granularity, days: rangeDays }],
+  });
+
+  const chartData = (data?.series ?? []).map((p) => ({
+    ...p,
+    label: formatBotOpenerPeriod(p.period, granularity),
+  }));
+
+  return (
+    <Card data-testid="card-bot-openers">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5" />
+              Bot Openers Marked (ref DEL)
+            </CardTitle>
+            <CardDescription>
+              New subscribers auto-tagged DEL (engagement fabricated by the bot
+              IP) — each counted once, at first mark
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-2xl font-bold" data-testid="text-bot-openers-total">
+                {isLoading ? "—" : (data?.total ?? 0).toLocaleString()}
+              </div>
+              <p className="text-xs text-muted-foreground">total unique</p>
+            </div>
+            <Select value={granularity} onValueChange={setGranularity}>
+              <SelectTrigger className="w-32" data-testid="select-bot-openers-granularity">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BOT_OPENER_GRANULARITIES.map((g) => (
+                  <SelectItem key={g.value} value={g.value} data-testid={`option-bot-openers-${g.value}`}>
+                    {g.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-56 w-full" />
+        ) : chartData.length > 0 ? (
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={40} />
+                <Tooltip
+                  formatter={(value: number) => [value.toLocaleString(), "New DEL marks"]}
+                  labelFormatter={(label: string) => label}
+                />
+                <Bar dataKey="count" fill="hsl(var(--destructive))" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="text-center py-8 text-muted-foreground" data-testid="text-bot-openers-empty">
+            No subscribers marked by this rule yet
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function OverallAnalyticsView() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -852,6 +957,7 @@ function OverallAnalyticsView() {
       await apiRequest("POST", "/api/analytics/cache/invalidate");
       await queryClient.invalidateQueries({ queryKey: ["/api/analytics/overall"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/analytics/campaign"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/analytics/bot-openers"] });
       toast({ title: "Analytics refreshed" });
     } catch (e: any) {
       toast({ title: "Refresh failed", description: e?.message ?? String(e), variant: "destructive" });
@@ -1025,6 +1131,8 @@ function OverallAnalyticsView() {
           )}
         </CardContent>
       </Card>
+
+      <BotOpenersCard />
     </div>
   );
 }

@@ -5,9 +5,9 @@
  * service periodically appends the `DEL` ref to every subscriber whose
  * engagement over the rolling window is essentially bot-generated:
  *
- *   received >= BOT_OPENER_MIN_RECEIVED emails (campaign_sends status='sent')
- *   AND opened >= BOT_OPENER_OPEN_RATIO of them via a BOT_OPENER_IPS address
- *   (campaign_stats type='open', DISTINCT campaign_id)
+ *   opened >= BOT_OPENER_MIN_OPENED emails (campaign_stats type='open',
+ *   DISTINCT campaign_id) AND at least BOT_OPENER_OPEN_RATIO of those
+ *   opened emails were opened via a BOT_OPENER_IPS address.
  *
  * Hard rules:
  *   1. Idempotent: `DEL` is appended at most once (guarded array_append),
@@ -17,13 +17,18 @@
  *      uses a lease-table leader election (`bot_opener_leader`), NEVER
  *      session-level pg_try_advisory_lock (leaks on transaction-pooled
  *      backends — same architectural rule as pmta-collector / pressure guard).
- *   3. The candidate query is heavy (30-day aggregate over campaign_stats +
- *      campaign_sends). It runs at most once per BOT_OPENER_RUN_INTERVAL
- *      (default 24h), deferred after boot, inside a transaction with
- *      SET LOCAL statement_timeout so it can exceed the pool's 120s default
- *      without polluting the connection.
+ *   3. The candidate query is heavy (30-day aggregate over campaign_stats).
+ *      It runs at most once per BOT_OPENER_RUN_INTERVAL (default 24h),
+ *      deferred after boot, inside a transaction with SET LOCAL
+ *      statement_timeout so it can exceed the pool's 120s default without
+ *      polluting the connection.
  *   4. Updates are batched (BOT_OPENER_UPDATE_BATCH ids per UPDATE) so the
  *      pass never holds the pool hostage.
+ *   5. Every NEWLY marked subscriber gets a timestamped audit row in
+ *      `bot_opener_marks` (written atomically with the refs UPDATE via a
+ *      data-modifying CTE). This table feeds the /analytics time series
+ *      (new marks per day/month) and answers "how many uniques did the
+ *      retroactive pass affect" (the first pass's rows).
  *
  * Observability: one summary log line per pass (candidates / matched /
  * newly-marked / already-marked / duration), a Prometheus counter
@@ -36,7 +41,7 @@ import { logger } from "../logger";
 import { safeInterval } from "../lib/safe-interval";
 import {
   BOT_OPENER_IPS,
-  BOT_OPENER_MIN_RECEIVED,
+  BOT_OPENER_MIN_OPENED,
   BOT_OPENER_OPEN_RATIO,
   BOT_OPENER_WINDOW_DAYS,
   BOT_OPENER_REF,
@@ -97,20 +102,23 @@ function holderId(): string {
 
 /**
  * Pure eligibility predicate — single source of truth for the threshold
- * math. The SQL pass only pre-filters (>=1 bot open, >= min received); the
+ * math. The SQL pass only pre-filters (>=1 bot open, >= min opened); the
  * final ratio decision is made HERE so tests and production share one
  * implementation.
+ *
+ * @param totalOpened      distinct campaigns opened in the window (any IP)
+ * @param botOpenedCampaigns distinct campaigns opened via a bot IP
  */
 export function qualifiesAsBotOpener(
-  received: number,
+  totalOpened: number,
   botOpenedCampaigns: number,
-  opts?: { minReceived?: number; openRatio?: number },
+  opts?: { minOpened?: number; openRatio?: number },
 ): boolean {
-  const minReceived = opts?.minReceived ?? BOT_OPENER_MIN_RECEIVED;
+  const minOpened = opts?.minOpened ?? BOT_OPENER_MIN_OPENED;
   const openRatio = opts?.openRatio ?? BOT_OPENER_OPEN_RATIO;
-  if (!Number.isFinite(received) || received < minReceived) return false;
+  if (!Number.isFinite(totalOpened) || totalOpened < minOpened) return false;
   if (!Number.isFinite(botOpenedCampaigns) || botOpenedCampaigns <= 0) return false;
-  return botOpenedCampaigns / received >= openRatio;
+  return botOpenedCampaigns / totalOpened >= openRatio;
 }
 
 /** Split ids into UPDATE batches. Exported for test coverage. */
@@ -145,6 +153,18 @@ async function ensureBotOpenerTables(): Promise<void> {
   `);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS bot_opener_runs_completed_idx ON bot_opener_runs(completed_at)`,
+  );
+  // One row per subscriber the FIRST time this mechanism marks them.
+  // marked_at feeds the /analytics "new bot-openers per day/month" series;
+  // the first pass's rows ARE the retroactive count.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bot_opener_marks (
+      subscriber_id VARCHAR PRIMARY KEY,
+      marked_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS bot_opener_marks_marked_at_idx ON bot_opener_marks(marked_at)`,
   );
 }
 
@@ -186,15 +206,17 @@ async function isRunDue(): Promise<boolean> {
 
 interface CandidateRow {
   id: string;
-  received: number;
+  total_opened: number;
   bot_opened: number;
 }
 
 /**
  * Set-based candidate selection. Starts from the (small) set of subscribers
- * with >=1 open via a bot IP in the window, then counts their received
- * emails. Opens via other IPs never enter bot_opened — only rows whose
- * ip_address matches BOT_OPENER_IPS are aggregated.
+ * with >=1 open via a bot IP in the window, then counts, for those
+ * subscribers only, the distinct campaigns they opened (any IP) and the
+ * distinct campaigns they opened via a bot IP. Opens via other IPs count in
+ * the denominator (total_opened) but never in the numerator (bot_opened —
+ * the FILTER clause is IP-restricted).
  *
  * Runs inside a transaction so SET LOCAL statement_timeout cannot leak to
  * other pool users (and stays PgBouncer-transaction-pooling safe).
@@ -205,27 +227,24 @@ async function selectCandidates(): Promise<CandidateRow[]> {
     await client.query("BEGIN");
     await client.query(`SET LOCAL statement_timeout = '${CANDIDATE_STATEMENT_TIMEOUT_MS}ms'`);
     const result = await client.query<CandidateRow>(
-      `WITH bot_opens AS (
-         SELECT subscriber_id, COUNT(DISTINCT campaign_id)::int AS bot_opened
+      `WITH bot_subs AS (
+         SELECT DISTINCT subscriber_id
            FROM campaign_stats
           WHERE type = 'open'
             AND ip_address = ANY($1::text[])
             AND "timestamp" >= NOW() - make_interval(days => $2)
-          GROUP BY subscriber_id
-       ),
-       recv AS (
-         SELECT cs.subscriber_id, COUNT(*)::int AS received
-           FROM campaign_sends cs
-          WHERE cs.status = 'sent'
-            AND cs.sent_at >= NOW() - make_interval(days => $2)
-            AND cs.subscriber_id IN (SELECT subscriber_id FROM bot_opens)
-          GROUP BY cs.subscriber_id
        )
-       SELECT b.subscriber_id AS id, r.received, b.bot_opened
-         FROM bot_opens b
-         JOIN recv r ON r.subscriber_id = b.subscriber_id
-        WHERE r.received >= $3`,
-      [BOT_OPENER_IPS as string[], BOT_OPENER_WINDOW_DAYS, BOT_OPENER_MIN_RECEIVED],
+       SELECT cs.subscriber_id AS id,
+              COUNT(DISTINCT cs.campaign_id)::int AS total_opened,
+              COUNT(DISTINCT cs.campaign_id)
+                FILTER (WHERE cs.ip_address = ANY($1::text[]))::int AS bot_opened
+         FROM campaign_stats cs
+         JOIN bot_subs b ON b.subscriber_id = cs.subscriber_id
+        WHERE cs.type = 'open'
+          AND cs."timestamp" >= NOW() - make_interval(days => $2)
+        GROUP BY cs.subscriber_id
+       HAVING COUNT(DISTINCT cs.campaign_id) >= $3`,
+      [BOT_OPENER_IPS as string[], BOT_OPENER_WINDOW_DAYS, BOT_OPENER_MIN_OPENED],
     );
     await client.query("COMMIT");
     return result.rows;
@@ -238,21 +257,33 @@ async function selectCandidates(): Promise<CandidateRow[]> {
 }
 
 /**
- * Batched idempotent ref append. The WHERE guard makes re-runs no-ops for
- * already-marked subscribers, and COALESCE keeps legacy NULL arrays safe.
- * Returns the number of NEWLY marked subscribers.
+ * Batched idempotent ref append + timestamped audit row, in ONE atomic
+ * statement per batch (data-modifying CTE): the refs UPDATE only touches
+ * rows missing the ref (re-runs are no-ops, COALESCE keeps legacy NULL
+ * arrays safe), and every row it DID touch gets a bot_opener_marks row
+ * stamping WHEN this mechanism first marked it. Returns the number of
+ * NEWLY marked subscribers.
  */
 async function markSubscribers(ids: string[]): Promise<number> {
   let marked = 0;
   for (const batch of chunkIds(ids)) {
-    const result = await pool.query(
-      `UPDATE subscribers
-          SET refs = array_append(COALESCE(refs, ARRAY[]::text[]), $2)
-        WHERE id = ANY($1::varchar[])
-          AND NOT ($2 = ANY(COALESCE(refs, ARRAY[]::text[])))`,
+    const result = await pool.query<{ marked: number }>(
+      `WITH upd AS (
+         UPDATE subscribers
+            SET refs = array_append(COALESCE(refs, ARRAY[]::text[]), $2)
+          WHERE id = ANY($1::varchar[])
+            AND NOT ($2 = ANY(COALESCE(refs, ARRAY[]::text[])))
+         RETURNING id
+       ),
+       ins AS (
+         INSERT INTO bot_opener_marks (subscriber_id)
+         SELECT id FROM upd
+         ON CONFLICT (subscriber_id) DO NOTHING
+       )
+       SELECT COUNT(*)::int AS marked FROM upd`,
       [batch, BOT_OPENER_REF],
     );
-    marked += result.rowCount ?? 0;
+    marked += Number(result.rows[0]?.marked ?? 0);
   }
   return marked;
 }
@@ -296,7 +327,7 @@ export async function runBotOpenerMarkPassOnce(opts?: { force?: boolean }): Prom
 
     const candidates = await selectCandidates();
     const matchedIds = candidates
-      .filter((c) => qualifiesAsBotOpener(Number(c.received), Number(c.bot_opened)))
+      .filter((c) => qualifiesAsBotOpener(Number(c.total_opened), Number(c.bot_opened)))
       .map((c) => c.id);
 
     const marked = await markSubscribers(matchedIds);
@@ -317,7 +348,7 @@ export async function runBotOpenerMarkPassOnce(opts?: { force?: boolean }): Prom
     logger.info(
       `[BOT_OPENER] pass complete: candidates=${candidates.length} matched=${matchedIds.length} ` +
       `newlyMarked=${marked} alreadyMarked=${alreadyMarked} windowDays=${BOT_OPENER_WINDOW_DAYS} ` +
-      `ips=${BOT_OPENER_IPS.length} minReceived=${BOT_OPENER_MIN_RECEIVED} ` +
+      `ips=${BOT_OPENER_IPS.length} minOpened=${BOT_OPENER_MIN_OPENED} ` +
       `ratio=${BOT_OPENER_OPEN_RATIO} durationMs=${durationMs}`,
     );
     return { ran: true, matched: matchedIds.length, marked };
@@ -359,7 +390,7 @@ export async function startBotOpenerMarker(): Promise<void> {
   logger.info(
     `[BOT_OPENER] starting (checkEvery=${Math.round(CHECK_INTERVAL_MS / 1000)}s, ` +
     `runEvery=${Math.round(RUN_INTERVAL_MS / 3600000)}h, windowDays=${BOT_OPENER_WINDOW_DAYS}, ` +
-    `ips=[${BOT_OPENER_IPS.join(", ")}], minReceived=${BOT_OPENER_MIN_RECEIVED}, ratio=${BOT_OPENER_OPEN_RATIO}, ` +
+    `ips=[${BOT_OPENER_IPS.join(", ")}], minOpened=${BOT_OPENER_MIN_OPENED}, ratio=${BOT_OPENER_OPEN_RATIO}, ` +
     `firstCheckIn=${Math.round(STARTUP_DELAY_MS / 1000)}s)`,
   );
   // Stagger the first (retroactive) pass: fixed deferral to stay out of the

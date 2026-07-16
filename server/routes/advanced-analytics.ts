@@ -478,6 +478,54 @@ export function registerAdvancedAnalyticsRoutes(app: Express) {
     }
   });
 
+  // Task #216 — new subscribers marked with the DEL ref by the bot-opener
+  // mechanism, bucketed per day/week/month from bot_opener_marks (one row
+  // per subscriber at FIRST mark — uniques by construction). `total` is the
+  // all-time unique count; the first bucket after deploy is the retroactive
+  // pass. 42P01 (table not yet created by the marker service) → empty.
+  app.get("/api/analytics/bot-openers", async (req: Request, res: Response) => {
+    try {
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 90, 1), 730);
+      const granularityRaw = String(req.query.granularity || "day");
+      const granularity = ["day", "week", "month"].includes(granularityRaw) ? granularityRaw : "day";
+      const refresh = parseRefreshFlag(req.query);
+
+      const data = await getAnalyticsCached(`bot-openers:${granularity}:${days}`, async () => {
+        try {
+          const [seriesResult, totalResult] = await Promise.all([
+            pool.query(
+              `SELECT date_trunc($1, marked_at)::date AS period, COUNT(*)::int AS count
+                 FROM bot_opener_marks
+                WHERE marked_at >= NOW() - $2::int * INTERVAL '1 day'
+                GROUP BY 1
+                ORDER BY 1 ASC`,
+              [granularity, days],
+            ),
+            pool.query(`SELECT COUNT(*)::int AS total FROM bot_opener_marks`),
+          ]);
+          return {
+            total: Number(totalResult.rows[0]?.total ?? 0),
+            granularity,
+            days,
+            series: seriesResult.rows.map((row: any) => ({
+              period: row.period,
+              count: Number(row.count) || 0,
+            })),
+          };
+        } catch (err: any) {
+          if (err?.code === "42P01") {
+            return { total: 0, granularity, days, series: [] };
+          }
+          throw err;
+        }
+      }, refresh);
+      res.json(data);
+    } catch (error) {
+      logger.error("Error fetching bot-opener marks:", error);
+      res.status(500).json({ error: "Failed to fetch bot-opener marks" });
+    }
+  });
+
   // Force-clear the analytics cache across all processes (web + worker).
   // Called by the "Refresh" button so the next chart render recomputes
   // from scratch instead of waiting for the 5-min TTL to expire.

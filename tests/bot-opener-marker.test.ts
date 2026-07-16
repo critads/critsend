@@ -3,13 +3,14 @@
  *
  * Covers, without any real DB:
  *   1. Config parsing (defaults + env overrides + invalid-value fallback).
- *   2. The eligibility predicate boundaries: exactly minReceived received,
- *      exactly the 70% ratio, below-threshold cases.
+ *   2. The eligibility predicate boundaries: exactly minOpened opened,
+ *      exactly the 70% bot-open ratio, below-threshold cases.
  *   3. The marking pass contract against a mocked pool:
- *      - candidate SQL restricts opens to the configured bot IPs
- *        (opens via other IPs can never enter the count);
+ *      - candidate SQL counts ALL opens in the denominator but restricts
+ *        the numerator to the configured bot IPs (FILTER clause);
  *      - only qualifying subscribers reach the UPDATE;
- *      - the UPDATE is idempotent (guarded array_append, never overwrites);
+ *      - the UPDATE is idempotent (guarded array_append, never overwrites)
+ *        and atomically inserts the bot_opener_marks audit row;
  *      - updates are batched.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -42,7 +43,7 @@ vi.mock("../server/logger", () => ({
 
 const ENV_KEYS = [
   "BOT_OPENER_IP_LIST",
-  "BOT_OPENER_MIN_RECEIVED",
+  "BOT_OPENER_MIN_OPENED",
   "BOT_OPENER_OPEN_RATIO",
   "BOT_OPENER_WINDOW_DAYS",
   "BOT_OPENER_UPDATE_BATCH",
@@ -79,7 +80,7 @@ describe("suppression config — bot-opener constants", () => {
   it("exposes the documented defaults", async () => {
     const cfg = await loadConfig();
     expect(cfg.BOT_OPENER_IPS).toContain("195.154.17.225");
-    expect(cfg.BOT_OPENER_MIN_RECEIVED).toBe(4);
+    expect(cfg.BOT_OPENER_MIN_OPENED).toBe(5);
     expect(cfg.BOT_OPENER_OPEN_RATIO).toBe(0.7);
     expect(cfg.BOT_OPENER_WINDOW_DAYS).toBe(30);
     expect(cfg.BOT_OPENER_REF).toBe("DEL");
@@ -95,41 +96,47 @@ describe("suppression config — bot-opener constants", () => {
   });
 
   it("honours numeric env overrides", async () => {
-    process.env.BOT_OPENER_MIN_RECEIVED = "6";
+    process.env.BOT_OPENER_MIN_OPENED = "8";
     process.env.BOT_OPENER_OPEN_RATIO = "0.5";
     process.env.BOT_OPENER_WINDOW_DAYS = "15";
     const cfg = await loadConfig();
-    expect(cfg.BOT_OPENER_MIN_RECEIVED).toBe(6);
+    expect(cfg.BOT_OPENER_MIN_OPENED).toBe(8);
     expect(cfg.BOT_OPENER_OPEN_RATIO).toBe(0.5);
     expect(cfg.BOT_OPENER_WINDOW_DAYS).toBe(15);
   });
 
   it("falls back to defaults on invalid env values", async () => {
-    process.env.BOT_OPENER_MIN_RECEIVED = "zero";
+    process.env.BOT_OPENER_MIN_OPENED = "zero";
     process.env.BOT_OPENER_OPEN_RATIO = "1.5";
     process.env.BOT_OPENER_WINDOW_DAYS = "-3";
     const cfg = await loadConfig();
-    expect(cfg.BOT_OPENER_MIN_RECEIVED).toBe(4);
+    expect(cfg.BOT_OPENER_MIN_OPENED).toBe(5);
     expect(cfg.BOT_OPENER_OPEN_RATIO).toBe(0.7);
     expect(cfg.BOT_OPENER_WINDOW_DAYS).toBe(30);
   });
 });
 
 // ─── 2. Eligibility predicate boundaries ────────────────────────────────────
+// Semantics: totalOpened = distinct campaigns OPENED (any IP) in the window,
+// botOpened = distinct campaigns opened via a bot IP. Qualify when
+// totalOpened >= 5 AND botOpened/totalOpened >= 0.7.
 
 describe("qualifiesAsBotOpener", () => {
-  it("accepts exactly minReceived=4 received when the ratio is met", async () => {
+  it("accepts exactly minOpened=5 opened when the ratio is met", async () => {
     const { qualifiesAsBotOpener } = await loadMarker();
-    // 3/4 = 75% >= 70%
-    expect(qualifiesAsBotOpener(4, 3)).toBe(true);
+    // 4/5 = 80% >= 70%
+    expect(qualifiesAsBotOpener(5, 4)).toBe(true);
+    // 5/5 = 100%
+    expect(qualifiesAsBotOpener(5, 5)).toBe(true);
   });
 
-  it("rejects below minReceived even at a 100% ratio", async () => {
+  it("rejects below minOpened even at a 100% bot ratio", async () => {
     const { qualifiesAsBotOpener } = await loadMarker();
-    expect(qualifiesAsBotOpener(3, 3)).toBe(false);
+    expect(qualifiesAsBotOpener(4, 4)).toBe(false);
+    expect(qualifiesAsBotOpener(1, 1)).toBe(false);
   });
 
-  it("accepts exactly 70% (7 of 10)", async () => {
+  it("accepts exactly 70% (7 of 10 opens via bot IP)", async () => {
     const { qualifiesAsBotOpener } = await loadMarker();
     expect(qualifiesAsBotOpener(10, 7)).toBe(true);
   });
@@ -140,27 +147,29 @@ describe("qualifiesAsBotOpener", () => {
     expect(qualifiesAsBotOpener(100, 69)).toBe(false);
   });
 
-  it("accepts exactly 70% on awkward float cases (7 of 10, 70 of 100, 14 of 20)", async () => {
+  it("accepts exactly 70% on awkward float cases (70 of 100, 14 of 20)", async () => {
     const { qualifiesAsBotOpener } = await loadMarker();
     expect(qualifiesAsBotOpener(100, 70)).toBe(true);
     expect(qualifiesAsBotOpener(20, 14)).toBe(true);
   });
 
-  it("rejects zero bot opens regardless of received count", async () => {
+  it("rejects zero bot opens regardless of opened count", async () => {
     const { qualifiesAsBotOpener } = await loadMarker();
     expect(qualifiesAsBotOpener(50, 0)).toBe(false);
   });
 
   it("honours option overrides (custom min/ratio)", async () => {
     const { qualifiesAsBotOpener } = await loadMarker();
-    expect(qualifiesAsBotOpener(2, 1, { minReceived: 2, openRatio: 0.5 })).toBe(true);
-    expect(qualifiesAsBotOpener(2, 1, { minReceived: 3, openRatio: 0.5 })).toBe(false);
+    expect(qualifiesAsBotOpener(2, 1, { minOpened: 2, openRatio: 0.5 })).toBe(true);
+    expect(qualifiesAsBotOpener(2, 1, { minOpened: 3, openRatio: 0.5 })).toBe(false);
   });
 });
 
 // ─── 3. Marking pass contract (mocked pool) ─────────────────────────────────
 
-function installPassPoolMock(candidateRows: Array<{ id: string; received: number; bot_opened: number }>) {
+function installPassPoolMock(
+  candidateRows: Array<{ id: string; total_opened: number; bot_opened: number }>,
+) {
   const updateCalls: Array<{ ids: string[]; ref: string; sql: string }> = [];
   let candidateSql = "";
   let candidateParams: any[] = [];
@@ -179,8 +188,10 @@ function installPassPoolMock(candidateRows: Array<{ id: string; received: number
       return { rowCount: 1, rows: [] };
     }
     if (/UPDATE subscribers/i.test(text)) {
-      updateCalls.push({ ids: params?.[0] ?? [], ref: params?.[1], sql: text });
-      return { rowCount: (params?.[0] ?? []).length, rows: [] };
+      const ids: string[] = params?.[0] ?? [];
+      updateCalls.push({ ids, ref: params?.[1], sql: text });
+      // The service reads rows[0].marked (CTE count), NOT rowCount.
+      return { rowCount: 1, rows: [{ marked: ids.length }] };
     }
     if (/CREATE TABLE|CREATE INDEX/i.test(text)) {
       return { rowCount: 0, rows: [] };
@@ -195,7 +206,7 @@ function installPassPoolMock(candidateRows: Array<{ id: string; received: number
     if (/SET LOCAL statement_timeout/i.test(text)) {
       return { rowCount: 0, rows: [] };
     }
-    if (/bot_opens/i.test(text)) {
+    if (/bot_subs/i.test(text)) {
       candidateSql = text;
       candidateParams = params ?? [];
       return { rowCount: candidateRows.length, rows: candidateRows };
@@ -211,12 +222,12 @@ function installPassPoolMock(candidateRows: Array<{ id: string; received: number
 }
 
 describe("runBotOpenerMarkPassOnce (mocked pool)", () => {
-  it("only marks qualifying subscribers; candidate SQL is IP-restricted; UPDATE is a guarded append", async () => {
+  it("only marks qualifying subscribers; numerator is IP-filtered; UPDATE is a guarded append + audit insert", async () => {
     const mockCtl = installPassPoolMock([
-      { id: "s-qualify-exact", received: 10, bot_opened: 7 },   // exactly 70% → yes
-      { id: "s-qualify-min", received: 4, bot_opened: 3 },      // exactly 4 received, 75% → yes
-      { id: "s-under-ratio", received: 10, bot_opened: 6 },     // 60% → no
-      { id: "s-under-received", received: 3, bot_opened: 3 },   // < 4 received → no
+      { id: "s-qualify-exact", total_opened: 10, bot_opened: 7 }, // exactly 70% → yes
+      { id: "s-qualify-min", total_opened: 5, bot_opened: 4 },    // exactly 5 opened, 80% → yes
+      { id: "s-under-ratio", total_opened: 10, bot_opened: 6 },   // 60% → no
+      { id: "s-under-opened", total_opened: 4, bot_opened: 4 },   // < 5 opened → no
     ]);
     const marker = await loadMarker();
     const result = await marker.runBotOpenerMarkPassOnce();
@@ -228,24 +239,29 @@ describe("runBotOpenerMarkPassOnce (mocked pool)", () => {
     const allUpdatedIds = mockCtl.updateCalls.flatMap((c) => c.ids);
     expect(allUpdatedIds.sort()).toEqual(["s-qualify-exact", "s-qualify-min"]);
     expect(allUpdatedIds).not.toContain("s-under-ratio");
-    expect(allUpdatedIds).not.toContain("s-under-received");
+    expect(allUpdatedIds).not.toContain("s-under-opened");
 
-    // Opens via other IPs can never count: the candidate query filters
-    // ip_address against the configured bot IP list, passed as a parameter.
+    // Denominator = ALL opens; numerator restricted to the bot IP list via a
+    // FILTER clause, with the IPs passed as a parameter.
+    expect(mockCtl.getCandidateSql()).toMatch(
+      /FILTER \(WHERE cs\.ip_address = ANY\(\$1::text\[\]\)\)/i,
+    );
     expect(mockCtl.getCandidateSql()).toMatch(/ip_address\s*=\s*ANY\(\$1::text\[\]\)/i);
     expect(mockCtl.getCandidateParams()[0]).toContain("195.154.17.225");
-    // Only 'open' events count.
+    // Only 'open' events count — received emails are irrelevant now.
     expect(mockCtl.getCandidateSql()).toMatch(/type\s*=\s*'open'/i);
-    // Only received (status='sent') emails count in the denominator.
-    expect(mockCtl.getCandidateSql()).toMatch(/status\s*=\s*'sent'/i);
+    expect(mockCtl.getCandidateSql()).not.toMatch(/campaign_sends/i);
 
-    // Idempotence: the UPDATE appends only when the ref is absent and never
-    // replaces the refs array wholesale.
+    // Idempotence: the UPDATE appends only when the ref is absent, never
+    // replaces the refs array wholesale, and atomically records the
+    // timestamped audit row for the analytics series.
     for (const call of mockCtl.updateCalls) {
       expect(call.ref).toBe("DEL");
       expect(call.sql).toMatch(/array_append\(COALESCE\(refs, ARRAY\[\]::text\[\]\), \$2\)/i);
       expect(call.sql).toMatch(/NOT \(\$2 = ANY\(COALESCE\(refs, ARRAY\[\]::text\[\]\)\)\)/i);
       expect(call.sql).not.toMatch(/SET refs = \$/i);
+      expect(call.sql).toMatch(/INSERT INTO bot_opener_marks/i);
+      expect(call.sql).toMatch(/ON CONFLICT \(subscriber_id\) DO NOTHING/i);
     }
   });
 
@@ -253,7 +269,7 @@ describe("runBotOpenerMarkPassOnce (mocked pool)", () => {
     process.env.BOT_OPENER_UPDATE_BATCH = "1000";
     const rows = Array.from({ length: 2500 }, (_, i) => ({
       id: `s-${i}`,
-      received: 10,
+      total_opened: 10,
       bot_opened: 9,
     }));
     const mockCtl = installPassPoolMock(rows);
