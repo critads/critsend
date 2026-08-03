@@ -1,0 +1,299 @@
+ _____                             _
+|  __ \                           | |
+| |__) |   _ _ __  _ __   ___   __| |
+|  _  / | | | '_ \| '_ \ / _ \ / _` |
+| | \ \ |_| | | | | |_) | (_) | (_| |
+|_|  \_\__,_|_| |_| .__/ \___/ \__,_|
+                  | |
+                  |_|
+For detailed documentation and guides, please visit:
+https://docs.runpod.io/ and https://blog.runpod.io/
+
+
+root@7f65cf74bb35:/# python /workspace/compare.py
+--- entrainement qwen3:32b ---
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Traceback (most recent call last):
+  File "/workspace/compare.py", line 16, in <module>
+    vn = MyVanna(m)
+         ^^^^^^^^^^
+  File "/workspace/compare.py", line 8, in __init__
+    Ollama.__init__(self, config={"model": model, "ollama_host": "http://127.0.0.1:11434"})
+  File "/usr/local/lib/python3.12/dist-packages/vanna/ollama/ollama.py", line 36, in __init__
+    self.__pull_model_if_ne(self.ollama_client, self.model)
+  File "/usr/local/lib/python3.12/dist-packages/vanna/ollama/ollama.py", line 40, in __pull_model_if_ne
+    model_response = ollama_client.list()
+                     ^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ollama/_client.py", line 626, in list
+    return self._request(
+           ^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ollama/_client.py", line 199, in _request
+    return cls(**self._request_raw(*args, **kwargs).json())
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ollama/_client.py", line 145, in _request_raw
+    raise ConnectionError(CONNECTION_ERROR_MESSAGE) from None
+ConnectionError: Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download
+root@7f65cf74bb35:/# export OLLAMA_MODELS=/workspace/ollama-models
+root@7f65cf74bb35:/# nohup ollama serve > /workspace/ollama.log 2>&1 &
+[1] 4017
+root@7f65cf74bb35:/# sleep 3
+
+root@7f65cf74bb35:/# ollama list          # doit montrer les deux modèles
+NAME           ID              SIZE     MODIFIED
+qwen2.5:72b    424bad2cc13f    47 GB    3 hours ago
+qwen3:32b      030ee887880f    20 GB    3 hours ago
+root@7f65cf74bb35:/# python /workspace/compare.py
+--- entrainement qwen3:32b ---
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Insert of existing embedding ID: 23ed64f6-7ace-52ff-9674-7b04d28c635a-ddl
+Add of existing embedding ID: 23ed64f6-7ace-52ff-9674-7b04d28c635a-ddl
+Failed to send telemetry event CollectionAddEvent: capture() takes 1 positional argument but 3 were given
+Insert of existing embedding ID: 821ea161-3696-54fd-bc3d-da8aa225971d-ddl
+Add of existing embedding ID: 821ea161-3696-54fd-bc3d-da8aa225971d-ddl
+Insert of existing embedding ID: 852924c8-40c2-5cf9-9563-b94418b966e7-ddl
+Add of existing embedding ID: 852924c8-40c2-5cf9-9563-b94418b966e7-ddl
+Insert of existing embedding ID: 603536bc-5786-5928-b5ef-8f540fdc5675-ddl
+Add of existing embedding ID: 603536bc-5786-5928-b5ef-8f540fdc5675-ddl
+Insert of existing embedding ID: b67d757d-6246-5309-9e0e-3122f2df3498-ddl
+Add of existing embedding ID: b67d757d-6246-5309-9e0e-3122f2df3498-ddl
+Insert of existing embedding ID: 32f70df9-305b-547c-ba9e-fd0f3ca86a6e-ddl
+Add of existing embedding ID: 32f70df9-305b-547c-ba9e-fd0f3ca86a6e-ddl
+Insert of existing embedding ID: 446f6392-b2ed-56cf-b0e5-28ac0c0ec0ff-ddl
+Add of existing embedding ID: 446f6392-b2ed-56cf-b0e5-28ac0c0ec0ff-ddl
+Insert of existing embedding ID: 333252f7-2e98-5921-acb8-df7930c29f45-ddl
+Add of existing embedding ID: 333252f7-2e98-5921-acb8-df7930c29f45-ddl
+Insert of existing embedding ID: 7b39de0c-508d-5920-93f8-c0f407009a76-ddl
+Add of existing embedding ID: 7b39de0c-508d-5920-93f8-c0f407009a76-ddl
+Insert of existing embedding ID: ce674320-ad49-58c9-a90f-a4ba4d42662f-ddl
+Add of existing embedding ID: ce674320-ad49-58c9-a90f-a4ba4d42662f-ddl
+Insert of existing embedding ID: 77304a37-c79f-50ec-8c75-a844ce04f7f2-ddl
+Add of existing embedding ID: 77304a37-c79f-50ec-8c75-a844ce04f7f2-ddl
+Insert of existing embedding ID: 4afbeac2-8de7-5f29-ae12-6ff0880cc429-ddl
+Add of existing embedding ID: 4afbeac2-8de7-5f29-ae12-6ff0880cc429-ddl
+Insert of existing embedding ID: 102bb9da-de7d-5d83-bcec-b8448dbc921a-ddl
+Add of existing embedding ID: 102bb9da-de7d-5d83-bcec-b8448dbc921a-ddl
+Insert of existing embedding ID: 1b7d6597-e2a1-58a3-a307-a2dcffd12bd0-ddl
+Add of existing embedding ID: 1b7d6597-e2a1-58a3-a307-a2dcffd12bd0-ddl
+Insert of existing embedding ID: afc2c2a8-5227-5d06-bbff-39b131e2fce8-ddl
+Add of existing embedding ID: afc2c2a8-5227-5d06-bbff-39b131e2fce8-ddl
+Insert of existing embedding ID: d3f2ad55-0199-5e4f-a0fa-463894fe8937-ddl
+Add of existing embedding ID: d3f2ad55-0199-5e4f-a0fa-463894fe8937-ddl
+Insert of existing embedding ID: 040b91f2-fbe7-5241-ba84-a4c496bbfec5-ddl
+Add of existing embedding ID: 040b91f2-fbe7-5241-ba84-a4c496bbfec5-ddl
+Insert of existing embedding ID: a5b0a111-392f-5f0d-bb0d-b25b3f65a27e-ddl
+Add of existing embedding ID: a5b0a111-392f-5f0d-bb0d-b25b3f65a27e-ddl
+Insert of existing embedding ID: 4211bfdb-7393-56b7-af70-c60c9508bd33-ddl
+Add of existing embedding ID: 4211bfdb-7393-56b7-af70-c60c9508bd33-ddl
+Insert of existing embedding ID: 94eb35d9-2747-52ee-bd68-d57e1a1564a0-ddl
+Add of existing embedding ID: 94eb35d9-2747-52ee-bd68-d57e1a1564a0-ddl
+Insert of existing embedding ID: c68b261f-8d99-5e8e-9664-32713b77c258-ddl
+Add of existing embedding ID: c68b261f-8d99-5e8e-9664-32713b77c258-ddl
+Insert of existing embedding ID: ef6dfb1d-a459-587c-982e-b60c941d7f0c-ddl
+Add of existing embedding ID: ef6dfb1d-a459-587c-982e-b60c941d7f0c-ddl
+Insert of existing embedding ID: e464fb3b-ecec-5e37-9ce0-a2168c8fb826-ddl
+Add of existing embedding ID: e464fb3b-ecec-5e37-9ce0-a2168c8fb826-ddl
+Insert of existing embedding ID: 4f46d776-a8f3-559d-8a01-803291565671-ddl
+Add of existing embedding ID: 4f46d776-a8f3-559d-8a01-803291565671-ddl
+Insert of existing embedding ID: efb9de80-9dab-59c3-833b-ca265e487cf4-ddl
+Add of existing embedding ID: efb9de80-9dab-59c3-833b-ca265e487cf4-ddl
+Insert of existing embedding ID: ac1eb2e4-56ff-5fad-8412-3471b208e5e8-ddl
+Add of existing embedding ID: ac1eb2e4-56ff-5fad-8412-3471b208e5e8-ddl
+Insert of existing embedding ID: a550391a-1c39-577a-916d-62375cf0b96b-ddl
+Add of existing embedding ID: a550391a-1c39-577a-916d-62375cf0b96b-ddl
+Insert of existing embedding ID: ca5ddddb-f69e-5116-8a1c-fcb41c83640f-ddl
+Add of existing embedding ID: ca5ddddb-f69e-5116-8a1c-fcb41c83640f-ddl
+Insert of existing embedding ID: c87a936f-e273-5c57-88cc-5bce08b1a4ae-ddl
+Add of existing embedding ID: c87a936f-e273-5c57-88cc-5bce08b1a4ae-ddl
+Insert of existing embedding ID: de06b73a-93bc-5320-9ffe-eca9f1892285-ddl
+Add of existing embedding ID: de06b73a-93bc-5320-9ffe-eca9f1892285-ddl
+Insert of existing embedding ID: 3f789d17-40dd-5756-9812-38315b896ad5-ddl
+Add of existing embedding ID: 3f789d17-40dd-5756-9812-38315b896ad5-ddl
+Insert of existing embedding ID: 1a26ac13-96f8-56c4-b7b9-ecef62a846dd-ddl
+Add of existing embedding ID: 1a26ac13-96f8-56c4-b7b9-ecef62a846dd-ddl
+Insert of existing embedding ID: 67632d6a-3626-54ce-a0bf-46705a01fc0c-ddl
+Add of existing embedding ID: 67632d6a-3626-54ce-a0bf-46705a01fc0c-ddl
+Insert of existing embedding ID: fb0bd4bb-4edd-5cc1-9d83-fa8be18ef854-ddl
+Add of existing embedding ID: fb0bd4bb-4edd-5cc1-9d83-fa8be18ef854-ddl
+Insert of existing embedding ID: efcfeed4-5f8f-5cae-a3c9-bcadb1a0b779-ddl
+Add of existing embedding ID: efcfeed4-5f8f-5cae-a3c9-bcadb1a0b779-ddl
+Insert of existing embedding ID: f0154370-9deb-5daa-a8c8-cfc82f02f256-ddl
+Add of existing embedding ID: f0154370-9deb-5daa-a8c8-cfc82f02f256-ddl
+Insert of existing embedding ID: d9120613-9d53-5396-83dd-841167ee3368-ddl
+Add of existing embedding ID: d9120613-9d53-5396-83dd-841167ee3368-ddl
+Insert of existing embedding ID: bdfd4ebd-771e-573f-a60f-6a040c892a12-ddl
+Add of existing embedding ID: bdfd4ebd-771e-573f-a60f-6a040c892a12-ddl
+Insert of existing embedding ID: 40512d50-a2d6-5ceb-bb53-7cb773f11e1f-ddl
+Add of existing embedding ID: 40512d50-a2d6-5ceb-bb53-7cb773f11e1f-ddl
+Insert of existing embedding ID: 256bb117-e4e3-552c-b651-6f9a5fc1aac7-ddl
+Add of existing embedding ID: 256bb117-e4e3-552c-b651-6f9a5fc1aac7-ddl
+Insert of existing embedding ID: 44af4e3e-f8ec-5193-8473-2eabe919822d-ddl
+Add of existing embedding ID: 44af4e3e-f8ec-5193-8473-2eabe919822d-ddl
+Insert of existing embedding ID: e9c18680-fb03-537b-bcf8-cb325c7d69fe-ddl
+Add of existing embedding ID: e9c18680-fb03-537b-bcf8-cb325c7d69fe-ddl
+Insert of existing embedding ID: 7d82d683-1e9f-5563-9599-0dfa8a4eed19-ddl
+Add of existing embedding ID: 7d82d683-1e9f-5563-9599-0dfa8a4eed19-ddl
+Insert of existing embedding ID: c42dd1a1-500c-5fc4-ab5d-cd8e241a5306-ddl
+Add of existing embedding ID: c42dd1a1-500c-5fc4-ab5d-cd8e241a5306-ddl
+Insert of existing embedding ID: 26a0e833-03aa-5ad6-9481-5daebffc89b8-ddl
+Add of existing embedding ID: 26a0e833-03aa-5ad6-9481-5daebffc89b8-ddl
+Insert of existing embedding ID: 19f0626e-55dd-5e1b-afc6-84ac24a6b03d-ddl
+Add of existing embedding ID: 19f0626e-55dd-5e1b-afc6-84ac24a6b03d-ddl
+Insert of existing embedding ID: f55c26a7-2c08-55a0-a2aa-cc934c4fc759-ddl
+Add of existing embedding ID: f55c26a7-2c08-55a0-a2aa-cc934c4fc759-ddl
+Insert of existing embedding ID: d4c3a983-8a32-5eef-afd4-a2b2dcbc8065-ddl
+Add of existing embedding ID: d4c3a983-8a32-5eef-afd4-a2b2dcbc8065-ddl
+Insert of existing embedding ID: 3cef112f-1054-518a-ab27-f579d10bf2c1-ddl
+Add of existing embedding ID: 3cef112f-1054-518a-ab27-f579d10bf2c1-ddl
+Insert of existing embedding ID: 3412aaa7-eb47-5e8b-a94e-24bc3271f2a5-ddl
+Add of existing embedding ID: 3412aaa7-eb47-5e8b-a94e-24bc3271f2a5-ddl
+Insert of existing embedding ID: d2538390-bef2-5ea4-9e4d-8fe427722d51-ddl
+Add of existing embedding ID: d2538390-bef2-5ea4-9e4d-8fe427722d51-ddl
+Insert of existing embedding ID: b858cbfb-e339-538e-bb70-d490a7e23dcd-ddl
+Add of existing embedding ID: b858cbfb-e339-538e-bb70-d490a7e23dcd-ddl
+Insert of existing embedding ID: cd2f1050-4f91-5dff-91de-8d2e07928030-ddl
+Add of existing embedding ID: cd2f1050-4f91-5dff-91de-8d2e07928030-ddl
+Insert of existing embedding ID: 3073d0d0-6f92-5eec-ac1c-52a6c4fcd38a-ddl
+Add of existing embedding ID: 3073d0d0-6f92-5eec-ac1c-52a6c4fcd38a-ddl
+Insert of existing embedding ID: 42fb5682-8976-5361-9c06-e2dadc2fd0d6-ddl
+Add of existing embedding ID: 42fb5682-8976-5361-9c06-e2dadc2fd0d6-ddl
+Insert of existing embedding ID: 52c9d201-16d6-57fb-a85f-271f1c5e46b5-ddl
+Add of existing embedding ID: 52c9d201-16d6-57fb-a85f-271f1c5e46b5-ddl
+--- entrainement qwen2.5:72b ---
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Add of existing embedding ID: 23ed64f6-7ace-52ff-9674-7b04d28c635a-ddl
+Insert of existing embedding ID: 23ed64f6-7ace-52ff-9674-7b04d28c635a-ddl
+Failed to send telemetry event CollectionAddEvent: capture() takes 1 positional argument but 3 were given
+Add of existing embedding ID: 821ea161-3696-54fd-bc3d-da8aa225971d-ddl
+Insert of existing embedding ID: 821ea161-3696-54fd-bc3d-da8aa225971d-ddl
+Add of existing embedding ID: 852924c8-40c2-5cf9-9563-b94418b966e7-ddl
+Insert of existing embedding ID: 852924c8-40c2-5cf9-9563-b94418b966e7-ddl
+Add of existing embedding ID: 603536bc-5786-5928-b5ef-8f540fdc5675-ddl
+Insert of existing embedding ID: 603536bc-5786-5928-b5ef-8f540fdc5675-ddl
+Add of existing embedding ID: b67d757d-6246-5309-9e0e-3122f2df3498-ddl
+Insert of existing embedding ID: b67d757d-6246-5309-9e0e-3122f2df3498-ddl
+Add of existing embedding ID: 32f70df9-305b-547c-ba9e-fd0f3ca86a6e-ddl
+Insert of existing embedding ID: 32f70df9-305b-547c-ba9e-fd0f3ca86a6e-ddl
+Add of existing embedding ID: 446f6392-b2ed-56cf-b0e5-28ac0c0ec0ff-ddl
+Insert of existing embedding ID: 446f6392-b2ed-56cf-b0e5-28ac0c0ec0ff-ddl
+Add of existing embedding ID: 333252f7-2e98-5921-acb8-df7930c29f45-ddl
+Insert of existing embedding ID: 333252f7-2e98-5921-acb8-df7930c29f45-ddl
+Add of existing embedding ID: 7b39de0c-508d-5920-93f8-c0f407009a76-ddl
+Insert of existing embedding ID: 7b39de0c-508d-5920-93f8-c0f407009a76-ddl
+Add of existing embedding ID: ce674320-ad49-58c9-a90f-a4ba4d42662f-ddl
+Insert of existing embedding ID: ce674320-ad49-58c9-a90f-a4ba4d42662f-ddl
+Add of existing embedding ID: 77304a37-c79f-50ec-8c75-a844ce04f7f2-ddl
+Insert of existing embedding ID: 77304a37-c79f-50ec-8c75-a844ce04f7f2-ddl
+Add of existing embedding ID: 4afbeac2-8de7-5f29-ae12-6ff0880cc429-ddl
+Insert of existing embedding ID: 4afbeac2-8de7-5f29-ae12-6ff0880cc429-ddl
+Add of existing embedding ID: 102bb9da-de7d-5d83-bcec-b8448dbc921a-ddl
+Insert of existing embedding ID: 102bb9da-de7d-5d83-bcec-b8448dbc921a-ddl
+Add of existing embedding ID: 1b7d6597-e2a1-58a3-a307-a2dcffd12bd0-ddl
+Insert of existing embedding ID: 1b7d6597-e2a1-58a3-a307-a2dcffd12bd0-ddl
+Add of existing embedding ID: afc2c2a8-5227-5d06-bbff-39b131e2fce8-ddl
+Insert of existing embedding ID: afc2c2a8-5227-5d06-bbff-39b131e2fce8-ddl
+Add of existing embedding ID: d3f2ad55-0199-5e4f-a0fa-463894fe8937-ddl
+Insert of existing embedding ID: d3f2ad55-0199-5e4f-a0fa-463894fe8937-ddl
+Add of existing embedding ID: 040b91f2-fbe7-5241-ba84-a4c496bbfec5-ddl
+Insert of existing embedding ID: 040b91f2-fbe7-5241-ba84-a4c496bbfec5-ddl
+Add of existing embedding ID: a5b0a111-392f-5f0d-bb0d-b25b3f65a27e-ddl
+Insert of existing embedding ID: a5b0a111-392f-5f0d-bb0d-b25b3f65a27e-ddl
+Add of existing embedding ID: 4211bfdb-7393-56b7-af70-c60c9508bd33-ddl
+Insert of existing embedding ID: 4211bfdb-7393-56b7-af70-c60c9508bd33-ddl
+Add of existing embedding ID: 94eb35d9-2747-52ee-bd68-d57e1a1564a0-ddl
+Insert of existing embedding ID: 94eb35d9-2747-52ee-bd68-d57e1a1564a0-ddl
+Add of existing embedding ID: c68b261f-8d99-5e8e-9664-32713b77c258-ddl
+Insert of existing embedding ID: c68b261f-8d99-5e8e-9664-32713b77c258-ddl
+Add of existing embedding ID: ef6dfb1d-a459-587c-982e-b60c941d7f0c-ddl
+Insert of existing embedding ID: ef6dfb1d-a459-587c-982e-b60c941d7f0c-ddl
+Add of existing embedding ID: e464fb3b-ecec-5e37-9ce0-a2168c8fb826-ddl
+Insert of existing embedding ID: e464fb3b-ecec-5e37-9ce0-a2168c8fb826-ddl
+Add of existing embedding ID: 4f46d776-a8f3-559d-8a01-803291565671-ddl
+Insert of existing embedding ID: 4f46d776-a8f3-559d-8a01-803291565671-ddl
+Add of existing embedding ID: efb9de80-9dab-59c3-833b-ca265e487cf4-ddl
+Insert of existing embedding ID: efb9de80-9dab-59c3-833b-ca265e487cf4-ddl
+Add of existing embedding ID: ac1eb2e4-56ff-5fad-8412-3471b208e5e8-ddl
+Insert of existing embedding ID: ac1eb2e4-56ff-5fad-8412-3471b208e5e8-ddl
+Add of existing embedding ID: a550391a-1c39-577a-916d-62375cf0b96b-ddl
+Insert of existing embedding ID: a550391a-1c39-577a-916d-62375cf0b96b-ddl
+Add of existing embedding ID: ca5ddddb-f69e-5116-8a1c-fcb41c83640f-ddl
+Insert of existing embedding ID: ca5ddddb-f69e-5116-8a1c-fcb41c83640f-ddl
+Add of existing embedding ID: c87a936f-e273-5c57-88cc-5bce08b1a4ae-ddl
+Insert of existing embedding ID: c87a936f-e273-5c57-88cc-5bce08b1a4ae-ddl
+Add of existing embedding ID: de06b73a-93bc-5320-9ffe-eca9f1892285-ddl
+Insert of existing embedding ID: de06b73a-93bc-5320-9ffe-eca9f1892285-ddl
+Add of existing embedding ID: 3f789d17-40dd-5756-9812-38315b896ad5-ddl
+Insert of existing embedding ID: 3f789d17-40dd-5756-9812-38315b896ad5-ddl
+Add of existing embedding ID: 1a26ac13-96f8-56c4-b7b9-ecef62a846dd-ddl
+Insert of existing embedding ID: 1a26ac13-96f8-56c4-b7b9-ecef62a846dd-ddl
+Add of existing embedding ID: 67632d6a-3626-54ce-a0bf-46705a01fc0c-ddl
+Insert of existing embedding ID: 67632d6a-3626-54ce-a0bf-46705a01fc0c-ddl
+Add of existing embedding ID: fb0bd4bb-4edd-5cc1-9d83-fa8be18ef854-ddl
+Insert of existing embedding ID: fb0bd4bb-4edd-5cc1-9d83-fa8be18ef854-ddl
+Add of existing embedding ID: efcfeed4-5f8f-5cae-a3c9-bcadb1a0b779-ddl
+Insert of existing embedding ID: efcfeed4-5f8f-5cae-a3c9-bcadb1a0b779-ddl
+Add of existing embedding ID: f0154370-9deb-5daa-a8c8-cfc82f02f256-ddl
+Insert of existing embedding ID: f0154370-9deb-5daa-a8c8-cfc82f02f256-ddl
+Add of existing embedding ID: d9120613-9d53-5396-83dd-841167ee3368-ddl
+Insert of existing embedding ID: d9120613-9d53-5396-83dd-841167ee3368-ddl
+Add of existing embedding ID: bdfd4ebd-771e-573f-a60f-6a040c892a12-ddl
+Insert of existing embedding ID: bdfd4ebd-771e-573f-a60f-6a040c892a12-ddl
+Add of existing embedding ID: 40512d50-a2d6-5ceb-bb53-7cb773f11e1f-ddl
+Insert of existing embedding ID: 40512d50-a2d6-5ceb-bb53-7cb773f11e1f-ddl
+Add of existing embedding ID: 256bb117-e4e3-552c-b651-6f9a5fc1aac7-ddl
+Insert of existing embedding ID: 256bb117-e4e3-552c-b651-6f9a5fc1aac7-ddl
+Add of existing embedding ID: 44af4e3e-f8ec-5193-8473-2eabe919822d-ddl
+Insert of existing embedding ID: 44af4e3e-f8ec-5193-8473-2eabe919822d-ddl
+Add of existing embedding ID: e9c18680-fb03-537b-bcf8-cb325c7d69fe-ddl
+Insert of existing embedding ID: e9c18680-fb03-537b-bcf8-cb325c7d69fe-ddl
+Add of existing embedding ID: 7d82d683-1e9f-5563-9599-0dfa8a4eed19-ddl
+Insert of existing embedding ID: 7d82d683-1e9f-5563-9599-0dfa8a4eed19-ddl
+Add of existing embedding ID: c42dd1a1-500c-5fc4-ab5d-cd8e241a5306-ddl
+Insert of existing embedding ID: c42dd1a1-500c-5fc4-ab5d-cd8e241a5306-ddl
+Add of existing embedding ID: 26a0e833-03aa-5ad6-9481-5daebffc89b8-ddl
+Insert of existing embedding ID: 26a0e833-03aa-5ad6-9481-5daebffc89b8-ddl
+Add of existing embedding ID: 19f0626e-55dd-5e1b-afc6-84ac24a6b03d-ddl
+Insert of existing embedding ID: 19f0626e-55dd-5e1b-afc6-84ac24a6b03d-ddl
+Add of existing embedding ID: f55c26a7-2c08-55a0-a2aa-cc934c4fc759-ddl
+Insert of existing embedding ID: f55c26a7-2c08-55a0-a2aa-cc934c4fc759-ddl
+Add of existing embedding ID: d4c3a983-8a32-5eef-afd4-a2b2dcbc8065-ddl
+Insert of existing embedding ID: d4c3a983-8a32-5eef-afd4-a2b2dcbc8065-ddl
+Add of existing embedding ID: 3cef112f-1054-518a-ab27-f579d10bf2c1-ddl
+Insert of existing embedding ID: 3cef112f-1054-518a-ab27-f579d10bf2c1-ddl
+Add of existing embedding ID: 3412aaa7-eb47-5e8b-a94e-24bc3271f2a5-ddl
+Insert of existing embedding ID: 3412aaa7-eb47-5e8b-a94e-24bc3271f2a5-ddl
+Add of existing embedding ID: d2538390-bef2-5ea4-9e4d-8fe427722d51-ddl
+Insert of existing embedding ID: d2538390-bef2-5ea4-9e4d-8fe427722d51-ddl
+Add of existing embedding ID: b858cbfb-e339-538e-bb70-d490a7e23dcd-ddl
+Insert of existing embedding ID: b858cbfb-e339-538e-bb70-d490a7e23dcd-ddl
+Add of existing embedding ID: cd2f1050-4f91-5dff-91de-8d2e07928030-ddl
+Insert of existing embedding ID: cd2f1050-4f91-5dff-91de-8d2e07928030-ddl
+Add of existing embedding ID: 3073d0d0-6f92-5eec-ac1c-52a6c4fcd38a-ddl
+Insert of existing embedding ID: 3073d0d0-6f92-5eec-ac1c-52a6c4fcd38a-ddl
+Add of existing embedding ID: 42fb5682-8976-5361-9c06-e2dadc2fd0d6-ddl
+Insert of existing embedding ID: 42fb5682-8976-5361-9c06-e2dadc2fd0d6-ddl
+Add of existing embedding ID: 52c9d201-16d6-57fb-a85f-271f1c5e46b5-ddl
+Insert of existing embedding ID: 52c9d201-16d6-57fb-a85f-271f1c5e46b5-ddl
+
+Pose tes questions (ligne vide pour quitter) :
+
+? Question > Combien d'abonnés y a-t-il au total ?
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+
+===== qwen3:32b =====
+SELECT total_subscribers FROM public.analytics_totals WHERE id = 'global'
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+
+Combien d'abonnés ont été importés ce mois-ci ?
