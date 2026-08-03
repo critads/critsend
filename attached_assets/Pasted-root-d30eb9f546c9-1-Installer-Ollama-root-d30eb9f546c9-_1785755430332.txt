@@ -1,0 +1,63 @@
+root@d30eb9f546c9:/# # ── 1. Installer Ollama ──────────────────────────────
+root@d30eb9f546c9:/# curl -fsSL https://ollama.com/install.sh | sh
+>>> Cleaning up old version at /usr/local/lib/ollama
+>>> Installing ollama to /usr/local
+>>> Downloading ollama-linux-amd64.tar.zst
+######################################################################## 100.0%
+>>> Adding ollama user to video group...
+>>> Adding current user to ollama group...
+>>> Creating ollama systemd service...
+WARNING: systemd is not running
+WARNING: Unable to detect NVIDIA/AMD GPU. Install lspci or lshw to automatically detect and install GPU dependencies.
+>>> The Ollama API is now available at 127.0.0.1:11434.
+>>> Install complete. Run "ollama" from the command line.
+root@d30eb9f546c9:/#
+root@d30eb9f546c9:/# # ── 2. Stocker les modèles sur le volume persistant ──
+root@d30eb9f546c9:/# # (survit aux redémarrages du pod — évite de re-télécharger 47 Go)
+root@d30eb9f546c9:/# export OLLAMA_MODELS=/workspace/ollama-models
+root@d30eb9f546c9:/# mkdir -p $OLLAMA_MODELS
+root@d30eb9f546c9:/#
+root@d30eb9f546c9:/# # ── 3. Démarrer le serveur Ollama en arrière-plan ────
+root@d30eb9f546c9:/# ollama serve > /workspace/ollama.log 2>&1 &
+[1] 1106
+root@d30eb9f546c9:/#
+root@d30eb9f546c9:/# # ── 4. Vérifier que le GPU H200 est bien détecté ─────
+root@d30eb9f546c9:/# nvidia-smi
+Mon Aug  3 08:18:41 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.126.09             Driver Version: 580.126.09     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100 80GB HBM3          On  |   00000000:3A:00.0 Off |                    0 |
+| N/A   32C    P0             69W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+root@d30eb9f546c9:/#
+root@d30eb9f546c9:/# # ── 5. Télécharger les deux modèles (en parallèle) ───
+root@d30eb9f546c9:/# ollama pull qwen2.5:72b &
+[2] 1127
+root@d30eb9f546c9:/# ollama pull qwen3:32b &
+[3] 1129
+root@d30eb9f546c9:/# wait
+pulling manifest
+pulling manifest
+pulling 3291abe70f16: 100% ▕███████████████████████████████████████████████████████████████████████████████████████████ ▏  20 GB/ 20 GB   34 MB/s      0s
+pulling afdf5c7585b3: 100% ▕████████████████████████████████████████████████████████████████████████████████████████████▏  488 B
+verifying sha256 digest
+writing manifest
+pulling manifest
+pulling 6e7fdda508e9: 100% ▕████████████████████████████████████████████████████████████████████████████████████████████▏  47 GB
+verifying sha256 digest
+writing manifest
+success
