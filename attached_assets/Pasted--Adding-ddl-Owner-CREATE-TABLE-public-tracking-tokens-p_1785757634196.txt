@@ -1,0 +1,929 @@
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260802 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260803 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260804 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260805 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260806 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260807 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260808 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260809 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.urgent_flush_jobs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    user_id character varying,
+    status text DEFAULT 'pending'::text NOT NULL,
+    total_held integer DEFAULT 0 NOT NULL,
+    processed integer DEFAULT 0 NOT NULL,
+    batch_size integer DEFAULT 2000 NOT NULL,
+    error text,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    started_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    heartbeat_at timestamp without time zone
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.users (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    username text NOT NULL,
+    password text NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    is_admin boolean DEFAULT false NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.warmup_schedules (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    mta_id character varying NOT NULL,
+    name text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    start_date timestamp without time zone DEFAULT now() NOT NULL,
+    current_day integer DEFAULT 1 NOT NULL,
+    total_days integer DEFAULT 30 NOT NULL,
+    daily_volume_cap integer DEFAULT 50 NOT NULL,
+    max_daily_volume integer DEFAULT 100000 NOT NULL,
+    ramp_multiplier text DEFAULT '1.5'::text NOT NULL,
+    sent_today integer DEFAULT 0 NOT NULL,
+    last_reset_date timestamp without time zone DEFAULT now(),
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+--- entrainement qwen2.5:72b ---
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.ab_test_variants (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    name text NOT NULL,
+    subject text,
+    html_content text,
+    from_name text,
+    preheader text,
+    allocation_percent integer DEFAULT 50 NOT NULL,
+    sent_count integer DEFAULT 0 NOT NULL,
+    open_count integer DEFAULT 0 NOT NULL,
+    click_count integer DEFAULT 0 NOT NULL,
+    unsubscribe_count integer DEFAULT 0 NOT NULL,
+    bounce_count integer DEFAULT 0 NOT NULL,
+    is_winner boolean DEFAULT false NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Failed to send telemetry event CollectionAddEvent: capture() takes 1 positional argument but 3 were given
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.analytics_daily (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    date timestamp without time zone NOT NULL,
+    campaign_id character varying,
+    total_sent integer DEFAULT 0 NOT NULL,
+    total_delivered integer DEFAULT 0 NOT NULL,
+    total_opens integer DEFAULT 0 NOT NULL,
+    unique_opens integer DEFAULT 0 NOT NULL,
+    total_clicks integer DEFAULT 0 NOT NULL,
+    unique_clicks integer DEFAULT 0 NOT NULL,
+    total_bounces integer DEFAULT 0 NOT NULL,
+    total_unsubscribes integer DEFAULT 0 NOT NULL,
+    total_complaints integer DEFAULT 0 NOT NULL,
+    subscriber_growth integer DEFAULT 0 NOT NULL,
+    subscriber_churn integer DEFAULT 0 NOT NULL,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.analytics_totals (
+    id character varying DEFAULT 'global'::character varying NOT NULL,
+    total_subscribers integer DEFAULT 0 NOT NULL,
+    total_campaigns integer DEFAULT 0 NOT NULL,
+    total_sent integer DEFAULT 0 NOT NULL,
+    total_bounces integer DEFAULT 0 NOT NULL,
+    total_opens integer DEFAULT 0 NOT NULL,
+    total_clicks integer DEFAULT 0 NOT NULL,
+    total_unsubscribes integer DEFAULT 0 NOT NULL,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.automation_enrollments (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    workflow_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    current_step_index integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    enrolled_at timestamp without time zone DEFAULT now() NOT NULL,
+    next_action_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    last_error text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.automation_workflows (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    description text,
+    status text DEFAULT 'draft'::text NOT NULL,
+    trigger_type text NOT NULL,
+    trigger_config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    steps jsonb DEFAULT '[]'::jsonb NOT NULL,
+    total_enrolled integer DEFAULT 0 NOT NULL,
+    total_completed integer DEFAULT 0 NOT NULL,
+    total_failed integer DEFAULT 0 NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    mta_id character varying,
+    tracking_campaign_id character varying
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.bot_opener_leader (
+    lock_key text NOT NULL,
+    holder text NOT NULL,
+    acquired_at timestamp without time zone DEFAULT now() NOT NULL,
+    expires_at timestamp without time zone NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.bot_opener_marks (
+    subscriber_id character varying NOT NULL,
+    marked_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.bot_opener_runs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    started_at timestamp without time zone DEFAULT now() NOT NULL,
+    completed_at timestamp without time zone,
+    window_days integer NOT NULL,
+    candidates integer,
+    matched integer,
+    marked integer,
+    error text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.campaign_jobs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    started_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    worker_id text,
+    error_message text,
+    retry_count integer DEFAULT 0 NOT NULL,
+    next_retry_at timestamp without time zone,
+    heartbeat timestamp without time zone
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.campaign_links (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    destination_url text NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.campaign_sends (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    sent_at timestamp without time zone DEFAULT now() NOT NULL,
+    status text DEFAULT 'sent'::text NOT NULL,
+    first_open_at timestamp without time zone,
+    first_click_at timestamp without time zone,
+    retry_count integer DEFAULT 0 NOT NULL,
+    last_retry_at timestamp without time zone,
+    eligible_at timestamp without time zone,
+    first_deferred_at timestamp without time zone
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.campaign_stats (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    type text NOT NULL,
+    link text,
+    "timestamp" timestamp without time zone DEFAULT now() NOT NULL,
+    ip_address text,
+    user_agent text,
+    country text,
+    city text,
+    device_type text,
+    browser text,
+    os text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.campaigns (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    mta_id character varying,
+    segment_id character varying,
+    from_name text NOT NULL,
+    from_email text NOT NULL,
+    reply_email text,
+    subject text NOT NULL,
+    preheader text,
+    html_content text NOT NULL,
+    track_clicks boolean DEFAULT true NOT NULL,
+    track_opens boolean DEFAULT true NOT NULL,
+    unsubscribe_text text DEFAULT 'Unsubscribe'::text,
+    company_address text,
+    sending_speed text DEFAULT 'medium'::text NOT NULL,
+    scheduled_at timestamp without time zone,
+    status text DEFAULT 'draft'::text NOT NULL,
+    pause_reason text,
+    open_tag text,
+    click_tag text,
+    unsubscribe_tag text,
+    sent_count integer DEFAULT 0 NOT NULL,
+    pending_count integer DEFAULT 0 NOT NULL,
+    failed_count integer DEFAULT 0 NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    started_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    retry_until timestamp without time zone,
+    auto_retry_count integer DEFAULT 0 NOT NULL,
+    unique_opens_count integer DEFAULT 0 NOT NULL,
+    total_opens_count integer DEFAULT 0 NOT NULL,
+    unique_clicks_count integer DEFAULT 0 NOT NULL,
+    total_clicks_count integer DEFAULT 0 NOT NULL,
+    unsubscribes_count integer DEFAULT 0 NOT NULL,
+    complaints_count integer DEFAULT 0 NOT NULL,
+    parent_campaign_id character varying,
+    follow_up_enabled boolean DEFAULT false NOT NULL,
+    follow_up_delay_hours integer DEFAULT 36 NOT NULL,
+    follow_up_scheduled_at timestamp without time zone,
+    follow_up_campaign_id character varying,
+    follow_up_subject text,
+    exclude_segment_id character varying,
+    deferred_count integer DEFAULT 0 NOT NULL,
+    skipped_pressure_count integer DEFAULT 0 NOT NULL,
+    snowball_throttled_count integer DEFAULT 0 NOT NULL,
+    aged_forced_count integer DEFAULT 0 NOT NULL,
+    urgent_mode boolean DEFAULT false NOT NULL,
+    last_send_at timestamp without time zone,
+    user_id character varying,
+    urgent_flush_job_id character varying
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.dashboard_cache (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    key text NOT NULL,
+    value jsonb NOT NULL,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.db_maintenance_logs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    rule_id character varying NOT NULL,
+    table_name text NOT NULL,
+    rows_deleted integer DEFAULT 0 NOT NULL,
+    duration_ms integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'success'::text NOT NULL,
+    error_message text,
+    triggered_by text DEFAULT 'auto'::text NOT NULL,
+    executed_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.db_maintenance_rules (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    table_name text NOT NULL,
+    display_name text NOT NULL,
+    description text,
+    retention_days integer DEFAULT 90 NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    last_run_at timestamp without time zone,
+    last_rows_deleted integer DEFAULT 0,
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.email_headers (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    value text NOT NULL,
+    is_default boolean DEFAULT false NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.error_logs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    type text NOT NULL,
+    severity text DEFAULT 'error'::text NOT NULL,
+    message text NOT NULL,
+    details text,
+    campaign_id character varying,
+    subscriber_id character varying,
+    import_job_id character varying,
+    email text,
+    "timestamp" timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.flush_jobs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    total_rows integer DEFAULT 0 NOT NULL,
+    processed_rows integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    started_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    heartbeat timestamp without time zone,
+    worker_id text,
+    error_message text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.import_job_queue (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    import_job_id character varying NOT NULL,
+    csv_file_path text NOT NULL,
+    total_lines integer DEFAULT 0 NOT NULL,
+    processed_lines integer DEFAULT 0 NOT NULL,
+    file_size_bytes integer DEFAULT 0 NOT NULL,
+    processed_bytes integer DEFAULT 0 NOT NULL,
+    last_checkpoint_line integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    started_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    heartbeat timestamp without time zone,
+    worker_id text,
+    retry_count integer DEFAULT 0 NOT NULL,
+    error_message text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.import_jobs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    filename text NOT NULL,
+    total_rows integer DEFAULT 0 NOT NULL,
+    processed_rows integer DEFAULT 0 NOT NULL,
+    new_subscribers integer DEFAULT 0 NOT NULL,
+    updated_subscribers integer DEFAULT 0 NOT NULL,
+    failed_rows integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    tag_mode text DEFAULT 'merge'::text NOT NULL,
+    error_message text,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    started_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    import_target text DEFAULT 'refs'::text NOT NULL,
+    detected_refs text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    clean_existing_refs boolean DEFAULT false NOT NULL,
+    delete_existing_refs boolean DEFAULT false NOT NULL,
+    failure_reasons jsonb,
+    skipped_rows integer DEFAULT 0 NOT NULL,
+    forced_tags text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    forced_refs text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    remove_mode boolean DEFAULT false NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.import_staging (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    job_id character varying NOT NULL,
+    email text NOT NULL,
+    tags text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    ip_address text,
+    line_number integer DEFAULT 0 NOT NULL,
+    refs text[] DEFAULT ARRAY[]::text[] NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.mtas (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    hostname text,
+    port integer DEFAULT 587 NOT NULL,
+    username text,
+    password text,
+    tracking_domain text,
+    open_tracking_domain text,
+    image_hosting_domain text,
+    is_active boolean DEFAULT true NOT NULL,
+    mode text DEFAULT 'real'::text NOT NULL,
+    simulated_latency_ms integer DEFAULT 0,
+    failure_rate integer DEFAULT 0,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    from_name text DEFAULT ''::text NOT NULL,
+    from_email text DEFAULT ''::text NOT NULL,
+    protocol text DEFAULT 'STARTTLS'::text NOT NULL,
+    unsubscribe_text text DEFAULT 'Unsubscribe'::text,
+    company_address text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.nullsink_captures (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying,
+    mta_id character varying,
+    from_email text NOT NULL,
+    to_email text NOT NULL,
+    subject text NOT NULL,
+    message_size integer DEFAULT 0,
+    status text DEFAULT 'captured'::text NOT NULL,
+    handshake_time_ms integer DEFAULT 0,
+    total_time_ms integer DEFAULT 0,
+    "timestamp" timestamp without time zone DEFAULT now() NOT NULL,
+    html_body text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pending_tag_operations (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    subscriber_id character varying NOT NULL,
+    campaign_id character varying,
+    tag_type text NOT NULL,
+    tag_value text NOT NULL,
+    event_type text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    retry_count integer DEFAULT 0 NOT NULL,
+    max_retries integer DEFAULT 5 NOT NULL,
+    last_error text,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    processed_at timestamp without time zone,
+    next_retry_at timestamp without time zone
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pmta_collector_leader (
+    lock_key text NOT NULL,
+    holder text NOT NULL,
+    acquired_at timestamp without time zone DEFAULT now() NOT NULL,
+    expires_at timestamp without time zone NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pmta_queue_snapshots (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    server_id character varying,
+    domain text NOT NULL,
+    captured_at timestamp without time zone DEFAULT now() NOT NULL,
+    pending_count integer DEFAULT 0 NOT NULL,
+    error_count integer DEFAULT 0 NOT NULL,
+    status text DEFAULT 'ok'::text NOT NULL,
+    error_message text,
+    error_lines jsonb DEFAULT '[]'::jsonb NOT NULL,
+    raw_excerpt text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pmta_refresh_signal (
+    id text NOT NULL,
+    requested_at timestamp without time zone,
+    requested_by text,
+    processed_at timestamp without time zone,
+    processed_by text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pmta_servers (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    host text NOT NULL,
+    port integer DEFAULT 22 NOT NULL,
+    username text NOT NULL,
+    ssh_key_secret_ref text DEFAULT 'PMTA_SSH_PRIVATE_KEY'::text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pressure_drain_tick_errors (
+    id bigint NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    holder_id text,
+    error_msg text
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pressure_flush_audit (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying,
+    user_id character varying,
+    scope text NOT NULL,
+    count integer DEFAULT 0 NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pressure_guard_backfill_done (
+    id integer NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pressure_guard_leader (
+    lock_key text NOT NULL,
+    holder_id text NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    last_tick_at timestamp with time zone,
+    last_tick_drained integer DEFAULT 0 NOT NULL,
+    last_tick_errors integer DEFAULT 0 NOT NULL,
+    last_tick_eligible integer DEFAULT 0 NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.pressure_maintenance_state (
+    id boolean DEFAULT true NOT NULL,
+    last_heavy_run_date date,
+    CONSTRAINT pressure_maintenance_state_singleton CHECK ((id = true))
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.segments (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    description text,
+    rules jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    cached_count integer
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.session (
+    sid character varying NOT NULL,
+    sess jsonb NOT NULL,
+    expire timestamp without time zone NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.subscribers (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    email text NOT NULL,
+    tags text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    ip_address text,
+    import_date timestamp without time zone DEFAULT now() NOT NULL,
+    refs text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    suppressed_until timestamp without time zone,
+    last_engaged_at timestamp without time zone,
+    last_sent_at timestamp without time zone
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+)
+PARTITION BY RANGE (created_at);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260726 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260727 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260728 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260729 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260730 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260731 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260801 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260802 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260803 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260804 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260805 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260806 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260807 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260808 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.tracking_tokens_p20260809 (
+    token character varying(8) NOT NULL,
+    type character varying(11) NOT NULL,
+    campaign_id character varying NOT NULL,
+    subscriber_id character varying NOT NULL,
+    link_id character varying,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.urgent_flush_jobs (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id character varying NOT NULL,
+    user_id character varying,
+    status text DEFAULT 'pending'::text NOT NULL,
+    total_held integer DEFAULT 0 NOT NULL,
+    processed integer DEFAULT 0 NOT NULL,
+    batch_size integer DEFAULT 2000 NOT NULL,
+    error text,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    started_at timestamp without time zone,
+    completed_at timestamp without time zone,
+    heartbeat_at timestamp without time zone
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.users (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    username text NOT NULL,
+    password text NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    is_admin boolean DEFAULT false NOT NULL
+);
+Adding ddl: Owner: -
+--
+
+CREATE TABLE public.warmup_schedules (
+    id character varying DEFAULT gen_random_uuid() NOT NULL,
+    mta_id character varying NOT NULL,
+    name text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    start_date timestamp without time zone DEFAULT now() NOT NULL,
+    current_day integer DEFAULT 1 NOT NULL,
+    total_days integer DEFAULT 30 NOT NULL,
+    daily_volume_cap integer DEFAULT 50 NOT NULL,
+    max_daily_volume integer DEFAULT 100000 NOT NULL,
+    ramp_multiplier text DEFAULT '1.5'::text NOT NULL,
+    sent_today integer DEFAULT 0 NOT NULL,
+    last_reset_date timestamp without time zone DEFAULT now(),
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+Pose tes questions (ligne vide pour quitter) :
+
+? Question > Combien d'abonnés y a-t-il au total ?
+
+===== qwen3:32b =====
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given
+SQL Prompt: [{'role': 'system', 'content': "You are a SQL expert. Please help to generate a SQL query to answer the question. Your response should ONLY be based on the given context and follow the response guidelines and format instructions. \n===Tables \nOwner: -\n--\n\nCREATE TABLE public.analytics_totals (\n    id character varying DEFAULT 'global'::character varying NOT NULL,\n    total_subscribers integer DEFAULT 0 NOT NULL,\n    total_campaigns integer DEFAULT 0 NOT NULL,\n    total_sent integer DEFAULT 0 NOT NULL,\n    total_bounces integer DEFAULT 0 NOT NULL,\n    total_opens integer DEFAULT 0 NOT NULL,\n    total_clicks integer DEFAULT 0 NOT NULL,\n    total_unsubscribes integer DEFAULT 0 NOT NULL,\n    updated_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.db_maintenance_logs (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    rule_idcharacter varying NOT NULL,\n    table_name text NOT NULL,\n    rows_deleted integer DEFAULT 0 NOT NULL,\n    duration_ms integer DEFAULT 0 NOT NULL,\n status text DEFAULT 'success'::text NOT NULL,\n    error_message text,\n    triggered_by text DEFAULT 'auto'::text NOT NULL,\n    executed_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.dashboard_cache (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    key text NOT NULL,\n    value jsonb NOT NULL,\n    updated_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.analytics_daily (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    date timestamp without time zone NOT NULL,\n    campaign_id character varying,\n    total_sent integer DEFAULT 0 NOT NULL,\n    total_delivered integer DEFAULT 0 NOT NULL,\n    total_opens integer DEFAULT 0NOT NULL,\n    unique_opens integer DEFAULT 0 NOT NULL,\n    total_clicks integer DEFAULT 0 NOT NULL,\n    unique_clicks integer DEFAULT 0 NOT NULL,\ntotal_bounces integer DEFAULT 0 NOT NULL,\n    total_unsubscribes integer DEFAULT 0 NOT NULL,\n    total_complaints integer DEFAULT 0 NOT NULL,\n    subscriber_growth integer DEFAULT 0 NOT NULL,\n    subscriber_churn integer DEFAULT 0 NOT NULL,\n    updated_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.tracking_tokens (\n    token character varying(8) NOT NULL,\n    type character varying(11) NOT NULL,\ncampaign_id character varying NOT NULL,\n    subscriber_id character varying NOT NULL,\n    link_id character varying,\n    created_at timestamp with time zone DEFAULT now() NOT NULL\n)\nPARTITION BY RANGE (created_at);\n\nOwner: -\n--\n\nCREATE TABLE public.pressure_drain_tick_errors (\n    id bigint NOT NULL,\n    occurred_at timestamp with time zone DEFAULT now() NOT NULL,\n    holder_id text,\n    error_msg text\n);\n\nOwner: -\n--\n\nCREATE TABLE public.session (\n    sid character varying NOT NULL,\n    sess jsonb NOT NULL,\n    expire timestamp without time zone NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.db_maintenance_rules (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    table_name text NOT NULL,\n    display_name text NOT NULL,\n    description text,\n    retention_days integer DEFAULT 90 NOT NULL,\n    enabled boolean DEFAULT true NOT NULL,\n    last_run_at timestamp without time zone,\n    last_rows_deleted integer DEFAULT 0,\n    created_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATETABLE public.import_job_queue (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    import_job_id character varying NOT NULL,\n    csv_file_path text NOT NULL,\n    total_lines integer DEFAULT 0 NOT NULL,\n    processed_lines integer DEFAULT 0 NOT NULL,\n    file_size_bytes integer DEFAULT 0NOT NULL,\n    processed_bytes integer DEFAULT 0 NOT NULL,\n    last_checkpoint_line integer DEFAULT 0 NOT NULL,\n    status text DEFAULT 'pending'::textNOT NULL,\n    created_at timestamp without time zone DEFAULT now() NOT NULL,\n    started_at timestamp without time zone,\n    completed_at timestamp without time zone,\n    heartbeat timestamp without time zone,\n    worker_id text,\n    retry_count integer DEFAULT 0 NOT NULL,\n    error_message text\n);\n\nOwner: -\n--\n\nCREATE TABLE public.users (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    username text NOT NULL,\n    password text NOT NULL,\n    created_at timestamp without time zone DEFAULT now() NOT NULL,\n    is_admin boolean DEFAULT false NOT NULL\n);\n\n===Response Guidelines \n1. If the provided context is sufficient, please generate a valid SQL query without any explanations for the question. \n2. If the provided context is almost sufficient but requires knowledge of a specific string in a particular column, please generate an intermediate SQL query to find the distinct strings in that column. Prepend the query with a comment saying intermediate_sql \n3. If the provided context is insufficient, please explain why it can't begenerated. \n4. Please use the most relevant table(s). \n5. If the question has been asked and answered before, please repeat the answer exactly as it was given before. \n6. Ensure that the output SQL is SQL-compliant and executable, and free of syntax errors. \n"}, {'role': 'user', 'content': "Combien d'abonnés y a-t-il au total ?"}]
+Info: Ollama parameters:
+model=qwen3:32b,
+options={},
+keep_alive=None
+Info: Prompt Content:
+[{"role": "system", "content": "You are a SQL expert. Please help to generate a SQL query to answer the question. Your response should ONLY be based on the given context and follow the response guidelines and format instructions. \n===Tables \nOwner: -\n--\n\nCREATE TABLE public.analytics_totals (\n    id character varying DEFAULT 'global'::character varying NOT NULL,\n    total_subscribers integer DEFAULT 0 NOT NULL,\n    total_campaigns integer DEFAULT 0 NOT NULL,\n    total_sent integer DEFAULT 0 NOT NULL,\n    total_bounces integer DEFAULT 0 NOT NULL,\n    total_opens integer DEFAULT 0 NOT NULL,\n    total_clicks integer DEFAULT 0 NOT NULL,\n    total_unsubscribes integer DEFAULT 0 NOT NULL,\n    updated_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.db_maintenance_logs (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    rule_id character varying NOT NULL,\n    table_name text NOT NULL,\n    rows_deleted integer DEFAULT 0 NOT NULL,\n    duration_ms integer DEFAULT 0 NOT NULL,\n    status text DEFAULT 'success'::text NOT NULL,\n    error_message text,\n    triggered_by text DEFAULT 'auto'::text NOT NULL,\n    executed_at timestamp without timezone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.dashboard_cache (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n  key text NOT NULL,\n    value jsonb NOT NULL,\n    updated_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.analytics_daily (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    date timestamp without time zone NOT NULL,\n    campaign_id character varying,\n    total_sent integer DEFAULT 0 NOT NULL,\n    total_delivered integer DEFAULT 0 NOT NULL,\n    total_opens integer DEFAULT 0 NOT NULL,\n   unique_opens integer DEFAULT 0 NOT NULL,\n    total_clicks integer DEFAULT 0 NOT NULL,\n    unique_clicks integer DEFAULT 0 NOT NULL,\n    total_bounces integer DEFAULT 0 NOT NULL,\n    total_unsubscribes integer DEFAULT 0 NOT NULL,\n    total_complaints integer DEFAULT 0 NOT NULL,\n    subscriber_growth integer DEFAULT 0 NOT NULL,\n    subscriber_churn integer DEFAULT 0 NOT NULL,\n    updated_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.tracking_tokens (\n    token character varying(8) NOT NULL,\n    type character varying(11) NOT NULL,\n    campaign_idcharacter varying NOT NULL,\n    subscriber_id character varying NOT NULL,\n    link_id character varying,\n    created_at timestamp with time zone DEFAULT now() NOT NULL\n)\nPARTITION BY RANGE (created_at);\n\nOwner: -\n--\n\nCREATE TABLE public.pressure_drain_tick_errors (\n    id bigint NOT NULL,\n    occurred_at timestamp with time zone DEFAULT now() NOT NULL,\n    holder_id text,\n    error_msg text\n);\n\nOwner: -\n--\n\nCREATE TABLE public.session (\n    sid character varying NOT NULL,\n    sess jsonb NOT NULL,\n    expire timestamp without time zone NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.db_maintenance_rules (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    table_name text NOT NULL,\n    display_name text NOT NULL,\ndescription text,\n    retention_days integer DEFAULT 90 NOT NULL,\n    enabled boolean DEFAULT true NOT NULL,\n    last_run_at timestamp without time zone,\n    last_rows_deleted integer DEFAULT 0,\n    created_at timestamp without time zone DEFAULT now() NOT NULL\n);\n\nOwner: -\n--\n\nCREATE TABLE public.import_job_queue (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    import_job_id character varying NOT NULL,\n    csv_file_path text NOT NULL,\n    total_lines integer DEFAULT 0 NOT NULL,\n    processed_lines integer DEFAULT 0 NOT NULL,\n    file_size_bytes integer DEFAULT 0 NOT NULL,\n   processed_bytes integer DEFAULT 0 NOT NULL,\n    last_checkpoint_line integer DEFAULT 0 NOT NULL,\n    status text DEFAULT 'pending'::text NOT NULL,\n   created_at timestamp without time zone DEFAULT now() NOT NULL,\n    started_at timestamp without time zone,\n    completed_at timestamp without time zone,\n    heartbeat timestamp without time zone,\n    worker_id text,\n    retry_count integer DEFAULT 0 NOT NULL,\n    error_message text\n);\n\nOwner: -\n--\n\nCREATE TABLE public.users (\n    id character varying DEFAULT gen_random_uuid() NOT NULL,\n    username text NOT NULL,\n    password text NOT NULL,\n    created_at timestamp without time zone DEFAULT now() NOT NULL,\n    is_admin boolean DEFAULT false NOT NULL\n);\n\n===Response Guidelines \n1. If the provided context is sufficient, please generate a valid SQL query without any explanations for the question. \n2. If the provided context is almost sufficient but requires knowledge of a specific string in a particular column, please generate an intermediate SQL query to find the distinct strings in thatcolumn. Prepend the query with a comment saying intermediate_sql \n3. If the provided context is insufficient, please explain why it can't be generated. \n4. Please use the most relevant table(s). \n5. If the question has been asked and answered before, please repeat the answer exactly as it was given before. \n6. Ensure that the output SQL is SQL-compliant and executable, and free of syntax errors. \n"}, {"role": "user", "content": "Combien d'abonnés y a-t-il au total ?"}]
