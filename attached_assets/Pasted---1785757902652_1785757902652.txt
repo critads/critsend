@@ -1,0 +1,48 @@
+ _____                             _
+|  __ \                           | |
+| |__) |   _ _ __  _ __   ___   __| |
+|  _  / | | | '_ \| '_ \ / _ \ / _` |
+| | \ \ |_| | | | | |_) | (_) | (_| |
+|_|  \_\__,_|_| |_| .__/ \___/ \__,_|
+                  | |
+                  |_|
+For detailed documentation and guides, please visit:
+https://docs.runpod.io/ and https://blog.runpod.io/
+
+
+root@7f65cf74bb35:/# python /workspace/compare.py
+--- entrainement qwen3:32b ---
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Traceback (most recent call last):
+  File "/workspace/compare.py", line 16, in <module>
+    vn = MyVanna(m)
+         ^^^^^^^^^^
+  File "/workspace/compare.py", line 8, in __init__
+    Ollama.__init__(self, config={"model": model, "ollama_host": "http://127.0.0.1:11434"})
+  File "/usr/local/lib/python3.12/dist-packages/vanna/ollama/ollama.py", line 36, in __init__
+    self.__pull_model_if_ne(self.ollama_client, self.model)
+  File "/usr/local/lib/python3.12/dist-packages/vanna/ollama/ollama.py", line 40, in __pull_model_if_ne
+    model_response = ollama_client.list()
+                     ^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ollama/_client.py", line 626, in list
+    return self._request(
+           ^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ollama/_client.py", line 199, in _request
+    return cls(**self._request_raw(*args, **kwargs).json())
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ollama/_client.py", line 145, in _request_raw
+    raise ConnectionError(CONNECTION_ERROR_MESSAGE) from None
+ConnectionError: Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download
+root@7f65cf74bb35:/# export OLLAMA_MODELS=/workspace/ollama-models
+root@7f65cf74bb35:/# nohup ollama serve > /workspace/ollama.log 2>&1 &
+[1] 4017
+root@7f65cf74bb35:/# sleep 3
+
+root@7f65cf74bb35:/# ollama list          # doit montrer les deux modèles
+NAME           ID              SIZE     MODIFIED
+qwen2.5:72b    424bad2cc13f    47 GB    3 hours ago
+qwen3:32b      030ee887880f    20 GB    3 hours ago
+root@7f65cf74bb35:/#
