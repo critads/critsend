@@ -38,3 +38,6 @@ therefore exclude jobs whose queue row is `pending` OR `processing` — not just
 for retry (then `alreadyFailedResult` closes its pending queue).
 **Why:** matches the orphan sweeper's live-job predicate and preserves the
 reset→pending→retry path.
+
+## TRUNCATE purge mutual exclusion
+Any automated TRUNCATE of import_staging must be race-safe: adjacent SELECT-guard + TRUNCATE statements are NOT enough (an import admitted in between loses rows). Protocol: writers (every import_job_queue insertion path incl. phase-2 confirmation, plus the worker staging COPY) take pg_advisory_xact_lock_shared(IMPORT_STAGING_PURGE_LOCK_KEY) in their transaction; the purge takes an exclusive pg_try_advisory_xact_lock, re-verifies emptiness + active imports inside the same transaction, then TRUNCATEs. Also exclude import_staging from the generic 6h maintenance loop (like tracking_tokens) and pre-screen COUNT(*) with pg_class.reltuples.

@@ -249,11 +249,168 @@ export async function seedDefaultMaintenanceRules(): Promise<void> {
       })(),
       enabled: true,
     },
+    // retentionDays=0 because this table is NOT cleaned by time-based retention.
+    // Instead the nightly 01:00 Paris job TRUNCATEs it when empty and idle,
+    // and logs a warning when index bloat greatly exceeds live data size.
+    // The row exists only as the NOT NULL rule_id FK anchor for db_maintenance_logs.
+    {
+      tableName: "import_staging",
+      displayName: "Import Staging",
+      description: "Temporary staging rows for CSV imports. Purge is bloat-triggered (TRUNCATE when empty and idle), not time-based. retentionDays is unused.",
+      retentionDays: 0,
+      enabled: true,
+    },
   ];
   for (const rule of defaults) {
     await upsertMaintenanceRule(rule);
   }
   logger.info("[MAINTENANCE] Default maintenance rules seeded");
+}
+
+// ───────────────────────────────────────────────────────────────
+// Bloat watch for import_staging
+//
+// import_staging is a temporary staging table used during CSV imports.
+// Large imports INSERT millions of rows then mass-DELETE them; Postgres
+// does not immediately reclaim index pages after DELETEs, so the indexes
+// stay bloated long after the data is gone (observed: 0 bytes data, ~9 GB
+// indexes on prod). The nightly 01:00 Paris job TRUNCATEs when the table
+// is confirmed empty and no import is active, and emits a warning here
+// when the index:data ratio is high but the table is non-empty.
+// ───────────────────────────────────────────────────────────────
+
+export interface ImportStagingBloatStatus {
+  tableName: "import_staging";
+  liveRows: number;           // exact COUNT(*) — not n_live_tup, which may be stale
+  heapBytes: number;          // pg_relation_size (data pages only)
+  heapPretty: string;
+  indexBytes: number;         // pg_indexes_size (all index pages)
+  indexPretty: string;
+  totalBytes: number;         // pg_total_relation_size
+  totalPretty: string;
+  indexRatio: number;         // indexBytes / max(heapBytes, 1)
+  isEmpty: boolean;           // liveRows === 0
+  isIndexBloated: boolean;    // indexRatio > threshold AND indexBytes > minBytes
+  activeImportExists: boolean; // any in-flight import_jobs or import_job_queue row
+  truncateRecommended: boolean; // isEmpty && !activeImportExists
+  reasons: string[];          // human-readable bullets, empty when healthy
+  thresholds: {
+    indexRatio: number;
+    minIndexBytes: number;
+  };
+  measuredAt: string;
+}
+
+// Default: warn when indexes are >5× larger than heap AND index is >100 MB.
+// Both env-configurable without a deploy.
+const IMPORT_STAGING_INDEX_RATIO_THRESHOLD = getEnvNumber("IMPORT_STAGING_BLOAT_INDEX_RATIO", 5);
+const IMPORT_STAGING_MIN_INDEX_BYTES = getEnvNumber("IMPORT_STAGING_BLOAT_MIN_INDEX_BYTES", 100 * 1024 * 1024);
+
+export async function getImportStagingBloat(): Promise<ImportStagingBloatStatus> {
+  // Pre-screen with a cheap pg_class.reltuples estimate before running the
+  // potentially-expensive COUNT(*).  reltuples is updated by VACUUM/ANALYZE;
+  // it may be stale after a mass delete, but it's always cheap to read.
+  // Only run the exact COUNT when the estimate is small (≤EXACT_COUNT_THRESHOLD)
+  // or zero, which is exactly the case we care about for TRUNCATE eligibility.
+  const EXACT_COUNT_THRESHOLD = 10_000;
+  const estimateResult = await pool.query<{ reltuples: string }>(
+    `SELECT COALESCE(reltuples::bigint, 0) AS reltuples
+     FROM pg_class WHERE relname = 'import_staging' AND relkind = 'r'`
+  );
+  const reltupleEstimate = Number(estimateResult.rows[0]?.reltuples ?? 0);
+
+  let liveRows: number;
+  if (reltupleEstimate > EXACT_COUNT_THRESHOLD) {
+    // Table is clearly non-empty; skip the full seqscan and use the estimate.
+    liveRows = reltupleEstimate;
+  } else {
+    // Estimate is zero or small — run the exact count to confirm, because
+    // reltuples may be stale after a mass DELETE (the bloat case).
+    const countResult = await pool.query<{ live_rows: string }>(
+      `SELECT COUNT(*)::bigint AS live_rows FROM import_staging`
+    );
+    liveRows = Number(countResult.rows[0]?.live_rows ?? 0);
+  }
+
+  const sizeResult = await pool.query<{
+    heap_bytes: string;
+    heap_pretty: string;
+    index_bytes: string;
+    index_pretty: string;
+    total_bytes: string;
+    total_pretty: string;
+  }>(`
+    SELECT
+      COALESCE(pg_relation_size('import_staging'), 0)::bigint        AS heap_bytes,
+      pg_size_pretty(COALESCE(pg_relation_size('import_staging'), 0)) AS heap_pretty,
+      COALESCE(pg_indexes_size('import_staging'), 0)::bigint          AS index_bytes,
+      pg_size_pretty(COALESCE(pg_indexes_size('import_staging'), 0))  AS index_pretty,
+      COALESCE(pg_total_relation_size('import_staging'), 0)::bigint   AS total_bytes,
+      pg_size_pretty(COALESCE(pg_total_relation_size('import_staging'), 0)) AS total_pretty
+  `);
+  const sr = sizeResult.rows[0];
+  const heapBytes  = Number(sr?.heap_bytes  ?? 0);
+  const indexBytes = Number(sr?.index_bytes ?? 0);
+  const totalBytes = Number(sr?.total_bytes ?? 0);
+  const heapPretty  = sr?.heap_pretty  ?? "0 bytes";
+  const indexPretty = sr?.index_pretty ?? "0 bytes";
+  const totalPretty = sr?.total_pretty ?? "0 bytes";
+
+  const indexRatio = indexBytes / Math.max(heapBytes, 1);
+
+  // Active import check: mirrors sweepOrphanedImportStaging exactly.
+  // import_jobs in (pending, processing, awaiting_confirmation)
+  // OR import_job_queue in (pending, processing)
+  const activeResult = await pool.query<{ found: string }>(`
+    SELECT 1 AS found
+    FROM import_jobs
+    WHERE status IN ('pending', 'processing', 'awaiting_confirmation')
+    UNION ALL
+    SELECT 1
+    FROM import_job_queue
+    WHERE status IN ('pending', 'processing')
+    LIMIT 1
+  `);
+  const activeImportExists = (activeResult.rowCount ?? 0) > 0;
+
+  const isEmpty = liveRows === 0;
+  const thresholds = {
+    indexRatio: IMPORT_STAGING_INDEX_RATIO_THRESHOLD,
+    minIndexBytes: IMPORT_STAGING_MIN_INDEX_BYTES,
+  };
+  const isIndexBloated = !isEmpty &&
+    indexRatio > thresholds.indexRatio &&
+    indexBytes >= thresholds.minIndexBytes;
+
+  const reasons: string[] = [];
+  if (isEmpty && activeImportExists) {
+    reasons.push("Table is empty but an import is currently active — TRUNCATE deferred.");
+  }
+  if (isIndexBloated) {
+    reasons.push(
+      `Index size (${indexPretty}) is ${indexRatio.toFixed(1)}× heap size (${heapPretty}). ` +
+      `Run REINDEX CONCURRENTLY import_staging or wait for next nightly TRUNCATE window.`
+    );
+  }
+
+  return {
+    tableName: "import_staging",
+    liveRows,
+    heapBytes,
+    heapPretty,
+    indexBytes,
+    indexPretty,
+    totalBytes,
+    totalPretty,
+    indexRatio,
+    isEmpty,
+    isIndexBloated,
+    activeImportExists,
+    truncateRecommended: isEmpty && !activeImportExists,
+    reasons,
+    thresholds,
+    measuredAt: new Date().toISOString(),
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════

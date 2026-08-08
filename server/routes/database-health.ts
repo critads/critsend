@@ -27,6 +27,15 @@ export function registerDatabaseHealthRoutes(app: Express) {
     }
   });
 
+  app.get("/api/database-health/import-staging-bloat", async (_req: Request, res: Response) => {
+    try {
+      const bloat = await storage.getImportStagingBloat();
+      res.json(bloat);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch import_staging bloat status" });
+    }
+  });
+
   app.get("/api/database-health/rules", async (_req: Request, res: Response) => {
     try {
       const rules = await storage.getMaintenanceRules();

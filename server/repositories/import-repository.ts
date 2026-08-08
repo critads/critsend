@@ -10,6 +10,7 @@ import { db } from "../db";
 import { eq, desc, and, or, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { importQueue } from "../queues";
+import { IMPORT_STAGING_PURGE_LOCK_KEY } from "../lib/import-staging-lock";
 import { toPgTextArray } from "../utils/pg-array";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
@@ -63,16 +64,23 @@ export async function updateImportJob(id: string, data: Partial<ImportJob>): Pro
 // ═══════════════════════════════════════════════════════════════
 
 export async function enqueueImportJob(importJobId: string, csvFilePath: string, totalLines: number, fileSizeBytes: number = 0): Promise<ImportJobQueueItem> {
-  const [job] = await db.insert(importJobQueue).values({
-    importJobId,
-    csvFilePath,
-    totalLines,
-    processedLines: 0,
-    fileSizeBytes,
-    processedBytes: 0,
-    lastCheckpointLine: 0,
-    status: "pending",
-  }).returning();
+  // Shared advisory lock — writer side of the purge ↔ writer mutex.
+  // Ensures the nightly TRUNCATE cannot run between our INSERT and commit.
+  // See server/lib/import-staging-lock.ts for the full protocol.
+  const job = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(${IMPORT_STAGING_PURGE_LOCK_KEY})`);
+    const [queued] = await tx.insert(importJobQueue).values({
+      importJobId,
+      csvFilePath,
+      totalLines,
+      processedLines: 0,
+      fileSizeBytes,
+      processedBytes: 0,
+      lastCheckpointLine: 0,
+      status: "pending",
+    }).returning();
+    return queued;
+  });
   if (USE_BULLMQ && importQueue) {
     await importQueue.add("import", { jobId: job.id, importJobId }, { jobId: `import-${job.id}` }).catch((err: any) =>
       logger.warn("[BullMQ] Failed to enqueue import job:", err.message)

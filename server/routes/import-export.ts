@@ -4,6 +4,7 @@ import { logger } from "../logger";
 import { db } from "../db";
 import { sql, eq, and, ne } from "drizzle-orm";
 import { importJobs, importJobQueue } from "@shared/schema";
+import { IMPORT_STAGING_PURGE_LOCK_KEY } from "../lib/import-staging-lock";
 import * as fs from "fs";
 import * as path from "path";
 import { uploadToDisk, uploadChunkToDisk, objectStorageService, UPLOADS_DIR_BASE, CHUNKS_DIR_BASE, getUploadDirStatus, formatUploadDirError } from "../upload";
@@ -193,6 +194,12 @@ export function registerImportExportRoutes(app: Express, helpers: {
 
       try {
         const queueItem = await db.transaction(async (tx) => {
+          // Shared advisory lock — writer side of the purge ↔ writer mutex.
+          // Multiple concurrent admission transactions can hold this simultaneously.
+          // The nightly purge uses pg_try_advisory_xact_lock (exclusive, non-blocking)
+          // and defers if ANY shared holder exists, so no import data can be lost.
+          // See server/lib/import-staging-lock.ts for the full protocol.
+          await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(${IMPORT_STAGING_PURGE_LOCK_KEY})`);
           await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job!.id}`);
           const [queued] = await tx.insert(importJobQueue).values({
             importJobId: job!.id,
@@ -602,16 +609,24 @@ export function registerImportExportRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Failed to confirm import job" });
       }
 
-      const [queueItem] = await db.insert(importJobQueue).values({
-        importJobId: job!.id,
-        csvFilePath: "phase2_merge",
-        totalLines: job.totalRows,
-        processedLines: 0,
-        fileSizeBytes: 0,
-        processedBytes: 0,
-        lastCheckpointLine: 0,
-        status: "pending",
-      }).returning();
+      // Wrap the queue-insertion in a transaction so the shared advisory lock
+      // covers the INSERT.  The confirmImportJob call above already committed
+      // import_jobs.status='processing', which is itself visible to the purge's
+      // active-import check — this lock is defence-in-depth for the queue row.
+      const queueItem = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(${IMPORT_STAGING_PURGE_LOCK_KEY})`);
+        const [item] = await tx.insert(importJobQueue).values({
+          importJobId: job!.id,
+          csvFilePath: "phase2_merge",
+          totalLines: job.totalRows,
+          processedLines: 0,
+          fileSizeBytes: 0,
+          processedBytes: 0,
+          lastCheckpointLine: 0,
+          status: "pending",
+        }).returning();
+        return item;
+      });
 
       try {
         await db.execute(sql`NOTIFY import_jobs`);
@@ -844,6 +859,9 @@ export function registerImportExportRoutes(app: Express, helpers: {
       logger.info(`[CHUNKED] ${uploadId}: File staged locally for deferred upload: ${storagePathChunked}, size: ${verifiedSize} bytes (remoteBackend=${useObjectStorageForImports()})`);
 
       const queueItem = await db.transaction(async (tx) => {
+        // Shared advisory lock — writer side, same key as the regular import path.
+        // See server/lib/import-staging-lock.ts for the full protocol.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(${IMPORT_STAGING_PURGE_LOCK_KEY})`);
         await tx.update(importJobs).set({ status: "queued" }).where(sql`${importJobs.id} = ${job!.id}`);
         const [queued] = await tx.insert(importJobQueue).values({
           importJobId: job!.id,

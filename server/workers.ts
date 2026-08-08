@@ -25,6 +25,7 @@ import {
   dropExpiredTrackingTokenPartitions,
 } from "./tracking-partitions";
 import { msUntilNextHourInTz } from "./lib/daily-schedule";
+import { truncateIfSafe } from "./services/import-staging-purge";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -2218,7 +2219,12 @@ async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: 
   // 100M+ row purge never starts in the middle of business hours.
   // The "daily_1am_paris" trigger bypasses this filter via runMaintenanceForRule
   // directly (see runDailyTrackingTokenPurge below).
-  const enabledRules = rules.filter(r => r.enabled && r.tableName !== "tracking_tokens");
+  // tracking_tokens: handled by the dedicated daily 1 AM Paris job.
+  // import_staging: handled by runDailyImportStagingPurge (advisory-locked TRUNCATE);
+  //   has no TABLE_CLEANUP_QUERIES entry and must never enter the generic loop.
+  const enabledRules = rules.filter(
+    r => r.enabled && r.tableName !== "tracking_tokens" && r.tableName !== "import_staging"
+  );
   const results: Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }> = [];
 
   logger.info(`[MAINTENANCE] Starting cleanup run (${triggeredBy}), ${enabledRules.length} rules enabled`);
@@ -2264,6 +2270,180 @@ async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: 
 // the alert fires once on transition (healthy → bloated) and once when it
 // clears, instead of repeating every maintenance cycle.
 let lastTrackingTokenBloatAlerted = false;
+
+// Edge-triggered alert flag for import_staging index bloat — same pattern as
+// tracking_tokens. Fires once on healthy→bloated transition, once on recovery.
+let lastImportStagingBloatAlerted = false;
+
+// ── Nightly import_staging index-bloat purge ──────────────────
+//
+// import_staging accumulates index bloat after large imports: rows are
+// COPYed in then mass-deleted, but Postgres holds onto the index pages.
+// On prod this produced ~9 GB of indexes on an otherwise-empty table.
+//
+// This function runs inside the existing 01:00 Europe/Paris window (called
+// from runDailyTrackingTokenPurge), with its own 23 h idempotency gate so
+// multiple PM2 processes don't double-run it.
+//
+// Race-safety contract (TRUNCATE ↔ import admission):
+//   - The check→TRUNCATE path runs entirely within a single Postgres
+//     transaction, protected by a transaction-level advisory lock
+//     (IMPORT_STAGING_PURGE_LOCK_KEY, shared with the import-admission
+//     transactions in server/routes/import-export.ts).
+//   - Purge uses pg_try_advisory_xact_lock (non-blocking): if admission
+//     currently holds the lock, we skip tonight and try again tomorrow.
+//   - Admission uses pg_advisory_xact_lock (blocking): it waits ≤1 ms
+//     for any in-progress TRUNCATE to commit, then inserts its queue row
+//     under the lock — so no row can slip between our empty-check and
+//     our TRUNCATE.
+//   - truncateIfSafe() (server/services/import-staging-purge.ts) holds
+//     the extracted, unit-testable logic; tests/import-staging-purge.test.ts
+//     covers every outcome path.
+//   - Empty check is exact COUNT(*) (re-run inside the transaction),
+//     not the stale n_live_tup estimate.
+//   - Non-empty + bloated index: log-only, no automatic REINDEX.
+async function runDailyImportStagingPurge(): Promise<void> {
+  try {
+    // Idempotency gate: skip if any process already ran successfully in the last 23 h.
+    const recent = await pool.query(
+      `SELECT 1 FROM db_maintenance_logs
+        WHERE table_name = 'import_staging'
+          AND status = 'success'
+          AND executed_at > NOW() - INTERVAL '23 hours'
+        LIMIT 1`
+    );
+    if ((recent.rowCount ?? 0) > 0) {
+      logger.info("[IMPORT_STAGING_PURGE] Already ran successfully within 23h — skipping");
+      return;
+    }
+
+    // Fetch the rule row so we have the NOT NULL rule_id FK for the log.
+    const rules = await storage.getMaintenanceRules();
+    const rule = rules.find(r => r.tableName === "import_staging" && r.enabled);
+    if (!rule) {
+      logger.warn("[IMPORT_STAGING_PURGE] import_staging rule not found or disabled — skipping");
+      return;
+    }
+
+    const startTime = Date.now();
+    let logStatus = "success";
+    let logMessage: string | null = null;
+
+    // Preliminary row-count estimate — avoids a full seqscan COUNT(*) when
+    // the table is clearly non-empty (reltuples updated by VACUUM/ANALYZE).
+    // Only fall back to exact COUNT when the estimate is near-zero, which is
+    // the exact case where reltuples can be stale (post-mass-DELETE bloat).
+    // truncateIfSafe() re-verifies with an exact COUNT inside the transaction.
+    const PRELIM_THRESHOLD = 10_000;
+    const estRes = await pool.query<{ reltuples: string }>(
+      `SELECT COALESCE(reltuples::bigint, 0) AS reltuples
+       FROM pg_class WHERE relname = 'import_staging' AND relkind = 'r'`
+    );
+    const reltupleEstimate = Number(estRes.rows[0]?.reltuples ?? 0);
+    let liveRows: number;
+    if (reltupleEstimate > PRELIM_THRESHOLD) {
+      liveRows = reltupleEstimate; // clearly non-empty, skip expensive COUNT
+    } else {
+      // Estimate is zero or small — run exact COUNT to confirm (stale reltuples
+      // after mass-DELETE is the exact bloat scenario we need to catch).
+      const countRes = await pool.query<{ cnt: string }>(
+        `SELECT COUNT(*)::bigint AS cnt FROM import_staging`
+      );
+      liveRows = Number(countRes.rows[0]?.cnt ?? 0);
+    }
+
+    if (liveRows === 0) {
+      // Open a transaction so the advisory lock + checks + TRUNCATE are atomic.
+      const client = await pool.connect();
+      let outcome: import("./services/import-staging-purge").TruncateOutcome | null = null;
+      try {
+        await client.query("BEGIN");
+        outcome = await truncateIfSafe(client);
+        await client.query("COMMIT");
+      } catch (truncErr: any) {
+        try { await client.query("ROLLBACK"); } catch {}
+        logStatus = "failed";
+        logMessage = `TRUNCATE transaction failed: ${truncErr?.message || String(truncErr)}`;
+        logger.error("[IMPORT_STAGING_PURGE] TRUNCATE failed:", truncErr);
+      } finally {
+        client.release();
+      }
+
+      if (outcome === "truncated") {
+        const durationMs = Date.now() - startTime;
+        logger.info(`[IMPORT_STAGING_PURGE] TRUNCATE completed — index bloat reclaimed in ${durationMs}ms`);
+        logMessage = "Table was empty and idle; TRUNCATE reclaimed index bloat.";
+      } else if (outcome === "skipped_lock") {
+        logger.info("[IMPORT_STAGING_PURGE] Advisory lock not available (import admission in progress) — deferring to next run");
+        return; // normal deferral — no maintenance log entry
+      } else if (outcome === "skipped_active_import") {
+        logger.info("[IMPORT_STAGING_PURGE] Table empty but active import detected inside transaction — deferring TRUNCATE");
+        return; // normal deferral — no maintenance log entry
+      } else if (outcome === "skipped_nonempty") {
+        logger.info("[IMPORT_STAGING_PURGE] Rows appeared between outer COUNT and transaction — deferring TRUNCATE");
+        return; // normal deferral — no maintenance log entry
+      } else if (outcome === null) {
+        // exception path already set logStatus/logMessage above
+      }
+    } else {
+      // Table is not empty. Check index:data ratio for a bloat warning.
+      const sizeRes = await pool.query<{ heap_bytes: string; index_bytes: string; index_pretty: string; heap_pretty: string }>(
+        `SELECT
+           COALESCE(pg_relation_size('import_staging'), 0)::bigint        AS heap_bytes,
+           pg_size_pretty(COALESCE(pg_relation_size('import_staging'), 0)) AS heap_pretty,
+           COALESCE(pg_indexes_size('import_staging'), 0)::bigint          AS index_bytes,
+           pg_size_pretty(COALESCE(pg_indexes_size('import_staging'), 0))  AS index_pretty`
+      );
+      const sr = sizeRes.rows[0];
+      const heapBytes  = Number(sr?.heap_bytes  ?? 0);
+      const indexBytes = Number(sr?.index_bytes ?? 0);
+      const indexRatio = indexBytes / Math.max(heapBytes, 1);
+      const INDEX_RATIO_THRESHOLD = 5;
+      const MIN_INDEX_BYTES = 100 * 1024 * 1024; // 100 MB
+
+      if (indexRatio > INDEX_RATIO_THRESHOLD && indexBytes >= MIN_INDEX_BYTES) {
+        const alertMsg =
+          `import_staging index bloat: index=${sr?.index_pretty ?? "?"} (${indexRatio.toFixed(1)}× heap=${sr?.heap_pretty ?? "?"}). ` +
+          `Table has ${liveRows} live rows — TRUNCATE skipped. ` +
+          `Run REINDEX CONCURRENTLY import_staging to reclaim space.`;
+
+        if (!lastImportStagingBloatAlerted) {
+          logger.warn(`[IMPORT_STAGING_PURGE] ${alertMsg}`);
+          lastImportStagingBloatAlerted = true;
+        }
+        logMessage = alertMsg;
+      } else {
+        if (lastImportStagingBloatAlerted) {
+          logger.info(`[IMPORT_STAGING_PURGE] import_staging index bloat cleared — index ratio now ${indexRatio.toFixed(1)}×`);
+          lastImportStagingBloatAlerted = false;
+        }
+        logger.info(`[IMPORT_STAGING_PURGE] Table non-empty (${liveRows} rows), index ratio ${indexRatio.toFixed(1)}× — no action needed`);
+        // Table is being actively used; skip logging an uneventful run.
+        return;
+      }
+    }
+
+    const durationMs = Date.now() - startTime;
+
+    // Log to db_maintenance_logs so the Database Health UI shows the run.
+    await storage.createMaintenanceLog({
+      ruleId: rule.id,
+      tableName: "import_staging",
+      rowsDeleted: 0,
+      durationMs,
+      status: logStatus,
+      errorMessage: logMessage,
+      triggeredBy: "daily_1am_paris",
+    });
+
+    await pool.query(
+      `UPDATE db_maintenance_rules SET last_run_at = NOW(), last_rows_deleted = 0 WHERE id = $1`,
+      [rule.id]
+    );
+  } catch (err: any) {
+    logger.error("[IMPORT_STAGING_PURGE] import_staging nightly purge failed:", err);
+  }
+}
 
 async function checkTrackingTokenBloat(): Promise<void> {
   try {
@@ -2405,6 +2585,12 @@ async function runDailyTrackingTokenPurge(): Promise<void> {
   } catch (err: any) {
     logger.error("[MAINTENANCE_DAILY] tracking_tokens purge failed:", err);
   } finally {
+    // import_staging purge runs unconditionally in finally so it is never
+    // skipped by the tracking-token idempotency gate early-return, the
+    // missing-rule early-return, or any throw inside the try block above.
+    // runDailyImportStagingPurge has its own internal try/catch and its own
+    // 23 h idempotency gate — it is fully independent of tracking-token outcomes.
+    await runDailyImportStagingPurge();
     scheduleDailyTrackingTokenPurge();
   }
 }

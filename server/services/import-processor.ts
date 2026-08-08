@@ -4,6 +4,7 @@ import * as path from "path";
 import { from as copyFrom } from "pg-copy-streams";
 import { sql } from "drizzle-orm";
 import { importPool as pool, importDb as db } from "../import-pool";
+import { IMPORT_STAGING_PURGE_LOCK_KEY } from "../lib/import-staging-lock";
 import { logger } from "../logger";
 import { storage as rawStorage } from "../storage";
 import { jobEvents, JobProgressEvent } from "../job-events";
@@ -710,6 +711,17 @@ async function stageRefsToImportStaging(
   if (rows.length === 0) return;
   const client = await connectWithRetry();
   try {
+    // Open an explicit transaction so the shared advisory lock (writer side of
+    // the purge ↔ writer mutex) is held for the full duration of the COPY.
+    // The nightly purge uses pg_try_advisory_xact_lock (exclusive, non-blocking)
+    // and defers if any shared holder exists, so it cannot TRUNCATE import_staging
+    // while we are mid-stream.  The lock is released automatically at COMMIT/ROLLBACK.
+    // See server/lib/import-staging-lock.ts for the full protocol.
+    await client.query("BEGIN");
+    await client.query(
+      "SELECT pg_advisory_xact_lock_shared($1)",
+      [IMPORT_STAGING_PURGE_LOCK_KEY],
+    );
     const copyStream = client.query(copyFrom(
       "COPY import_staging (job_id, email, refs, ip_address, line_number) FROM STDIN WITH (FORMAT text)"
     ));
@@ -725,6 +737,10 @@ async function stageRefsToImportStaging(
       copyStream.on("error", reject);
       copyStream.end();
     });
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
   } finally {
     client.release();
   }
