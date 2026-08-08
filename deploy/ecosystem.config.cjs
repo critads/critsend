@@ -81,7 +81,7 @@ module.exports = {
         // tracking_tokens retention. The table is RANGE-partitioned by UTC day;
         // the daily 01:00 Paris job DROPs partitions older than this many days
         // (instant reclaim, no DELETE). Override in .env. Prod default 7.
-        TRACKING_TOKEN_RETENTION_DAYS: dotenvVars.TRACKING_TOKEN_RETENTION_DAYS || "7",
+        TRACKING_TOKEN_RETENTION_DAYS: dotenvVars.TRACKING_TOKEN_RETENTION_DAYS || "14",
         // Persistent upload directories — MUST live outside the app dir so
         // `git pull` / PM2 reload don't wipe queued import CSVs. Provisioned
         // by deploy/setup.sh. Override in .env if needed.
@@ -174,7 +174,7 @@ module.exports = {
         PROCESS_TYPE: "worker",
         NODE_OPTIONS: "--max-old-space-size=6144 --expose-gc",
         // tracking_tokens partition retention (see web block). Daily DROP job.
-        TRACKING_TOKEN_RETENTION_DAYS: dotenvVars.TRACKING_TOKEN_RETENTION_DAYS || "7",
+        TRACKING_TOKEN_RETENTION_DAYS: dotenvVars.TRACKING_TOKEN_RETENTION_DAYS || "14",
         // Dedicated Hetzner PG17 (max_connections=300, 251 GB RAM) — far more
         // headroom than the old Neon Launch 50-conn direct cap. Worker concurrency
         // is bound by the formula in pressure-guard.ts:
@@ -247,7 +247,7 @@ module.exports = {
         PROCESS_TYPE: "drainer",
         NODE_OPTIONS: "--max-old-space-size=1024 --expose-gc",
         // tracking_tokens partition retention (see web block). Daily DROP job.
-        TRACKING_TOKEN_RETENTION_DAYS: dotenvVars.TRACKING_TOKEN_RETENTION_DAYS || "7",
+        TRACKING_TOKEN_RETENTION_DAYS: dotenvVars.TRACKING_TOKEN_RETENTION_DAYS || "14",
         DRAINER_PG_POOL_MAX: dotenvVars.DRAINER_PG_POOL_MAX || "6",
         // Match web/worker drain tuning so the leader-lease handoff is
         // transparent (any process can take leadership and behave the same).

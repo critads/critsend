@@ -5,7 +5,7 @@ description: Durable decisions/constraints for the daily RANGE-partitioned track
 
 # tracking_tokens partitioning
 
-`tracking_tokens` is a **daily RANGE-partitioned table on `created_at`** (partitions `tracking_tokens_pYYYYMMDD`, UTC). Retention = **DROP whole day-partitions** older than `TRACKING_TOKEN_RETENTION_DAYS` (prod 14), run by the 01:00 Europe/Paris job in `server/workers.ts`. This replaced a multi-hour DELETE that never returned disk on Neon.
+`tracking_tokens` is a **daily RANGE-partitioned table on `created_at`** (partitions `tracking_tokens_pYYYYMMDD`, UTC). Retention = **DROP whole day-partitions** older than `TRACKING_TOKEN_RETENTION_DAYS` (prod 14 since 2026-08-08 via prod `.env`; code default also 14 now), run by the 01:00 Europe/Paris job in `server/workers.ts`. **Beware:** `db_maintenance_rules.retention_days` for tracking_tokens (seeded 90) is display-only — the drop job reads ONLY the env var; the misleading 90 derailed a real investigation. Consequence: /u/ unsubscribe and /c/ click short-links die when their day-partition drops — "dead unsubscribe link" reports trace to this window, not a bug. This replaced a multi-hour DELETE that never returned disk on Neon.
 
 ## Composite PK / token uniqueness
 - PK is `(token, created_at)` — Postgres requires the partition key in every unique constraint, so a token-only unique index is impossible on the partitioned table.
