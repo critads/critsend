@@ -1,0 +1,47 @@
+root@critsend-db ~ # sudo -u postgres psql critsend -c "
+UPDATE db_maintenance_rules SET retention_days = 14
+WHERE table_name = 'tracking_tokens';"
+UPDATE 1
+root@critsend-db ~ # sudo -u postgres psql critsend -c "SELECT pg_size_pretty(pg_database_size(current_database())) AS taille_totale;" -c "
+SELECT c.relname AS table,
+       pg_size_pretty(pg_total_relation_size(c.oid)) AS total,
+       pg_size_pretty(pg_relation_size(c.oid))  AS donnees,
+       pg_size_pretty(pg_indexes_size(c.oid))   AS index
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind IN ('r','p','m')
+ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 20;" -c "df -h /var/lib/postgresql 2>/dev/null" 2>/dev/null || sudo -u postgres psql critsend -c "SELECT pg_size_pretty(pg_database_size(current_database()));"
+ taille_totale 
+---------------
+ 190 GB
+(1 row)
+
+           table           |  total  | donnees |  index  
+---------------------------+---------+---------+---------
+ campaign_sends            | 80 GB   | 32 GB   | 48 GB
+ campaign_stats            | 29 GB   | 16 GB   | 13 GB
+ tracking_tokens_p20260806 | 12 GB   | 4300 MB | 8086 MB
+ import_staging            | 9176 MB | 0 bytes | 9176 MB
+ tracking_tokens_p20260807 | 8961 MB | 3107 MB | 5854 MB
+ tracking_tokens_p20260805 | 8457 MB | 2999 MB | 5458 MB
+ tracking_tokens_p20260731 | 8429 MB | 2868 MB | 5560 MB
+ tracking_tokens_p20260802 | 8366 MB | 2827 MB | 5539 MB
+ tracking_tokens_p20260804 | 6742 MB | 2299 MB | 4443 MB
+ tracking_tokens_p20260801 | 6230 MB | 2233 MB | 3996 MB
+ subscribers               | 6034 MB | 2268 MB | 3765 MB
+ tracking_tokens_p20260803 | 5085 MB | 1793 MB | 3292 MB
+ pending_tag_operations    | 1696 MB | 703 MB  | 993 MB
+ campaign_jobs             | 872 MB  | 425 MB  | 440 MB
+ session                   | 177 MB  | 114 MB  | 63 MB
+ analytics_daily           | 43 MB   | 20 MB   | 23 MB
+ error_logs                | 30 MB   | 15 MB   | 8432 kB
+ campaigns                 | 24 MB   | 6800 kB | 2400 kB
+ campaign_links            | 17 MB   | 6888 kB | 11 MB
+ tracking_tokens_p20260808 | 1368 kB | 456 kB  | 872 kB
+(20 rows)
+
+ pg_size_pretty 
+----------------
+ 190 GB
+(1 row)
+
+root@critsend-db ~ # 
