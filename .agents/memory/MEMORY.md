@@ -1,6 +1,7 @@
 - [Hetzner DB resilience gaps](hetzner-db-resilience.md) — critsend-db had no backups, archive_mode off, unattended-upgrades un-blacklisted for PG, systemd Restart=no, no replica; conn budget healthy.
 - [Campaign status-flip guards](campaign-status-flip-guards.md) — any path that sets a campaign back to 'sending' (auto-requeue, retry, ghost-sweep) must guard on current status or it resurrects a manually Ended/Paused campaign.
-- [drizzle push prod footgun](drizzle-push-prod-footgun.md) — NEON_DATABASE_URL points at PROD and wins in drizzle.config.ts; always `NEON_DATABASE_URL= npm run db:push`.
+- [drizzle push prod footgun](drizzle-push-prod-footgun.md) — NEON_DATABASE_URL wins in drizzle.config.ts; always `NEON_DATABASE_URL= npm run db:push`.
+- [Neon is stale, not prod](neon-is-stale-not-prod.md) — live prod is the Hetzner critsend DB; NEON_DATABASE_URL is the pre-June-2026 Neon copy — never verify prod against it.
 - [Lockfile Replit proxy URLs](lockfile-replit-proxy-urls.md) — dep updates can write package-firewall.replit.local into package-lock.json; npm ci on prod wipes node_modules then fails — grep+fix before deploy.
 - [Unsubscribe link prefetch](unsubscribe-link-prefetch.md) — GET /u/:token mutates, so Gmail/Apple link-prefetch causes false unsubscribes + inflated stats; proper fix = GET confirmation page, mutate on POST.
 - [Duplicate sends: ambiguous must be terminal](duplicate-send-retry.md) — 'failed' includes ambiguous/already-delivered SMTP outcomes; MANY paths finalize/resurrect campaign_sends (TWO send paths: campaign-sender + pressure-guard drain), each must treat ambiguous as terminal or it re-sends; gated by ZERO_DUP_SEND_GUARD.
