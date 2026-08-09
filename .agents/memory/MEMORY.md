@@ -10,4 +10,5 @@
 - [PostgreSQL huge pages](postgres-huge-pages.md) — verify usage via (Total-Free)+Rsvd == shared_memory_size_in_huge_pages; don't misread high HugePages_Free as a fallback.
 - [Singleton loop hung-tick freeze](singleton-loop-hung-tick.md) — re-entrancy guard + self-refreshing leader lease = no recovery from a never-settling await; needs per-unit timeout + heartbeat watchdog (safeInterval catches errors, not hangs).
 - [Import staging cleanup & completion invariants](import-staging-cleanup.md) — batch import_staging deletes (single DELETE → 57014, not retried, fails before merge); never complete an import from row counters; startup orphan-fail must count 'pending' queue rows as active.
+- [Complaint-bot IP counting-only](complaint-bot-ip-contract.md) — bot-IP opens are stored as type='complaint' with no subscriber action; open-by-IP queries (DEL marker) must count those rows too.
 - [Pressure-drain held vs due](pressure-drain-held-vs-due.md) — "held" mixes future-eligible + due; due-but-not-aged is normal; aged-force-send doesn't boost drain priority (volume-DESC), so low-volume campaigns starve.

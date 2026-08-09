@@ -248,7 +248,7 @@ async function selectCandidates(): Promise<CandidateRow[]> {
       `WITH bot_subs AS (
          SELECT DISTINCT subscriber_id
            FROM campaign_stats
-          WHERE type = 'open'
+          WHERE (type = 'open' OR type = 'complaint')
             AND ip_address = ANY($1::text[])
             AND "timestamp" >= NOW() - make_interval(days => $2)
        )
@@ -258,7 +258,8 @@ async function selectCandidates(): Promise<CandidateRow[]> {
                 FILTER (WHERE cs.ip_address = ANY($1::text[]))::int AS bot_opened
          FROM campaign_stats cs
          JOIN bot_subs b ON b.subscriber_id = cs.subscriber_id
-        WHERE cs.type = 'open'
+        WHERE (cs.type = 'open'
+               OR (cs.type = 'complaint' AND cs.ip_address = ANY($1::text[])))
           AND cs."timestamp" >= NOW() - make_interval(days => $2)
         GROUP BY cs.subscriber_id
        HAVING COUNT(DISTINCT cs.campaign_id) >= $3`,

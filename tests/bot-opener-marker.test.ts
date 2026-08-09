@@ -251,6 +251,18 @@ describe("runBotOpenerMarkPassOnce (mocked pool)", () => {
     // Only 'open' events count — received emails are irrelevant now.
     expect(mockCtl.getCandidateSql()).toMatch(/type\s*=\s*'open'/i);
     expect(mockCtl.getCandidateSql()).not.toMatch(/campaign_sends/i);
+    // Since complaint-bot opens (195.154.17.225) are recorded as
+    // campaign_stats type='complaint' instead of 'open' (counting-only mode),
+    // the candidate query must ALSO count bot-IP complaint rows as bot opens,
+    // both in the seed CTE and in the aggregate — otherwise the DEL marking
+    // process would go blind on that IP. Complaint rows from other sources
+    // (FBL webhook) must stay restricted by the bot-IP list.
+    expect(mockCtl.getCandidateSql()).toMatch(
+      /type\s*=\s*'open'\s+OR\s+type\s*=\s*'complaint'/i,
+    );
+    expect(mockCtl.getCandidateSql()).toMatch(
+      /cs\.type\s*=\s*'complaint'\s+AND\s+cs\.ip_address\s*=\s*ANY\(\$1::text\[\]\)/i,
+    );
 
     // Idempotence: the UPDATE appends only when the ref is absent, never
     // replaces the refs array wholesale, and atomically records the
