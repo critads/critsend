@@ -140,11 +140,13 @@ async function _fetchTagsCached(campaignId: string): Promise<CachedTags | null> 
 }
 
 // ─── Complaint bot IPs ──────────────────────────────────────────────────────
-// Disabled (2026-06-16): per operator request, no IP is treated as a complaint
-// signal anymore. Opens from any IP are recorded as plain opens. The FBL webhook
-// (POST /api/webhooks) remains the source of complaint events. To re-enable
-// IP-based complaint detection, add IPs back to this set.
-const COMPLAINT_BOT_IPS = new Set<string>([]);
+// Re-enabled COUNTING-ONLY (2026-08-08): opens from these IPs are recorded as
+// campaign_stats(type='complaint') and bump the campaign's complaints_count,
+// but take NO action on the subscriber — no unsubscribeTag, no STOP tag, no
+// suppression (event is enqueued with unsubscribeTag: null, which makes
+// processSideEffects a no-op for it). The FBL webhook (POST /api/webhooks)
+// remains the actionable complaint source and is unchanged.
+const COMPLAINT_BOT_IPS = new Set<string>(["195.154.17.225"]);
 
 // ─── Shared HTML helpers ────────────────────────────────────────────────────
 
@@ -375,12 +377,12 @@ export function registerTrackingRoutes(app: Express) {
       const tags = await getCampaignTagsCached(campaignId).catch(() => null);
 
       if (isComplaintBot) {
-        // Buffer enqueues the campaign's plain unsubscribeTag inside
-        // processSideEffects (same path as a real unsubscribe — no STOP-
-        // prefix, no suppression window). The campaign-level complaints_count
-        // and the campaign_stats(type='complaint') analytics row still get
-        // written so deliverability dashboards keep working.
-        // unsubscribeTag comes from the same cached lookup — no second DB roundtrip.
+        // COUNTING ONLY (2026-08-08, operator request): the campaign-level
+        // complaints_count and the campaign_stats(type='complaint') analytics
+        // row are written, but the subscriber is untouched — unsubscribeTag is
+        // deliberately null so processSideEffects enqueues NO tag (its loop
+        // skips events without unsubscribeTag), and complaints never get a
+        // suppression window. FBL webhook complaints keep their tag behavior.
         // skipDedupe so a complaint is never silently dropped because a normal
         // open with the same (campaign, subscriber) was just enqueued.
         enqueueTrackingEvent(
@@ -389,7 +391,7 @@ export function registerTrackingRoutes(app: Express) {
             campaignId,
             subscriberId,
             ctx,
-            unsubscribeTag: tags?.unsubscribeTag ?? null,
+            unsubscribeTag: null,
           },
           { skipDedupe: true },
         );
