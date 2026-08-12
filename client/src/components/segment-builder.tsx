@@ -94,7 +94,7 @@ export function ConditionRow({
   const isBetween = condition.operator === "between";
   const isDays = condition.operator === "in_last_days" || condition.operator === "not_in_last_days";
   const isDate = condition.operator === "before" || condition.operator === "after";
-  const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag" || condition.operator === "tag_contains";
+  const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag" || condition.operator === "tag_contains" || condition.operator === "tag_not_contains";
   const isRefText = condition.operator === "has_ref" || condition.operator === "not_has_ref" || condition.operator === "ref_contains";
 
   const handleFieldChange = (field: string) => {
@@ -194,7 +194,7 @@ export function ConditionRow({
             />
           ) : isTagText ? (
             <Input
-              placeholder={condition.operator === "tag_contains" ? "Search in tags..." : "Tag value..."}
+              placeholder={condition.operator === "tag_contains" || condition.operator === "tag_not_contains" ? "Search in tags..." : "Tag value..."}
               value={typeof condition.value === "string" ? condition.value : ""}
               onChange={(e) =>
                 onChange({ ...condition, value: e.target.value.toUpperCase() })

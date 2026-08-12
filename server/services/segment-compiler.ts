@@ -67,7 +67,13 @@ function compileCondition(cond: SegmentCondition): SQL {
       case "has_no_tags":
         return sql`(${subscribers.tags} IS NULL OR array_length(${subscribers.tags}, 1) IS NULL OR array_length(${subscribers.tags}, 1) = 0)`;
       case "tag_contains":
-        return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + v + '%'})`;
+        return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + escapeLikeValue(v) + '%'})`;
+      case "tag_not_contains":
+        // True when NO tag contains the substring — including subscribers
+        // with no tags at all (unnest of NULL/empty yields no rows). The
+        // global BCK exclusion is COALESCE'd NULL-safe so NULL-tag rows
+        // are not silently dropped by the outer WHERE.
+        return sql`NOT EXISTS (SELECT 1 FROM unnest(${subscribers.tags}) AS t WHERE t ILIKE ${'%' + escapeLikeValue(v) + '%'})`;
       default:
         logger.warn("Unknown operator for tags field", { operator, field });
         return sql`FALSE`;
@@ -86,7 +92,7 @@ function compileCondition(cond: SegmentCondition): SQL {
       case "has_no_refs":
         return sql`(${subscribers.refs} IS NULL OR array_length(${subscribers.refs}, 1) IS NULL OR array_length(${subscribers.refs}, 1) = 0)`;
       case "ref_contains":
-        return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.refs}) AS r WHERE r ILIKE ${'%' + v + '%'})`;
+        return sql`EXISTS (SELECT 1 FROM unnest(${subscribers.refs}) AS r WHERE r ILIKE ${'%' + escapeLikeValue(v) + '%'})`;
       default:
         logger.warn("Unknown operator for refs field", { operator, field });
         return sql`FALSE`;
@@ -200,20 +206,20 @@ const notSuppressed = sql`(suppressed_until IS NULL OR suppressed_until < NOW())
 
 export function compileCountQuery(rules: SegmentRulesV2): SQL {
   const where = compileSegmentRules(rules);
-  return sql`SELECT count(*) FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed}`;
+  return sql`SELECT count(*) FROM subscribers WHERE ${where} AND NOT COALESCE('BCK' = ANY(tags), false) AND ${notSuppressed}`;
 }
 
 export function compilePreviewQuery(rules: SegmentRulesV2, limit: number): SQL {
   const where = compileSegmentRules(rules);
-  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed} ORDER BY import_date DESC LIMIT ${limit}`;
+  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT COALESCE('BCK' = ANY(tags), false) AND ${notSuppressed} ORDER BY import_date DESC LIMIT ${limit}`;
 }
 
 export function compileCursorQuery(rules: SegmentRulesV2, limit: number, afterId?: string): SQL {
   const where = compileSegmentRules(rules);
   if (afterId) {
-    return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed} AND id > ${afterId} ORDER BY id ASC LIMIT ${limit}`;
+    return sql`SELECT * FROM subscribers WHERE ${where} AND NOT COALESCE('BCK' = ANY(tags), false) AND ${notSuppressed} AND id > ${afterId} ORDER BY id ASC LIMIT ${limit}`;
   }
-  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT ('BCK' = ANY(tags)) AND ${notSuppressed} ORDER BY id ASC LIMIT ${limit}`;
+  return sql`SELECT * FROM subscribers WHERE ${where} AND NOT COALESCE('BCK' = ANY(tags), false) AND ${notSuppressed} ORDER BY id ASC LIMIT ${limit}`;
 }
 
 export { escapeLikeValue };

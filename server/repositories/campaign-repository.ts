@@ -447,10 +447,14 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     // pressure-guard mode and the operator can re-enable urgent on the
     // new campaign explicitly if needed.
     urgentMode: _um,
+    // A copy must not inherit the original's schedule — default it to the
+    // moment of the copy (operator request 2026-08-09).
+    scheduledAt: _sched,
     ...copyData
   } = original;
   return createCampaign({
     ...copyData,
+    scheduledAt: new Date(),
     name: `${original.name} (Copy)`,
     status: "draft",
     sendingSpeed: original.sendingSpeed as "drip" | "very_slow" | "slow" | "medium" | "fast" | "godzilla",

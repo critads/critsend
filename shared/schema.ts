@@ -896,7 +896,7 @@ export const segmentConditionSchema = z.object({
   field: z.enum(["email", "tags", "refs", "date_added", "ip_address", "engagement"]),
   operator: z.enum([
     "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty",
-    "has_tag", "not_has_tag", "has_any_tag", "has_no_tags", "tag_contains",
+    "has_tag", "not_has_tag", "has_any_tag", "has_no_tags", "tag_contains", "tag_not_contains",
     "has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains",
     "before", "after", "between", "in_last_days", "not_in_last_days",
     "engaged_recently", "not_engaged_recently",
@@ -930,7 +930,7 @@ export type SegmentRulesV2 = z.infer<typeof segmentRulesV2Schema>;
 
 export const fieldOperatorsV2 = {
   email: ["equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "is_empty", "is_not_empty"],
-  tags: ["has_tag", "not_has_tag", "has_any_tag", "has_no_tags", "tag_contains"],
+  tags: ["has_tag", "not_has_tag", "has_any_tag", "has_no_tags", "tag_contains", "tag_not_contains"],
   refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
@@ -949,6 +949,7 @@ export const operatorLabelsV2: Record<string, string> = {
   has_tag: "has tag",
   not_has_tag: "does not have tag",
   tag_contains: "contains",
+  tag_not_contains: "does not contain",
   has_any_tag: "has any tag",
   has_no_tags: "has no tags",
   has_ref: "has ref",

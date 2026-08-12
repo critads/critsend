@@ -87,7 +87,8 @@ export default function CampaignNew() {
     openTag: "",
     clickTag: "",
     unsubscribeTag: "",
-    scheduledAt: null,
+    // Default the schedule step to the moment the campaign was created.
+    scheduledAt: new Date(),
     status: "draft",
     // Auto-resend to openers (Task #56). Defaults: disabled, 36h delay.
     followUpEnabled: false,
