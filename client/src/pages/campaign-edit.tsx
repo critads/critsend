@@ -232,7 +232,7 @@ export default function CampaignEdit() {
   const { data: mtas, isLoading: loadingMtas } = useQuery<Mta[]>({
     queryKey: ["/api/mtas"],
   });
-  const { data: mtaInsights } = useMtaScheduleInsights();
+  const { data: mtaInsights, refetch: refetchMtaInsights } = useMtaScheduleInsights();
 
   // Blocking safeguard (mirrors campaign-new, applies to copied campaigns too):
   // every absolute <img src> must use a domain attributed to the selected MTA.
@@ -430,6 +430,9 @@ export default function CampaignEdit() {
   });
 
   const handleMtaSelect = (mtaId: string) => {
+    // Refresh scheduling insights immediately so the "already scheduled"
+    // list under the card is current the moment a server is picked.
+    refetchMtaInsights();
     const selectedMta = mtas?.find(m => m.id === mtaId);
     setFormData(prev => ({
       ...prev,

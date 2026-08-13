@@ -191,7 +191,7 @@ export default function CampaignNew() {
   const { data: mtas, isLoading: loadingMtas } = useQuery<Mta[]>({
     queryKey: ["/api/mtas"],
   });
-  const { data: mtaInsights } = useMtaScheduleInsights();
+  const { data: mtaInsights, refetch: refetchMtaInsights } = useMtaScheduleInsights();
 
   // Safeguard: flag image src= URLs in the uploaded/pasted HTML that point to a
   // domain not attributed to the SELECTED MTA. The send-time image rewriter only
@@ -470,6 +470,9 @@ export default function CampaignNew() {
   };
 
   const handleMtaSelect = (mtaId: string) => {
+    // Refresh scheduling insights immediately so the "already scheduled"
+    // list under the card is current the moment a server is picked.
+    refetchMtaInsights();
     const selectedMta = mtas?.find(m => m.id === mtaId);
     setFormData(prev => ({
       ...prev,

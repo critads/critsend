@@ -19,9 +19,12 @@ export type MtaScheduleInsights = Record<string, MtaInsight>;
 export function useMtaScheduleInsights() {
   return useQuery<MtaScheduleInsights>({
     queryKey: ["/api/mtas/schedule-insights"],
-    // Fresh enough for a wizard session; avoids hammering the API while the
-    // operator clicks between MTA cards.
-    staleTime: 60_000,
+    // Always fresh: the operator must see the current scheduled list the
+    // moment a server is selected, without reloading the page. The endpoint
+    // is a single cheap indexed-ish query on the small campaigns table.
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
