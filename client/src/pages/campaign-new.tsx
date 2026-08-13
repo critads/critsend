@@ -51,6 +51,11 @@ import {
   buildBrandMessage,
   type BrandUnsubResult,
 } from "@/lib/campaign-wizard";
+import {
+  useMtaScheduleInsights,
+  MtaLowOpenWarning,
+  MtaScheduledCampaigns,
+} from "@/components/campaign-wizard/mta-insights";
 
 const sendingSpeeds = [
   { value: "drip", label: "Drip", description: "100 emails/min" },
@@ -186,25 +191,29 @@ export default function CampaignNew() {
   const { data: mtas, isLoading: loadingMtas } = useQuery<Mta[]>({
     queryKey: ["/api/mtas"],
   });
+  const { data: mtaInsights } = useMtaScheduleInsights();
 
   // Safeguard: flag image src= URLs in the uploaded/pasted HTML that point to a
-  // domain we don't own. The send-time image rewriter only rehosts RELATIVE
-  // paths (/images/, /campaigns/) — absolute external URLs are left untouched,
-  // so they ship as-is and can hurt deliverability / expose a third-party host.
-  // "Our" hosts are derived from the configured MTAs (image/tracking domains).
+  // domain not attributed to the SELECTED MTA. The send-time image rewriter only
+  // rehosts RELATIVE paths (/images/, /campaigns/) — absolute external URLs are
+  // left untouched, so they ship as-is and can hurt deliverability / expose a
+  // third-party host. This is BLOCKING: Content -> Tracking is refused while
+  // any offending src remains.
   const ourImageHosts = useMemo(() => {
     const set = new Set<string>();
-    for (const mta of mtas ?? []) {
-      for (const d of [mta.imageHostingDomain, mta.trackingDomain, mta.openTrackingDomain]) {
-        const h = normalizeHost(d);
-        if (h) set.add(h);
-      }
+    const selectedMta = mtas?.find((m) => m.id === formData.mtaId);
+    for (const d of [selectedMta?.imageHostingDomain, selectedMta?.trackingDomain, selectedMta?.openTrackingDomain]) {
+      const h = normalizeHost(d);
+      if (h) set.add(h);
     }
     return set;
-  }, [mtas]);
+  }, [mtas, formData.mtaId]);
 
+  // Only enforce once the MTA list is loaded AND the selected MTA actually has
+  // at least one configured domain — otherwise an in-flight query or an
+  // unconfigured MTA would falsely flag every absolute URL and trap the wizard.
   const externalImageSrcs = useMemo(
-    () => findExternalImageSrcs(formData.htmlContent ?? "", ourImageHosts),
+    () => (ourImageHosts.size > 0 ? findExternalImageSrcs(formData.htmlContent ?? "", ourImageHosts) : []),
     [formData.htmlContent, ourImageHosts],
   );
   const externalImageHosts = useMemo(() => {
@@ -377,6 +386,17 @@ export default function CampaignNew() {
     // Reset any prior brand-safeguard messages whenever the operator clicks Next.
     setBrandBlock(null);
     setBrandWarning(null);
+    // Image-domain safeguard: every absolute <img src> must use a domain
+    // attributed to the selected MTA (relative/data: URLs are fine — they are
+    // rehosted at send time). Hard stop, mirrored by the alert in the step.
+    if (currentStep === 3 && externalImageSrcs.length > 0) {
+      toast({
+        title: "Image URLs don't match the MTA's domain",
+        description: `${externalImageSrcs.length} image(s) point to ${externalImageHosts.join(", ")} — re-drop the HTML to rehost them, or fix the src= URLs.`,
+        variant: "destructive",
+      });
+      return;
+    }
     // The brand-unsubscribe safeguard only gates Content (3) -> Tracking (4).
     if (currentStep === 3) {
       setBrandCheckPending(true);
@@ -508,10 +528,20 @@ export default function CampaignNew() {
                             </p>
                           )}
                         </div>
-                        {formData.mtaId === mta.id && (
-                          <Check className="h-5 w-5 text-primary ml-auto" />
-                        )}
+                        <div className="ml-auto flex items-center gap-2">
+                          <MtaLowOpenWarning campaigns={mtaInsights?.[mta.id]?.lowOpen ?? []} mtaId={mta.id} />
+                          {formData.mtaId === mta.id && (
+                            <Check className="h-5 w-5 text-primary" />
+                          )}
+                        </div>
                       </div>
+                      {formData.mtaId === mta.id && (
+                        <MtaScheduledCampaigns
+                          campaigns={mtaInsights?.[mta.id]?.scheduled ?? []}
+                          excludeCampaignId={campaignId}
+                          mtaId={mta.id}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -694,10 +724,10 @@ export default function CampaignNew() {
               {externalImageSrcs.length > 0 && (
                 <Alert variant="destructive" data-testid="alert-external-images">
                   <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>External images detected</AlertTitle>
+                  <AlertTitle>External images — blocking</AlertTitle>
                   <AlertDescription className="space-y-2">
                     <p>
-                      {externalImageSrcs.length} image{externalImageSrcs.length > 1 ? "s" : ""} use an external URL not hosted on your domains. These are <strong>not</strong> re-hosted when sending — they can hurt deliverability or expose recipients to a third-party domain.
+                      {externalImageSrcs.length} image{externalImageSrcs.length > 1 ? "s" : ""} use a URL not hosted on the selected MTA's domains. You cannot continue to the next step until they are fixed.
                     </p>
                     <ul className="list-disc list-inside text-xs font-mono break-all">
                       {externalImageHosts.slice(0, 8).map((h) => (

@@ -1,5 +1,7 @@
 import { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { insertMtaSchema, insertEmailHeaderSchema } from "@shared/schema";
 import { z } from "zod";
@@ -338,6 +340,59 @@ export function registerMtaRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error fetching MTAs:", error);
       res.status(500).json({ error: "Failed to fetch MTAs" });
+    }
+  });
+
+  // Per-MTA scheduling insights for the campaign wizard (Basic Info step):
+  // - scheduled: campaigns currently in status 'scheduled' on each MTA
+  //   (shown under the selected server so the operator sees what's queued);
+  // - lowOpen: campaigns from the last 24h on each MTA whose unique open
+  //   rate is below 10% (surfaced as a warning icon + tooltip).
+  // NOTE: must be registered BEFORE /api/mtas/:id or ":id" would swallow it.
+  app.get("/api/mtas/schedule-insights", async (_req: Request, res: Response) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT mta_id, id, name, scheduled_at, status, sent_count, unique_opens_count
+        FROM campaigns
+        WHERE mta_id IS NOT NULL
+          AND (
+            status = 'scheduled'
+            OR (
+              status IN ('sending', 'paused', 'completed')
+              AND sent_count > 0
+              AND COALESCE(scheduled_at, created_at) >= now() - interval '24 hours'
+            )
+          )
+        ORDER BY scheduled_at ASC NULLS LAST
+        LIMIT 500
+      `);
+      const insights: Record<string, {
+        scheduled: Array<{ id: string; name: string; scheduledAt: string | null }>;
+        lowOpen: Array<{ id: string; name: string; scheduledAt: string | null; openRate: number }>;
+      }> = {};
+      for (const row of result.rows as Array<Record<string, unknown>>) {
+        const mtaId = String(row.mta_id);
+        if (!insights[mtaId]) insights[mtaId] = { scheduled: [], lowOpen: [] };
+        const ref = {
+          id: String(row.id),
+          name: String(row.name ?? ""),
+          scheduledAt: row.scheduled_at ? new Date(row.scheduled_at as string).toISOString() : null,
+        };
+        if (row.status === "scheduled") {
+          insights[mtaId].scheduled.push(ref);
+        } else {
+          const sent = Number(row.sent_count) || 0;
+          const opens = Number(row.unique_opens_count) || 0;
+          const openRate = sent > 0 ? (opens / sent) * 100 : 0;
+          if (sent > 0 && openRate < 10) {
+            insights[mtaId].lowOpen.push({ ...ref, openRate });
+          }
+        }
+      }
+      res.json(insights);
+    } catch (error) {
+      logger.error("Error building MTA schedule insights:", error);
+      res.status(500).json({ error: "Failed to fetch MTA schedule insights" });
     }
   });
 

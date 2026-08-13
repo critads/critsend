@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, useRoute, Link } from "wouter";
@@ -40,7 +40,20 @@ import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 import DateTimePicker from "@/components/date-time-picker";
 import { SegmentCombobox } from "@/components/segment-combobox";
 import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
-import { withBaseHref, steps } from "@/lib/campaign-wizard";
+import {
+  withBaseHref,
+  steps,
+  normalizeHost,
+  findExternalImageSrcs,
+  imageSrcHost,
+} from "@/lib/campaign-wizard";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { AlertTriangle } from "lucide-react";
+import {
+  useMtaScheduleInsights,
+  MtaLowOpenWarning,
+  MtaScheduledCampaigns,
+} from "@/components/campaign-wizard/mta-insights";
 
 const sendingSpeeds = [
   { value: "drip", label: "Drip", description: "100 emails/min" },
@@ -219,6 +232,35 @@ export default function CampaignEdit() {
   const { data: mtas, isLoading: loadingMtas } = useQuery<Mta[]>({
     queryKey: ["/api/mtas"],
   });
+  const { data: mtaInsights } = useMtaScheduleInsights();
+
+  // Blocking safeguard (mirrors campaign-new, applies to copied campaigns too):
+  // every absolute <img src> must use a domain attributed to the selected MTA.
+  // Relative /images/ paths and data: URIs are fine — rehosted at send time.
+  const ourImageHosts = useMemo(() => {
+    const set = new Set<string>();
+    const selectedMta = mtas?.find((m) => m.id === formData.mtaId);
+    for (const d of [selectedMta?.imageHostingDomain, selectedMta?.trackingDomain, selectedMta?.openTrackingDomain]) {
+      const h = normalizeHost(d);
+      if (h) set.add(h);
+    }
+    return set;
+  }, [mtas, formData.mtaId]);
+  // Only enforce once the MTA list is loaded AND the selected MTA actually has
+  // at least one configured domain — otherwise an in-flight query or an
+  // unconfigured MTA would falsely flag every absolute URL and trap the wizard.
+  const externalImageSrcs = useMemo(
+    () => (ourImageHosts.size > 0 ? findExternalImageSrcs(formData.htmlContent ?? "", ourImageHosts) : []),
+    [formData.htmlContent, ourImageHosts],
+  );
+  const externalImageHosts = useMemo(() => {
+    const hosts = new Set<string>();
+    for (const u of externalImageSrcs) {
+      const h = imageSrcHost(u);
+      if (h) hosts.add(h);
+    }
+    return [...hosts];
+  }, [externalImageSrcs]);
 
   const { data: segments, isLoading: loadingSegments } = useQuery<Segment[]>({
     queryKey: ["/api/segments"],
@@ -393,7 +435,7 @@ export default function CampaignEdit() {
       ...prev,
       mtaId,
       ...(selectedMta?.fromName ? { fromName: selectedMta.fromName } : {}),
-      ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail } : {}),
+      ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail, replyEmail: selectedMta.fromEmail } : {}),
       ...(selectedMta?.unsubscribeText ? { unsubscribeText: selectedMta.unsubscribeText } : {}),
       ...(selectedMta?.companyAddress ? { companyAddress: selectedMta.companyAddress } : {}),
     }));
@@ -417,10 +459,21 @@ export default function CampaignEdit() {
   };
 
   const nextStep = () => {
-    if (isStepValid(currentStep) && currentStep < 5) {
+    if (!isStepValid(currentStep) || currentStep >= 5) return;
+    // Image-domain safeguard: Content (3) -> Tracking (4) is refused while any
+    // <img src> points outside the selected MTA's domains.
+    if (currentStep === 3 && externalImageSrcs.length > 0) {
+      // Still autosave the operator's Content edits — only the transition is refused.
       autoSaveMutation.mutate(formData);
-      setCurrentStep(currentStep + 1);
+      toast({
+        title: "Image URLs don't match the MTA's domain",
+        description: `${externalImageSrcs.length} image(s) point to ${externalImageHosts.join(", ")} — re-process the images or fix the src= URLs.`,
+        variant: "destructive",
+      });
+      return;
     }
+    autoSaveMutation.mutate(formData);
+    setCurrentStep(currentStep + 1);
   };
 
   const prevStep = () => {
@@ -574,10 +627,20 @@ export default function CampaignEdit() {
                             </p>
                           )}
                         </div>
-                        {formData.mtaId === mta.id && (
-                          <Check className="h-5 w-5 text-primary ml-auto" />
-                        )}
+                        <div className="ml-auto flex items-center gap-2">
+                          <MtaLowOpenWarning campaigns={mtaInsights?.[mta.id]?.lowOpen ?? []} mtaId={mta.id} />
+                          {formData.mtaId === mta.id && (
+                            <Check className="h-5 w-5 text-primary" />
+                          )}
+                        </div>
                       </div>
+                      {formData.mtaId === mta.id && (
+                        <MtaScheduledCampaigns
+                          campaigns={mtaInsights?.[mta.id]?.scheduled ?? []}
+                          excludeCampaignId={campaignId}
+                          mtaId={mta.id}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -751,6 +814,28 @@ export default function CampaignEdit() {
             </div>
             <div className="space-y-2">
               <Label>HTML Content *</Label>
+              {externalImageSrcs.length > 0 && (
+                <Alert variant="destructive" data-testid="alert-external-images">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>External images — blocking</AlertTitle>
+                  <AlertDescription className="space-y-2">
+                    <p>
+                      {externalImageSrcs.length} image{externalImageSrcs.length > 1 ? "s" : ""} use a URL not hosted on the selected MTA's domains. You cannot continue to the next step until they are fixed.
+                    </p>
+                    <ul className="list-disc list-inside text-xs font-mono break-all">
+                      {externalImageHosts.slice(0, 8).map((h) => (
+                        <li key={h} data-testid={`text-external-host-${h}`}>{h}</li>
+                      ))}
+                      {externalImageHosts.length > 8 && (
+                        <li>…and {externalImageHosts.length - 8} more host(s)</li>
+                      )}
+                    </ul>
+                    <p className="text-xs">
+                      Tip: use "Re-process images" to download &amp; host them on the MTA's domain, or fix the URLs.
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              )}
               {!htmlLoaded ? (
                 <HtmlDropzone
                   isDragging={isDragging}
