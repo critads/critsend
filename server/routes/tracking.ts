@@ -13,7 +13,7 @@ import {
   isTrackingPoolUnavailable,
 } from "../tracking-buffer";
 import { isPoolCheckoutError, pool } from "../db";
-import { withAdvisoryLock, indexExistsAndValid, columnHasData, LOCK_KEYS } from "../bootstrap-lock";
+import { withAdvisoryLock, indexExistsAndValid, columnHasData, LOCK_KEYS, runIndexDdlNoTimeout } from "../bootstrap-lock";
 import {
   resolveTrackingTokenViaTrackingPool,
   getCampaignTagsViaTrackingPool,
@@ -61,6 +61,28 @@ import {
         }
       } else {
         logger.info("[TRACKING] Bootstrap migration: campaign_stats covering index already exists — skipping");
+      }
+
+      // Task #232 — clicker-tier segment operators run a correlated
+      // COUNT(DISTINCT campaign_id) over recent clicks per subscriber.
+      // Partial index keeps that probe cheap on the multi-GB stats table
+      // (index-only scan: subscriber_id, timestamp, campaign_id).
+      if (!(await indexExistsAndValid("campaign_stats_click_subscriber_ts_idx"))) {
+        try {
+          // Large concurrent build on a multi-GB table: must bypass the
+          // global statement timeout (dedicated session, timeout=0).
+          await runIndexDdlNoTimeout(
+            `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_stats_click_subscriber_ts_idx
+               ON campaign_stats (subscriber_id, timestamp, campaign_id)
+               WHERE type = 'click'`,
+            "CREATE campaign_stats_click_subscriber_ts_idx",
+          );
+          logger.info("[TRACKING] Bootstrap migration: campaign_stats click partial index ready");
+        } catch (err: any) {
+          logger.error(`[TRACKING] Bootstrap migration FAILED (campaign_stats click partial index): ${err?.message || err}`);
+        }
+      } else {
+        logger.info("[TRACKING] Bootstrap migration: campaign_stats click partial index already exists — skipping");
       }
     },
   );

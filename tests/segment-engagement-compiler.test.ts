@@ -42,10 +42,10 @@ function renderQuery(rules: SegmentRulesV2): { sql: string; params: unknown[] } 
 
 describe("Task #214 — engagement recency compiler", () => {
   it("exposes the two engagement operators on the field map with labels", () => {
-    expect(fieldOperatorsV2.engagement).toEqual([
-      "engaged_recently",
-      "not_engaged_recently",
-    ]);
+    // Task #232 added the clicker-tier operators; this test only asserts the
+    // original recency pair is (still) present.
+    expect(fieldOperatorsV2.engagement).toContain("engaged_recently");
+    expect(fieldOperatorsV2.engagement).toContain("not_engaged_recently");
     expect(operatorLabelsV2.engaged_recently).toBeTruthy();
     expect(operatorLabelsV2.not_engaged_recently).toBeTruthy();
   });

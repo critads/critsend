@@ -11,10 +11,17 @@ function escapeLikeValue(value: string): string {
 // Single source of truth so the window is trivial to change later.
 export const ENGAGEMENT_RECENCY_DAYS = 60;
 
+// Task #232 — clicker-tier thresholds: minimum number of DISTINCT campaigns
+// clicked within the 60-day window. "Top" = strictly more than 3 (>= 4),
+// "Ultra" = strictly more than 5 (>= 6). Multiple clicks in the same
+// campaign count once (COUNT(DISTINCT campaign_id)).
+export const TOP_CLICKER_MIN_CAMPAIGNS = 4;
+export const ULTRA_CLICKER_MIN_CAMPAIGNS = 6;
+
 function compileCondition(cond: SegmentCondition): SQL {
   const { field, operator, value, value2 } = cond;
 
-  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently"];
+  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently", "top_active_clicker", "ultra_active_clicker"];
   if (!unaryOps.includes(operator)) {
     if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) {
       logger.warn("Empty value for non-unary segment operator", { field, operator });
@@ -129,6 +136,14 @@ function compileCondition(cond: SegmentCondition): SQL {
         return sql`${subscribers.lastEngagedAt} >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int`;
       case "not_engaged_recently":
         return sql`(${subscribers.lastEngagedAt} IS NULL OR ${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int)`;
+      // Clicker tiers (Task #232): distinct campaigns clicked in the window.
+      // Correlated subquery served by the partial index
+      // campaign_stats_click_subscriber_ts_idx (subscriber_id, timestamp,
+      // campaign_id) WHERE type='click' — bootstrapped in routes/tracking.ts.
+      case "top_active_clicker":
+        return sql`(SELECT COUNT(DISTINCT cs.campaign_id) FROM campaign_stats cs WHERE cs.subscriber_id = ${subscribers.id} AND cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int) >= ${TOP_CLICKER_MIN_CAMPAIGNS}`;
+      case "ultra_active_clicker":
+        return sql`(SELECT COUNT(DISTINCT cs.campaign_id) FROM campaign_stats cs WHERE cs.subscriber_id = ${subscribers.id} AND cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int) >= ${ULTRA_CLICKER_MIN_CAMPAIGNS}`;
       default:
         logger.warn("Unknown operator for engagement field", { operator, field });
         return sql`FALSE`;
