@@ -69,7 +69,7 @@ describe("Task #232 — clicker tier operators", () => {
     }
   });
 
-  it("compiles a correlated COUNT(DISTINCT campaign_id) over recent clicks", () => {
+  it("compiles a semi-join COUNT(DISTINCT campaign_id) over recent clicks", () => {
     for (const [operator, threshold] of [
       ["top_active_clicker", TOP_CLICKER_MIN_CAMPAIGNS],
       ["ultra_active_clicker", ULTRA_CLICKER_MIN_CAMPAIGNS],
@@ -78,8 +78,12 @@ describe("Task #232 — clicker tier operators", () => {
       expect(text).toContain("COUNT(DISTINCT cs.campaign_id)");
       expect(text).toContain("FROM campaign_stats cs");
       expect(text).toContain("cs.type = 'click'");
-      // Correlated on the outer subscribers row.
-      expect(text).toMatch(/cs\.subscriber_id = "subscribers"\."id"/);
+      // Semi-join shape (single scan + GROUP BY/HAVING), NOT a correlated
+      // per-subscriber subquery — the correlated form hung in production.
+      expect(text).toMatch(/"subscribers"\."id" in \(select cs\.subscriber_id/i);
+      expect(text).toContain("GROUP BY cs.subscriber_id");
+      expect(text).toMatch(/HAVING COUNT\(DISTINCT cs\.campaign_id\) >= /);
+      expect(text).not.toContain("cs.subscriber_id = ");
       // Window + threshold arrive as bind params (60, then 4 or 6).
       expect(params).toContain(ENGAGEMENT_RECENCY_DAYS);
       expect(params).toContain(threshold);

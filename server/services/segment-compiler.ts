@@ -137,13 +137,18 @@ function compileCondition(cond: SegmentCondition): SQL {
       case "not_engaged_recently":
         return sql`(${subscribers.lastEngagedAt} IS NULL OR ${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int)`;
       // Clicker tiers (Task #232): distinct campaigns clicked in the window.
-      // Correlated subquery served by the partial index
-      // campaign_stats_click_subscriber_ts_idx (subscriber_id, timestamp,
-      // campaign_id) WHERE type='click' — bootstrapped in routes/tracking.ts.
+      // IMPORTANT (perf): use a SEMI-JOIN (IN + GROUP BY/HAVING) — one single
+      // index scan over the recent click slice, hashed against subscribers —
+      // NOT a correlated per-subscriber subquery, which degenerates into
+      // millions of index probes on the multi-GB stats table and made
+      // count/preview effectively hang in production. Served by the partial
+      // index campaign_stats_click_subscriber_ts_idx (subscriber_id,
+      // timestamp, campaign_id) WHERE type='click' — bootstrapped in
+      // routes/tracking.ts.
       case "top_active_clicker":
-        return sql`(SELECT COUNT(DISTINCT cs.campaign_id) FROM campaign_stats cs WHERE cs.subscriber_id = ${subscribers.id} AND cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int) >= ${TOP_CLICKER_MIN_CAMPAIGNS}`;
+        return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS})`;
       case "ultra_active_clicker":
-        return sql`(SELECT COUNT(DISTINCT cs.campaign_id) FROM campaign_stats cs WHERE cs.subscriber_id = ${subscribers.id} AND cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int) >= ${ULTRA_CLICKER_MIN_CAMPAIGNS}`;
+        return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${ULTRA_CLICKER_MIN_CAMPAIGNS})`;
       default:
         logger.warn("Unknown operator for engagement field", { operator, field });
         return sql`FALSE`;
