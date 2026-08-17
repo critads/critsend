@@ -5,8 +5,10 @@ import { z } from "zod";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { logger } from "../logger";
-import { campaigns } from "@shared/schema";
+import { campaigns, mtas, type Mta } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import { generateBase62 } from "../utils";
+import { processHtmlImages, normalizeImageHostingDomain } from "../services/html-image-processor";
 
 /**
  * External API (Task: campaign creation API) + API key management.
@@ -79,7 +81,24 @@ const externalCampaignSchema = z.object({
   name: z.string().min(1, "name required").max(200, "name too long"),
   subject: z.string().min(1, "subject required").max(998, "subject too long"),
   html: z.string().min(1, "html required").max(5000000, "html too large"),
+  // Which MTA to use, by exact name (case-insensitive) or by id. Optional:
+  // without it the campaign is created as a bare draft (no image rehosting).
+  mta: z.string().min(1).max(200).optional(),
 });
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Resolves an MTA reference (id or exact case-insensitive name). */
+async function resolveMta(ref: string): Promise<{ mta?: Mta; error?: string }> {
+  if (UUID_RE.test(ref)) {
+    const [byId] = await db.select().from(mtas).where(eq(mtas.id, ref));
+    if (byId) return { mta: byId };
+  }
+  const matches = await db.select().from(mtas).where(sql`lower(${mtas.name}) = lower(${ref})`);
+  if (matches.length === 1) return { mta: matches[0] };
+  if (matches.length > 1) return { error: `Ambiguous MTA name "${ref}" (${matches.length} MTAs share this name) — use the id from GET /api/v1/mtas` };
+  return { error: `MTA not found: "${ref}" — list available MTAs with GET /api/v1/mtas` };
+}
 
 export function registerApiKeyRoutes(app: Express) {
   // ---- Management (session-protected via global middleware) ----
@@ -141,29 +160,122 @@ export function registerApiKeyRoutes(app: Express) {
   // this gate must stay registered before any /api/v1 route.)
   app.use("/api/v1/", externalLimiter, requireApiKey);
 
+  // Minimal MTA listing so external systems (CRM) can pick an MTA by name.
+  // Strict projection: NEVER expose credentials, hostnames, or ports.
+  app.get("/api/v1/mtas", async (_req: Request, res: Response) => {
+    try {
+      const rows = await db
+        .select({
+          id: mtas.id,
+          name: mtas.name,
+          fromName: mtas.fromName,
+          fromEmail: mtas.fromEmail,
+          isActive: mtas.isActive,
+        })
+        .from(mtas)
+        .orderBy(mtas.name);
+      res.json(rows);
+    } catch (error) {
+      logger.error("Error listing MTAs via external API:", error);
+      res.status(500).json({ error: "Failed to list MTAs" });
+    }
+  });
+
   app.post("/api/v1/campaigns", async (req: Request, res: Response) => {
     try {
       const parsed = externalCampaignSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.errors.map(e => `${e.path.join(".")}: ${e.message}`) });
       }
-      const { name, subject, html } = parsed.data;
+      const { name, subject, html, mta: mtaRef } = parsed.data;
+
+      let mta: Mta | undefined;
+      if (mtaRef) {
+        const resolved = await resolveMta(mtaRef);
+        if (!resolved.mta) return res.status(400).json({ error: resolved.error });
+        mta = resolved.mta;
+      }
+
       const [created] = await db
         .insert(campaigns)
         .values({
           name,
           subject,
           htmlContent: html,
-          fromName: "",
-          fromEmail: "",
+          mtaId: mta?.id ?? null,
+          // Inherit the sender from the MTA, like the wizard prefill.
+          fromName: mta?.fromName ?? "",
+          fromEmail: mta?.fromEmail ?? "",
           status: "draft",
         })
-        .returning({ id: campaigns.id, name: campaigns.name, subject: campaigns.subject, status: campaigns.status, createdAt: campaigns.createdAt });
-      logger.info(`[API-V1] Campaign created via external API: ${created.id} (${name})`);
-      res.status(201).json(created);
+        .returning({ id: campaigns.id, createdAt: campaigns.createdAt });
+
+      // Rehost external images on the MTA's image hosting domain — the same
+      // pipeline as the wizard (anti-SSRF download, failed srcs kept as-is).
+      // The campaign already exists at this point, so a processing failure is
+      // reported in the response instead of a 500 (which would push callers
+      // into retries that create duplicate drafts).
+      let images:
+        | { total: number; converted: number; failed: number; failedUrls: string[] }
+        | { error: string }
+        | undefined;
+      if (mta) {
+        try {
+          const imageHostingDomain =
+            normalizeImageHostingDomain(mta.imageHostingDomain) ??
+            requestOrigin(req);
+          const processedResult = await processHtmlImages({
+            html,
+            campaignId: created.id,
+            imageHostingDomain,
+            createdAt: created.createdAt,
+          });
+          // Persist whenever processing changed the HTML — the processor's
+          // final domain-normalization sweep can rewrite srcs even when no
+          // external image was downloaded.
+          if (processedResult.html !== html) {
+            await db
+              .update(campaigns)
+              .set({ htmlContent: processedResult.html })
+              .where(eq(campaigns.id, created.id));
+          }
+          images = {
+            total: processedResult.total,
+            converted: processedResult.downloaded,
+            failed: processedResult.failed,
+            failedUrls: processedResult.failedUrls,
+          };
+        } catch (imgError) {
+          logger.error(`[API-V1] Image processing failed for campaign ${created.id}:`, imgError);
+          images = { error: "Image processing failed — the campaign was created with the original HTML. Re-save it in the app to retry image conversion." };
+        }
+      }
+
+      const imagesLog = images
+        ? "error" in images
+          ? " images=processing-error"
+          : ` images ${images.converted}/${images.total} converted`
+        : "";
+      logger.info(`[API-V1] Campaign created via external API: ${created.id} (${name})${mta ? ` mta=${mta.name}` : ""}${imagesLog}`);
+      res.status(201).json({
+        id: created.id,
+        name,
+        subject,
+        status: "draft",
+        createdAt: created.createdAt,
+        mta: mta ? { id: mta.id, name: mta.name } : null,
+        images: images ?? null,
+      });
     } catch (error) {
       logger.error("Error creating campaign via external API:", error);
       res.status(500).json({ error: "Failed to create campaign" });
     }
   });
+}
+
+/** Absolute origin of the incoming request (fallback image hosting domain). */
+function requestOrigin(req: Request): string | null {
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim() || req.protocol || "https";
+  const host = (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  return host ? `${proto}://${host}` : null;
 }

@@ -15,10 +15,8 @@ import { emitServiceBusy } from "../middleware/service-busy";
 import { buildCampaignsListCacheKey, getCampaignsListCached, publishCampaignsListInvalidation } from "../repositories/campaigns-list-cache";
 import { messageQueue } from "../message-queue";
 import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
-import { IMAGES_DIR, downloadImage, getExtensionFromUrl, sanitizeCampaignHtml, sanitizeImageFilename, generateBase62, mapWithConcurrency } from "../utils";
-import * as cheerio from "cheerio";
-import * as fs from "fs";
-import * as path from "path";
+import { sanitizeCampaignHtml, generateBase62, mapWithConcurrency } from "../utils";
+import { processHtmlImages, normalizeImageHostingDomain } from "../services/html-image-processor";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 
 // Brand-unsubscribe safeguard (Task #209). Two configurable thresholds gate the
@@ -635,13 +633,6 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "Invalid campaign ID format" });
       }
       
-      const campaignImagesDir = path.join(IMAGES_DIR, campaignId);
-      // Ensure directories exist — never wipe existing images upfront.
-      // Wiping here would destroy already-downloaded images when the campaign
-      // is edited and saved a second time (they have relative /campaigns/... src
-      // attributes that are not external URLs and would never be re-downloaded).
-      fs.mkdirSync(campaignImagesDir, { recursive: true, mode: 0o755 });
-
       // Resolve image hosting domain: prefer mtaId from request body (current form selection),
       // fall back to the saved campaign's MTA, then fall back to the request's own origin
       // so images are always stored with absolute URLs even when no domain is configured on the MTA.
@@ -650,10 +641,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const effectiveMtaId = bodyMtaId || campaign?.mtaId;
       if (effectiveMtaId) {
         const mta = await storage.getMta(effectiveMtaId);
-        if (mta?.imageHostingDomain) {
-          const raw = mta.imageHostingDomain.replace(/\/$/, "");
-          imageHostingDomain = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-        }
+        imageHostingDomain = normalizeImageHostingDomain(mta?.imageHostingDomain);
       }
       // Fallback: derive absolute origin from the incoming request so images are never
       // stored as relative paths — relative paths break email clients and iframe previews.
@@ -665,31 +653,6 @@ export function registerCampaignRoutes(app: Express, helpers: {
         }
       }
 
-      // Derive year/month from campaign's created_at for stable URL paths
-      const campaignDate = campaign?.createdAt ? new Date(campaign.createdAt) : new Date();
-      const year = campaignDate.getUTCFullYear().toString();
-      const month = String(campaignDate.getUTCMonth() + 1).padStart(2, '0');
-      
-      const $ = cheerio.load(html);
-      const imgElements = $("img");
-      const downloadedImages: { original: string; local: string }[] = [];
-      const failedImages: string[] = [];
-      let imageIndex = 0;
-      
-      const imageTasks: Array<{ el: any; src: string; currentIndex: number }> = [];
-      
-      imgElements.each((_, el) => {
-        const src = $(el).attr("src");
-        // Only queue external URLs for download — images already stored locally
-        // (/campaigns/... or relative paths) are preserved as-is on disk.
-        if (src && (src.startsWith("http://") || src.startsWith("https://"))) {
-          imageTasks.push({ el, src, currentIndex: imageIndex++ });
-        }
-      });
-
-      // Track used filenames within this request to handle conflicts with a numeric suffix
-      const usedFilenames = new Set<string>();
-
       const useSSE = (req.headers.accept || "").includes("text/event-stream");
       let clientDisconnected = false;
       if (useSSE) {
@@ -700,59 +663,26 @@ export function registerCampaignRoutes(app: Express, helpers: {
           "X-Accel-Buffering": "no",
         });
         req.on("close", () => { clientDisconnected = true; });
-        if (imageTasks.length > 0) {
-          res.write(`event: progress\ndata: ${JSON.stringify({ processed: 0, total: imageTasks.length })}\n\n`);
-        }
       }
 
-      let processed = 0;
-      const { mapWithConcurrency } = await import("../utils");
-      await mapWithConcurrency(imageTasks, 5, async (task) => {
-        if (clientDisconnected) return;
-        const ext = getExtensionFromUrl(task.src);
-        let baseFilename = sanitizeImageFilename(task.src, task.currentIndex, ext);
-        if (usedFilenames.has(baseFilename)) {
-          const base = baseFilename.replace(/\.[^.]+$/, '');
-          let counter = 2;
-          while (usedFilenames.has(`${base}-${counter}.${ext}`)) counter++;
-          baseFilename = `${base}-${counter}.${ext}`;
-        }
-        usedFilenames.add(baseFilename);
-
-        const destPath = path.join(campaignImagesDir, baseFilename);
-        const relativePath = `/campaigns/${year}/${month}/${campaignId}/${baseFilename}`;
-        const localUrl = imageHostingDomain
-          ? `${imageHostingDomain}${relativePath}`
-          : relativePath;
-        const success = await downloadImage(task.src, destPath);
-        if (success) {
-          $(task.el).attr("src", localUrl);
-          downloadedImages.push({ original: task.src, local: localUrl });
-        } else {
-          failedImages.push(task.src);
-        }
-        processed++;
-        if (useSSE && !clientDisconnected) {
-          res.write(`event: progress\ndata: ${JSON.stringify({ processed, total: imageTasks.length })}\n\n`);
-        }
+      const processedResult = await processHtmlImages({
+        html,
+        campaignId,
+        imageHostingDomain,
+        createdAt: campaign?.createdAt ?? null,
+        isCancelled: () => clientDisconnected,
+        onProgress: (processed, total) => {
+          if (useSSE && !clientDisconnected) {
+            res.write(`event: progress\ndata: ${JSON.stringify({ processed, total })}\n\n`);
+          }
+        },
       });
 
-      if (imageHostingDomain) {
-        const rawDomain = imageHostingDomain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
-        $("img").each((_, el) => {
-          const src = $(el).attr("src");
-          if (src && src.startsWith(rawDomain + "/")) {
-            $(el).attr("src", `https://${src}`);
-          }
-        });
-      }
-
-      const processedHtml = $.html();
       const result = {
-        html: processedHtml,
-        downloaded: downloadedImages.length,
-        failed: failedImages.length,
-        failedUrls: failedImages,
+        html: processedResult.html,
+        downloaded: processedResult.downloaded,
+        failed: processedResult.failed,
+        failedUrls: processedResult.failedUrls,
       };
 
       if (useSSE) {

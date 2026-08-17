@@ -57,10 +57,13 @@ export default function ApiKeysPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const curlMtasExample = `curl https://YOUR-DOMAIN/api/v1/mtas \\
+  -H "X-Api-Key: csk_..."`;
+
   const curlExample = `curl -X POST https://YOUR-DOMAIN/api/v1/campaigns \\
   -H "X-Api-Key: csk_..." \\
   -H "Content-Type: application/json" \\
-  -d '{"name": "My campaign", "subject": "Hello", "html": "<html>...</html>"}'`;
+  -d '{"name": "My campaign", "subject": "Hello", "html": "<html>...</html>", "mta": "MTA name or id"}'`;
 
   return (
     <div className="space-y-6 p-6 max-w-4xl mx-auto" data-testid="page-api-keys">
@@ -158,11 +161,16 @@ export default function ApiKeysPage() {
         <CardHeader>
           <CardTitle>Usage</CardTitle>
           <CardDescription>
-            POST <code>/api/v1/campaigns</code> creates a draft campaign (name, subject, HTML).
-            Finish the setup (sender, audience, schedule) in the app.
+            <code>GET /api/v1/mtas</code> lists MTAs (id, name, sender) so an external system can pick one.
+            <br />
+            <code>POST /api/v1/campaigns</code> creates a draft campaign (name, subject, HTML). With the
+            optional <code>mta</code> field (name or id), the campaign gets that MTA, the sender is
+            prefilled from it, and external images in the HTML are rehosted on the MTA's image domain.
+            Finish the setup (audience, schedule) in the app.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <pre className="bg-muted p-4 rounded text-sm overflow-x-auto">{curlMtasExample}</pre>
           <pre className="bg-muted p-4 rounded text-sm overflow-x-auto">{curlExample}</pre>
         </CardContent>
       </Card>
