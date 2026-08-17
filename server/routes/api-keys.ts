@@ -203,9 +203,13 @@ export function registerApiKeyRoutes(app: Express) {
           subject,
           htmlContent: html,
           mtaId: mta?.id ?? null,
-          // Inherit the sender from the MTA, like the wizard prefill.
+          // Inherit the sender + footer defaults from the MTA, like the
+          // wizard prefill (reply-to = from, unsubscribe text, company address).
           fromName: mta?.fromName ?? "",
           fromEmail: mta?.fromEmail ?? "",
+          replyEmail: mta?.fromEmail || null,
+          ...(mta?.unsubscribeText ? { unsubscribeText: mta.unsubscribeText } : {}),
+          companyAddress: mta?.companyAddress ?? null,
           status: "draft",
         })
         .returning({ id: campaigns.id, createdAt: campaigns.createdAt });
