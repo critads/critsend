@@ -27,6 +27,7 @@ import Export from "@/pages/export";
 import Analytics from "@/pages/analytics";
 import Headers from "@/pages/headers";
 import ApiDocs from "@/pages/api-docs";
+import ApiKeysPage from "@/pages/api-keys";
 import ErrorLogs from "@/pages/error-logs";
 import TestMetrics from "@/pages/test-metrics";
 import Warmup from "@/pages/warmup";
@@ -62,6 +63,7 @@ function Router() {
       <Route path="/analytics/:id" component={Analytics} />
       <Route path="/headers" component={Headers} />
       <Route path="/api-docs" component={ApiDocs} />
+      <Route path="/api-keys" component={ApiKeysPage} />
       <Route path="/error-logs" component={ErrorLogs} />
       <Route path="/test-metrics" component={TestMetrics} />
       <Route path="/warmup" component={Warmup} />

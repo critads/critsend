@@ -703,6 +703,20 @@ export const urgentFlushJobs = pgTable("urgent_flush_jobs", {
 
 export type UrgentFlushJob = typeof urgentFlushJobs.$inferSelect;
 
+// API keys for the external (machine-to-machine) API. Only a SHA-256 hash of
+// the key is stored; the plaintext is shown once at creation time. `prefix`
+// keeps the first characters so users can recognize a key in the list.
+export const apiKeys = pgTable("api_keys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  keyHash: text("key_hash").notNull().unique(),
+  prefix: text("prefix").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+
 export const insertEmailHeaderSchema = createInsertSchema(emailHeaders).omit({ id: true }).extend({
   name: z.string().min(1, "Name required").max(200, "Header name too long"),
   value: z.string().min(1, "Value required").max(2000, "Header value too long"),

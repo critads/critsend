@@ -581,6 +581,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path.startsWith('/api/webhooks/')) {
     return next();
   }
+  // External machine-to-machine API — authenticated by API key, not session,
+  // so CSRF does not apply (see server/routes/api-keys.ts).
+  if (req.path.startsWith('/api/v1/')) {
+    return next();
+  }
   if (req.path === '/metrics') {
     return next();
   }
@@ -613,7 +618,9 @@ app.use((req, res, next) => {
       const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
       const reqId = req.requestId || '-';
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms [${ip}] rid=${reqId}`;
-      const sensitivePatterns = ['subscribers', 'mtas', 'auth'];
+      // api-keys: POST response contains the one-time plaintext API key —
+      // must never reach logs.
+      const sensitivePatterns = ['subscribers', 'mtas', 'auth', 'api-keys'];
       const isSensitive = sensitivePatterns.some(p => path.includes(p));
       if (capturedJsonResponse && !isSensitive) {
         const bodyStr = JSON.stringify(capturedJsonResponse);
@@ -640,6 +647,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     '/api/webhooks/',
     '/api/health',
     '/metrics',
+    // External API: authenticated per-route with an API key (api-keys.ts).
+    '/api/v1/',
   ];
   if (publicPaths.some(p => req.path.startsWith(p))) return next();
   

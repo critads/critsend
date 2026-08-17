@@ -60,6 +60,7 @@ const OVERFLOW_NAV: NavItem[] = [
   { title: "PMTA Queues", url: "/pmta" },
   { title: "Error Logs", url: "/error-logs" },
   { title: "API Docs", url: "/api-docs" },
+  { title: "API Keys", url: "/api-keys" },
 ];
 
 function isActive(location: string, url: string): boolean {
