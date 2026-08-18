@@ -151,7 +151,11 @@ export default function CampaignEdit() {
         openTag: campaign.openTag || "",
         clickTag: campaign.clickTag || "",
         unsubscribeTag: campaign.unsubscribeTag || "",
-        scheduledAt: campaign.scheduledAt,
+        // Task #238: drafts without a scheduled date (e.g. campaigns injected
+        // via the external API) default to "now", matching the creation
+        // wizard's default. Existing dates and non-draft campaigns keep theirs.
+        scheduledAt:
+          campaign.scheduledAt ?? (campaign.status === "draft" ? new Date() : campaign.scheduledAt),
         status: campaign.status || "draft",
         followUpEnabled: campaign.followUpEnabled ?? false,
         followUpDelayHours: campaign.followUpDelayHours ?? 36,
