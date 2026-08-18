@@ -332,6 +332,70 @@ export async function ensureCampaignNameTrigramIndex(): Promise<LockResult | "ex
   return result;
 }
 
+/**
+ * Tag suggestions (Task #237): accent-insensitive brand matching on campaign
+ * names. Provisions, under an advisory lock:
+ *   1. the `unaccent` extension (and `pg_trgm`, in case this runs before the
+ *      plain-name trigram bootstrap on a fresh deployment),
+ *   2. `f_unaccent(text)` — an IMMUTABLE wrapper required to index the
+ *      folded expression,
+ *   3. a trigram GIN index on `f_unaccent(name)`, built CONCURRENTLY so
+ *      campaign inserts/updates are never blocked by the build.
+ * Readiness (checked via `isCampaignNameUnaccentIndexReady`) is only set
+ * after the index is confirmed to exist AND be valid, so a failed
+ * CONCURRENTLY build never routes queries to a broken index. When the DB
+ * role can't install extensions, the tag-suggestion route degrades to
+ * accent-sensitive matching on campaign_name_trgm_idx.
+ */
+let campaignNameUnaccentIndexReady = false;
+export function isCampaignNameUnaccentIndexReady(): boolean {
+  return campaignNameUnaccentIndexReady;
+}
+export async function ensureCampaignNameUnaccentTrigramIndex(): Promise<LockResult | "exists"> {
+  const validate = async (): Promise<boolean> => {
+    if (!(await indexExistsAndValid("campaign_name_unaccent_trgm_idx"))) return false;
+    // The index alone isn't enough — queries also call f_unaccent directly.
+    try {
+      await pool.query(`SELECT f_unaccent('é')`);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (await validate()) {
+    campaignNameUnaccentIndexReady = true;
+    logger.info("[TRIGRAM] campaign_name_unaccent_trgm_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGN_NAME_UNACCENT_TRGM,
+    "CAMPAIGN_NAME_UNACCENT_TRGM",
+    async (_lockClient) => {
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS unaccent`);
+      await pool.query(
+        `CREATE OR REPLACE FUNCTION f_unaccent(text)
+         RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+         AS $func$ SELECT public.unaccent('public.unaccent', $1) $func$`,
+      );
+      await pool.query(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_name_unaccent_trgm_idx
+           ON campaigns USING gin (f_unaccent(name) gin_trgm_ops)`,
+      );
+    },
+  );
+  // Validate regardless of who built it (this process or a concurrent boot).
+  campaignNameUnaccentIndexReady = await validate();
+  if (result === "ran" && campaignNameUnaccentIndexReady) {
+    logger.info("[TRIGRAM] campaign_name_unaccent_trgm_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[TRIGRAM] campaign_name_unaccent_trgm_idx creation skipped — another process is handling it");
+  } else if (!campaignNameUnaccentIndexReady) {
+    logger.warn("[TRIGRAM] campaign_name_unaccent_trgm_idx not ready — tag suggestions fall back to accent-sensitive matching");
+  }
+  return result;
+}
+
 export async function ensureCampaignSubjectTrigramIndex(): Promise<LockResult | "exists"> {
   if (await indexExistsAndValid("campaign_subject_trgm_idx")) {
     logger.info("[TRIGRAM] campaign_subject_trgm_idx already exists — skipping");

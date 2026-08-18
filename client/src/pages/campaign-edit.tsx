@@ -40,6 +40,7 @@ import type { Mta, Segment, InsertCampaign, Campaign } from "@shared/schema";
 import DateTimePicker from "@/components/date-time-picker";
 import { SegmentCombobox } from "@/components/segment-combobox";
 import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
+import { TagSuggestionsButton } from "@/components/campaign-wizard/tag-suggestions";
 import {
   withBaseHref,
   steps,
@@ -957,6 +958,11 @@ export default function CampaignEdit() {
       case 4:
         return (
           <div className="space-y-6">
+            <TagSuggestionsButton
+              campaignName={formData.name}
+              excludeId={campaignId}
+              onApply={(tags) => setFormData((prev) => ({ ...prev, ...tags }))}
+            />
             <Card>
               <CardContent className="p-4 space-y-4">
                 <div className="flex items-center justify-between">

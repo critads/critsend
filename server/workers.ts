@@ -1572,6 +1572,9 @@ function startImportJobProcessor() {
     .catch((err: any) => logger.error('[IMPORT] Failed to create campaign name trigram index:', err.message));
   storage.ensureCampaignSubjectTrigramIndex()
     .catch((err: any) => logger.error('[IMPORT] Failed to create campaign subject trigram index:', err.message));
+  import("./repositories/campaign-repository").then(({ ensureCampaignNameUnaccentTrigramIndex }) =>
+    ensureCampaignNameUnaccentTrigramIndex()
+  ).catch((err: any) => logger.error('[IMPORT] Failed to create campaign name unaccent trigram index:', err.message));
 
   storage.ensureMtaNameTrigramIndex()
     .catch((err: any) => logger.error('[IMPORT] Failed to create MTA name trigram index:', err.message));

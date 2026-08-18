@@ -856,9 +856,11 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   ensureSegmentNameLowerIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create segment name lower index (non-fatal):', err?.message || err));
 
-  const { ensureCampaignNameTrigramIndex, ensureCampaignSubjectTrigramIndex, ensureCampaignOriginalsListIndex, ensureCampaignSendsPressureHeldIndex, ensureCampaignsScheduledAtIndex } = await import("./repositories/campaign-repository");
+  const { ensureCampaignNameTrigramIndex, ensureCampaignNameUnaccentTrigramIndex, ensureCampaignSubjectTrigramIndex, ensureCampaignOriginalsListIndex, ensureCampaignSendsPressureHeldIndex, ensureCampaignsScheduledAtIndex } = await import("./repositories/campaign-repository");
   ensureCampaignNameTrigramIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign name trigram index (non-fatal):', err?.message || err));
+  ensureCampaignNameUnaccentTrigramIndex()
+    .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign name unaccent trigram index (non-fatal):', err?.message || err));
   ensureCampaignSubjectTrigramIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign subject trigram index (non-fatal):', err?.message || err));
   ensureCampaignOriginalsListIndex()
