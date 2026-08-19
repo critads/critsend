@@ -84,6 +84,29 @@ import {
       } else {
         logger.info("[TRACKING] Bootstrap migration: campaign_stats click partial index already exists — skipping");
       }
+
+      // Task #239 — timestamp-first click index for clicker-tier segment operators.
+      // The existing index (subscriber_id, timestamp, campaign_id) lets PostgreSQL
+      // probe cheaply per-subscriber but cannot limit the date range at the index
+      // level when the query filters only by timestamp first (no leading subscriber_id
+      // predicate). A timestamp-first partial index lets PostgreSQL scan only the
+      // recent 60-day slice before grouping by subscriber — turning a multi-GB
+      // historical scan into a narrow range scan on a much smaller slice.
+      if (!(await indexExistsAndValid("campaign_stats_click_ts_subscriber_campaign_idx"))) {
+        try {
+          await runIndexDdlNoTimeout(
+            `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_stats_click_ts_subscriber_campaign_idx
+               ON campaign_stats (timestamp, subscriber_id, campaign_id)
+               WHERE type = 'click'`,
+            "CREATE campaign_stats_click_ts_subscriber_campaign_idx",
+          );
+          logger.info("[TRACKING] Bootstrap migration: campaign_stats timestamp-first click partial index ready");
+        } catch (err: any) {
+          logger.error(`[TRACKING] Bootstrap migration FAILED (campaign_stats timestamp-first click partial index): ${err?.message || err}`);
+        }
+      } else {
+        logger.info("[TRACKING] Bootstrap migration: campaign_stats timestamp-first click partial index already exists — skipping");
+      }
     },
   );
 })();

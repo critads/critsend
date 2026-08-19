@@ -141,10 +141,18 @@ function compileCondition(cond: SegmentCondition): SQL {
       // index scan over the recent click slice, hashed against subscribers —
       // NOT a correlated per-subscriber subquery, which degenerates into
       // millions of index probes on the multi-GB stats table and made
-      // count/preview effectively hang in production. Served by the partial
-      // index campaign_stats_click_subscriber_ts_idx (subscriber_id,
-      // timestamp, campaign_id) WHERE type='click' — bootstrapped in
-      // routes/tracking.ts.
+      // count/preview effectively hang in production.
+      //
+      // Index selection: the timestamp-first partial index
+      // campaign_stats_click_ts_subscriber_campaign_idx
+      // (timestamp, subscriber_id, campaign_id) WHERE type='click'
+      // lets PostgreSQL bound the scan to the 60-day window immediately via
+      // a range scan on the leading timestamp column, then covers
+      // subscriber_id and campaign_id without a heap fetch.  The older
+      // subscriber-first index campaign_stats_click_subscriber_ts_idx
+      // (subscriber_id, timestamp, campaign_id) WHERE type='click' is kept
+      // for queries that probe by subscriber first (e.g. per-subscriber
+      // click-history lookups). Both are bootstrapped in routes/tracking.ts.
       // Clicked at least once in the window — same semi-join shape as the
       // clicker tiers (served by campaign_stats_click_subscriber_ts_idx),
       // just without the distinct-campaign threshold.
