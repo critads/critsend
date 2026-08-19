@@ -408,13 +408,106 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
   logger.info(`${logPrefix} Starting V3 engine - Speed: ${speedKey}, Rate: ${emailsPerMinute}/min, Concurrency: ${concurrency}, Mode: ${isNullsink ? 'nullsink-batch' : 'smtp'}, BatchSize: ${BATCH_SIZE}, FlushAt: ${FLUSH_THRESHOLD}`);
 
-  let cursorId: string | undefined = undefined;
+  // Step-by-step sending (Task #242): restore the cursor saved at the
+  // previous auto-pause so this step continues from where it left off
+  // rather than re-scanning already-processed contacts (which would
+  // exhaust the new step budget before sending a single new recipient).
+  //
+  // TWO cursors are maintained:
+  //   cursorId            — in-memory fetch/prefetch cursor. Advances to the
+  //                         end of batchCapped at the START of each batch so
+  //                         prefetch can issue the next DB read immediately.
+  //                         NEVER written to the DB during mid-batch checkpoints
+  //                         because the batch may not be fully processed yet.
+  //   stepDurableCursorId — checkpoint cursor persisted by persistStepCount().
+  //                         Advances to cursorId only AFTER `await flushPromise`
+  //                         confirms that the PREVIOUS batch's sends are
+  //                         finalized in the DB. If the process crashes mid-batch,
+  //                         cursorId (the batch start) is the safe restart point,
+  //                         so we never permanently skip un-sent recipients.
+  let cursorId: string | undefined = (campaign as any).stepCursorId ?? undefined;
+  let stepDurableCursorId: string | undefined = cursorId; // starts equal; advances one batch behind
   let processedCount = 0;
   let totalSent = 0;
   let totalFailed = 0;
   let consecutiveSmtpFailures = 0;
   const startTime = Date.now();
   let shouldStop = false;
+
+  // Step-by-step sending (Task #242).
+  //
+  // stepSendLimit: contacts to process before auto-pausing. null = disabled.
+  // stepProcessedCount: counter for the CURRENT step, reset to 0 on resume.
+  //   Initialized from the DB so a crash mid-step restores correct progress.
+  // stepCursorId: subscriber id at which to resume the audience scan.
+  //   Saved to the DB at auto-pause so the NEXT step starts from where it
+  //   left off rather than re-scanning already-processed contacts from the
+  //   beginning (which would exhaust the new step budget before any new sends).
+  const stepSendLimit: number | null = (campaign as any).stepSendLimit ?? null;
+  let stepProcessedCount: number = (campaign as any).stepProcessedCount ?? 0;
+  let lastStepCountPersist = Date.now();
+  const STEP_PERSIST_INTERVAL_MS = 5000;
+  let stepLimitReached = false;
+
+  /**
+   * Persist the step counter AND the DURABLE cursor atomically (non-fatal).
+   *
+   * Writes stepDurableCursorId — the end of the last FULLY flushed batch —
+   * NOT cursorId (the current fetch cursor).  This guarantees that if the
+   * process crashes between this persist and the end of the current batch,
+   * the restart reloads a cursor that points BEFORE the in-flight batch, so
+   * those contacts are re-fetched rather than permanently skipped.
+   */
+  async function persistStepCount(): Promise<void> {
+    try {
+      const saveCursor = stepDurableCursorId ?? null;
+      await db.execute(sql`
+        UPDATE campaigns
+           SET step_processed_count = ${stepProcessedCount},
+               step_cursor_id = ${saveCursor}
+         WHERE id = ${campaignId}
+      `);
+      lastStepCountPersist = Date.now();
+    } catch (err: any) {
+      logger.warn(`${logPrefix} [STEP] stepProcessedCount/cursor persist failed (non-fatal): ${err?.message || err}`);
+    }
+  }
+
+  /**
+   * Pause with step_limit atomically, persisting both the counter and the
+   * cursor so the next step can resume exactly where this one left off.
+   * Only fires when the campaign is still 'sending' (guards against a
+   * concurrent manual End/Pause overwriting a terminal status).
+   */
+  async function persistStepPause(): Promise<void> {
+    const saveCursor = cursorId ?? null;
+    logger.info(`${logPrefix} [STEP] Step limit reached (${stepProcessedCount}/${stepSendLimit}), cursor=${saveCursor} — pausing campaign`);
+    await db.execute(sql`
+      UPDATE campaigns
+         SET status = 'paused',
+             pause_reason = 'step_limit',
+             step_processed_count = ${stepProcessedCount},
+             step_cursor_id = ${saveCursor}
+       WHERE id = ${campaignId} AND status = 'sending'
+    `);
+    shouldStop = true;
+  }
+
+  /**
+   * Increment the step counter by `n`, persist if due, and trigger auto-pause
+   * if the limit is reached.  Must only be called while `shouldStop` is false.
+   */
+  async function accountStepProcessed(n: number): Promise<void> {
+    if (stepSendLimit === null || stepLimitReached) return;
+    stepProcessedCount += n;
+    if (Date.now() - lastStepCountPersist >= STEP_PERSIST_INTERVAL_MS) {
+      await persistStepCount();
+    }
+    if (stepProcessedCount >= stepSendLimit && !stepLimitReached) {
+      stepLimitReached = true;
+      await persistStepPause();
+    }
+  }
 
   // Default email headers are now injected centrally inside `sendEmail`
   // (server/email-service.ts) for EVERY outbound path, so the bulk sender no
@@ -704,13 +797,50 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         break;
       }
 
+      // Step-by-step sending (Task #242): early-exit BEFORE any batch fetch
+      // when the persisted counter is already at or above the limit.  This
+      // handles crash-recovery: if persistStepCount() wrote the final count
+      // but the subsequent pause UPDATE hadn't committed, the campaign restarts
+      // as 'sending' with stepProcessedCount == stepSendLimit.  Without this
+      // check the sender would reserve one recipient, deliver it, and only
+      // then pause — exceeding the operator's intent.
+      if (stepSendLimit !== null && !stepLimitReached && stepProcessedCount >= stepSendLimit) {
+        stepLimitReached = true;
+        logger.info(`${logPrefix} [STEP] Persisted count (${stepProcessedCount}) >= limit (${stepSendLimit}) at loop top — pausing without further reservation`);
+        await persistStepPause();
+        break;
+      }
+
       const batch = await retryDbOp(() => getNextBatch(cursorId), `${logPrefix} getNextBatch`);
       if (batch.length === 0) {
         logger.info(`${logPrefix} No more subscribers to process (batchNumber: ${batchNumber})`);
         break;
       }
       batchNumber++;
-      cursorId = batch[batch.length - 1].id;
+
+      // Step-by-step sending (Task #242): cap the slice BEFORE the cursor
+      // advances and BEFORE the pressure-guard reservation, so the total of
+      // (deferred + reserved) contacts for this step never exceeds the step
+      // budget. The cursor only advances as far as the last capped contact,
+      // ensuring the remaining contacts in the outer batch are picked up in
+      // the next step. Without this cap:
+      //   - An entire 10k/15k batch would be reserved (and some deferred)
+      //     before the limit check fires, leaking sends into the background.
+      //   - cursorId would advance past the uncapped tail, permanently
+      //     skipping those recipients.
+      const batchCapped = (stepSendLimit !== null && !stepLimitReached)
+        ? batch.slice(0, Math.max(1, stepSendLimit - stepProcessedCount))
+        : batch;
+
+      // Capture the old fetch cursor BEFORE advancing it.
+      // prevCursorId is the end of the PREVIOUS batch (= start of this one).
+      const prevCursorId = cursorId;
+
+      // Fetch cursor advances to end of batchCapped so:
+      //   (a) the step cap is enforced (uncapped tail not touched this step), and
+      //   (b) prefetch for the NEXT outer batch can start immediately.
+      // In-memory only — NOT yet written to the DB.
+      cursorId = batchCapped[batchCapped.length - 1].id;
 
       // Serialize prefetch with the previous batch's background finalize so a
       // single campaign never holds two main-pool connections at the same time.
@@ -719,9 +849,26 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       if (flushPromise) {
         try { await flushPromise; } catch { /* swallowed; doFlush already logs */ }
       }
+
+      // Durable cursor checkpoint: after flushPromise resolves, the PREVIOUS
+      // batch's sends are fully finalized in the DB (sent/failed rows written).
+      // We can now safely advance the durable cursor to prevCursorId — the END
+      // of the previous batch — and immediately persist both count and cursor.
+      //
+      // This means:
+      //   • If the process crashes later during THIS batch, restart reloads a
+      //     cursor that points to prevCursorId (start of this batch), re-fetches
+      //     the whole batch, and does NOT permanently skip any recipients.
+      //   • If persistStepCount() fires mid-batch (via accountStepProcessed),
+      //     it writes (count, prevCursorId), which is conservative but safe.
+      if (stepSendLimit !== null && !stepLimitReached) {
+        stepDurableCursorId = prevCursorId;
+        await persistStepCount();
+      }
+
       startPrefetch(cursorId);
 
-      const subscriberIds = batch.map(s => s.id);
+      const subscriberIds = batchCapped.map(s => s.id);
       // Marketing Pressure Guard (Task #144): atomic CAS on
       // subscribers.last_sent_at filters contacts who received an email
       // from any other campaign within the past 6h. Losers are inserted
@@ -739,16 +886,23 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       );
 
       const reservedSet = new Set(reservedIds);
-      const subscribersToSend = batch.filter(s => reservedSet.has(s.id));
-      const skippedCount = batch.length - subscribersToSend.length;
+      // Derive send/skip sets from batchCapped, not from the full batch — the
+      // uncapped tail was never submitted to the pressure guard and must not
+      // be counted as processed.
+      const subscribersToSend = batchCapped.filter(s => reservedSet.has(s.id));
+      const skippedCount = batchCapped.length - subscribersToSend.length;
       processedCount += skippedCount;
+      // Step accounting: pressure-guard-deferred contacts count toward raw
+      // processed so the step limit reflects true throughput.
+      if (skippedCount > 0) await accountStepProcessed(skippedCount);
+      if (shouldStop) break;
 
       if (subscribersToSend.length === 0) {
-        logger.info(`${logPrefix} Batch ${batchNumber}: All ${batch.length} subscribers already processed, skipping`);
+        logger.info(`${logPrefix} Batch ${batchNumber}: All ${batchCapped.length} subscribers already processed, skipping`);
         continue;
       }
 
-      logger.info(`${logPrefix} Batch ${batchNumber}: ${subscribersToSend.length} to send (${skippedCount} skipped)`);
+      logger.info(`${logPrefix} Batch ${batchNumber}: ${subscribersToSend.length} to send (${skippedCount} skipped, cap=${batchCapped.length}/${batch.length})`);
 
       // ── Generate short tracking tokens for this batch ───────────────────
       if (mta?.trackingDomain) {
@@ -775,7 +929,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         for (let i = 0; i < subscribersToSend.length; i += SUB_BATCH) {
           if (shouldStop) break;
 
-          const subBatch = subscribersToSend.slice(i, i + SUB_BATCH);
+          // Cap sub-batch to the remaining step budget so small limits are
+          // honoured to within one sub-batch, not one full outer batch.
+          const stepRemaining = stepSendLimit !== null && !stepLimitReached
+            ? Math.max(0, stepSendLimit - stepProcessedCount)
+            : Infinity;
+          const subBatch = subscribersToSend.slice(i, i + Math.min(SUB_BATCH, stepRemaining || 1));
           const results = sendEmailBatchNullsink(mta, subBatch, campaign, trackingOpts, customHeadersMap, precomputedHtml);
 
           for (const r of results) {
@@ -793,6 +952,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
               pendingCaptures.push(r.capture);
             }
           }
+          // Step accounting for nullsink sub-batch.
+          await accountStepProcessed(subBatch.length);
+          if (shouldStop) break;
 
           if (shouldFlush()) {
             await flushBufferAsync();
@@ -809,7 +971,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         for (let i = 0; i < subscribersToSend.length; i += concurrency) {
           if (shouldStop) break;
 
-          const chunk = subscribersToSend.slice(i, i + concurrency);
+          // Cap chunk to the remaining step budget so small limits are
+          // honoured to within one concurrency slice.
+          const stepRemaining = stepSendLimit !== null && !stepLimitReached
+            ? Math.max(0, stepSendLimit - stepProcessedCount)
+            : Infinity;
+          const chunk = subscribersToSend.slice(i, i + Math.min(concurrency, stepRemaining || 1));
 
           await retryDbOp(
             () => storage.bulkInsertCampaignSendAttempts(campaignId, chunk.map(s => s.id)),
@@ -862,10 +1029,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
               consecutiveSmtpFailures++;
             }
           }
+          // Step accounting for SMTP chunk.
+          await accountStepProcessed(chunk.length);
 
           if (shouldFlush()) {
             await flushBufferAsync();
           }
+
+          if (shouldStop) break;
 
           if (batchDelayMs > 0 && i + concurrency < subscribersToSend.length) {
             await new Promise(resolve => setTimeout(resolve, batchDelayMs));
@@ -881,6 +1052,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         await flushPromise;
       }
       await flushBuffer();
+      // Persist step counter at the end of each outer batch (belt-and-
+      // suspenders alongside the periodic persist in accountStepProcessed).
+      if (stepSendLimit !== null && !stepLimitReached) await persistStepCount();
 
       const elapsed = (Date.now() - startTime) / 1000;
       const rate = processedCount / elapsed * 60;

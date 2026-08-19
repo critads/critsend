@@ -718,6 +718,7 @@ async function pollDeferredQueueInner() {
          FROM per_campaign pc
          JOIN campaigns c ON c.id = pc.campaign_id
          WHERE c.status IN ('sending', 'paused')
+               AND NOT (c.status = 'paused' AND c.pause_reason = 'step_limit')
          ORDER BY (pc.aged_count > 0) DESC,
                   pc.aged_count DESC,
                   pc.drainable_count DESC,

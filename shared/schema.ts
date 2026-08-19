@@ -258,6 +258,25 @@ export const campaigns = pgTable("campaigns", {
   followUpSubject: text("follow_up_subject"),
   followUpScheduledAt: timestamp("follow_up_scheduled_at"),
   followUpCampaignId: varchar("follow_up_campaign_id"),
+  // ── Step-by-step sending (Task #242) ────────────────────────────────
+  // Optional per-campaign limit: auto-pause after X emails are processed
+  // (raw count: sent + failed + pressure-guard-deferred). NULL = no limit,
+  // meaning the campaign runs until the entire segment is exhausted.
+  //
+  // `stepProcessedCount` accumulates contacts processed in the CURRENT step
+  // only; it is reset to 0 on every resume so the next step starts fresh.
+  // On auto-pause the sender writes pause_reason='step_limit'.
+  //
+  // On resume of a step_limit campaign the UI asks the operator to either
+  // (a) "finish" (clears stepSendLimit → runs to end) or
+  // (b) "continue" with a new X (resets stepProcessedCount, keeps/updates
+  //     stepSendLimit, re-pauses at next X).
+  stepSendLimit: integer("step_send_limit"),
+  stepProcessedCount: integer("step_processed_count").notNull().default(0),
+  // Cursor position (last subscriber id processed) saved at auto-pause so
+  // the next step resumes from where it left off rather than re-scanning from
+  // the beginning.  Null means start from the beginning.
+  stepCursorId: varchar("step_cursor_id", { length: 36 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -730,6 +749,8 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   skippedPressureCount: true,
   snowballThrottledCount: true,
   autoRetryCount: true,
+  stepProcessedCount: true,
+  stepCursorId: true,
   createdAt: true,
   startedAt: true,
   completedAt: true,
@@ -747,6 +768,12 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   followUpEnabled: z.boolean().optional(),
   followUpDelayHours: z.coerce.number().int().min(1).max(168).optional(),
   followUpSubject: z.preprocess((v) => (v === "" ? null : v), z.string().max(998).nullable().optional()),
+  // Step-by-step sending (Task #242). Must be a positive integer ≥ 1 when
+  // set — zero or negative is rejected so the sender never sees an invalid limit.
+  stepSendLimit: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? null : v),
+    z.coerce.number().int().min(1, "Step send limit must be at least 1").nullable().optional()
+  ),
 });
 
 export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
@@ -758,6 +785,8 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   skippedPressureCount: true,
   snowballThrottledCount: true,
   autoRetryCount: true,
+  stepProcessedCount: true,
+  stepCursorId: true,
   createdAt: true,
   startedAt: true,
   completedAt: true,
@@ -777,6 +806,12 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   excludeSegmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   status: z.string().optional().default("draft"),
+  // Step-by-step sending (Task #242). Must be a positive integer ≥ 1 when
+  // set — zero or negative is rejected so the sender never sees an invalid limit.
+  stepSendLimit: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? null : v),
+    z.coerce.number().int().min(1, "Step send limit must be at least 1").nullable().optional()
+  ),
 });
 
 export const updateCampaignDraftSchema = z.object({
@@ -817,6 +852,13 @@ export const updateCampaignDraftSchema = z.object({
   followUpEnabled: z.boolean().optional(),
   followUpDelayHours: z.coerce.number().int().min(1).max(168).optional(),
   followUpSubject: z.preprocess((v) => (v === "" ? null : v), z.string().max(998).nullable().optional()),
+  // Step-by-step sending (Task #242). null clears the limit. Must be a
+  // positive integer ≥ 1 when set — zero or negative is rejected at the
+  // schema level so the sender never sees a non-positive limit.
+  stepSendLimit: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? null : v),
+    z.coerce.number().int().min(1, "Step send limit must be at least 1").nullable().optional()
+  ),
 });
 export const insertImportJobSchema = createInsertSchema(importJobs).omit({ 
   id: true, 

@@ -159,6 +159,8 @@ export default function CampaignEdit() {
         status: campaign.status || "draft",
         followUpEnabled: campaign.followUpEnabled ?? false,
         followUpDelayHours: campaign.followUpDelayHours ?? 36,
+        // Step-by-step sending (Task #242)
+        stepSendLimit: (campaign as any).stepSendLimit ?? null,
       });
       if (campaign.htmlContent) {
         setHtmlLoaded(true);
@@ -1087,6 +1089,29 @@ export default function CampaignEdit() {
               <p className="text-xs text-muted-foreground">
                 Leave empty to send immediately, or pick a date and time (Paris timezone)
               </p>
+            </div>
+
+            {/* Step-by-step sending (Task #242) */}
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="space-y-1">
+                <Label htmlFor="step-send-limit" className="text-base">Auto-pause after X emails processed</Label>
+                <p className="text-xs text-muted-foreground">
+                  The campaign pauses automatically once this many emails are processed. Leave empty to send the entire segment at once.
+                </p>
+              </div>
+              <Input
+                id="step-send-limit"
+                type="number"
+                min={1}
+                placeholder="e.g. 5000 — leave empty for no limit"
+                value={formData.stepSendLimit ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  updateField("stepSendLimit", v === "" ? null : Math.max(1, parseInt(v, 10) || 1));
+                }}
+                className="w-56"
+                data-testid="input-step-send-limit"
+              />
             </div>
 
             {/* Auto-resend to openers (Task #56). Hidden when editing a

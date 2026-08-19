@@ -167,6 +167,10 @@ export default function Campaigns() {
   const [urgentConfirm, setUrgentConfirm] = useState<CampaignListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
+  // Step-by-step sending (Task #242): dialog shown when resuming a campaign
+  // that was auto-paused at a step limit.
+  const [stepResumeDialog, setStepResumeDialog] = useState<CampaignListItem | null>(null);
+  const [stepResumeLimit, setStepResumeLimit] = useState<string>("");
   const { toast } = useToast();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -413,6 +417,21 @@ export default function Campaigns() {
         description: "Failed to update campaign status. Please try again.",
         variant: "destructive",
       });
+    },
+  });
+
+  // Step-by-step sending (Task #242): resume mutation that carries the
+  // stepAction / stepLimit body chosen in the dialog.
+  const stepResumeMutation = useMutation({
+    mutationFn: ({ id, stepAction, stepLimit }: { id: string; stepAction: "finish" | "continue"; stepLimit?: number }) =>
+      apiRequest("POST", `/api/campaigns/${id}/resume`, { stepAction, stepLimit }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setStepResumeDialog(null);
+      toast({ title: "Campaign resumed", description: "The campaign is now sending." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to resume campaign.", variant: "destructive" });
     },
   });
 
@@ -885,10 +904,14 @@ export default function Campaigns() {
                           {campaign.pauseReason && (campaign.status === "paused" || campaign.status === "failed") && (
                             <span
                               className="text-xs text-muted-foreground truncate max-w-[180px]"
-                              title={campaign.pauseReason}
+                              title={campaign.pauseReason === "step_limit"
+                                ? `Auto-paused after step: ${(campaign.stepProcessedCount ?? 0).toLocaleString()} / ${(campaign.stepSendLimit ?? "?").toLocaleString()} emails processed`
+                                : campaign.pauseReason}
                               data-testid={`text-pause-reason-${campaign.id}`}
                             >
-                              {campaign.pauseReason}
+                              {campaign.pauseReason === "step_limit"
+                                ? `Step paused — ${(campaign.stepProcessedCount ?? 0).toLocaleString()} processed`
+                                : campaign.pauseReason}
                             </span>
                           )}
                         </div>
@@ -1027,7 +1050,16 @@ export default function Campaigns() {
                             )}
                             {campaign.status === "paused" && (
                               <DropdownMenuItem
-                                onClick={() => pauseResumeMutation.mutate({ id: campaign.id, action: "resume" })}
+                                onClick={() => {
+                                  if (campaign.pauseReason === "step_limit") {
+                                    // Step-by-step sending (Task #242): ask the
+                                    // operator what to do next before resuming.
+                                    setStepResumeLimit(String(campaign.stepSendLimit ?? ""));
+                                    setStepResumeDialog(campaign);
+                                  } else {
+                                    pauseResumeMutation.mutate({ id: campaign.id, action: "resume" });
+                                  }
+                                }}
                               >
                                 <Play className="h-4 w-4 mr-2" />
                                 Resume
@@ -1261,6 +1293,86 @@ export default function Campaigns() {
             >
               <Zap className="h-4 w-4 mr-2" />
               {urgentMutation.isPending ? "Activation…" : "Activer le mode urgent"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step-by-step sending (Task #242): dialog shown when resuming a
+          campaign that was auto-paused at a step limit. */}
+      <Dialog open={!!stepResumeDialog} onOpenChange={() => setStepResumeDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Play className="h-5 w-5" />
+              Resume "{stepResumeDialog?.name}"
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  This campaign was auto-paused after processing{" "}
+                  <strong>{(stepResumeDialog?.stepProcessedCount ?? 0).toLocaleString()}</strong>{" "}
+                  emails. How do you want to continue?
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="rounded-lg border p-3 space-y-2">
+              <p className="font-medium text-sm">Process X more emails, then pause again</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 5000"
+                  value={stepResumeLimit}
+                  onChange={(e) => setStepResumeLimit(e.target.value)}
+                  className="w-40"
+                  data-testid="input-step-resume-limit"
+                />
+                <Button
+                  variant="default"
+                  disabled={stepResumeMutation.isPending || !stepResumeLimit || parseInt(stepResumeLimit, 10) < 1}
+                  onClick={() => {
+                    if (!stepResumeDialog) return;
+                    stepResumeMutation.mutate({
+                      id: stepResumeDialog.id,
+                      stepAction: "continue",
+                      stepLimit: parseInt(stepResumeLimit, 10),
+                    });
+                  }}
+                  data-testid="button-step-resume-continue"
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  Continue sending
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The campaign will pause again after processing this many more emails.
+              </p>
+            </div>
+            <div className="rounded-lg border p-3 space-y-2">
+              <p className="font-medium text-sm">Finish sending to all remaining recipients</p>
+              <Button
+                variant="outline"
+                disabled={stepResumeMutation.isPending}
+                onClick={() => {
+                  if (!stepResumeDialog) return;
+                  stepResumeMutation.mutate({ id: stepResumeDialog.id, stepAction: "finish" });
+                }}
+                data-testid="button-step-resume-finish"
+              >
+                <Play className="h-4 w-4 mr-2" />
+                Finish sending
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Removes the step limit — the campaign runs until the full segment is sent.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setStepResumeDialog(null)}>
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>
