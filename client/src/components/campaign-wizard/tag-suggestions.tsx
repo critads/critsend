@@ -7,10 +7,9 @@ import { Loader2, Wand2 } from "lucide-react";
 /**
  * Task #237 — "Suggest from history" button for the campaign wizard's
  * Tracking step. Calls /api/campaigns/tag-suggestions with the campaign name,
- * fills open/click/unsubscribe tags with the most frequent tags used by past
- * campaigns of the same brand (brand = dominant token of the name), and shows
- * how many similar campaigns the suggestion is based on. Never overwrites
- * anything without an explicit click.
+ * fills open/click/unsubscribe tags with the most frequent tags used across
+ * the complete history of the same exact brand (all MTAs), and shows how many
+ * campaigns the suggestion is based on. Never overwrites without a click.
  */
 interface TagSuggestionsResponse {
   brand: string | null;
@@ -72,7 +71,7 @@ export function TagSuggestionsButton({
       setBasis({ brand: data.brand || "", matches: data.matches });
       toast({
         title: "Tags suggested",
-        description: `Based on ${data.matches} past "${data.brand}" campaign(s).`,
+        description: `Based on ${data.matches} past "${data.brand}" campaign(s), across all MTAs.`,
       });
     } catch {
       toast({
@@ -104,7 +103,7 @@ export function TagSuggestionsButton({
       </Button>
       {basis && (
         <p className="text-xs text-muted-foreground" data-testid="text-tag-suggestion-basis">
-          Based on {basis.matches} past "{basis.brand}" campaign(s)
+          Based on {basis.matches} past "{basis.brand}" campaign(s), across all MTAs
         </p>
       )}
     </div>

@@ -17,7 +17,7 @@ import { messageQueue } from "../message-queue";
 import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
 import { sanitizeCampaignHtml, generateBase62, mapWithConcurrency } from "../utils";
 import { processHtmlImages, normalizeImageHostingDomain } from "../services/html-image-processor";
-import { tagSuggestTokens, likePattern, pickBrandIndex, modeOfTags } from "../services/tag-suggestions";
+import { extractCampaignBrand, likePattern, suggestTagsFromHistory } from "../services/tag-suggestions";
 import { isCampaignNameUnaccentIndexReady } from "../repositories/campaign-repository";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 
@@ -518,19 +518,15 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
 
-  // Tag suggestions (Task #237). Given a campaign name, finds past campaigns
-  // whose name shares the same brand token and returns the most frequent
-  // open/click/unsubscribe tags among them, so the wizard's Tracking step can
-  // prefill on demand. MUST be registered BEFORE "/api/campaigns/:id".
+  // Tag suggestions (Tasks #237 / #245). Given a campaign name, finds every
+  // historical campaign with the same exact brand signature and returns the
+  // most frequent open/click/unsubscribe tags across ALL MTAs. The MTA is
+  // deliberately neither selected nor filtered here.
   //
-  // Logic (tokenizer, brand pick, tag mode) lives in
-  // server/services/tag-suggestions.ts (unit-tested). Accent/index setup is
-  // done once at module bootstrap (see top of file), never per-request. A
-  // short in-memory cache absorbs repeated clicks so suggestions never scan
-  // the table more than once a minute per distinct name.
-  const TAG_SUGGEST_CACHE_TTL_MS = 60_000;
-  const TAG_SUGGEST_CACHE_MAX = 200;
-  const tagSuggestCache = new Map<string, { ts: number; payload: unknown }>();
+  // The indexed ILIKE clauses only pre-filter candidates. Pure, unit-tested
+  // logic then rejects partial-token and multi-brand false positives.
+  // No response cache is used: an explicit operator click always sees the
+  // latest complete history.
   app.get("/api/campaigns/tag-suggestions", async (req: Request, res: Response) => {
     try {
       const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
@@ -538,80 +534,36 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "name query parameter required" });
       }
       const excludeId = typeof req.query.excludeId === "string" ? req.query.excludeId : null;
-      const tokens = tagSuggestTokens(name);
-      if (tokens.length === 0) {
+      const brand = extractCampaignBrand(name);
+      if (!brand) {
         return res.json({ brand: null, matches: 0, suggestions: null });
-      }
-      const cacheKey = `${tokens.join("|")}::${excludeId ?? ""}`;
-      const cached = tagSuggestCache.get(cacheKey);
-      if (cached && Date.now() - cached.ts < TAG_SUGGEST_CACHE_TTL_MS) {
-        return res.json(cached.payload);
       }
 
       // f_unaccent(name) has a dedicated trigram GIN index (provisioned by
       // ensureCampaignNameUnaccentTrigramIndex at boot, CONCURRENTLY, under
       // an advisory lock); fallback plain `name` uses campaign_name_trgm_idx.
       const nameExpr = isCampaignNameUnaccentIndexReady() ? "f_unaccent(name)" : "name";
-      // LIKE wildcards in tokens are escaped; tokens are parameterized. The
+      // LIKE wildcards in tokens are escaped; values are parameterized. The
       // dynamic SQL fragments only interpolate server-generated indexes.
-      const escaped = tokens.map(likePattern);
-
-      // Step 1: per-token match counts over the FULL match set (trigram-
-      // indexed) so the brand pick isn't skewed by a row cap.
-      const countCols = tokens.map((_t, i) => `COUNT(*) FILTER (WHERE ${nameExpr} ILIKE $${i + 1}) AS c${i}`).join(", ");
-      const whereAny = tokens.map((_t, i) => `${nameExpr} ILIKE $${i + 1}`).join(" OR ");
-      const countParams: any[] = [...escaped];
+      const params: any[] = brand.tokens.map(likePattern);
+      const whereAll = brand.tokens.map((_token, i) => `${nameExpr} ILIKE $${i + 1}`).join(" AND ");
       let excludeClause = "";
       if (excludeId) {
-        countParams.push(excludeId);
-        excludeClause = ` AND id != $${countParams.length}`;
+        params.push(excludeId);
+        excludeClause = ` AND id != $${params.length}`;
       }
-      const countResult = await pool.query(
-        `SELECT ${countCols} FROM campaigns WHERE (${whereAny})${excludeClause}`,
-        countParams,
-      );
-      const countRow = countResult.rows[0] as Record<string, string | number> | undefined;
-      const counts = tokens.map((_t, i) => Number(countRow?.[`c${i}`] ?? 0));
-      const brandIdx = pickBrandIndex(tokens, counts);
 
-      let payload: unknown;
-      if (brandIdx < 0) {
-        payload = { brand: null, matches: 0, suggestions: null };
-      } else {
-        // Step 2: the 100 most recent campaigns matching the brand token.
-        const simParams: any[] = [escaped[brandIdx]];
-        let simExclude = "";
-        if (excludeId) {
-          simParams.push(excludeId);
-          simExclude = ` AND id != $${simParams.length}`;
-        }
-        const result = await pool.query(
-          `SELECT open_tag, click_tag, unsubscribe_tag
-             FROM campaigns
-            WHERE ${nameExpr} ILIKE $1${simExclude}
-            ORDER BY created_at DESC
-            LIMIT 100`,
-          simParams,
-        );
-        type Row = { open_tag: string | null; click_tag: string | null; unsubscribe_tag: string | null };
-        const similar = result.rows as Row[];
-        payload = {
-          brand: tokens[brandIdx],
-          matches: similar.length,
-          suggestions: {
-            openTag: modeOfTags(similar.map((r) => r.open_tag)),
-            clickTag: modeOfTags(similar.map((r) => r.click_tag)),
-            unsubscribeTag: modeOfTags(similar.map((r) => r.unsubscribe_tag)),
-          },
-        };
-      }
-      if (tagSuggestCache.size >= TAG_SUGGEST_CACHE_MAX) {
-        // Drop the oldest entry (Map preserves insertion order).
-        const oldest = tagSuggestCache.keys().next().value;
-        if (oldest !== undefined) tagSuggestCache.delete(oldest);
-      }
-      tagSuggestCache.set(cacheKey, { ts: Date.now(), payload });
-      res.json(payload);
+      // No MTA predicate and no LIMIT: every historical row for this brand is
+      // considered, regardless of which delivery infrastructure sent it.
+      const result = await pool.query(
+        `SELECT name, open_tag, click_tag, unsubscribe_tag
+           FROM campaigns
+          WHERE (${whereAll})${excludeClause}
+          ORDER BY created_at DESC`,
+        params,
+      );
+      const suggestion = suggestTagsFromHistory(brand, result.rows);
+      res.json({ brand: brand.label, ...suggestion });
     } catch (error) {
       logger.error("Error computing tag suggestions:", error);
       res.status(500).json({ error: "Failed to compute tag suggestions" });
