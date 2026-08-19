@@ -39,6 +39,7 @@ export const unaryOperators = [
   "has_no_refs",
   "engaged_recently",
   "not_engaged_recently",
+  "clicked_recently",
   "top_active_clicker",
   "ultra_active_clicker",
 ];

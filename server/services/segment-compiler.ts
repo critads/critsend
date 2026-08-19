@@ -21,7 +21,7 @@ export const ULTRA_CLICKER_MIN_CAMPAIGNS = 6;
 function compileCondition(cond: SegmentCondition): SQL {
   const { field, operator, value, value2 } = cond;
 
-  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently", "top_active_clicker", "ultra_active_clicker"];
+  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker"];
   if (!unaryOps.includes(operator)) {
     if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) {
       logger.warn("Empty value for non-unary segment operator", { field, operator });
@@ -145,6 +145,11 @@ function compileCondition(cond: SegmentCondition): SQL {
       // index campaign_stats_click_subscriber_ts_idx (subscriber_id,
       // timestamp, campaign_id) WHERE type='click' — bootstrapped in
       // routes/tracking.ts.
+      // Clicked at least once in the window — same semi-join shape as the
+      // clicker tiers (served by campaign_stats_click_subscriber_ts_idx),
+      // just without the distinct-campaign threshold.
+      case "clicked_recently":
+        return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id)`;
       case "top_active_clicker":
         return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS})`;
       case "ultra_active_clicker":
