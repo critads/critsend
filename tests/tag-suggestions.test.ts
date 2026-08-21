@@ -5,6 +5,7 @@ import {
   tagSuggestTokens,
   likePattern,
   modeOfTags,
+  resolveHistoricalBrand,
   suggestTagsFromHistory,
 } from "../server/services/tag-suggestions";
 
@@ -44,6 +45,10 @@ describe("extractCampaignBrand", () => {
     expect(tagSuggestTokens("#3091 Picard - 5au5NM - mayesale")).toEqual(["picard"]);
   });
 
+  it("does not treat dates or Critads as part of the Kiabi brand", () => {
+    expect(tagSuggestTokens("#3555 Kiabi 20-30/08 Critads - server2.mayasoldes")).toEqual(["kiabi"]);
+  });
+
   it("returns null when the brand section has no reliable token", () => {
     expect(extractCampaignBrand("#123 Promo Aout - LIST - kamma")).toBeNull();
   });
@@ -60,10 +65,43 @@ describe("likePattern", () => {
 });
 
 describe("campaignMatchesBrand", () => {
-  it("requires the complete brand signature, not one common word", () => {
+  it("requires the complete brand prefix, not one common word", () => {
     const brand = extractCampaignBrand("#3103 Air France - 4beTPA - Kamma")!;
     expect(campaignMatchesBrand("#3086 Air France - 4beTPA - rndaserver", brand)).toBe(true);
+    expect(campaignMatchesBrand("#4000 Air France 20-30/08 - mayesale", brand)).toBe(true);
     expect(campaignMatchesBrand("#3081 Air Caraibes - 4axS9H - rndaserver", brand)).toBe(false);
+  });
+});
+
+describe("resolveHistoricalBrand", () => {
+  it("resolves Kiabi from the first words after the campaign number", () => {
+    const requested = extractCampaignBrand("#3555 Kiabi 20-30/08 Critads - server2.mayasoldes")!;
+    const resolved = resolveHistoricalBrand(requested, [
+      { name: "#3500 Kiabi - mahlesoldes" },
+      { name: "#3500 Kiabi - mahlesoldes (Copy)" },
+      { name: "#3499 Ricaud - server2.mayasoldes" },
+    ]);
+    expect(resolved?.label).toBe("Kiabi");
+    expect(resolved?.tokens).toEqual(["kiabi"]);
+  });
+
+  it("keeps the longest anchored prefix for multi-word brands", () => {
+    const requested = extractCampaignBrand("#4000 Air France Holiday Push - kamma")!;
+    const resolved = resolveHistoricalBrand(requested, [
+      { name: "#3103 Air France - 4beTPA - Kamma" },
+      { name: "#3081 Air Caraibes - 4axS9H - rndaserver" },
+      { name: "#3107 Air Corsica - 4av6PG - rndamailing" },
+    ]);
+    expect(resolved?.label).toBe("Air France");
+    expect(resolved?.tokens).toEqual(["air", "france"]);
+  });
+
+  it("refuses to fall back to a shared first word without an exact anchor", () => {
+    const requested = extractCampaignBrand("#4000 Air Unknown Push - kamma")!;
+    expect(resolveHistoricalBrand(requested, [
+      { name: "#3103 Air France - 4beTPA - Kamma" },
+      { name: "#3081 Air Caraibes - 4axS9H - rndaserver" },
+    ])).toBeNull();
   });
 });
 
@@ -94,6 +132,13 @@ describe("suggestTagsFromHistory", () => {
         unsubscribe_tag: "U5AU",
       },
       {
+        // Descriptive text after an anchored brand still belongs to Picard.
+        name: "#3041 Picard 20-30/08 - verysent",
+        open_tag: "O5AU",
+        click_tag: "C5AU",
+        unsubscribe_tag: "U5AU",
+      },
+      {
         // Same MTA suffix as the request, but a different brand: must be ignored.
         name: "#3999 Ricaud - 3ceABC - mayesale",
         open_tag: "WRONG",
@@ -102,7 +147,7 @@ describe("suggestTagsFromHistory", () => {
       },
     ]);
     expect(result).toEqual({
-      matches: 2,
+      matches: 3,
       suggestions: {
         openTag: "O5AU",
         clickTag: "C5AU",

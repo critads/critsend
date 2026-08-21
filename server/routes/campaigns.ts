@@ -17,7 +17,7 @@ import { messageQueue } from "../message-queue";
 import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
 import { sanitizeCampaignHtml, generateBase62, mapWithConcurrency } from "../utils";
 import { processHtmlImages, normalizeImageHostingDomain } from "../services/html-image-processor";
-import { extractCampaignBrand, likePattern, suggestTagsFromHistory } from "../services/tag-suggestions";
+import { extractCampaignBrand, likePattern, resolveHistoricalBrand, suggestTagsFromHistory } from "../services/tag-suggestions";
 import { isCampaignNameUnaccentIndexReady } from "../repositories/campaign-repository";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 
@@ -545,8 +545,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const nameExpr = isCampaignNameUnaccentIndexReady() ? "f_unaccent(name)" : "name";
       // LIKE wildcards in tokens are escaped; values are parameterized. The
       // dynamic SQL fragments only interpolate server-generated indexes.
-      const params: any[] = brand.tokens.map(likePattern);
-      const whereAll = brand.tokens.map((_token, i) => `${nameExpr} ILIKE $${i + 1}`).join(" AND ");
+      // Query by the first token only. Text may follow the actual brand before
+      // the first dash ("Kiabi 20-30/08 Critads"), so requiring every request
+      // token here would hide the historical "#... Kiabi - ..." anchor.
+      // Exact prefix resolution below prevents this wider indexed candidate
+      // query from mixing brands that merely share their first word.
+      const params: any[] = [likePattern(brand.tokens[0])];
       let excludeClause = "";
       if (excludeId) {
         params.push(excludeId);
@@ -558,12 +562,16 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const result = await pool.query(
         `SELECT name, open_tag, click_tag, unsubscribe_tag
            FROM campaigns
-          WHERE (${whereAll})${excludeClause}
+          WHERE ${nameExpr} ILIKE $1${excludeClause}
           ORDER BY created_at DESC`,
         params,
       );
-      const suggestion = suggestTagsFromHistory(brand, result.rows);
-      res.json({ brand: brand.label, ...suggestion });
+      const resolvedBrand = resolveHistoricalBrand(brand, result.rows);
+      if (!resolvedBrand) {
+        return res.json({ brand: null, matches: 0, suggestions: null });
+      }
+      const suggestion = suggestTagsFromHistory(resolvedBrand, result.rows);
+      res.json({ brand: resolvedBrand.label, ...suggestion });
     } catch (error) {
       logger.error("Error computing tag suggestions:", error);
       res.status(500).json({ error: "Failed to compute tag suggestions" });

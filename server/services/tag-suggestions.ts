@@ -21,6 +21,8 @@ const TAG_SUGGEST_STOPWORDS = new Set([
   "campagne", "campaign", "relance", "resend", "test", "newsletter", "nl",
   "flash", "black", "friday", "noel", "rentree", "ete", "hiver", "printemps",
   "automne", "semaine", "week", "jour", "day", "top", "new", "copy", "copie",
+  // Internal campaign descriptor, not an advertiser/brand.
+  "critads",
 ]);
 
 export interface CampaignBrand {
@@ -83,12 +85,42 @@ export function likePattern(token: string): string {
 }
 
 /**
- * Exact brand match after the SQL candidate query. This second deterministic
- * check is essential because `%air%` is only an indexed pre-filter; it must not
- * mix "Air France" with "Air Caraibes" or an unrelated word containing "air".
+ * Brand-prefix match after the SQL candidate query. Once a reliable historical
+ * anchor identifies "Air France", this includes descriptive variants such as
+ * "Air France 20-30/08" without mixing "Air Caraibes".
  */
 export function campaignMatchesBrand(name: string, brand: CampaignBrand): boolean {
-  return extractCampaignBrand(name)?.key === brand.key;
+  const candidate = extractCampaignBrand(name);
+  if (!candidate || candidate.tokens.length < brand.tokens.length) return false;
+  return brand.tokens.every((token, index) => candidate.tokens[index] === token);
+}
+
+/**
+ * Resolves the actual brand from the leading tokens after `#<number>`.
+ *
+ * Operators sometimes append dates/descriptors before the first dash:
+ *   #3555 Kiabi 20-30/08 Critads - server2.mayasoldes
+ *
+ * We try leading prefixes from most-specific to least-specific and require an
+ * exact historical brand anchor before accepting one. This lets "Kiabi" match
+ * while preserving multi-word brands such as "Air France" and "Center Parcs".
+ * It also refuses an unsafe fallback to the generic first word "Air" unless an
+ * actual historical campaign brand is exactly "Air".
+ */
+export function resolveHistoricalBrand(
+  requested: CampaignBrand,
+  candidates: Array<Pick<TagSuggestionHistoryRow, "name">>,
+): CampaignBrand | null {
+  const historical = candidates
+    .map((row) => extractCampaignBrand(row.name))
+    .filter((brand): brand is CampaignBrand => brand !== null);
+
+  for (let length = requested.tokens.length; length >= 1; length--) {
+    const key = requested.tokens.slice(0, length).join("\u001f");
+    const anchor = historical.find((brand) => brand.key === key);
+    if (anchor) return anchor;
+  }
+  return null;
 }
 
 /** Most frequent non-empty trimmed value, or null. */
