@@ -5,6 +5,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import {
+  CampaignDeleteTimeoutError,
+  deleteCampaignsWithProgress,
+  type BulkDeleteProgress,
+} from "@/lib/bulk-delete-campaigns";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,6 +76,7 @@ import {
   Square,
   Zap,
   CalendarIcon,
+  Loader2,
 } from "lucide-react";
 import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
 import { CampaignProgress } from "@/components/campaign-progress";
@@ -163,6 +169,7 @@ export default function Campaigns() {
   const [customPopoverOpen, setCustomPopoverOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Campaign | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState<BulkDeleteProgress | null>(null);
   const [endConfirm, setEndConfirm] = useState<CampaignListItem | null>(null);
   const [urgentConfirm, setUrgentConfirm] = useState<CampaignListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -354,23 +361,45 @@ export default function Campaigns() {
   });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: (ids: string[]) => apiRequest("DELETE", "/api/campaigns/bulk", { ids }),
-    onSuccess: (_, ids) => {
+    mutationFn: (ids: string[]) =>
+      deleteCampaignsWithProgress(ids, { onProgress: setBulkDeleteProgress }),
+    onSuccess: (result, ids) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      setSelectedIds(new Set());
+      const failedIds = result.failures.map((failure) => failure.id);
+      setSelectedIds(new Set(failedIds));
       setBulkDeleteConfirm(false);
+
+      if (result.failures.length === 0) {
+        toast({
+          title: `${ids.length} campaign${ids.length > 1 ? "s" : ""} deleted`,
+          description: "The selected campaigns have been removed.",
+        });
+        return;
+      }
+
+      const timedOut = result.failures.filter(
+        (failure) => failure.error instanceof CampaignDeleteTimeoutError,
+      ).length;
+      const firstServerError = result.failures
+        .map((failure) => parseDeleteError(failure.error))
+        .find((parsed) => parsed !== null);
+      const details = [
+        `${result.deletedIds.length} deleted; ${result.failures.length} could not be deleted.`,
+        timedOut > 0
+          ? `${timedOut} exceeded the 45-second safety limit. Refresh the list before retrying because the server may still have completed them.`
+          : null,
+        firstServerError?.message,
+        "Campaigns that still exist remain selected.",
+      ].filter(Boolean).join(" ");
+
       toast({
-        title: `${ids.length} campaign${ids.length > 1 ? "s" : ""} deleted`,
-        description: "The selected campaigns have been removed.",
+        title: "Bulk deletion partially completed",
+        description: details,
+        variant: "destructive",
       });
     },
     onError: (err: Error) => {
-      // Bulk deletes can partially fail: some blocked by a pending follow-up,
-      // some timed out against a busy DB (Task #211). The server returns a
-      // structured message listing exactly what happened — surface it and
-      // refresh the list since some deletes may have succeeded.
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      setSelectedIds(new Set());
       setBulkDeleteConfirm(false);
       const parsed = parseDeleteError(err);
       toast({
@@ -378,6 +407,9 @@ export default function Campaigns() {
         description: parsed?.message ?? "Failed to delete campaigns. Please try again.",
         variant: "destructive",
       });
+    },
+    onSettled: () => {
+      setBulkDeleteProgress(null);
     },
   });
 
@@ -1409,16 +1441,36 @@ export default function Campaigns() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={bulkDeleteConfirm} onOpenChange={() => setBulkDeleteConfirm(false)}>
+      <Dialog
+        open={bulkDeleteConfirm}
+        onOpenChange={(open) => {
+          if (!open && !bulkDeleteMutation.isPending) setBulkDeleteConfirm(false);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete {selectedIds.size} Campaign{selectedIds.size > 1 ? "s" : ""}</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete {selectedIds.size} selected campaign{selectedIds.size > 1 ? "s" : ""}? This will also delete all associated statistics and cannot be undone.
             </DialogDescription>
+            {bulkDeleteMutation.isPending && (
+              <div className="space-y-2 pt-2" data-testid="bulk-delete-progress">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Deleting {bulkDeleteProgress?.completed ?? 0} of {bulkDeleteProgress?.total ?? selectedIds.size} campaigns…
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Large campaigns can take up to 45 seconds each. You can leave this dialog open while deletion continues.
+                </p>
+              </div>
+            )}
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkDeleteConfirm(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setBulkDeleteConfirm(false)}
+              disabled={bulkDeleteMutation.isPending}
+            >
               Cancel
             </Button>
             <Button
@@ -1427,7 +1479,9 @@ export default function Campaigns() {
               disabled={bulkDeleteMutation.isPending}
               data-testid="button-confirm-bulk-delete"
             >
-              {bulkDeleteMutation.isPending ? "Deleting..." : `Delete ${selectedIds.size} Campaign${selectedIds.size > 1 ? "s" : ""}`}
+              {bulkDeleteMutation.isPending
+                ? `Deleting ${bulkDeleteProgress?.completed ?? 0}/${bulkDeleteProgress?.total ?? selectedIds.size}…`
+                : `Delete ${selectedIds.size} Campaign${selectedIds.size > 1 ? "s" : ""}`}
             </Button>
           </DialogFooter>
         </DialogContent>
