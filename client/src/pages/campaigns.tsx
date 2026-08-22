@@ -173,6 +173,9 @@ export default function Campaigns() {
   const [stepResumeLimit, setStepResumeLimit] = useState<string>("");
   const { toast } = useToast();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // The normal list query intentionally uses the server's short cache to
+  // protect the database. A deliberate operator refresh bypasses that cache.
+  const forceNextCampaignsFetchRef = useRef(false);
 
   const PAGE_SIZE = 20;
 
@@ -236,13 +239,14 @@ export default function Campaigns() {
   if (dateBounds.to) queryParams.set("scheduledTo", dateBounds.to);
   const queryString = queryParams.toString();
 
-  const { data: campaignsData, isLoading, isError, error } = useQuery<PaginatedCampaigns>({
+  const { data: campaignsData, isLoading, isFetching, isError, error, refetch: refetchCampaigns } = useQuery<PaginatedCampaigns>({
     queryKey: ["/api/campaigns", { page: currentPage, search: debouncedSearch, originalsOnly, from: dateBounds.from, to: dateBounds.to }],
     // Task #148: route through `apiRequest` so 503 responses surface as
     // `ApiError` with `.status` + parsed `.body` — required for the
     // soft-busy branch in the error UI below to fire reliably.
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/campaigns?${queryString}`);
+      const refresh = forceNextCampaignsFetchRef.current ? "&refresh=true" : "";
+      const res = await apiRequest("GET", `/api/campaigns?${queryString}${refresh}`);
       return res.json();
     },
     placeholderData: keepPreviousData,
@@ -297,6 +301,21 @@ export default function Campaigns() {
       };
     },
   });
+
+  const handleRefreshCampaigns = async () => {
+    forceNextCampaignsFetchRef.current = true;
+    try {
+      await refetchCampaigns({ throwOnError: true });
+    } catch {
+      toast({
+        title: "Refresh failed",
+        description: "Could not reload the campaign list. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      forceNextCampaignsFetchRef.current = false;
+    }
+  };
 
   const campaigns = campaignsData?.campaigns;
   const totalPages = campaignsData?.totalPages ?? 1;
@@ -565,12 +584,24 @@ export default function Campaigns() {
             Create and manage your email campaigns
           </p>
         </div>
-        <Link href="/campaigns/new">
-          <Button data-testid="button-new-campaign">
-            <Plus className="h-4 w-4 mr-2" />
-            New Campaign
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => { void handleRefreshCampaigns(); }}
+            disabled={isFetching}
+            data-testid="button-refresh-campaigns"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
-        </Link>
+          <Link href="/campaigns/new">
+            <Button data-testid="button-new-campaign">
+              <Plus className="h-4 w-4 mr-2" />
+              New Campaign
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <Card>
