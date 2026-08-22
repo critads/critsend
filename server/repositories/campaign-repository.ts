@@ -522,7 +522,10 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
   return createCampaign({
     ...copyData,
     scheduledAt: new Date(),
-    name: `${original.name} (Copy)`,
+    // Keep the operator's original campaign name unchanged. The duplicate is
+    // already identifiable as a distinct draft by its own ID and creation
+    // time; adding "(Copy)" breaks naming conventions used for tag history.
+    name: original.name,
     status: "draft",
     sendingSpeed: original.sendingSpeed as "drip" | "very_slow" | "slow" | "medium" | "fast" | "godzilla",
   });
