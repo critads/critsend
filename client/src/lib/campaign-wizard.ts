@@ -61,6 +61,35 @@ export function findExternalImageSrcs(html: string, ourHosts: Set<string>): stri
   return urls;
 }
 
+/**
+ * Remove only <img src> and <source src> elements whose absolute URL is not
+ * hosted on one of the selected MTA's domains. The original HTML is otherwise
+ * kept byte-for-byte so deleting failed images does not reserialize or rewrite
+ * the email template.
+ */
+export function removeExternalImageElements(
+  html: string,
+  ourHosts: Set<string>,
+): { html: string; removed: number } {
+  if (!html) return { html, removed: 0 };
+
+  let removed = 0;
+  const imageElementPattern = /<(?:img|source)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+  const cleanedHtml = html.replace(imageElementPattern, (element) => {
+    const srcMatch = element.match(
+      /(?:^|\s)src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i,
+    );
+    const src = srcMatch?.[1] ?? srcMatch?.[2] ?? srcMatch?.[3] ?? "";
+    const host = imageSrcHost(src);
+    if (!host || ourHosts.has(host)) return element;
+
+    removed += 1;
+    return "";
+  });
+
+  return { html: cleanedHtml, removed };
+}
+
 export const steps = [
   { id: 1, title: "Basic Info", icon: Mail },
   { id: 2, title: "Audience", icon: Users },

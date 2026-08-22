@@ -41,15 +41,15 @@ import DateTimePicker from "@/components/date-time-picker";
 import { SegmentCombobox } from "@/components/segment-combobox";
 import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
 import { TagSuggestionsButton } from "@/components/campaign-wizard/tag-suggestions";
+import { ExternalImagesAlert } from "@/components/campaign-wizard/external-images-alert";
 import {
   withBaseHref,
   steps,
   normalizeHost,
   findExternalImageSrcs,
   imageSrcHost,
+  removeExternalImageElements,
 } from "@/lib/campaign-wizard";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle } from "lucide-react";
 import {
   useMtaScheduleInsights,
   MtaLowOpenWarning,
@@ -420,6 +420,15 @@ export default function CampaignEdit() {
 
   const updateField = (field: keyof InsertCampaign, value: unknown) => {
     setFormData({ ...formData, [field]: value });
+  };
+
+  const handleRemoveExternalImages = () => {
+    const result = removeExternalImageElements(formData.htmlContent ?? "", ourImageHosts);
+    updateField("htmlContent", result.html);
+    toast({
+      title: "Blocked images removed",
+      description: `${result.removed} image${result.removed === 1 ? "" : "s"} removed from the campaign HTML.`,
+    });
   };
 
   const autoSaveMutation = useMutation({
@@ -824,28 +833,13 @@ export default function CampaignEdit() {
             </div>
             <div className="space-y-2">
               <Label>HTML Content *</Label>
-              {externalImageSrcs.length > 0 && (
-                <Alert variant="destructive" data-testid="alert-external-images">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>External images — blocking</AlertTitle>
-                  <AlertDescription className="space-y-2">
-                    <p>
-                      {externalImageSrcs.length} image{externalImageSrcs.length > 1 ? "s" : ""} use a URL not hosted on the selected MTA's domains. You cannot continue to the next step until they are fixed.
-                    </p>
-                    <ul className="list-disc list-inside text-xs font-mono break-all">
-                      {externalImageHosts.slice(0, 8).map((h) => (
-                        <li key={h} data-testid={`text-external-host-${h}`}>{h}</li>
-                      ))}
-                      {externalImageHosts.length > 8 && (
-                        <li>…and {externalImageHosts.length - 8} more host(s)</li>
-                      )}
-                    </ul>
-                    <p className="text-xs">
-                      Tip: use "Re-process images" to download &amp; host them on the MTA's domain, or fix the URLs.
-                    </p>
-                  </AlertDescription>
-                </Alert>
-              )}
+              <ExternalImagesAlert
+                imageCount={externalImageSrcs.length}
+                hosts={externalImageHosts}
+                tip={'Tip: use "Re-process images" to download and host them on the MTA\'s domain, fix the URLs, or remove the blocked images.'}
+                onRemove={handleRemoveExternalImages}
+                disabled={processingImages}
+              />
               {!htmlLoaded ? (
                 <HtmlDropzone
                   isDragging={isDragging}
