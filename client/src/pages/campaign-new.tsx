@@ -51,6 +51,7 @@ import {
   removeExternalImageElements,
   normalizeForApi,
   buildBrandMessage,
+  updateCampaignNameMtaSuffix,
   type BrandUnsubResult,
 } from "@/lib/campaign-wizard";
 import {
@@ -490,6 +491,7 @@ export default function CampaignNew() {
     setFormData(prev => ({
       ...prev,
       mtaId,
+      name: updateCampaignNameMtaSuffix(prev.name ?? "", selectedMta, mtas ?? []),
       ...(selectedMta?.fromName ? { fromName: selectedMta.fromName } : {}),
       ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail, replyEmail: selectedMta.fromEmail } : {}),
       ...(selectedMta?.unsubscribeText ? { unsubscribeText: selectedMta.unsubscribeText } : {}),

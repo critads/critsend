@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { removeExternalImageElements } from "../client/src/lib/campaign-wizard";
+import {
+  removeExternalImageElements,
+  updateCampaignNameMtaSuffix,
+} from "../client/src/lib/campaign-wizard";
 
 describe("removeExternalImageElements", () => {
   const ourHosts = new Set(["images.mta.example"]);
@@ -44,5 +47,41 @@ describe("removeExternalImageElements", () => {
       html,
       removed: 0,
     });
+  });
+});
+
+describe("updateCampaignNameMtaSuffix", () => {
+  const mtas = [
+    { name: "Mayesale.com", hostname: "mayesale.com" },
+    { name: "Rndaserver.com", hostname: "rndaserver.com" },
+    { name: "Kammaspeed.com", hostname: "kammaspeed.com" },
+  ];
+
+  it("replaces a configured MTA suffix when the selected MTA changes", () => {
+    expect(updateCampaignNameMtaSuffix(
+      "#3124 Ricaud - 3ceR1H - mayesale",
+      mtas[1],
+      mtas,
+    )).toBe("#3124 Ricaud - 3ceR1H - Rndaserver.com");
+  });
+
+  it("recognizes a shortened MTA suffix used in historical campaign names", () => {
+    expect(updateCampaignNameMtaSuffix(
+      "#3130 Comme j'aime - 5cn4YY - kamma",
+      mtas[1],
+      mtas,
+    )).toBe("#3130 Comme j'aime - 5cn4YY - Rndaserver.com");
+  });
+
+  it("appends the selected MTA without overwriting a campaign code", () => {
+    expect(updateCampaignNameMtaSuffix(
+      "#3130 Comme j'aime - 5cn4YY",
+      mtas[2],
+      mtas,
+    )).toBe("#3130 Comme j'aime - 5cn4YY - Kammaspeed.com");
+  });
+
+  it("does not create a name from an empty field", () => {
+    expect(updateCampaignNameMtaSuffix("", mtas[0], mtas)).toBe("");
   });
 });

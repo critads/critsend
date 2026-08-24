@@ -1,5 +1,5 @@
 import { Mail, Users, FileText, Settings, Clock } from "lucide-react";
-import type { InsertCampaign } from "@shared/schema";
+import type { InsertCampaign, Mta } from "@shared/schema";
 
 /** Inject a <base href> into preview HTML so relative image URLs (/campaigns/...)
  *  resolve against the current server instead of about:srcdoc. */
@@ -88,6 +88,66 @@ export function removeExternalImageElements(
   });
 
   return { html: cleanedHtml, removed };
+}
+
+type MtaNameSource = Pick<Mta, "name" | "hostname">;
+
+function normalizedMtaName(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Returns the likely labels an operator may have used for an MTA in a campaign
+ * name. In addition to the configured display name, this recognizes the first
+ * hostname portion, so "mayesale" matches the configured "Mayesale.com".
+ */
+function mtaNameAliases(mta: MtaNameSource): string[] {
+  const rawNames = [mta.name, mta.hostname].filter(
+    (value): value is string => Boolean(value?.trim()),
+  );
+  return [...new Set(rawNames.flatMap((value) => {
+    const trimmed = value.trim();
+    return [trimmed, trimmed.split(".")[0]];
+  }).map(normalizedMtaName).filter((value) => value.length >= 4))];
+}
+
+function isKnownMtaSuffix(value: string, mtas: MtaNameSource[]): boolean {
+  const normalized = normalizedMtaName(value);
+  if (normalized.length < 4) return false;
+
+  return mtas.some((mta) => mtaNameAliases(mta).some((alias) => (
+    alias === normalized
+    || alias.startsWith(normalized)
+    || normalized.startsWith(alias)
+  )));
+}
+
+/**
+ * Keeps the MTA suffix in a campaign name in sync with the selected MTA.
+ *
+ * Campaigns are conventionally named "#123 Brand - campaign code - MTA".
+ * We only replace a final section when it looks like one of the configured
+ * MTAs, which preserves ordinary campaign codes such as "#123 Brand - ABC42".
+ * If no MTA suffix exists yet, the selected MTA is appended.
+ */
+export function updateCampaignNameMtaSuffix(
+  campaignName: string,
+  selectedMta: MtaNameSource | undefined,
+  mtas: MtaNameSource[],
+): string {
+  const nextMtaName = selectedMta?.name.trim();
+  if (!campaignName.trim() || !nextMtaName) return campaignName;
+
+  const trailingSection = /^(.*)(\s+(?:-|–|—|\|)\s+)([^–—|]+?)\s*$/.exec(campaignName);
+  if (trailingSection && isKnownMtaSuffix(trailingSection[3], mtas)) {
+    return `${trailingSection[1]}${trailingSection[2]}${nextMtaName}`;
+  }
+
+  return `${campaignName.trimEnd()} - ${nextMtaName}`;
 }
 
 export const steps = [
