@@ -102,6 +102,15 @@ export interface IStorage {
     scheduledFrom?: Date;
     scheduledTo?: Date;
   }): Promise<{ campaigns: CampaignListItem[]; total: number }>;
+  getRecentLowOpenCampaignAlerts(): Promise<Array<{
+    id: string;
+    name: string;
+    mtaName: string;
+    startedAt: Date;
+    sentCount: number;
+    uniqueOpens: number;
+    openRate: number;
+  }>>;
   getCampaign(id: string): Promise<Campaign | undefined>;
   getCampaignStatus(id: string): Promise<string | null>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;

@@ -47,6 +47,61 @@ export async function getCampaigns(): Promise<Campaign[]> {
   return db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
 }
 
+export type LowOpenCampaignAlert = {
+  id: string;
+  name: string;
+  mtaName: string;
+  startedAt: Date;
+  sentCount: number;
+  uniqueOpens: number;
+  openRate: number;
+};
+
+/**
+ * Recent campaigns that have had enough time to collect opens, but are still
+ * within the operator's immediate-response window. Cached counters are used
+ * deliberately: they are maintained by the tracking flusher/reconciler and
+ * avoid scanning the large campaign_sends and campaign_stats tables on every
+ * Campaigns page load.
+ */
+export async function getRecentLowOpenCampaignAlerts(): Promise<LowOpenCampaignAlert[]> {
+  const result = await db.execute<{
+    id: string;
+    name: string;
+    mta_name: string | null;
+    started_at: Date | string;
+    sent_count: number | string;
+    unique_opens_count: number | string;
+    open_rate: number | string;
+  }>(sql`
+    SELECT
+      c.id,
+      c.name,
+      m.name AS mta_name,
+      c.first_send_at AS started_at,
+      c.sent_count,
+      c.unique_opens_count,
+      (c.unique_opens_count::numeric * 100 / c.sent_count)::float AS open_rate
+    FROM campaigns c
+    LEFT JOIN mtas m ON m.id = c.mta_id
+    WHERE c.first_send_at >= NOW() - INTERVAL '48 hours'
+      AND c.first_send_at < NOW() - INTERVAL '12 hours'
+      AND c.sent_count > 0
+      AND (c.unique_opens_count::numeric * 100 / c.sent_count) < 10
+    ORDER BY open_rate ASC, c.first_send_at ASC
+  `);
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    mtaName: row.mta_name ?? "Unknown MTA",
+    startedAt: new Date(row.started_at),
+    sentCount: Number(row.sent_count),
+    uniqueOpens: Number(row.unique_opens_count),
+    openRate: Number(row.open_rate),
+  }));
+}
+
 export async function getCampaignsPaginated(opts: {
   page: number;
   limit: number;
@@ -312,6 +367,65 @@ export async function ensureCampaignsScheduledAtIndex(): Promise<LockResult | "e
   return result;
 }
 
+/**
+ * Supports the bounded low-open campaign alert query. The partial predicate
+ * excludes drafts and campaigns that never delivered anything, keeping this
+ * index small even when the campaign table grows.
+ */
+export async function ensureCampaignsFirstSendAtIndex(): Promise<LockResult | "exists" | "not_ready"> {
+  const columnExists = await pool.query<{ exists: boolean }>(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'campaigns'
+        AND column_name = 'first_send_at'
+    ) AS exists
+  `);
+  if (!columnExists.rows[0]?.exists) {
+    logger.warn("[INDEX] campaigns.first_send_at is not ready — skipping low-open alert index for this boot");
+    return "not_ready";
+  }
+  if (await indexExistsAndValid("campaigns_first_send_at_idx")) {
+    logger.info("[INDEX] campaigns_first_send_at_idx already exists — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGNS_FIRST_SEND_AT,
+    "CAMPAIGNS_FIRST_SEND_AT",
+    async (_lockClient) => {
+      const invalidIndex = await pool.query<{ invalid: boolean }>(`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_index
+          WHERE indexrelid = to_regclass('campaigns_first_send_at_idx')
+            AND indisvalid = false
+        ) AS invalid
+      `);
+      if (invalidIndex.rows[0]?.invalid) {
+        // This new index is never used while INVALID, so replacing it cannot
+        // regress current query plans. This repairs an interrupted first
+        // deployment before retrying the concurrent build.
+        logger.warn("[INDEX] campaigns_first_send_at_idx is invalid — rebuilding");
+        await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS campaigns_first_send_at_idx`);
+      }
+      await pool.query(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaigns_first_send_at_idx
+         ON campaigns (first_send_at)
+         WHERE first_send_at IS NOT NULL AND sent_count > 0`,
+      );
+    },
+  );
+  if (result === "ran") {
+    logger.info("[INDEX] campaigns_first_send_at_idx created successfully");
+  } else if (result === "skipped") {
+    logger.info("[INDEX] campaigns_first_send_at_idx creation skipped — another process is handling it");
+  } else {
+    logger.warn("[INDEX] campaigns_first_send_at_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
 export async function ensureCampaignNameTrigramIndex(): Promise<LockResult | "exists"> {
   if (await indexExistsAndValid("campaign_name_trgm_idx")) {
     logger.info("[TRIGRAM] campaign_name_trgm_idx already exists — skipping");
@@ -496,6 +610,8 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     createdAt,
     startedAt,
     completedAt,
+    firstSendAt: _fsa,
+    lastSendAt: _lsa,
     sentCount,
     pendingCount,
     failedCount,
@@ -894,6 +1010,7 @@ export async function finalizeSend(campaignId: string, subscriberId: string, suc
         sent_count = CASE WHEN ${success} THEN sent_count + 1 ELSE sent_count END,
         failed_count = CASE WHEN NOT ${success} THEN failed_count + 1 ELSE failed_count END,
         pending_count = GREATEST(pending_count - 1, 0),
+        first_send_at = CASE WHEN ${success} THEN COALESCE(first_send_at, NOW()) ELSE first_send_at END,
         last_send_at = CASE WHEN ${success} THEN NOW() ELSE last_send_at END
       WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM updated_send) > 0
       RETURNING id
@@ -1154,6 +1271,7 @@ export async function bulkFinalizeSends(
         sent_count = sent_count + ${sentCount},
         failed_count = failed_count + ${failCount},
         pending_count = GREATEST(pending_count - ${totalProcessed}, 0),
+        first_send_at = CASE WHEN ${sentCount} > 0 THEN COALESCE(first_send_at, NOW()) ELSE first_send_at END,
         last_send_at = CASE WHEN ${sentCount} > 0 THEN NOW() ELSE last_send_at END
       WHERE id = ${campaignId}
     `);

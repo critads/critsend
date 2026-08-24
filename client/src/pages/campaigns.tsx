@@ -6,6 +6,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
+  isLowOpenCampaignAlertVisible,
+  type LowOpenCampaignAlertSummary,
+} from "@/lib/low-open-campaign-alert";
+import {
   CampaignDeleteTimeoutError,
   deleteCampaignsWithProgress,
   type BulkDeleteProgress,
@@ -14,6 +18,7 @@ import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -178,6 +183,7 @@ export default function Campaigns() {
   // that was auto-paused at a step limit.
   const [stepResumeDialog, setStepResumeDialog] = useState<CampaignListItem | null>(null);
   const [stepResumeLimit, setStepResumeLimit] = useState<string>("");
+  const [lowOpenAlertDismissed, setLowOpenAlertDismissed] = useState(false);
   const { toast } = useToast();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   // The normal list query intentionally uses the server's short cache to
@@ -327,6 +333,18 @@ export default function Campaigns() {
   const campaigns = campaignsData?.campaigns;
   const totalPages = campaignsData?.totalPages ?? 1;
   const totalCampaigns = campaignsData?.total ?? 0;
+
+  const { data: lowOpenAlertData } = useQuery<{ campaigns: LowOpenCampaignAlertSummary[] }>({
+    queryKey: ["/api/campaigns/low-open-alerts"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/campaigns/low-open-alerts");
+      return res.json();
+    },
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+  const lowOpenCampaigns = lowOpenAlertData?.campaigns ?? [];
 
   const { data: segments } = useQuery<Segment[]>({
     queryKey: ["/api/segments"],
@@ -635,6 +653,37 @@ export default function Campaigns() {
           </Link>
         </div>
       </div>
+
+      {isLowOpenCampaignAlertVisible(lowOpenCampaigns, lowOpenAlertDismissed) && (
+        <Alert variant="destructive" className="pr-12" data-testid="alert-low-open-campaigns">
+          <ShieldAlert className="h-4 w-4" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 h-7 w-7 text-current hover:bg-destructive/10 hover:text-current"
+            onClick={() => setLowOpenAlertDismissed(true)}
+            aria-label="Dismiss low open rate alert"
+            data-testid="button-dismiss-low-open-campaigns"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+          <AlertTitle>Low open rate detected</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>
+              These campaigns started sending 12–48 hours ago and are currently below a 10% open rate:
+            </p>
+            <ul className="list-disc space-y-1 pl-5">
+              {lowOpenCampaigns.map((campaign) => (
+                <li key={campaign.id} data-testid={`text-low-open-campaign-${campaign.id}`}>
+                  <span className="font-medium">{campaign.name}</span>
+                  {" "}via {campaign.mtaName} — {campaign.openRate.toFixed(1)}% open rate
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">

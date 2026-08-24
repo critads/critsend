@@ -156,6 +156,10 @@ export const campaigns = pgTable("campaigns", {
   // N minutes" signal, never as authoritative analytics. Bootstrap
   // migration is in server/index.ts.
   lastSendAt: timestamp("last_send_at"),
+  // First successful send for this campaign. Unlike started_at, this is never
+  // reset on an auto-resume/restart, so it is safe for time-since-first-send
+  // operational checks such as the low-open-rate alert.
+  firstSendAt: timestamp("first_send_at"),
   autoRetryCount: integer("auto_retry_count").notNull().default(0),
   // Cached engagement counters — maintained by the tracking-buffer flush
   // transaction (live increments) and re-derived by the counter-drift
@@ -293,6 +297,9 @@ export const campaigns = pgTable("campaigns", {
   followUpScheduleIdx: index("campaigns_follow_up_schedule_idx")
     .on(table.followUpScheduledAt)
     .where(sql`follow_up_enabled = true AND follow_up_campaign_id IS NULL AND follow_up_scheduled_at IS NOT NULL`),
+  firstSendAtIdx: index("campaigns_first_send_at_idx")
+    .on(table.firstSendAt)
+    .where(sql`first_send_at IS NOT NULL AND sent_count > 0`),
 }));
 
 export const campaignsRelations = relations(campaigns, ({ one, many }) => ({

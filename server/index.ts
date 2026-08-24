@@ -843,9 +843,17 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   // eligible_at columns + partial index + audit table. Idempotent + advisory-
   // locked so the worker process can also call it safely.
   const { runPressureGuardBootstrap } = await import("./services/pressure-guard");
-  runPressureGuardBootstrap().catch((err) => {
-    logger.error(`[BOOTSTRAP] Pressure-guard bootstrap failed (non-fatal): ${err?.message || err}`);
-  });
+  runPressureGuardBootstrap()
+    .then(async () => {
+      // first_send_at is provisioned by the pressure-guard essential schema.
+      // Sequence its index after that DDL so a first deployment cannot race
+      // index creation against the new column.
+      const { ensureCampaignsFirstSendAtIndex } = await import("./repositories/campaign-repository");
+      await ensureCampaignsFirstSendAtIndex();
+    })
+    .catch((err) => {
+      logger.error(`[BOOTSTRAP] Pressure-guard bootstrap failed (non-fatal): ${err?.message || err}`);
+    });
 
   const { runAnalyticsBootstrapMigrations } = await import("./repositories/analytics-ops");
   runAnalyticsBootstrapMigrations();

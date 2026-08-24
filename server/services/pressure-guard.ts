@@ -233,6 +233,10 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
     // ghost-sweep call. Maintained live by bulkFinalizeSends /
     // finalizeSend in campaign-repository.ts.
     { label: "campaigns.last_send_at", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS last_send_at timestamp` },
+    // Immutable first-delivery timestamp for operational checks. Campaign
+    // started_at is intentionally rewritten when a campaign resumes, so it
+    // cannot answer "when did this campaign first actually send?".
+    { label: "campaigns.first_send_at", sql: `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS first_send_at timestamp` },
     // R3: tiny single-row state table so cluster-wide once/day
     // maintenance is idempotent across multiple worker processes.
     { label: "pressure_maintenance_state", sql: `
@@ -356,6 +360,39 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
       // authoritative gate.
       logger.error(`[PRESSURE_GUARD] essential DDL failed (${label}): ${err?.message || err}`);
     }
+  }
+
+  // One-time-compatible backfill for campaigns that delivered recently before
+  // first_send_at was introduced. The campaign filter keeps this bounded, and
+  // the existing campaign_sends(campaign_id, ...) access path means PostgreSQL
+  // only visits send rows for recent candidates. MIN intentionally looks at
+  // the full history of each candidate so an old campaign resumed recently is
+  // not misclassified as newly started.
+  try {
+    await pool.query(`
+      WITH recent_candidates AS (
+        SELECT id
+        FROM campaigns
+        WHERE first_send_at IS NULL
+          AND sent_count > 0
+          AND COALESCE(last_send_at, started_at) >= NOW() - INTERVAL '48 hours'
+      ),
+      first_deliveries AS (
+        SELECT rc.id, MIN(cs.sent_at) AS first_send_at
+        FROM recent_candidates rc
+        JOIN campaign_sends cs
+          ON cs.campaign_id = rc.id
+         AND cs.status = 'sent'
+        GROUP BY rc.id
+      )
+      UPDATE campaigns c
+      SET first_send_at = fd.first_send_at
+      FROM first_deliveries fd
+      WHERE c.id = fd.id
+        AND c.first_send_at IS NULL
+    `);
+  } catch (err: any) {
+    logger.error(`[PRESSURE_GUARD] first_send_at backfill failed: ${err?.message || err}`);
   }
 }
 

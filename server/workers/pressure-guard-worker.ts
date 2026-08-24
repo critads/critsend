@@ -1518,7 +1518,9 @@ export async function drainCampaign(campaignId: string): Promise<void> {
         sent_count = sent_count + ${successIds.length},
         failed_count = failed_count + ${failedIds.length + (guardOn ? ambiguousIds.length : 0)},
         pending_count = GREATEST(pending_count - ${successIds.length + failedIds.length + (guardOn ? ambiguousIds.length : 0)}, 0),
-        aged_forced_count = aged_forced_count + ${agedDelivered}
+        aged_forced_count = aged_forced_count + ${agedDelivered},
+        first_send_at = CASE WHEN ${successIds.length} > 0 THEN COALESCE(first_send_at, NOW()) ELSE first_send_at END,
+        last_send_at = CASE WHEN ${successIds.length} > 0 THEN NOW() ELSE last_send_at END
       WHERE id = ${campaignId}
     `);
   });

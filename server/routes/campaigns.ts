@@ -453,6 +453,48 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
 
+  type LowOpenAlertPayload = { campaigns: Awaited<ReturnType<typeof storage.getRecentLowOpenCampaignAlerts>> };
+  const LOW_OPEN_ALERT_CACHE_TTL_MS = 60_000;
+  let lowOpenAlertCache: { ts: number; data: LowOpenAlertPayload } | null = null;
+  let lowOpenAlertInflight: Promise<LowOpenAlertPayload> | null = null;
+
+  app.get("/api/campaigns/low-open-alerts", async (req: Request, res: Response) => {
+    try {
+      const now = Date.now();
+      if (lowOpenAlertCache && now - lowOpenAlertCache.ts < LOW_OPEN_ALERT_CACHE_TTL_MS) {
+        return res.json(lowOpenAlertCache.data);
+      }
+      if (!lowOpenAlertInflight) {
+        lowOpenAlertInflight = storage.getRecentLowOpenCampaignAlerts()
+          .then((campaigns) => {
+            const data = { campaigns };
+            lowOpenAlertCache = { ts: Date.now(), data };
+            return data;
+          })
+          .finally(() => {
+            lowOpenAlertInflight = null;
+          });
+      }
+      res.json(await lowOpenAlertInflight);
+    } catch (error) {
+      const classified = classifyDbError(error);
+      if (classified.transient) {
+        emitServiceBusy(req, res, {
+          source: "handler_transient",
+          kind: classified.kind,
+          code: classified.code,
+          errorMessage: classified.message,
+        });
+        return;
+      }
+      logger.error("Error fetching low-open campaign alerts:", error);
+      res.status(500).json({
+        error: "internal_error",
+        message: "Failed to fetch low-open campaign alerts",
+      });
+    }
+  });
+
   // Phase-1 perf fix (audit 2026-05-26): 5s in-memory cache. /api/campaigns/stats
   // is polled in parallel with /api/campaigns on every page render, but it
   // scans ALL rows in `campaigns` to build the global stats map. The data
