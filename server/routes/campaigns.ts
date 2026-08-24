@@ -17,7 +17,13 @@ import { messageQueue } from "../message-queue";
 import { withAdvisoryLock, LOCK_KEYS } from "../bootstrap-lock";
 import { sanitizeCampaignHtml, generateBase62, mapWithConcurrency } from "../utils";
 import { processHtmlImages, normalizeImageHostingDomain } from "../services/html-image-processor";
-import { extractCampaignBrand, likePattern, resolveHistoricalBrand, suggestTagsFromHistory } from "../services/tag-suggestions";
+import {
+  extractCampaignBrand,
+  likePattern,
+  resolveHistoricalBrand,
+  suggestSegmentsFromRecentHistory,
+  suggestTagsFromHistory,
+} from "../services/tag-suggestions";
 import { isCampaignNameUnaccentIndexReady } from "../repositories/campaign-repository";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 
@@ -617,6 +623,49 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error computing tag suggestions:", error);
       res.status(500).json({ error: "Failed to compute tag suggestions" });
+    }
+  });
+
+  // Segment suggestions use the same strict brand resolver as tag suggestions,
+  // then rank the segments used by only the ten most recently sent campaigns.
+  // The client presents these as optional buttons; this route never selects a
+  // segment or changes a campaign on its own.
+  app.get("/api/campaigns/segment-suggestions", async (req: Request, res: Response) => {
+    try {
+      const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
+      if (!name) {
+        return res.status(400).json({ error: "name query parameter required" });
+      }
+      const requestedBrand = extractCampaignBrand(name);
+      if (!requestedBrand) {
+        return res.json({ brand: null, campaignsConsidered: 0, suggestions: [] });
+      }
+
+      const excludeId = typeof req.query.excludeId === "string" ? req.query.excludeId : null;
+      const candidates = await storage.getSegmentPerformanceHistoryCandidates(
+        likePattern(requestedBrand.tokens[0]),
+        excludeId,
+      );
+      const resolvedBrand = resolveHistoricalBrand(requestedBrand, candidates);
+      if (!resolvedBrand) {
+        return res.json({ brand: null, campaignsConsidered: 0, suggestions: [] });
+      }
+
+      const result = suggestSegmentsFromRecentHistory(resolvedBrand, candidates);
+      res.json({ brand: resolvedBrand.label, ...result });
+    } catch (error) {
+      const classified = classifyDbError(error);
+      if (classified.transient) {
+        emitServiceBusy(req, res, {
+          source: "handler_transient",
+          kind: classified.kind,
+          code: classified.code,
+          errorMessage: classified.message,
+        });
+        return;
+      }
+      logger.error("Error computing segment suggestions:", error);
+      res.status(500).json({ error: "Failed to compute segment suggestions" });
     }
   });
 

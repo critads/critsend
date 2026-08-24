@@ -41,6 +41,7 @@ import DateTimePicker from "@/components/date-time-picker";
 import { SegmentCombobox } from "@/components/segment-combobox";
 import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
 import { TagSuggestionsButton } from "@/components/campaign-wizard/tag-suggestions";
+import { SegmentSuggestions } from "@/components/campaign-wizard/segment-suggestions";
 import { ExternalImagesAlert } from "@/components/campaign-wizard/external-images-alert";
 import {
   withBaseHref,
@@ -504,6 +505,16 @@ export default function CampaignNew() {
       case 1:
         return (
           <div className="space-y-6">
+            <SegmentSuggestions
+              campaignName={formData.name}
+              excludeId={campaignId}
+              onSelect={(segmentId) => {
+                updateField("segmentId", segmentId);
+                if (formData.excludeSegmentId === segmentId) {
+                  updateField("excludeSegmentId", "");
+                }
+              }}
+            />
             <div className="space-y-2">
               <Label htmlFor="campaign-name">Campaign Name *</Label>
               <Input

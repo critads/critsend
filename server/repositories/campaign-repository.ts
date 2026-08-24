@@ -102,6 +102,68 @@ export async function getRecentLowOpenCampaignAlerts(): Promise<LowOpenCampaignA
   }));
 }
 
+export type SegmentPerformanceHistoryCandidate = {
+  campaignId: string;
+  name: string;
+  segmentId: string;
+  segmentName: string;
+  totalClicks: number;
+  firstSentAt: Date;
+};
+
+/**
+ * Fetches the small set of fields needed to rank segments for campaigns whose
+ * names could match a requested brand. The name predicate is only a
+ * trigram-indexed prefilter; exact brand validation happens in the pure
+ * suggestion service before any recent-history limit is applied.
+ */
+export async function getSegmentPerformanceHistoryCandidates(
+  firstTokenPattern: string,
+  excludeId?: string | null,
+): Promise<SegmentPerformanceHistoryCandidate[]> {
+  const nameExpr = isCampaignNameUnaccentIndexReady() ? "f_unaccent(c.name)" : "c.name";
+  const params: unknown[] = [firstTokenPattern];
+  let excludeClause = "";
+  if (excludeId) {
+    params.push(excludeId);
+    excludeClause = ` AND c.id != $${params.length}`;
+  }
+
+  const result = await pool.query<{
+    campaign_id: string;
+    name: string;
+    segment_id: string;
+    segment_name: string;
+    total_clicks_count: number | string | null;
+    first_send_at: Date | string;
+  }>(
+    `SELECT
+       c.id AS campaign_id,
+       c.name,
+       c.segment_id,
+       s.name AS segment_name,
+       c.total_clicks_count,
+       c.first_send_at
+     FROM campaigns c
+     INNER JOIN segments s ON s.id = c.segment_id
+     WHERE ${nameExpr} ILIKE $1
+       AND c.status IN ('completed', 'sent')
+       AND c.first_send_at IS NOT NULL
+       AND c.sent_count > 0${excludeClause}
+     ORDER BY c.first_send_at DESC, c.id ASC`,
+    params,
+  );
+
+  return result.rows.map((row) => ({
+    campaignId: row.campaign_id,
+    name: row.name,
+    segmentId: row.segment_id,
+    segmentName: row.segment_name,
+    totalClicks: Number(row.total_clicks_count) || 0,
+    firstSentAt: new Date(row.first_send_at),
+  }));
+}
+
 export async function getCampaignsPaginated(opts: {
   page: number;
   limit: number;

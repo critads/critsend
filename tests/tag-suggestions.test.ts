@@ -6,6 +6,7 @@ import {
   likePattern,
   modeOfTags,
   resolveHistoricalBrand,
+  suggestSegmentsFromRecentHistory,
   suggestTagsFromHistory,
 } from "../server/services/tag-suggestions";
 
@@ -182,5 +183,52 @@ describe("suggestTagsFromHistory", () => {
       click_tag: "C5AU",
       unsubscribe_tag: "U5AU",
     }])).toEqual({ matches: 0, suggestions: null });
+  });
+});
+
+describe("suggestSegmentsFromRecentHistory", () => {
+  const brand = extractCampaignBrand("#5000 Air France - fresh-code - kamma")!;
+  const row = (
+    campaignId: string,
+    name: string,
+    segmentId: string,
+    segmentName: string,
+    totalClicks: number,
+    firstSentAt: string,
+  ) => ({ campaignId, name, segmentId, segmentName, totalClicks, firstSentAt });
+
+  it("isolates exact brands, takes the latest ten, and sums total clicks by segment", () => {
+    const recentAirFrance = Array.from({ length: 11 }, (_, index) =>
+      row(
+        `fr-${index}`,
+        `#${4900 - index} Air France - code${index} - mta`,
+        index < 2 ? "vip" : "general",
+        index < 2 ? "VIP" : "General",
+        index === 0 ? 80 : 10,
+        `2026-08-${String(20 - index).padStart(2, "0")}T10:00:00.000Z`,
+      ));
+    const result = suggestSegmentsFromRecentHistory(brand, [
+      ...recentAirFrance,
+      row("caribes", "#4880 Air Caraibes - code - mta", "wrong", "Wrong", 9_999, "2026-08-24T10:00:00.000Z"),
+    ]);
+
+    expect(result.campaignsConsidered).toBe(10);
+    expect(result.suggestions).toEqual([
+      { segmentId: "vip", segmentName: "VIP", totalClicks: 90, campaignCount: 2 },
+      { segmentId: "general", segmentName: "General", totalClicks: 80, campaignCount: 8 },
+    ]);
+  });
+
+  it("keeps zero-click campaigns and uses deterministic ties", () => {
+    const result = suggestSegmentsFromRecentHistory(brand, [
+      row("a", "#4900 Air France - code - mta", "z", "Zulu", 0, "2026-08-23T10:00:00.000Z"),
+      row("b", "#4899 Air France - code - mta", "a", "Alpha", 0, "2026-08-22T10:00:00.000Z"),
+      row("c", "#4898 Air France - code - mta", "m", "Middle", 1, "2026-08-21T10:00:00.000Z"),
+    ]);
+    expect(result.suggestions).toEqual([
+      { segmentId: "m", segmentName: "Middle", totalClicks: 1, campaignCount: 1 },
+      { segmentId: "a", segmentName: "Alpha", totalClicks: 0, campaignCount: 1 },
+      { segmentId: "z", segmentName: "Zulu", totalClicks: 0, campaignCount: 1 },
+    ]);
   });
 });

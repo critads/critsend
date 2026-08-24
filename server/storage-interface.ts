@@ -111,6 +111,14 @@ export interface IStorage {
     uniqueOpens: number;
     openRate: number;
   }>>;
+  getSegmentPerformanceHistoryCandidates(firstTokenPattern: string, excludeId?: string | null): Promise<Array<{
+    campaignId: string;
+    name: string;
+    segmentId: string;
+    segmentName: string;
+    totalClicks: number;
+    firstSentAt: Date;
+  }>>;
   getCampaign(id: string): Promise<Campaign | undefined>;
   getCampaignStatus(id: string): Promise<string | null>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;

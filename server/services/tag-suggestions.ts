@@ -168,3 +168,69 @@ export function suggestTagsFromHistory(
     },
   };
 }
+
+export type SegmentPerformanceCandidate = {
+  campaignId: string;
+  name: string;
+  segmentId: string;
+  segmentName: string;
+  totalClicks: number;
+  firstSentAt: Date | string;
+};
+
+export type SegmentPerformanceSuggestion = {
+  segmentId: string;
+  segmentName: string;
+  totalClicks: number;
+  campaignCount: number;
+};
+
+/**
+ * Ranks segments using cached total-click counters from the ten most recently
+ * sent campaigns for one exact brand. Candidates may share a first token (for
+ * example "Air France" and "Air Caraïbes"), so the existing strict brand
+ * matcher remains the authority before the recent-history window is applied.
+ */
+export function suggestSegmentsFromRecentHistory(
+  brand: CampaignBrand,
+  candidates: SegmentPerformanceCandidate[],
+  historyLimit = 10,
+  suggestionLimit = 3,
+): {
+  campaignsConsidered: number;
+  suggestions: SegmentPerformanceSuggestion[];
+} {
+  const matching = candidates
+    .filter((row) => campaignMatchesBrand(row.name, brand))
+    .sort((a, b) => {
+      const byFirstSend = new Date(b.firstSentAt).getTime() - new Date(a.firstSentAt).getTime();
+      return byFirstSend || a.campaignId.localeCompare(b.campaignId);
+    })
+    .slice(0, historyLimit);
+
+  const totals = new Map<string, SegmentPerformanceSuggestion>();
+  for (const row of matching) {
+    const existing = totals.get(row.segmentId);
+    if (existing) {
+      existing.totalClicks += Number(row.totalClicks) || 0;
+      existing.campaignCount += 1;
+      continue;
+    }
+    totals.set(row.segmentId, {
+      segmentId: row.segmentId,
+      segmentName: row.segmentName,
+      totalClicks: Number(row.totalClicks) || 0,
+      campaignCount: 1,
+    });
+  }
+
+  const suggestions = [...totals.values()]
+    .sort((a, b) =>
+      b.totalClicks - a.totalClicks ||
+      b.campaignCount - a.campaignCount ||
+      a.segmentName.localeCompare(b.segmentName) ||
+      a.segmentId.localeCompare(b.segmentId))
+    .slice(0, suggestionLimit);
+
+  return { campaignsConsidered: matching.length, suggestions };
+}
