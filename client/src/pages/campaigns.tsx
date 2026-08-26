@@ -7,6 +7,8 @@ import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
   isLowOpenCampaignAlertVisible,
+  persistLowOpenCampaignAlertDismissed,
+  readLowOpenCampaignAlertDismissed,
   type LowOpenCampaignAlertSummary,
 } from "@/lib/low-open-campaign-alert";
 import {
@@ -183,7 +185,9 @@ export default function Campaigns() {
   // that was auto-paused at a step limit.
   const [stepResumeDialog, setStepResumeDialog] = useState<CampaignListItem | null>(null);
   const [stepResumeLimit, setStepResumeLimit] = useState<string>("");
-  const [lowOpenAlertDismissed, setLowOpenAlertDismissed] = useState(false);
+  const [lowOpenAlertDismissed, setLowOpenAlertDismissed] = useState(
+    readLowOpenCampaignAlertDismissed,
+  );
   const { toast } = useToast();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   // The normal list query intentionally uses the server's short cache to
@@ -662,7 +666,10 @@ export default function Campaigns() {
             variant="ghost"
             size="icon"
             className="absolute right-2 top-2 h-7 w-7 text-current hover:bg-destructive/10 hover:text-current"
-            onClick={() => setLowOpenAlertDismissed(true)}
+            onClick={() => {
+              setLowOpenAlertDismissed(true);
+              persistLowOpenCampaignAlertDismissed();
+            }}
             aria-label="Dismiss low open rate alert"
             data-testid="button-dismiss-low-open-campaigns"
           >
