@@ -336,6 +336,9 @@ export const campaignStats = pgTable("campaign_stats", {
   botOpenSubscriberIdx: index("campaign_stats_bot_open_subscriber_idx")
     .on(table.subscriberId)
     .where(sql`ip_address = '195.154.17.225' AND type IN ('open', 'complaint')`),
+  unsubscribeSubscriberCampaignIdx: index("campaign_stats_unsubscribe_subscriber_campaign_idx")
+    .on(table.subscriberId, table.campaignId)
+    .where(sql`type = 'unsubscribe'`),
 }));
 
 export const campaignStatsRelations = relations(campaignStats, ({ one }) => ({
@@ -966,10 +969,21 @@ export const segmentConditionSchema = z.object({
     "has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains",
     "before", "after", "between", "in_last_days", "not_in_last_days",
     "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker",
-    "not_opened_from_bot_ip",
+    "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns",
   ]),
   value: z.union([z.string(), z.array(z.string()), z.null()]),
   value2: z.string().nullable().default(null),
+}).superRefine((condition, ctx) => {
+  if (
+    condition.operator === "unsubscribed_from_fewer_campaigns" &&
+    (typeof condition.value !== "string" || !/^[1-9]\d*$/.test(condition.value.trim()))
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["value"],
+      message: "Campaign count must be a positive whole number",
+    });
+  }
 });
 
 export type SegmentCondition = z.output<typeof segmentConditionSchema>;
@@ -1001,7 +1015,7 @@ export const fieldOperatorsV2 = {
   refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
-  engagement: ["engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip"],
+  engagement: ["engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns"],
 } as const;
 
 export const operatorLabelsV2: Record<string, string> = {
@@ -1035,6 +1049,7 @@ export const operatorLabelsV2: Record<string, string> = {
   top_active_clicker: "Top active clicker — clicked >3 campaigns in last 60 days",
   ultra_active_clicker: "Ultra active clicker — clicked >5 campaigns in last 60 days",
   not_opened_from_bot_ip: "never opened from IP 195.154.17.225",
+  unsubscribed_from_fewer_campaigns: "unsubscribed from fewer than X campaigns",
 };
 
 export const segmentRulesInputSchema = z.union([

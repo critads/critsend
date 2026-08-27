@@ -32,6 +32,19 @@ function rulesFor(operator: string): SegmentRulesV2 {
   };
 }
 
+function rulesForValue(operator: string, value: string): SegmentRulesV2 {
+  return {
+    version: 2,
+    root: {
+      type: "group",
+      combinator: "AND",
+      children: [
+        { type: "condition", field: "engagement", operator, value, value2: null } as any,
+      ],
+    },
+  };
+}
+
 function renderSql(rules: SegmentRulesV2): string {
   return dialect.sqlToQuery(compileSegmentRules(rules)).sql;
 }
@@ -125,5 +138,49 @@ describe("Task #214 — engagement recency compiler", () => {
     expect(s).toContain("type IN ('open', 'complaint')");
     expect(s).not.toContain("FALSE");
     expect(params).not.toContain(EXCLUDED_BOT_OPEN_IP);
+  });
+
+  it("exposes and validates the unsubscribe campaign-count condition", () => {
+    expect(fieldOperatorsV2.engagement).toContain("unsubscribed_from_fewer_campaigns");
+    expect(operatorLabelsV2.unsubscribed_from_fewer_campaigns).toContain("fewer than");
+
+    for (const value of ["1", "3", "12"]) {
+      expect(segmentConditionSchema.safeParse({
+        type: "condition",
+        field: "engagement",
+        operator: "unsubscribed_from_fewer_campaigns",
+        value,
+        value2: null,
+      }).success).toBe(true);
+    }
+    for (const value of ["0", "-1", "2.5", "three", "", null]) {
+      expect(segmentConditionSchema.safeParse({
+        type: "condition",
+        field: "engagement",
+        operator: "unsubscribed_from_fewer_campaigns",
+        value,
+        value2: null,
+      }).success).toBe(false);
+    }
+  });
+
+  it("matches subscribers below the distinct unsubscribe-campaign threshold, including zero", () => {
+    const { sql: s, params } = renderQuery(
+      rulesForValue("unsubscribed_from_fewer_campaigns", "3"),
+    );
+    expect(s).toContain("NOT IN");
+    expect(s).toContain("campaign_stats");
+    expect(s).toContain("type = 'unsubscribe'");
+    expect(s).toContain("COUNT(DISTINCT cs.campaign_id)");
+    expect(s).toContain(">=");
+    expect(params.map(Number)).toContain(3);
+    expect(s).not.toContain("complaint");
+    expect(s).not.toContain("FALSE");
+  });
+
+  it("fails closed when an invalid unsubscribe threshold bypasses schema validation", () => {
+    for (const value of ["0", "-1", "2.5", "nope"]) {
+      expect(renderSql(rulesForValue("unsubscribed_from_fewer_campaigns", value))).toContain("FALSE");
+    }
   });
 });

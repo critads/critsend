@@ -37,6 +37,13 @@ function compileCondition(cond: SegmentCondition): SQL {
     logger.warn("Invalid number for days operator", { field, operator, value });
     return sql`FALSE`;
   }
+  if (
+    operator === "unsubscribed_from_fewer_campaigns" &&
+    (!Number.isInteger(Number(value)) || Number(value) < 1)
+  ) {
+    logger.warn("Invalid unsubscribe campaign count threshold", { field, operator, value });
+    return sql`FALSE`;
+  }
 
   if (field === "email") {
     const v = String(value);
@@ -173,6 +180,18 @@ function compileCondition(cond: SegmentCondition): SQL {
           WHERE cs.ip_address = '195.154.17.225'
             AND cs.type IN ('open', 'complaint')
         )`;
+      case "unsubscribed_from_fewer_campaigns": {
+        const threshold = Number(value);
+        // NOT IN includes subscribers with no unsubscribe rows. The partial
+        // covering index serves the grouped distinct-campaign threshold.
+        return sql`${subscribers.id} NOT IN (
+          SELECT cs.subscriber_id
+          FROM campaign_stats cs
+          WHERE cs.type = 'unsubscribe'
+          GROUP BY cs.subscriber_id
+          HAVING COUNT(DISTINCT cs.campaign_id) >= ${threshold}
+        )`;
+      }
       default:
         logger.warn("Unknown operator for engagement field", { operator, field });
         return sql`FALSE`;

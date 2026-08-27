@@ -127,6 +127,25 @@ import {
       } else {
         logger.info("[TRACKING] Bootstrap migration: bot-open subscriber partial index already exists — skipping");
       }
+
+      // Segment operator: distinct campaigns explicitly unsubscribed from per
+      // subscriber. This narrow covering index avoids scanning unrelated
+      // opens, clicks, and complaints in the multi-GB stats table.
+      if (!(await indexExistsAndValid("campaign_stats_unsubscribe_subscriber_campaign_idx"))) {
+        try {
+          await runIndexDdlNoTimeout(
+            `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_stats_unsubscribe_subscriber_campaign_idx
+               ON campaign_stats (subscriber_id, campaign_id)
+               WHERE type = 'unsubscribe'`,
+            "CREATE campaign_stats_unsubscribe_subscriber_campaign_idx",
+          );
+          logger.info("[TRACKING] Bootstrap migration: unsubscribe subscriber-campaign partial index ready");
+        } catch (err: any) {
+          logger.error(`[TRACKING] Bootstrap migration FAILED (unsubscribe subscriber-campaign partial index): ${err?.message || err}`);
+        }
+      } else {
+        logger.info("[TRACKING] Bootstrap migration: unsubscribe subscriber-campaign partial index already exists — skipping");
+      }
     },
   );
 })();

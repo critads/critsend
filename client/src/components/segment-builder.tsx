@@ -69,6 +69,9 @@ export function getRulesAsV2(rules: unknown): SegmentGroup {
 
 export function isConditionValid(c: SegmentCondition): boolean {
   if (unaryOperators.includes(c.operator)) return true;
+  if (c.operator === "unsubscribed_from_fewer_campaigns") {
+    return typeof c.value === "string" && /^[1-9]\d*$/.test(c.value.trim());
+  }
   if (typeof c.value === "string") return c.value.trim().length > 0;
   if (Array.isArray(c.value)) return c.value.length > 0;
   return false;
@@ -97,6 +100,7 @@ export function ConditionRow({
   const isUnary = unaryOperators.includes(condition.operator);
   const isBetween = condition.operator === "between";
   const isDays = condition.operator === "in_last_days" || condition.operator === "not_in_last_days";
+  const isCampaignCount = condition.operator === "unsubscribed_from_fewer_campaigns";
   const isDate = condition.operator === "before" || condition.operator === "after";
   const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag" || condition.operator === "tag_contains" || condition.operator === "tag_not_contains";
   const isRefText = condition.operator === "has_ref" || condition.operator === "not_has_ref" || condition.operator === "ref_contains";
@@ -178,11 +182,12 @@ export function ConditionRow({
                 data-testid={`${testIdPrefix}-value2`}
               />
             </div>
-          ) : isDays ? (
+          ) : isDays || isCampaignCount ? (
             <Input
               type="number"
               min={1}
-              placeholder="Days"
+              step={1}
+              placeholder={isCampaignCount ? "Campaigns" : "Days"}
               value={typeof condition.value === "string" ? condition.value : ""}
               onChange={(e) => onChange({ ...condition, value: e.target.value })}
               className="w-24"
