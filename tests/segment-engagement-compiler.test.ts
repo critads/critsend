@@ -3,6 +3,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import {
   compileSegmentRules,
   ENGAGEMENT_RECENCY_DAYS,
+  EXCLUDED_BOT_OPEN_IP,
 } from "../server/services/segment-compiler";
 import {
   fieldOperatorsV2,
@@ -102,5 +103,27 @@ describe("Task #214 — engagement recency compiler", () => {
     const s = renderSql(rules);
     expect(s).toContain("last_engaged_at");
     expect(s).not.toContain("FALSE");
+  });
+
+  it("exposes a unary condition that excludes every historical bot-IP opener", () => {
+    expect(fieldOperatorsV2.engagement).toContain("not_opened_from_bot_ip");
+    expect(operatorLabelsV2.not_opened_from_bot_ip).toContain(EXCLUDED_BOT_OPEN_IP);
+    expect(segmentConditionSchema.safeParse({
+      type: "condition",
+      field: "engagement",
+      operator: "not_opened_from_bot_ip",
+      value: null,
+      value2: null,
+    }).success).toBe(true);
+  });
+
+  it("excludes both open and counting-only complaint events from the fixed IP", () => {
+    const { sql: s, params } = renderQuery(rulesFor("not_opened_from_bot_ip"));
+    expect(s).toContain("NOT IN");
+    expect(s).toContain("campaign_stats");
+    expect(s).toContain("ip_address = '195.154.17.225'");
+    expect(s).toContain("type IN ('open', 'complaint')");
+    expect(s).not.toContain("FALSE");
+    expect(params).not.toContain(EXCLUDED_BOT_OPEN_IP);
   });
 });

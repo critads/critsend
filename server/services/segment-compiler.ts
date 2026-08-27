@@ -17,11 +17,12 @@ export const ENGAGEMENT_RECENCY_DAYS = 60;
 // campaign count once (COUNT(DISTINCT campaign_id)).
 export const TOP_CLICKER_MIN_CAMPAIGNS = 4;
 export const ULTRA_CLICKER_MIN_CAMPAIGNS = 6;
+export const EXCLUDED_BOT_OPEN_IP = "195.154.17.225";
 
 function compileCondition(cond: SegmentCondition): SQL {
   const { field, operator, value, value2 } = cond;
 
-  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker"];
+  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip"];
   if (!unaryOps.includes(operator)) {
     if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) {
       logger.warn("Empty value for non-unary segment operator", { field, operator });
@@ -162,6 +163,16 @@ function compileCondition(cond: SegmentCondition): SQL {
         return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS})`;
       case "ultra_active_clicker":
         return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${ULTRA_CLICKER_MIN_CAMPAIGNS})`;
+      case "not_opened_from_bot_ip":
+        // Opens from this robot IP are stored either as normal opens or as
+        // counting-only complaints. Keep the IP as a SQL literal so PostgreSQL
+        // can use campaign_stats_bot_open_subscriber_idx's exact predicate.
+        return sql`${subscribers.id} NOT IN (
+          SELECT cs.subscriber_id
+          FROM campaign_stats cs
+          WHERE cs.ip_address = '195.154.17.225'
+            AND cs.type IN ('open', 'complaint')
+        )`;
       default:
         logger.warn("Unknown operator for engagement field", { operator, field });
         return sql`FALSE`;

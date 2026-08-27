@@ -176,6 +176,10 @@ export async function indexExistsAndValid(indexName: string): Promise<boolean> {
 
 /**
  * Proactive scan-and-reap of INVALID indexes in the public schema.
+ * Indexes currently listed in pg_stat_progress_create_index are excluded:
+ * CREATE INDEX CONCURRENTLY is expected to expose an INVALID catalog entry
+ * while it is actively building, and dropping it at that point deadlocks the
+ * builder rather than cleaning up a stale artifact.
  *
  * Runs ONCE per process boot (gated by advisory lock 900018 — only one
  * web/worker/drainer instance does the work; the others observe a
@@ -245,6 +249,11 @@ export async function reapInvalidIndexes(context: string = "boot"): Promise<Reap
          JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public'
            AND NOT i.indisvalid
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_stat_progress_create_index p
+              WHERE p.index_relid = c.oid
+            )
          ORDER BY pg_relation_size(t.oid) DESC, c.relname`,
       );
 

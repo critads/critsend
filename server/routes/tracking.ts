@@ -107,6 +107,26 @@ import {
       } else {
         logger.info("[TRACKING] Bootstrap migration: campaign_stats timestamp-first click partial index already exists — skipping");
       }
+
+      // Lifetime segment exclusion for the fixed complaint-bot IP. The
+      // predicate includes both normal opens and counting-only complaint rows,
+      // matching how tracking stores activity from 195.154.17.225.
+      if (!(await indexExistsAndValid("campaign_stats_bot_open_subscriber_idx"))) {
+        try {
+          await runIndexDdlNoTimeout(
+            `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_stats_bot_open_subscriber_idx
+               ON campaign_stats (subscriber_id)
+               WHERE ip_address = '195.154.17.225'
+                 AND type IN ('open', 'complaint')`,
+            "CREATE campaign_stats_bot_open_subscriber_idx",
+          );
+          logger.info("[TRACKING] Bootstrap migration: bot-open subscriber partial index ready");
+        } catch (err: any) {
+          logger.error(`[TRACKING] Bootstrap migration FAILED (bot-open subscriber partial index): ${err?.message || err}`);
+        }
+      } else {
+        logger.info("[TRACKING] Bootstrap migration: bot-open subscriber partial index already exists — skipping");
+      }
     },
   );
 })();

@@ -42,6 +42,7 @@ export const unaryOperators = [
   "clicked_recently",
   "top_active_clicker",
   "ultra_active_clicker",
+  "not_opened_from_bot_ip",
 ];
 
 export function makeEmptyCondition(): SegmentCondition {
