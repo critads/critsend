@@ -174,6 +174,9 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
   const { runImportBootstrapMigrations } = await import("./routes/import-export");
   await runImportBootstrapMigrations();
 
+  const { ensureCampaignSegmentsSchema } = await import("./campaign-segments-bootstrap");
+  await ensureCampaignSegmentsSchema();
+
   // Initialize BullMQ queues for job enqueueing and processing
   initQueues();
 

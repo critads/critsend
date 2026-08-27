@@ -20,6 +20,8 @@ interface SegmentComboboxProps {
   disabled?: boolean;
   loading?: boolean;
   placeholder?: string;
+  multiple?: boolean;
+  values?: string[];
 }
 
 export function SegmentCombobox({
@@ -29,10 +31,13 @@ export function SegmentCombobox({
   disabled,
   loading,
   placeholder = "Choose a segment",
+  multiple = false,
+  values = [],
 }: SegmentComboboxProps) {
   const isDisabled = disabled || loading;
   const [open, setOpen] = useState(false);
   const selected = segments.find((s) => s.id === value);
+  const selectedNames = segments.filter((s) => values.includes(s.id)).map((s) => s.name).join(", ");
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -46,7 +51,7 @@ export function SegmentCombobox({
           data-testid="combobox-segment"
         >
           <span className={cn("truncate", !selected && "text-muted-foreground")}>
-            {loading ? "Loading segments..." : selected ? selected.name : placeholder}
+            {loading ? "Loading segments..." : multiple ? (selectedNames || placeholder) : selected ? selected.name : placeholder}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -73,14 +78,14 @@ export function SegmentCombobox({
                   value={segment.name}
                   onSelect={() => {
                     onChange(segment.id);
-                    setOpen(false);
+                    if (!multiple) setOpen(false);
                   }}
                   data-testid={`combobox-option-segment-${segment.id}`}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === segment.id ? "opacity-100" : "opacity-0",
+                      (multiple ? values.includes(segment.id) : value === segment.id) ? "opacity-100" : "opacity-0",
                     )}
                   />
                   {segment.name}

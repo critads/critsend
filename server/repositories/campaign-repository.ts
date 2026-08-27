@@ -8,6 +8,7 @@ import {
   importJobs,
   mtas,
   segments,
+  campaignSegments,
   type Campaign,
   type CampaignListItem,
   type InsertCampaign,
@@ -17,7 +18,7 @@ import {
   type InsertNullsinkCapture,
 } from "@shared/schema";
 import { db, pool } from "../db";
-import { eq, desc, and, or, sql, ilike, isNull, ne, gte, lt } from "drizzle-orm";
+import { eq, desc, and, or, sql, ilike, isNull, ne, gte, lt, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { logger } from "../logger";
 import { campaignQueue } from "../queues";
@@ -43,8 +44,27 @@ const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 // CAMPAIGN MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
-export async function getCampaigns(): Promise<Campaign[]> {
-  return db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
+export type CampaignWithSegmentIds = Campaign & { segmentIds: string[] };
+
+async function attachSegmentIds<T extends Campaign>(rows: T[]): Promise<(T & { segmentIds: string[] })[]> {
+  if (!rows.length) return rows.map((row) => ({ ...row, segmentIds: row.segmentId ? [row.segmentId] : [] }));
+  const ids = rows.map((row) => row.id);
+  const relationRows = await db.select().from(campaignSegments)
+    .where(inArray(campaignSegments.campaignId, ids))
+    .orderBy(campaignSegments.campaignId, campaignSegments.position);
+  const grouped = new Map<string, string[]>();
+  for (const row of relationRows) {
+    const values = grouped.get(row.campaignId) ?? [];
+    values.push(row.segmentId);
+    grouped.set(row.campaignId, values);
+  }
+  // A legacy row can predate bootstrap; exposing its legacy primary is the
+  // compatibility fallback until bootstrap backfills it.
+  return rows.map((row) => ({ ...row, segmentIds: grouped.get(row.id) ?? (row.segmentId ? [row.segmentId] : []) }));
+}
+
+export async function getCampaigns(): Promise<CampaignWithSegmentIds[]> {
+  return attachSegmentIds(await db.select().from(campaigns).orderBy(desc(campaigns.createdAt)));
 }
 
 export type LowOpenCampaignAlert = {
@@ -301,17 +321,29 @@ export async function getCampaignsPaginated(opts: {
       });
     }
   }
+  const segmentIdsMap = new Map<string, string[]>();
+  if (pageIds.length > 0) {
+    const audienceRows = await db.select().from(campaignSegments)
+      .where(inArray(campaignSegments.campaignId, pageIds))
+      .orderBy(campaignSegments.campaignId, campaignSegments.position);
+    for (const row of audienceRows) {
+      const ids = segmentIdsMap.get(row.campaignId) ?? [];
+      ids.push(row.segmentId);
+      segmentIdsMap.set(row.campaignId, ids);
+    }
+  }
 
   const enriched = rows.map((row) => {
     const live = liveCountsMap.get(row.id);
     return {
       ...row,
+      segmentIds: segmentIdsMap.get(row.id) ?? (row.segmentId ? [row.segmentId] : []),
       pressureHeldCount: live?.pressureHeld ?? 0,
       realPendingCount: live?.realPending ?? 0,
     };
   });
 
-  return { campaigns: enriched as CampaignListItem[], total };
+  return { campaigns: enriched as unknown as CampaignListItem[], total };
 }
 
 /**
@@ -598,9 +630,9 @@ export async function ensureCampaignSubjectTrigramIndex(): Promise<LockResult | 
   return result;
 }
 
-export async function getCampaign(id: string): Promise<Campaign | undefined> {
+export async function getCampaign(id: string): Promise<CampaignWithSegmentIds | undefined> {
   const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));
-  return campaign;
+  return campaign ? (await attachSegmentIds([campaign]))[0] : undefined;
 }
 
 export async function getCampaignStatus(id: string): Promise<string | null> {

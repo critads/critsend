@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { zeroDupSendGuardEnabled } from "../config/send-guard";
-import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignJobs, errorLogs } from "@shared/schema";
+import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignSegments, campaignJobs, errorLogs } from "@shared/schema";
 import { extractBrand } from "@shared/brand";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
@@ -866,10 +866,22 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
       const isDraft = req.body.status === "draft" || !req.body.status;
 
+      const requestedSegmentIds = req.body.segmentIds === undefined
+        ? (req.body.segmentId ? [req.body.segmentId] : [])
+        : req.body.segmentIds;
+      if (!Array.isArray(requestedSegmentIds) ||
+          requestedSegmentIds.some((id) => typeof id !== "string" || !id.trim()) ||
+          new Set(requestedSegmentIds).size !== requestedSegmentIds.length) {
+        return res.status(400).json({ error: "segmentIds must be a unique non-empty list" });
+      }
+      if (!isDraft && requestedSegmentIds.length === 0) {
+        return res.status(400).json({ error: "At least one audience segment is required" });
+      }
       const normalizedBody = {
         ...req.body,
+        ...(requestedSegmentIds.length ? { segmentIds: requestedSegmentIds } : {}),
         mtaId: req.body.mtaId || null,
-        segmentId: req.body.segmentId || null,
+        segmentId: requestedSegmentIds[0] ?? null,
         excludeSegmentId: req.body.excludeSegmentId || null,
         replyEmail: req.body.replyEmail || null,
       };
@@ -878,9 +890,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       // would yield an always-empty audience. Reject up front so the user
       // gets a clear error instead of a silent 0-recipient send.
       if (
-        normalizedBody.excludeSegmentId &&
-        normalizedBody.segmentId &&
-        normalizedBody.excludeSegmentId === normalizedBody.segmentId
+        normalizedBody.excludeSegmentId && requestedSegmentIds.includes(normalizedBody.excludeSegmentId)
       ) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
@@ -888,13 +898,13 @@ export function registerCampaignRoutes(app: Express, helpers: {
       // Coalesced into a single `WHERE id = ANY(...)` round-trip (1 pool
       // checkout instead of 2) so this route stays under the per-request
       // lease cap when followed by the campaign-insert transaction.
-      const segIds = [normalizedBody.segmentId, normalizedBody.excludeSegmentId].filter(
+       const segIds = [...requestedSegmentIds, normalizedBody.excludeSegmentId].filter(
         (v): v is string => typeof v === "string" && v.length > 0,
       );
       if (segIds.length > 0) {
         const found = await storage.getSegmentsByIds(segIds);
         const foundSet = new Set(found.map((s) => s.id));
-        if (normalizedBody.segmentId && !foundSet.has(normalizedBody.segmentId)) {
+         if (requestedSegmentIds.some((id: string) => !foundSet.has(id))) {
           return res.status(400).json({ error: "Audience segment does not exist" });
         }
         if (normalizedBody.excludeSegmentId && !foundSet.has(normalizedBody.excludeSegmentId)) {
@@ -904,7 +914,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
       let data: any;
       if (isDraft) {
-        data = insertCampaignDraftSchema.parse(normalizedBody);
+         data = insertCampaignDraftSchema.parse(normalizedBody);
         if (!data.subject) data.subject = "(Draft)";
         if (!data.htmlContent) data.htmlContent = "";
         if (!data.fromName) data.fromName = "";
@@ -916,8 +926,14 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (data.htmlContent && data.htmlContent !== "") {
         data.htmlContent = sanitizeCampaignHtml(data.htmlContent);
       }
-      const campaign = await db.transaction(async (tx) => {
+      delete data.segmentIds;
+       const campaign = await db.transaction(async (tx) => {
         const [created] = await tx.insert(campaigns).values(data).returning();
+         if (requestedSegmentIds.length) {
+           await tx.insert(campaignSegments).values(requestedSegmentIds.map((segmentId: string, position: number) => ({
+             campaignId: created.id, segmentId, position,
+           })));
+         }
         if (created.status === "sending") {
           await tx.insert(campaignJobs).values({
             campaignId: created.id,
@@ -929,7 +945,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
       logger.info("Campaign created successfully:", campaign.id);
 
-      res.status(201).json(campaign);
+       res.status(201).json({ ...campaign, segmentIds: requestedSegmentIds });
     } catch (error) {
       if (error instanceof z.ZodError) {
         logger.error("Campaign validation error:", error.errors);
@@ -1021,30 +1037,60 @@ export function registerCampaignRoutes(app: Express, helpers: {
         normalizedBody.htmlContent = sanitizeCampaignHtml(normalizedBody.htmlContent);
       }
 
+      // segmentIds is canonical when supplied; legacy segmentId updates retain
+      // their one-segment behavior. Always mirror the first selection into the
+      // legacy column for integrations that still read it.
+      const requestedSegmentIds = "segmentIds" in normalizedBody
+        ? normalizedBody.segmentIds
+        : ("segmentId" in normalizedBody ? (normalizedBody.segmentId ? [normalizedBody.segmentId] : []) : undefined);
+      const effectiveStatus = normalizedBody.status ?? existingCampaign.status;
+      if (requestedSegmentIds !== undefined) {
+        if (!Array.isArray(requestedSegmentIds) ||
+            requestedSegmentIds.some((id) => typeof id !== "string" || !id.trim()) ||
+            new Set(requestedSegmentIds).size !== requestedSegmentIds.length) {
+          return res.status(400).json({ error: "segmentIds must be a unique non-empty list" });
+        }
+        normalizedBody.segmentId = requestedSegmentIds[0] ?? null;
+      }
       // Task #138: enforce self-exclusion against the EFFECTIVE values
       // (incoming PATCH merged onto the existing row). Without merging we'd
       // miss the case where the include id is updated and the existing
       // exclude id silently becomes invalid.
-      const effectiveSegmentId = ('segmentId' in normalizedBody ? normalizedBody.segmentId : existingCampaign.segmentId) ?? null;
+      const effectiveSegmentIds = requestedSegmentIds ?? ((existingCampaign as any).segmentIds ?? (existingCampaign.segmentId ? [existingCampaign.segmentId] : []));
+      if (effectiveStatus !== "draft" && effectiveSegmentIds.length === 0) {
+        return res.status(400).json({ error: "At least one audience segment is required" });
+      }
       const effectiveExcludeId = ('excludeSegmentId' in normalizedBody ? normalizedBody.excludeSegmentId : existingCampaign.excludeSegmentId) ?? null;
-      if (effectiveSegmentId && effectiveExcludeId && effectiveSegmentId === effectiveExcludeId) {
+       if (effectiveExcludeId && effectiveSegmentIds.includes(effectiveExcludeId)) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
       // Task #138: existence check on whichever segment refs are being
       // changed in this PATCH. We only probe the fields the client sent
       // to avoid an extra DB round-trip on unrelated edits.
-      if ('segmentId' in normalizedBody && normalizedBody.segmentId) {
-        const seg = await storage.getSegment(normalizedBody.segmentId);
-        if (!seg) return res.status(400).json({ error: "Audience segment does not exist" });
-      }
-      if ('excludeSegmentId' in normalizedBody && normalizedBody.excludeSegmentId) {
-        const seg = await storage.getSegment(normalizedBody.excludeSegmentId);
-        if (!seg) return res.status(400).json({ error: "Exclusion segment does not exist" });
+       const idsToValidate = [...(requestedSegmentIds ?? []), ...(effectiveExcludeId ? [effectiveExcludeId] : [])];
+       if (idsToValidate.length) {
+         const found = await storage.getSegmentsByIds(idsToValidate);
+         const foundIds = new Set(found.map((segment) => segment.id));
+         if ((requestedSegmentIds ?? []).some((id: string) => !foundIds.has(id))) {
+           return res.status(400).json({ error: "Audience segment does not exist" });
+         }
+         if (effectiveExcludeId && !foundIds.has(effectiveExcludeId)) {
+           return res.status(400).json({ error: "Exclusion segment does not exist" });
+         }
       }
 
       const campaign = await db.transaction(async (tx) => {
+         delete normalizedBody.segmentIds;
         const [updated] = await tx.update(campaigns).set(normalizedBody).where(sql`${campaigns.id} = ${req.params.id}`).returning();
         if (!updated) return null;
+         if (requestedSegmentIds !== undefined) {
+           await tx.delete(campaignSegments).where(eq(campaignSegments.campaignId, updated.id));
+            if (requestedSegmentIds.length) {
+              await tx.insert(campaignSegments).values(requestedSegmentIds.map((segmentId: string, position: number) => ({
+                campaignId: updated.id, segmentId, position,
+              })));
+            }
+         }
         if (existingCampaign.status !== "sending" && updated.status === "sending") {
           logger.info(`Starting campaign ${updated.id} via PATCH - queueing for processing`);
           await tx.insert(campaignJobs).values({
@@ -1057,7 +1103,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      // Task #199: PATCH edits list-visible fields (name/status/schedule/…) via
+       // Task #199: PATCH edits list-visible fields (name/status/schedule/…) via
       // raw tx — invalidate the list cache so the edit shows immediately.
       publishCampaignsListInvalidation();
 
@@ -1066,7 +1112,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
       }
 
-      res.json(campaign);
+       res.json({ ...campaign, segmentIds: requestedSegmentIds ?? (existingCampaign as any).segmentIds ?? (campaign.segmentId ? [campaign.segmentId] : []) });
     } catch (error) {
       if (error instanceof z.ZodError) {
         logger.error("Campaign PATCH validation error:", error.errors);
@@ -1818,6 +1864,14 @@ export function registerCampaignRoutes(app: Express, helpers: {
       
       const updateData = { ...req.body };
       delete updateData.status;
+      const hasCanonicalSegments = Object.prototype.hasOwnProperty.call(updateData, "segmentIds");
+      const hasLegacySegment = Object.prototype.hasOwnProperty.call(updateData, "segmentId");
+      const selectedSegmentIds = hasCanonicalSegments
+        ? updateData.segmentIds
+        : hasLegacySegment
+          ? (updateData.segmentId ? [updateData.segmentId] : [])
+          : ((existingCampaign as any).segmentIds ?? (existingCampaign.segmentId ? [existingCampaign.segmentId] : []));
+      delete updateData.segmentIds;
       // 2026-05-22 urgent-mode audit: /api/campaigns/:id/send is a generic
       // pre-launch save+send. Allowing urgent_mode through here would let
       // a client toggle the CAS bypass without going through the dedicated
@@ -1828,26 +1882,41 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (updateData.scheduledAt && typeof updateData.scheduledAt === 'string') {
         updateData.scheduledAt = new Date(updateData.scheduledAt);
       }
-      
-      if (Object.keys(updateData).length > 0) {
-        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Saving final campaign data`);
-        await storage.updateCampaign(campaignId, updateData);
+      if (!Array.isArray(selectedSegmentIds) || !selectedSegmentIds.length ||
+          selectedSegmentIds.some((id) => typeof id !== "string" || !id.trim()) ||
+          new Set(selectedSegmentIds).size !== selectedSegmentIds.length) {
+        return res.status(400).json({ error: "segmentIds must be a unique non-empty list" });
       }
-      
-      const refreshedCampaign = await storage.getCampaign(campaignId);
-      if (!refreshedCampaign) {
-        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Campaign disappeared after update`);
-        return res.status(500).json({ error: "Campaign update failed" });
+      const effectiveExcludeId = Object.prototype.hasOwnProperty.call(updateData, "excludeSegmentId")
+        ? (updateData.excludeSegmentId || null)
+        : existingCampaign.excludeSegmentId;
+      if (effectiveExcludeId && selectedSegmentIds.includes(effectiveExcludeId)) {
+        return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
-      
+      const segmentRefs = [...selectedSegmentIds, ...(effectiveExcludeId ? [effectiveExcludeId] : [])];
+      const selectedSegments = await storage.getSegmentsByIds(segmentRefs);
+      const selectedSegmentSet = new Set(selectedSegments.map((segment) => segment.id));
+      if (selectedSegmentIds.some((id: string) => !selectedSegmentSet.has(id))) {
+        return res.status(400).json({ error: "Selected segment not found" });
+      }
+      if (effectiveExcludeId && !selectedSegmentSet.has(effectiveExcludeId)) {
+        return res.status(400).json({ error: "Exclusion segment does not exist" });
+      }
+
+      const effectiveCampaign = {
+        ...existingCampaign,
+        ...updateData,
+        segmentId: selectedSegmentIds[0],
+        excludeSegmentId: effectiveExcludeId,
+      };
       const validationErrors: string[] = [];
-      if (!refreshedCampaign.name) validationErrors.push("Campaign name is required");
-      if (!refreshedCampaign.segmentId) validationErrors.push("Segment is required");
-      if (!refreshedCampaign.mtaId) validationErrors.push("MTA server is required");
-      if (!refreshedCampaign.fromName) validationErrors.push("Sender name is required");
-      if (!refreshedCampaign.fromEmail) validationErrors.push("Sender email is required");
-      if (!refreshedCampaign.subject) validationErrors.push("Subject line is required");
-      if (!refreshedCampaign.htmlContent) validationErrors.push("Email content is required");
+      if (!effectiveCampaign.name) validationErrors.push("Campaign name is required");
+      if (!effectiveCampaign.segmentId) validationErrors.push("Segment is required");
+      if (!effectiveCampaign.mtaId) validationErrors.push("MTA server is required");
+      if (!effectiveCampaign.fromName) validationErrors.push("Sender name is required");
+      if (!effectiveCampaign.fromEmail) validationErrors.push("Sender email is required");
+      if (!effectiveCampaign.subject) validationErrors.push("Subject line is required");
+      if (!effectiveCampaign.htmlContent) validationErrors.push("Email content is required");
       
       if (validationErrors.length > 0) {
         logger.error(`[CAMPAIGN_SEND] ${timestamp} - Validation failed:`, validationErrors);
@@ -1857,77 +1926,62 @@ export function registerCampaignRoutes(app: Express, helpers: {
         });
       }
       
-      const mta = await storage.getMta(refreshedCampaign.mtaId!);
+      const mta = await storage.getMta(effectiveCampaign.mtaId!);
       if (!mta) {
-        logger.error(`[CAMPAIGN_SEND] ${timestamp} - MTA not found: ${refreshedCampaign.mtaId}`);
+        logger.error(`[CAMPAIGN_SEND] ${timestamp} - MTA not found: ${effectiveCampaign.mtaId}`);
         return res.status(400).json({ error: "Selected MTA server not found" });
       }
       if (!mta.isActive) {
         logger.error(`[CAMPAIGN_SEND] ${timestamp} - MTA is not active: ${mta.name}`);
         return res.status(400).json({ error: "Selected MTA server is not active" });
       }
-      
-      const segment = await storage.getSegment(refreshedCampaign.segmentId!);
-      if (!segment) {
-        logger.error(`[CAMPAIGN_SEND] ${timestamp} - Segment not found: ${refreshedCampaign.segmentId}`);
-        return res.status(400).json({ error: "Selected segment not found" });
-      }
-      
-      const subscriberCount = await storage.countSubscribersForSegment(refreshedCampaign.segmentId!);
-      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Segment '${segment.name}' has ${subscriberCount} subscribers`);
+      const subscriberCount = await storage.countSubscribersForSegments(selectedSegmentIds, effectiveExcludeId ?? undefined);
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - ${selectedSegmentIds.length} selected segment(s) have ${subscriberCount} subscribers`);
       
       if (subscriberCount === 0) {
         logger.error(`[CAMPAIGN_SEND] ${timestamp} - Segment has no subscribers`);
         return res.status(400).json({ error: "Selected segment has no subscribers" });
       }
-      
-      if (isScheduled) {
-        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'scheduled' for ${req.body.scheduledAt}`);
-        const updatedCampaign = await storage.updateCampaign(campaignId, { 
-          status: "scheduled",
-          scheduledAt: new Date(req.body.scheduledAt)
-        });
-        
-        if (!updatedCampaign || updatedCampaign.status !== "scheduled") {
-          logger.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to schedule campaign`);
-          return res.status(500).json({ error: "Failed to schedule campaign" });
-        }
-        
-        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} scheduled successfully`);
-        return res.json({ 
-          success: true, 
-          campaign: updatedCampaign,
-          message: `Campaign scheduled for ${subscriberCount} subscribers` 
-        });
-      }
-      
-      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Setting campaign status to 'sending' and enqueuing job`);
+      const targetStatus = isScheduled ? "scheduled" : "sending";
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Atomically saving audience and setting status '${targetStatus}'`);
       const updatedCampaign = await db.transaction(async (tx) => {
-        const [updated] = await tx.update(campaigns).set({ status: "sending" }).where(sql`${campaigns.id} = ${campaignId}`).returning();
-        if (!updated || updated.status !== "sending") return null;
-        await tx.insert(campaignJobs).values({
-          campaignId: updated.id,
-          status: "pending",
-        });
+        const [updated] = await tx.update(campaigns).set({
+          ...updateData,
+          segmentId: selectedSegmentIds[0],
+          excludeSegmentId: effectiveExcludeId,
+          status: targetStatus,
+          ...(isScheduled ? { scheduledAt: new Date(req.body.scheduledAt) } : {}),
+        }).where(sql`${campaigns.id} = ${campaignId}`).returning();
+        if (!updated || updated.status !== targetStatus) return null;
+        await tx.delete(campaignSegments).where(eq(campaignSegments.campaignId, campaignId));
+        await tx.insert(campaignSegments).values(
+          selectedSegmentIds.map((segmentId: string, position: number) => ({ campaignId, segmentId, position })),
+        );
+        if (!isScheduled) {
+          await tx.insert(campaignJobs).values({
+            campaignId: updated.id,
+            status: "pending",
+          });
+        }
         return updated;
       });
       
       if (!updatedCampaign) {
         logger.error(`[CAMPAIGN_SEND] ${timestamp} - Failed to update campaign status`);
-        return res.status(500).json({ error: "Failed to start campaign - status update failed" });
+        return res.status(500).json({ error: `Failed to ${isScheduled ? "schedule" : "start"} campaign` });
       }
       // Task #199: status transition done via raw tx — invalidate the list cache.
       publishCampaignsListInvalidation();
-      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
-      
-      await messageQueue.notify("campaign_jobs", { campaignId });
-      logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${campaignId}`);
-      
-      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} started successfully`);
+      if (!isScheduled) {
+        logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign successfully queued`);
+        await messageQueue.notify("campaign_jobs", { campaignId });
+        logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${campaignId}`);
+      }
+      logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} ${isScheduled ? "scheduled" : "started"} successfully`);
       res.json({ 
         success: true, 
-        campaign: updatedCampaign,
-        message: `Campaign started with ${subscriberCount} subscribers` 
+        campaign: { ...updatedCampaign, segmentIds: selectedSegmentIds },
+        message: `Campaign ${isScheduled ? "scheduled for" : "started with"} ${subscriberCount} subscribers`
       });
       
     } catch (error: any) {

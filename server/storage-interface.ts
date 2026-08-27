@@ -53,6 +53,8 @@ export interface IStorage {
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string, excludeSegmentId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string, excludeSegmentId?: string): Promise<number>;
+  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string): Promise<Subscriber[]>;
+  countSubscribersForSegments(segmentIds: string[], excludeSegmentId?: string): Promise<number>;
   // Auto-resend (Task #56) audience iteration — same contract shape as the
   // segment-cursor pair so the sender can swap iterators with one branch.
   getOpenersForParentCampaignCursor(parentCampaignId: string, limit: number, afterId?: string): Promise<Subscriber[]>;

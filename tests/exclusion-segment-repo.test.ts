@@ -59,6 +59,32 @@ describe("Task #138 — exclusion segment short-circuit", () => {
     expect(poolQuerySpy).not.toHaveBeenCalled();
   });
 
+  it("multi-segment count returns 0 when the exclusion overlaps any inclusion", async () => {
+    const n = await repo.countSubscribersForSegments(["seg_a", "seg_b"], "seg_b");
+    expect(n).toBe(0);
+    expect(dbSelectSpy).not.toHaveBeenCalled();
+    expect(poolQuerySpy).not.toHaveBeenCalled();
+  });
+
+  it("multi-segment cursor returns [] when the exclusion overlaps any inclusion", async () => {
+    const rows = await repo.getSubscribersForSegmentsCursor(
+      ["seg_a", "seg_b"],
+      100,
+      undefined,
+      "seg_a",
+    );
+    expect(rows).toEqual([]);
+    expect(dbSelectSpy).not.toHaveBeenCalled();
+    expect(poolQuerySpy).not.toHaveBeenCalled();
+  });
+
+  it("empty multi-segment audiences short-circuit without querying", async () => {
+    expect(await repo.countSubscribersForSegments([])).toBe(0);
+    expect(await repo.getSubscribersForSegmentsCursor([], 100)).toEqual([]);
+    expect(dbSelectSpy).not.toHaveBeenCalled();
+    expect(poolQuerySpy).not.toHaveBeenCalled();
+  });
+
   it("self-exclusion check is undefined-safe (no exclude → no short-circuit)", async () => {
     // We expect the function to attempt a real db call here, which our
     // mock turns into a thrown error — proving the short-circuit only

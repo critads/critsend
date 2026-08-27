@@ -309,7 +309,7 @@ export default function CampaignDetail() {
   });
 
   const mta = mtas?.find(m => m.id === campaign?.mtaId);
-  const segment = segments?.find(s => s.id === campaign?.segmentId);
+  const segmentIds = campaign?.segmentIds ?? (campaign?.segmentId ? [campaign.segmentId] : []);
 
   const totalErrorPages = errorsData ? Math.ceil(errorsData.total / ERRORS_PER_PAGE) : 0;
 
@@ -360,17 +360,19 @@ export default function CampaignDetail() {
                 {campaign.name}
               </h1>
               <CampaignStatusBadge status={campaign.status} />
-              {campaign.segmentId ? (
-                <Link href={`/segments/${campaign.segmentId}`}>
-                  <Badge
-                    variant="outline"
-                    className="gap-1 cursor-pointer hover:bg-muted"
-                    data-testid="badge-header-segment"
-                  >
-                    <Filter className="h-3 w-3" />
-                    {segment?.name ?? "Segment"}
-                  </Badge>
-                </Link>
+              {segmentIds.length ? (
+                segmentIds.map((id) => (
+                  <Link key={id} href={`/segments/${id}`}>
+                    <Badge
+                      variant="outline"
+                      className="gap-1 cursor-pointer hover:bg-muted"
+                      data-testid="badge-header-segment"
+                    >
+                      <Filter className="h-3 w-3" />
+                      {segments?.find((segment) => segment.id === id)?.name ?? "Segment"}
+                    </Badge>
+                  </Link>
+                ))
               ) : (
                 <Badge variant="outline" className="gap-1" data-testid="badge-header-segment">
                   <Filter className="h-3 w-3" />
@@ -522,15 +524,19 @@ export default function CampaignDetail() {
                 <span className="text-muted-foreground">Audience</span>
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-muted-foreground" />
-                  {campaign.segmentId ? (
-                    <Link href={`/segments/${campaign.segmentId}`}>
-                      <span
-                        className="font-medium hover:text-primary hover:underline"
-                        data-testid="text-segment"
-                      >
-                        {segment?.name || "Unknown"}
-                      </span>
-                    </Link>
+                  {segmentIds.length ? (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {segmentIds.map((id) => (
+                        <Link key={id} href={`/segments/${id}`}>
+                          <span
+                            className="font-medium hover:text-primary hover:underline"
+                            data-testid="text-segment"
+                          >
+                            {segments?.find((segment) => segment.id === id)?.name || "Unknown"}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
                   ) : (
                     <span className="font-medium" data-testid="text-segment">
                       All subscribers

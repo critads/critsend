@@ -281,6 +281,18 @@ async function compileSegmentWhere(segmentId: string) {
   return compileSegmentRules(normalized);
 }
 
+async function compileSegmentWheres(segmentIds: string[]) {
+  const uniqueIds = [...new Set(segmentIds.filter(Boolean))];
+  if (!uniqueIds.length) return new Map<string, ReturnType<typeof compileSegmentRules>>();
+  const found = await getSegmentsByIds(uniqueIds);
+  const compiled = new Map<string, ReturnType<typeof compileSegmentRules>>();
+  for (const segment of found) {
+    const normalized = normalizeRules(segment.rules);
+    if (normalized) compiled.set(segment.id, compileSegmentRules(normalized));
+  }
+  return compiled;
+}
+
 export async function getSubscribersForSegmentCursor(
   segmentId: string,
   limit: number,
@@ -312,6 +324,34 @@ export async function getSubscribersForSegmentCursor(
     ).orderBy(subscribers.id).limit(limit);
   }
   return db.select().from(subscribers).where(baseCondition).orderBy(subscribers.id).limit(limit);
+}
+
+/** Union audience for ordered campaign inclusions. OR is evaluated in one
+ * subscriber query, so an address matching several segments is emitted once. */
+export async function getSubscribersForSegmentsCursor(
+  segmentIds: string[],
+  limit: number,
+  afterId?: string,
+  excludeSegmentId?: string,
+): Promise<Subscriber[]> {
+  const ids = [...new Set(segmentIds.filter(Boolean))];
+  if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return [];
+  const compiled = await compileSegmentWheres([...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
+  const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
+  if (!includes.length) return [];
+  const conditions: any[] = [
+    not(sql`'BCK' = ANY(${subscribers.tags})`),
+    sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+    or(...includes),
+  ];
+  if (excludeSegmentId) {
+    const exclude = compiled.get(excludeSegmentId);
+    if (exclude) conditions.push(not(exclude));
+  }
+  const base = and(...conditions);
+  return db.select().from(subscribers)
+    .where(afterId ? and(base, sql`${subscribers.id} > ${afterId}`) : base)
+    .orderBy(subscribers.id).limit(limit);
 }
 
 // ─── Auto-resend to openers (Task #56) ───────────────────────────────────
@@ -392,6 +432,28 @@ export async function countSubscribersForSegment(
     .from(subscribers)
     .where(and(...conditions));
 
+  return Number(count);
+}
+
+export async function countSubscribersForSegments(
+  segmentIds: string[],
+  excludeSegmentId?: string,
+): Promise<number> {
+  const ids = [...new Set(segmentIds.filter(Boolean))];
+  if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return 0;
+  const compiled = await compileSegmentWheres([...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
+  const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
+  if (!includes.length) return 0;
+  const conditions: any[] = [
+    not(sql`'BCK' = ANY(${subscribers.tags})`),
+    sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+    or(...includes),
+  ];
+  if (excludeSegmentId) {
+    const exclude = compiled.get(excludeSegmentId);
+    if (exclude) conditions.push(not(exclude));
+  }
+  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(subscribers).where(and(...conditions));
   return Number(count);
 }
 

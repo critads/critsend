@@ -312,6 +312,24 @@ export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
     references: [segments.id],
   }),
   stats: many(campaignStats),
+  audienceSegments: many(campaignSegments),
+}));
+
+// Ordered inclusion audience for a campaign. `campaigns.segment_id` remains
+// the first (legacy) selection so older clients and integrations continue to
+// work; this table is the canonical multi-segment representation.
+export const campaignSegments = pgTable("campaign_segments", {
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  segmentId: varchar("segment_id").notNull().references(() => segments.id, { onDelete: "restrict" }),
+  position: integer("position").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.campaignId, table.segmentId], name: "campaign_segments_pkey" }),
+  orderIdx: uniqueIndex("campaign_segments_campaign_position_idx").on(table.campaignId, table.position),
+}));
+
+export const campaignSegmentsRelations = relations(campaignSegments, ({ one }) => ({
+  campaign: one(campaigns, { fields: [campaignSegments.campaignId], references: [campaigns.id] }),
+  segment: one(segments, { fields: [campaignSegments.segmentId], references: [segments.id] }),
 }));
 
 // Campaign statistics (opens, clicks)
@@ -816,6 +834,10 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   htmlContent: z.string().max(5000000, "Content too large").optional().default(""),
   mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  segmentIds: z.array(z.string().min(1)).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Audience segments must be unique",
+  ).optional(),
   excludeSegmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   status: z.string().optional().default("draft"),
@@ -843,6 +865,10 @@ export const updateCampaignDraftSchema = z.object({
   htmlContent: z.string().max(5000000).optional(),
   mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  segmentIds: z.array(z.string().min(1)).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Audience segments must be unique",
+  ).optional(),
   excludeSegmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   trackClicks: z.boolean().optional(),
   trackOpens: z.boolean().optional(),
@@ -908,7 +934,7 @@ export type InsertMta = z.infer<typeof insertMtaSchema>;
 export type EmailHeader = typeof emailHeaders.$inferSelect;
 export type InsertEmailHeader = z.infer<typeof insertEmailHeaderSchema>;
 
-export type Campaign = typeof campaigns.$inferSelect;
+export type Campaign = typeof campaigns.$inferSelect & { segmentIds?: string[] };
 export type CampaignListItem = Campaign & {
   mtaName: string | null;
   // Live count of sends currently held by the Marketing Pressure Guard for

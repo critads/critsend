@@ -105,6 +105,7 @@ export default function CampaignNew() {
     // Step-by-step sending (Task #242). null = no limit.
     stepSendLimit: null,
   });
+  const segmentIds: string[] = (formData as any).segmentIds ?? (formData.segmentId ? [formData.segmentId] : []);
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
   const [htmlLoaded, setHtmlLoaded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -236,11 +237,8 @@ export default function CampaignNew() {
   });
 
   const countMutation = useMutation({
-    mutationFn: async (params: { segmentId: string; excludeSegmentId?: string | null }) => {
-      const url = params.excludeSegmentId
-        ? `/api/segments/${params.segmentId}/count?exclude=${encodeURIComponent(params.excludeSegmentId)}`
-        : `/api/segments/${params.segmentId}/count`;
-      const res = await apiRequest("GET", url);
+    mutationFn: async (params: { segmentIds: string[]; excludeSegmentId?: string | null }) => {
+      const res = await apiRequest("POST", "/api/segments/count", params);
       return res.json();
     },
     onSuccess: (data: { count: number }) => {
@@ -249,15 +247,15 @@ export default function CampaignNew() {
   });
 
   useEffect(() => {
-    if (formData.segmentId) {
+    if (segmentIds.length) {
       countMutation.mutate({
-        segmentId: formData.segmentId,
+        segmentIds,
         excludeSegmentId: formData.excludeSegmentId || null,
       });
     } else {
       setSubscriberCount(null);
     }
-  }, [formData.segmentId, formData.excludeSegmentId]);
+  }, [segmentIds.join(","), formData.excludeSegmentId]);
 
   const showSavedIndicator = () => {
     setSavedIndicator(true);
@@ -465,7 +463,7 @@ export default function CampaignNew() {
     if (!formData.fromName) missing.push("From Name");
     if (!formData.fromEmail) missing.push("From Email");
     if (!formData.mtaId) missing.push("Sending Server");
-    if (!formData.segmentId) missing.push("Segment");
+    if (!segmentIds.length) missing.push("Segment");
     if (!formData.subject) missing.push("Subject Line");
     if (!formData.htmlContent) missing.push("HTML Content");
     return missing;
@@ -509,7 +507,7 @@ export default function CampaignNew() {
               campaignName={formData.name}
               excludeId={campaignId}
               onSelect={(segmentId) => {
-                updateField("segmentId", segmentId);
+                if (!segmentIds.includes(segmentId)) setFormData((old: any) => ({ ...old, segmentIds: [...segmentIds, segmentId], segmentId: segmentIds[0] ?? segmentId }));
                 if (formData.excludeSegmentId === segmentId) {
                   updateField("excludeSegmentId", "");
                 }
@@ -630,19 +628,22 @@ export default function CampaignNew() {
         // include id so the user can't pick the same segment on both sides
         // (also enforced server-side with a 400).
         const excludeOpen = showExclusion || !!formData.excludeSegmentId;
-        const excludeChoices = (segments ?? []).filter((s) => s.id !== formData.segmentId);
+         const excludeChoices = (segments ?? []).filter((s) => !segmentIds.includes(s.id));
         return (
           <div className="space-y-6">
             <div className="space-y-2">
-              <Label>Select Segment *</Label>
+               <Label>Select Segments *</Label>
               {loadingSegments ? (
                 <Skeleton className="h-10 w-full" />
               ) : segments && segments.length > 0 ? (
                 <SegmentCombobox
                   segments={segments}
                   value={formData.segmentId || ""}
-                  onChange={(v) => {
-                    updateField("segmentId", v);
+                   multiple
+                   values={segmentIds}
+                   onChange={(v) => {
+                     const next = segmentIds.includes(v) ? segmentIds.filter((id) => id !== v) : [...segmentIds, v];
+                     setFormData((old: any) => ({ ...old, segmentIds: next, segmentId: next[0] ?? "" }));
                     // If the user picks the same segment as the exclusion,
                     // clear the exclusion to avoid an empty audience.
                     if (v && formData.excludeSegmentId === v) {
@@ -661,7 +662,7 @@ export default function CampaignNew() {
               )}
             </div>
 
-            {segments && segments.length > 1 && formData.segmentId && (
+             {segments && segments.length > 1 && segmentIds.length > 0 && (
               <div className="space-y-2">
                 {!excludeOpen ? (
                   <Button
@@ -712,7 +713,7 @@ export default function CampaignNew() {
                   <div>
                     <p className="text-2xl font-bold" data-testid="text-subscriber-count">{subscriberCount.toLocaleString()}</p>
                     <p className="text-sm text-muted-foreground">
-                      {excludeOpen ? "subscribers after exclusion" : "subscribers in this segment"}
+                      {excludeOpen ? "unique subscribers after exclusion" : "unique subscribers across selected segments"}
                     </p>
                   </div>
                 </CardContent>
@@ -1135,17 +1136,10 @@ export default function CampaignNew() {
         <div className="flex-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl font-bold tracking-tight">Create Campaign</h1>
-            {formData.segmentId ? (
-              <Link href={`/segments/${formData.segmentId}`}>
-                <Badge
-                  variant="outline"
-                  className="gap-1 cursor-pointer hover:bg-muted"
-                  data-testid="badge-header-segment"
-                >
-                  <Filter className="h-3 w-3" />
-                  {segments?.find((s) => s.id === formData.segmentId)?.name ?? "Segment"}
-                </Badge>
-              </Link>
+            {segmentIds.length ? (
+              segmentIds.map((id) => <Link key={id} href={`/segments/${id}`}><Badge variant="outline" className="gap-1 cursor-pointer hover:bg-muted" data-testid="badge-header-segment">
+                <Filter className="h-3 w-3" />{segments?.find((s) => s.id === id)?.name ?? "Segment"}
+              </Badge></Link>)
             ) : (
               <Badge variant="outline" className="gap-1" data-testid="badge-header-segment">
                 <Filter className="h-3 w-3" />

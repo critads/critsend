@@ -16,6 +16,42 @@ describe("Task #138 — exclusion segment schema", () => {
   };
 
   describe("insertCampaignDraftSchema", () => {
+    it("accepts multiple unique audience segments", () => {
+      const r = insertCampaignDraftSchema.safeParse({
+        ...baseDraft,
+        segmentIds: ["seg_main", "seg_secondary"],
+      });
+      expect(r.success).toBe(true);
+      if (r.success) {
+        expect(r.data.segmentIds).toEqual(["seg_main", "seg_secondary"]);
+      }
+    });
+
+    it("keeps legacy drafts without segmentIds compatible", () => {
+      const r = insertCampaignDraftSchema.safeParse(baseDraft);
+      expect(r.success).toBe(true);
+      if (r.success) {
+        expect("segmentIds" in r.data).toBe(false);
+      }
+    });
+
+    it("rejects duplicate audience segment IDs", () => {
+      const r = insertCampaignDraftSchema.safeParse({
+        ...baseDraft,
+        segmentIds: ["seg_main", "seg_main"],
+      });
+      expect(r.success).toBe(false);
+    });
+
+    it("allows an incomplete draft to have no selected audience yet", () => {
+      const r = insertCampaignDraftSchema.safeParse({
+        ...baseDraft,
+        segmentId: null,
+        segmentIds: [],
+      });
+      expect(r.success).toBe(true);
+    });
+
     it("accepts a draft with no excludeSegmentId", () => {
       const r = insertCampaignDraftSchema.safeParse(baseDraft);
       expect(r.success).toBe(true);
@@ -59,6 +95,25 @@ describe("Task #138 — exclusion segment schema", () => {
   });
 
   describe("updateCampaignDraftSchema", () => {
+    it("accepts a PATCH with multiple unique audience segments", () => {
+      const r = updateCampaignDraftSchema.safeParse({
+        segmentIds: ["seg_main", "seg_secondary"],
+      });
+      expect(r.success).toBe(true);
+    });
+
+    it("rejects a PATCH with duplicate audience segment IDs", () => {
+      const r = updateCampaignDraftSchema.safeParse({
+        segmentIds: ["seg_main", "seg_main"],
+      });
+      expect(r.success).toBe(false);
+    });
+
+    it("allows clearing all audience segments while the campaign is still a draft", () => {
+      const r = updateCampaignDraftSchema.safeParse({ segmentIds: [] });
+      expect(r.success).toBe(true);
+    });
+
     it("accepts a PATCH that clears the exclusion via empty string", () => {
       const r = updateCampaignDraftSchema.safeParse({ excludeSegmentId: "" });
       expect(r.success).toBe(true);

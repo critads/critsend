@@ -196,6 +196,30 @@ export function registerSegmentRoutes(app: Express, helpers: {
     }
   });
 
+  // Task #251: union count for campaign wizards. Subscriber rows are queried
+  // once with OR-composed rules, so overlap is naturally deduplicated.
+  app.post("/api/segments/count", async (req: Request, res: Response) => {
+    try {
+      const segmentIds = req.body?.segmentIds;
+      const excludeSegmentId = req.body?.excludeSegmentId || undefined;
+      if (!Array.isArray(segmentIds) || !segmentIds.length || segmentIds.some((id) => !validateId(id)) ||
+          new Set(segmentIds).size !== segmentIds.length) {
+        return res.status(400).json({ error: "segmentIds must be a unique non-empty list of valid IDs" });
+      }
+      if (excludeSegmentId && (!validateId(excludeSegmentId) || segmentIds.includes(excludeSegmentId))) {
+        return res.status(400).json({ error: "Exclusion segment cannot be the same as an audience segment" });
+      }
+      const found = await storage.getSegmentsByIds([...segmentIds, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
+      if (found.length !== segmentIds.length + (excludeSegmentId ? 1 : 0)) {
+        return res.status(400).json({ error: "One or more segments do not exist" });
+      }
+      res.json({ count: await storage.countSubscribersForSegments(segmentIds, excludeSegmentId) });
+    } catch (error) {
+      logger.error("Error counting multi-segment subscribers:", error);
+      res.status(500).json({ error: "Failed to count segment subscribers" });
+    }
+  });
+
   app.post("/api/segments", async (req: Request, res: Response) => {
     try {
       const data = insertSegmentSchema.parse(req.body);

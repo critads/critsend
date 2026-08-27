@@ -97,6 +97,7 @@ export default function CampaignEdit() {
     followUpEnabled: false,
     followUpDelayHours: 36,
   });
+  const segmentIds: string[] = (formData as any).segmentIds ?? (formData.segmentId ? [formData.segmentId] : []);
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
   const [htmlLoaded, setHtmlLoaded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -137,6 +138,7 @@ export default function CampaignEdit() {
         name: campaign.name || "",
         mtaId: campaign.mtaId || "",
         segmentId: campaign.segmentId || "",
+        segmentIds: (campaign as any).segmentIds ?? (campaign.segmentId ? [campaign.segmentId] : []),
         excludeSegmentId: campaign.excludeSegmentId || "",
         fromName: campaign.fromName || "",
         fromEmail: campaign.fromEmail || "",
@@ -162,7 +164,7 @@ export default function CampaignEdit() {
         followUpDelayHours: campaign.followUpDelayHours ?? 36,
         // Step-by-step sending (Task #242)
         stepSendLimit: (campaign as any).stepSendLimit ?? null,
-      });
+      } as any);
       if (campaign.htmlContent) {
         setHtmlLoaded(true);
       }
@@ -275,11 +277,8 @@ export default function CampaignEdit() {
   });
 
   const countMutation = useMutation({
-    mutationFn: async (params: { segmentId: string; excludeSegmentId?: string | null }) => {
-      const url = params.excludeSegmentId
-        ? `/api/segments/${params.segmentId}/count?exclude=${encodeURIComponent(params.excludeSegmentId)}`
-        : `/api/segments/${params.segmentId}/count`;
-      const res = await apiRequest("GET", url);
+    mutationFn: async (params: { segmentIds: string[]; excludeSegmentId?: string | null }) => {
+      const res = await apiRequest("POST", "/api/segments/count", params);
       return res.json();
     },
     onSuccess: (data: { count: number }) => {
@@ -288,15 +287,15 @@ export default function CampaignEdit() {
   });
 
   useEffect(() => {
-    if (formData.segmentId) {
+    if (segmentIds.length) {
       countMutation.mutate({
-        segmentId: formData.segmentId,
+        segmentIds,
         excludeSegmentId: formData.excludeSegmentId || null,
       });
     } else {
       setSubscriberCount(null);
     }
-  }, [formData.segmentId, formData.excludeSegmentId]);
+  }, [segmentIds.join(","), formData.excludeSegmentId]);
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<InsertCampaign>) =>
@@ -609,7 +608,7 @@ export default function CampaignEdit() {
               campaignName={formData.name}
               excludeId={campaignId}
               onSelect={(segmentId) => {
-                updateField("segmentId", segmentId);
+                if (!segmentIds.includes(segmentId)) setFormData((old: any) => ({ ...old, segmentIds: [...segmentIds, segmentId], segmentId: segmentIds[0] ?? segmentId }));
                 if (formData.excludeSegmentId === segmentId) {
                   updateField("excludeSegmentId", "");
                 }
@@ -726,19 +725,22 @@ export default function CampaignEdit() {
         // Reveal flag is independent of value: the "+ Add" button only
         // opens an empty selector — selection must be explicit.
         const excludeOpen = showExclusion || !!formData.excludeSegmentId;
-        const excludeChoices = (segments ?? []).filter((s) => s.id !== formData.segmentId);
+         const excludeChoices = (segments ?? []).filter((s) => !segmentIds.includes(s.id));
         return (
           <div className="space-y-6">
             <div className="space-y-2">
-              <Label>Select Segment *</Label>
+               <Label>Select Segments *</Label>
               {loadingSegments ? (
                 <Skeleton className="h-10 w-full" />
               ) : segments && segments.length > 0 ? (
                 <SegmentCombobox
                   segments={segments}
                   value={formData.segmentId || ""}
+                   multiple
+                   values={segmentIds}
                   onChange={(v) => {
-                    updateField("segmentId", v);
+                     const next = segmentIds.includes(v) ? segmentIds.filter((id) => id !== v) : [...segmentIds, v];
+                     setFormData((old: any) => ({ ...old, segmentIds: next, segmentId: next[0] ?? "" }));
                     if (v && formData.excludeSegmentId === v) {
                       updateField("excludeSegmentId", "");
                     }
@@ -755,7 +757,7 @@ export default function CampaignEdit() {
               )}
             </div>
 
-            {segments && segments.length > 1 && formData.segmentId && (
+             {segments && segments.length > 1 && segmentIds.length > 0 && (
               <div className="space-y-2">
                 {!excludeOpen ? (
                   <Button
@@ -806,7 +808,7 @@ export default function CampaignEdit() {
                   <div>
                     <p className="text-2xl font-bold">{subscriberCount.toLocaleString()}</p>
                     <p className="text-sm text-muted-foreground">
-                      {excludeOpen ? "subscribers after exclusion" : "subscribers in this segment"}
+                      {excludeOpen ? "unique subscribers after exclusion" : "unique subscribers across selected segments"}
                     </p>
                   </div>
                 </CardContent>
@@ -1262,17 +1264,10 @@ export default function CampaignEdit() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl font-bold tracking-tight">Edit Campaign</h1>
-            {formData.segmentId ? (
-              <Link href={`/segments/${formData.segmentId}`}>
-                <Badge
-                  variant="outline"
-                  className="gap-1 cursor-pointer hover:bg-muted"
-                  data-testid="badge-header-segment"
-                >
-                  <Filter className="h-3 w-3" />
-                  {segments?.find((s) => s.id === formData.segmentId)?.name ?? "Segment"}
-                </Badge>
-              </Link>
+            {segmentIds.length ? (
+              segmentIds.map((id) => <Link key={id} href={`/segments/${id}`}><Badge variant="outline" className="gap-1 cursor-pointer hover:bg-muted" data-testid="badge-header-segment">
+                <Filter className="h-3 w-3" />{segments?.find((s) => s.id === id)?.name ?? "Segment"}
+              </Badge></Link>)
             ) : (
               <Badge variant="outline" className="gap-1" data-testid="badge-header-segment">
                 <Filter className="h-3 w-3" />

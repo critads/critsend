@@ -362,7 +362,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // for everything else.
   const total = isFollowUp
     ? await storage.countOpenersForParentCampaign(campaign.parentCampaignId!)
-    : await storage.countSubscribersForSegment(campaign.segmentId!, campaign.excludeSegmentId ?? undefined);
+    : await storage.countSubscribersForSegments((campaign as any).segmentIds ?? [campaign.segmentId!], campaign.excludeSegmentId ?? undefined);
   if (isFollowUp) {
     logger.info(`${logPrefix} Follow-up of parent '${campaign.parentCampaignId}' — ${total} openers eligible`);
   } else if (campaign.excludeSegmentId) {
@@ -677,7 +677,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     if (isFollowUp) {
       return storage.getOpenersForParentCampaignCursor(campaign!.parentCampaignId!, BATCH_SIZE, cursor);
     }
-    return storage.getSubscribersForSegmentCursor(campaign!.segmentId!, BATCH_SIZE, cursor, campaign!.excludeSegmentId ?? undefined);
+    return storage.getSubscribersForSegmentsCursor((campaign as any).segmentIds ?? [campaign!.segmentId!], BATCH_SIZE, cursor, campaign!.excludeSegmentId ?? undefined);
   }
 
   function startPrefetch(cursor: string | undefined): void {
