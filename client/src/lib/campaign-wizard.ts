@@ -138,6 +138,7 @@ export function updateCampaignNameMtaSuffix(
   campaignName: string,
   selectedMta: MtaNameSource | undefined,
   mtas: MtaNameSource[],
+  options: { appendIfMissing?: boolean } = {},
 ): string {
   const nextMtaName = selectedMta?.name.trim();
   if (!campaignName.trim() || !nextMtaName) return campaignName;
@@ -147,7 +148,25 @@ export function updateCampaignNameMtaSuffix(
     return `${trailingSection[1]}${trailingSection[2]}${nextMtaName}`;
   }
 
+  if (options.appendIfMissing === false) return campaignName;
   return `${campaignName.trimEnd()} - ${nextMtaName}`;
+}
+
+/**
+ * Updates an editor-managed MTA suffix without ever creating a new suffix.
+ * Once the operator has touched the name field, ownership is theirs and MTA
+ * changes must leave the value byte-for-byte unchanged.
+ */
+export function updateManagedCampaignNameMtaSuffix(
+  campaignName: string,
+  selectedMta: MtaNameSource | undefined,
+  mtas: MtaNameSource[],
+  nameWasManuallyEdited: boolean,
+): string {
+  if (nameWasManuallyEdited) return campaignName;
+  return updateCampaignNameMtaSuffix(campaignName, selectedMta, mtas, {
+    appendIfMissing: false,
+  });
 }
 
 export const steps = [

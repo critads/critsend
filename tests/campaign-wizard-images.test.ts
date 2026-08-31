@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   removeExternalImageElements,
+  updateManagedCampaignNameMtaSuffix,
   updateCampaignNameMtaSuffix,
 } from "../client/src/lib/campaign-wizard";
 
@@ -73,7 +74,7 @@ describe("updateCampaignNameMtaSuffix", () => {
     )).toBe("#3130 Comme j'aime - 5cn4YY - Rndaserver.com");
   });
 
-  it("appends the selected MTA without overwriting a campaign code", () => {
+  it("keeps the new-campaign append behavior unchanged", () => {
     expect(updateCampaignNameMtaSuffix(
       "#3130 Comme j'aime - 5cn4YY",
       mtas[2],
@@ -83,5 +84,43 @@ describe("updateCampaignNameMtaSuffix", () => {
 
   it("does not create a name from an empty field", () => {
     expect(updateCampaignNameMtaSuffix("", mtas[0], mtas)).toBe("");
+  });
+
+  it("replaces the generated suffix repeatedly while editing a copied campaign", () => {
+    const firstChange = updateManagedCampaignNameMtaSuffix(
+      "#3124 Ricaud - 3ceR1H - mayesale",
+      mtas[1],
+      mtas,
+      false,
+    );
+    const secondChange = updateManagedCampaignNameMtaSuffix(
+      firstChange,
+      mtas[2],
+      mtas,
+      false,
+    );
+
+    expect(firstChange).toBe("#3124 Ricaud - 3ceR1H - Rndaserver.com");
+    expect(secondChange).toBe("#3124 Ricaud - 3ceR1H - Kammaspeed.com");
+  });
+
+  it("does not append an MTA to an editor name without a recognized suffix", () => {
+    expect(updateManagedCampaignNameMtaSuffix(
+      "#3130 Comme j'aime - 5cn4YY",
+      mtas[2],
+      mtas,
+      false,
+    )).toBe("#3130 Comme j'aime - 5cn4YY");
+  });
+
+  it("preserves a manually edited campaign name across MTA changes", () => {
+    const customName = "#3124 Ricaud - custom operator name - mayesale";
+
+    expect(updateManagedCampaignNameMtaSuffix(
+      customName,
+      mtas[1],
+      mtas,
+      true,
+    )).toBe(customName);
   });
 });

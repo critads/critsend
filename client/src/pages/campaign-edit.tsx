@@ -50,6 +50,7 @@ import {
   findExternalImageSrcs,
   imageSrcHost,
   removeExternalImageElements,
+  updateManagedCampaignNameMtaSuffix,
 } from "@/lib/campaign-wizard";
 import {
   useMtaScheduleInsights,
@@ -110,6 +111,7 @@ export default function CampaignEdit() {
   // Default off so casual previews don't pollute analytics.
   const [trackInTest, setTrackInTest] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [campaignNameManuallyEdited, setCampaignNameManuallyEdited] = useState(false);
   // Task #138: tracks whether the exclusion combobox is revealed.
   // Initialised to true once the loaded campaign already has an
   // exclusion set; otherwise false (the user must click "+ Add").
@@ -453,6 +455,12 @@ export default function CampaignEdit() {
     setFormData(prev => ({
       ...prev,
       mtaId,
+      name: updateManagedCampaignNameMtaSuffix(
+        prev.name ?? "",
+        selectedMta,
+        mtas ?? [],
+        campaignNameManuallyEdited,
+      ),
       ...(selectedMta?.fromName ? { fromName: selectedMta.fromName } : {}),
       ...(selectedMta?.fromEmail ? { fromEmail: selectedMta.fromEmail, replyEmail: selectedMta.fromEmail } : {}),
       ...(selectedMta?.unsubscribeText ? { unsubscribeText: selectedMta.unsubscribeText } : {}),
@@ -620,7 +628,10 @@ export default function CampaignEdit() {
                 id="campaign-name"
                 placeholder="e.g., March Newsletter"
                 value={formData.name}
-                onChange={(e) => updateField("name", e.target.value)}
+                onChange={(e) => {
+                  setCampaignNameManuallyEdited(true);
+                  updateField("name", e.target.value);
+                }}
                 data-testid="input-campaign-name"
               />
             </div>
