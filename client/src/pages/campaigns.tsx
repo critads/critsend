@@ -87,6 +87,11 @@ import {
 } from "lucide-react";
 import type { Campaign, CampaignListItem, ErrorLog, Segment } from "@shared/schema";
 import { CampaignProgress } from "@/components/campaign-progress";
+import {
+  formatParisDateTime,
+  getParisCalendarRangeBounds,
+  getParisDayBounds,
+} from "@/lib/paris-time";
 
 function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; onClick?: () => void; campaignId?: string }) {
   const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }> = {
@@ -168,9 +173,8 @@ export default function Campaigns() {
   const [originalsOnly, setOriginalsOnly] = useState(false);
   // Task #188: scheduled-date filter. `dateFilter` drives the segmented
   // button group; `customRange` only matters when dateFilter === 'custom'.
-  // Bounds are computed in the browser's local timezone — Today = local
-  // midnight to local midnight + 24h — so a French operator sees campaigns
-  // scheduled "today" by their wall clock, not UTC.
+  // Date labels and filter boundaries are always resolved in Europe/Paris,
+  // independently of the timezone configured on the operator's computer.
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "yesterday" | "custom">("all");
   const [customRange, setCustomRange] = useState<DateRange | undefined>(undefined);
   const [customPopoverOpen, setCustomPopoverOpen] = useState(false);
@@ -214,35 +218,15 @@ export default function Campaigns() {
   // we don't want to send a partial filter that would surprise the user).
   const dateBounds = useMemo<{ from: string | null; to: string | null }>(() => {
     if (dateFilter === "all") return { from: null, to: null };
-    // Use calendar-day arithmetic (setDate) rather than `+ 24*60*60*1000` so
-    // we get correct local-day [from, to) boundaries across DST transitions
-    // (a "day" can be 23h or 25h on switch days — fixed-millisecond math
-    // would mis-bucket campaigns by ±1h on those days).
-    const startOfDay = (d: Date) => {
-      const x = new Date(d);
-      x.setHours(0, 0, 0, 0);
-      return x;
-    };
-    const addDays = (d: Date, n: number) => {
-      const x = new Date(d);
-      x.setDate(x.getDate() + n);
-      return x;
-    };
     if (dateFilter === "today") {
-      const from = startOfDay(new Date());
-      const to = addDays(from, 1);
-      return { from: from.toISOString(), to: to.toISOString() };
+      return getParisDayBounds(new Date());
     }
     if (dateFilter === "yesterday") {
-      const todayStart = startOfDay(new Date());
-      const from = addDays(todayStart, -1);
-      return { from: from.toISOString(), to: todayStart.toISOString() };
+      return getParisDayBounds(new Date(), -1);
     }
     // custom: require both ends; the upper bound is exclusive next-day start.
     if (dateFilter === "custom" && customRange?.from && customRange?.to) {
-      const from = startOfDay(customRange.from);
-      const to = addDays(startOfDay(customRange.to), 1);
-      return { from: from.toISOString(), to: to.toISOString() };
+      return getParisCalendarRangeBounds(customRange.from, customRange.to);
     }
     return { from: null, to: null };
   }, [dateFilter, customRange]);
@@ -979,7 +963,7 @@ export default function Campaigns() {
                                 ? campaigns?.find((c) => c.id === campaign.followUpCampaignId)
                                 : null;
                               const when = child?.scheduledAt
-                                ? new Date(child.scheduledAt).toLocaleString()
+                                ? formatParisDateTime(child.scheduledAt)
                                 : null;
                               return (
                                 <Badge variant="outline" className="text-xs" data-testid={`badge-has-followup-${campaign.id}`}>
@@ -1094,13 +1078,13 @@ export default function Campaigns() {
                           {campaign.scheduledAt && (
                             <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-scheduled-${campaign.id}`}>
                               <span className="font-medium text-foreground/70">Scheduled</span>
-                              <span>{new Date(campaign.scheduledAt).toLocaleString()}</span>
+                              <span>{formatParisDateTime(campaign.scheduledAt)}</span>
                             </div>
                           )}
                           {campaign.createdAt && (
                             <div className="flex items-center gap-1 text-muted-foreground" data-testid={`text-created-${campaign.id}`}>
                               <span className="font-medium text-foreground/70">Created</span>
-                              <span>{new Date(campaign.createdAt).toLocaleString()}</span>
+                              <span>{formatParisDateTime(campaign.createdAt)}</span>
                             </div>
                           )}
                         </div>

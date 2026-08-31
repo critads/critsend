@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, X, Calendar } from "lucide-react";
+import { fromParisTime, toParisDate } from "@/lib/paris-time";
 
 interface DateTimePickerProps {
   value: Date | null;
@@ -13,43 +14,6 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-function toParisDate(date: Date): { year: number; month: number; day: number; hours: number; minutes: number } {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Europe/Paris",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(date);
-
-  const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value || "0", 10);
-  return {
-    year: get("year"),
-    month: get("month"),
-    day: get("day"),
-    hours: get("hour") === 24 ? 0 : get("hour"),
-    minutes: get("minute"),
-  };
-}
-
-function fromParisTime(year: number, month: number, day: number, hours: number, minutes: number): Date {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const localStr = `${year}-${pad(month)}-${pad(day)}T${pad(hours)}:${pad(minutes)}:00`;
-
-  const guessUtc = new Date(localStr + "Z");
-  for (const offsetMinutes of [60, 120]) {
-    const candidate = new Date(guessUtc.getTime() - offsetMinutes * 60000);
-    const check = toParisDate(candidate);
-    if (check.year === year && check.month === month && check.day === day && check.hours === hours && check.minutes === minutes) {
-      return candidate;
-    }
-  }
-
-  return new Date(localStr + "+01:00");
-}
 
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();

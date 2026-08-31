@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import type { Campaign, Mta, Segment } from "@shared/schema";
 import { CampaignProgress, computeProgressBreakdown } from "@/components/campaign-progress";
+import { formatParisDateTime } from "@/lib/paris-time";
 
 // The campaign detail endpoint returns a base Campaign row PLUS the live
 // `pressureHeldCount` subquery (same field exposed on the list endpoint —
@@ -228,7 +229,7 @@ function FollowUpLinkCard({ campaign }: { campaign: Campaign }) {
     );
   }
   if (isParentView) {
-    const when = linked?.scheduledAt ? new Date(linked.scheduledAt).toLocaleString() : null;
+    const when = linked?.scheduledAt ? formatParisDateTime(linked.scheduledAt) : null;
     return (
       <Card data-testid="card-followup-link">
         <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
@@ -559,7 +560,7 @@ export default function CampaignDetail() {
                 <span className="text-muted-foreground">Scheduled</span>
                 <span className="font-medium" data-testid="text-scheduled">
                   {campaign.scheduledAt
-                    ? new Date(campaign.scheduledAt).toLocaleString()
+                    ? formatParisDateTime(campaign.scheduledAt)
                     : "Not scheduled"}
                 </span>
               </div>
@@ -689,7 +690,7 @@ export default function CampaignDetail() {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Retries Until</span>
                       <span className="font-medium">
-                        {new Date(campaign.retryUntil).toLocaleString()}
+                        {formatParisDateTime(campaign.retryUntil)}
                       </span>
                     </div>
                   </>
