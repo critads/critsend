@@ -26,6 +26,7 @@ import {
 } from "./tracking-partitions";
 import { msUntilNextHourInTz } from "./lib/daily-schedule";
 import { truncateIfSafe } from "./services/import-staging-purge";
+import { stopAutomaticReplayForFinalizationFailure } from "./services/campaign-job-error-policy";
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -772,6 +773,14 @@ async function handleJobCompletion(job: CampaignJob) {
 }
 
 async function handleJobError(job: CampaignJob, error: any) {
+  if (await stopAutomaticReplayForFinalizationFailure(job, error)) {
+    logger.error(
+      `[JOB_POLL] Campaign ${job.campaignId} has unresolved finalization writes; `
+      + `job closed without automatic replay to prevent duplicate SMTP delivery`,
+    );
+    return;
+  }
+
   const jobRetryCount = (job as any).retryCount || 0;
   const errMsg = (error?.message || String(error || '')).toString();
 

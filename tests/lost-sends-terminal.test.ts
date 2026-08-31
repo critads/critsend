@@ -4,10 +4,9 @@
  * `tieredFinalizeFallback` (campaign-sender) is the last line of defense
  * when a bulk finalize write fails: tiered batch retries, then individual
  * `finalizeSend`, then `forceFailPendingSend`. If even the force-fail
- * write fails, the row is counted as "lost" and the function MUST still
- * resolve (never throw): a throw here would crash the send loop and
- * re-process already-sent rows — exactly the duplicate-send scenario the
- * Zero-Duplicate guard exists to prevent.
+ * write fails, the fallback throws a dedicated non-transient durability error.
+ * The sender marks the campaign failed and does not advance a step cursor or
+ * automatically replay possibly-delivered SMTP outcomes.
  *
  * The storage layer is fully mocked; no database required.
  */
@@ -59,13 +58,17 @@ beforeEach(() => {
 });
 
 describe("tieredFinalizeFallback — terminal handling of lost sends", () => {
-  it("resolves (never throws) even when every write path fails — rows counted lost", async () => {
+  it("rejects with a durability error when every write path fails", async () => {
     bulkFinalizeSends.mockRejectedValue(new Error("bulk down"));
     finalizeSend.mockRejectedValue(new Error("row write down"));
     forceFailPendingSend.mockRejectedValue(new Error("force-fail down"));
 
     const ids = ["s1", "s2", "f1"];
-    await expect(callFallback(["s1", "s2"], ["f1"])).resolves.toBeUndefined();
+    await expect(callFallback(["s1", "s2"], ["f1"])).rejects.toMatchObject({
+      name: "FinalizationDurabilityError",
+      lostRowCount: ids.length,
+      senderFinalizationIncomplete: true,
+    });
 
     // Every row went through the individual path then the force-fail path.
     expect(finalizeSend).toHaveBeenCalledTimes(ids.length);
@@ -81,6 +84,18 @@ describe("tieredFinalizeFallback — terminal handling of lost sends", () => {
 
     await expect(callFallback(["a"], ["b"])).resolves.toBeUndefined();
     expect(forceFailPendingSend).toHaveBeenCalledTimes(2);
+  }, 30000);
+
+  it("treats a false force-fail result as unresolved durability", async () => {
+    bulkFinalizeSends.mockRejectedValue(new Error("bulk down"));
+    finalizeSend.mockRejectedValue(new Error("row write down"));
+    forceFailPendingSend.mockResolvedValue(false);
+
+    await expect(callFallback(["attempting-row"], [])).rejects.toMatchObject({
+      name: "FinalizationDurabilityError",
+      lostRowCount: 1,
+      senderFinalizationIncomplete: true,
+    });
   }, 30000);
 
   it("marks ambiguous rows terminal with outcomeClass 'ambiguous' on both fallback writes", async () => {

@@ -10,7 +10,12 @@ import { db, pool } from "../db";
 import { eq, desc, sql } from "drizzle-orm";
 import { logger } from "../logger";
 import bcrypt from "bcrypt";
-import { getCampaign, getUniqueOpenCount, getUniqueClickCount } from "./campaign-repository";
+import {
+  getCampaign,
+  getCampaignSendStateTotals,
+  getUniqueOpenCount,
+  getUniqueClickCount,
+} from "./campaign-repository";
 import { getSubscriber } from "./subscriber-repository";
 import { mapWithConcurrency } from "../utils";
 
@@ -528,7 +533,8 @@ export async function getCampaignAnalytics(campaignId: string) {
   const campaign = await getCampaign(campaignId);
   if (!campaign) return undefined;
 
-  const [uniqueOpeners, uniqueClickers, topIpsResult, unsubscribeResult] = await Promise.all([
+  const [sendState, uniqueOpeners, uniqueClickers, topIpsResult, unsubscribeResult] = await Promise.all([
+    getCampaignSendStateTotals(campaignId),
     getUniqueOpenCount(campaignId),
     getUniqueClickCount(campaignId),
     db.execute(sql`
@@ -606,13 +612,14 @@ export async function getCampaignAnalytics(campaignId: string) {
 
   return {
     campaign,
+    sendState,
     totalOpens: uniqueOpeners,
     uniqueOpens: uniqueOpeners,
     totalClicks: uniqueClickers,
     uniqueClicks: uniqueClickers,
     unsubscribeCount,
-    openRate: campaign.sentCount > 0 ? (uniqueOpeners / campaign.sentCount) * 100 : 0,
-    clickRate: campaign.sentCount > 0 ? (uniqueClickers / campaign.sentCount) * 100 : 0,
+    openRate: sendState.sent > 0 ? (uniqueOpeners / sendState.sent) * 100 : 0,
+    clickRate: sendState.sent > 0 ? (uniqueClickers / sendState.sent) * 100 : 0,
     topLinks,
     topOpenerIps,
     recentActivity,

@@ -26,6 +26,7 @@ import type {
   InsertDbMaintenanceRule,
   DbMaintenanceLog,
   CampaignListItem,
+  CampaignSendStateTotals,
 } from "@shared/schema";
 import type { SegmentRulesV2 } from "@shared/schema";
 import type { LockResult } from "./bootstrap-lock";
@@ -167,6 +168,7 @@ export interface IStorage {
   getCampaignSend(campaignId: string, subscriberId: string): Promise<CampaignSend | undefined>;
   getUniqueOpenCount(campaignId: string): Promise<number>;
   getUniqueClickCount(campaignId: string): Promise<number>;
+  getCampaignSendStateTotals(campaignId: string): Promise<CampaignSendStateTotals>;
 
   // ═══════════════════════════════════════════════════════════════
   // CAMPAIGN LINKS
@@ -347,8 +349,10 @@ export interface IStorage {
   }>>;
   getCampaignAnalytics(campaignId: string): Promise<{
     campaign: Campaign; totalOpens: number; uniqueOpens: number; totalClicks: number; uniqueClicks: number;
-    openRate: number; clickRate: number;
+    unsubscribeCount: number; openRate: number; clickRate: number;
+    sendState: CampaignSendStateTotals;
     topLinks: Array<{ url: string; clicks: number; uniqueClickers: number }>;
+    topOpenerIps: Array<{ ip: string; count: number }>;
     recentActivity: Array<{ email: string; type: string; timestamp: string; link?: string }>;
   } | undefined>;
   getCampaignBatchOpenStats(campaignId: string, batchSize?: number): Promise<Array<{

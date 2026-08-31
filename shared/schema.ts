@@ -935,6 +935,24 @@ export type EmailHeader = typeof emailHeaders.$inferSelect;
 export type InsertEmailHeader = z.infer<typeof insertEmailHeaderSchema>;
 
 export type Campaign = typeof campaigns.$inferSelect & { segmentIds?: string[] };
+export type CampaignSendStateTotals = {
+  /** All tracked contacts: finalized plus still pending/in flight. */
+  processed: number;
+  /** Terminal outcomes: sent plus failed (including legacy bounced rows). */
+  finalized: number;
+  sent: number;
+  failed: number;
+  /** All non-finalized rows. Deferred is a subset of this number. */
+  pending: number;
+  /** Live pressure-guard backlog: pending rows with an eligibility date. */
+  deferred: number;
+};
+export type CampaignWithSendState = Campaign & {
+  sendState: CampaignSendStateTotals;
+  /** Backward-compatible aliases used by the shared progress component. */
+  pressureHeldCount: number;
+  realPendingCount: number;
+};
 export type CampaignListItem = Campaign & {
   mtaName: string | null;
   // Live count of sends currently held by the Marketing Pressure Guard for

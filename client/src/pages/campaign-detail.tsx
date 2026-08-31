@@ -31,17 +31,9 @@ import {
   Filter,
   Gauge,
 } from "lucide-react";
-import type { Campaign, Mta, Segment } from "@shared/schema";
+import type { Campaign, CampaignWithSendState, Mta, Segment } from "@shared/schema";
 import { CampaignProgress, computeProgressBreakdown } from "@/components/campaign-progress";
 import { formatParisDateTime } from "@/lib/paris-time";
-
-// The campaign detail endpoint returns a base Campaign row PLUS the live
-// `pressureHeldCount` subquery (same field exposed on the list endpoint —
-// rows in `campaign_sends` with `status='pending' AND eligible_at IS NOT NULL`
-// for this campaign). Typed locally because the detail endpoint hasn't been
-// promoted into shared/schema.ts as its own named row type yet; aligning the
-// shape here keeps the progress bar fully typed without `as any`.
-type CampaignWithLiveCounts = Campaign & { pressureHeldCount?: number };
 
 interface SnowballStatus {
   deferred: number;
@@ -187,6 +179,52 @@ function CampaignStatusBadge({ status }: { status: string }) {
   );
 }
 
+function StepPauseResults({ campaign }: { campaign: CampaignWithSendState }) {
+  if (campaign.status !== "paused" || campaign.pauseReason !== "step_limit") return null;
+  const state = campaign.sendState;
+  const stats = [
+    ["Processed total", state.processed, "stat-step-processed"],
+    ["Finalized", state.finalized, "stat-step-finalized"],
+    ["Sent", state.sent, "stat-step-sent"],
+    ["Failed", state.failed, "stat-step-failed"],
+    ["Pending", state.pending, "stat-step-pending"],
+    ["Deferred", state.deferred, "stat-step-deferred"],
+  ] as const;
+
+  return (
+    <Card data-testid="card-step-pause-results" className="border-yellow-500/50">
+      <CardHeader>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Pause className="h-5 w-5 text-yellow-600" />
+          <CardTitle>Campaign results at this pause</CardTitle>
+          <Badge variant="outline" data-testid="badge-step-threshold">
+            {(campaign.stepProcessedCount ?? 0).toLocaleString()} / {(campaign.stepSendLimit ?? 0).toLocaleString()} this step
+          </Badge>
+        </div>
+        <CardDescription>
+          The processing limit was reached. Processed contacts include finalized sends and contacts that are still pending,
+          including those temporarily deferred by the Marketing Pressure Guard.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {stats.map(([label, value, testId]) => (
+            <div key={label} className="rounded-lg border bg-muted/30 p-3">
+              <div className="text-xs text-muted-foreground">{label}</div>
+              <div className="text-xl font-semibold tabular-nums" data-testid={testId}>
+                {value.toLocaleString()}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Deferred contacts are already included in Pending and are not counted twice.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 const sendingSpeedLabels: Record<string, string> = {
   drip: "Drip (100 emails/min)",
   very_slow: "Very Slow (250 emails/min)",
@@ -262,9 +300,13 @@ export default function CampaignDetail() {
   const [errorsPage, setErrorsPage] = useState(1);
   const ERRORS_PER_PAGE = 50;
 
-  const { data: campaign, isLoading: campaignLoading } = useQuery<CampaignWithLiveCounts>({
+  const { data: campaign, isLoading: campaignLoading } = useQuery<CampaignWithSendState>({
     queryKey: ["/api/campaigns", campaignId],
     enabled: !!campaignId,
+    refetchInterval: (query) => {
+      const current = query.state.data as CampaignWithSendState | undefined;
+      return current?.status === "sending" || current?.status === "paused" ? 10_000 : false;
+    },
   });
 
   const { data: mtas } = useQuery<Mta[]>({
@@ -425,10 +467,10 @@ export default function CampaignDetail() {
                   drift detector AND the held ⊂ pending de-overlap. */}
               {(() => {
                 const b = computeProgressBreakdown({
-                  sentCount: campaign.sentCount,
-                  failedCount: campaign.failedCount,
-                  pendingCount: campaign.pendingCount ?? 0,
-                  heldCount: campaign.pressureHeldCount ?? 0,
+                  sentCount: campaign.sendState.sent,
+                  failedCount: campaign.sendState.failed,
+                  pendingCount: campaign.sendState.pending,
+                  heldCount: campaign.sendState.deferred,
                   status: campaign.status,
                 });
                 return `${b.finalized.toLocaleString()} / ${b.total.toLocaleString()}`;
@@ -436,10 +478,10 @@ export default function CampaignDetail() {
             </span>
           </div>
           <CampaignProgress
-            sentCount={campaign.sentCount}
-            failedCount={campaign.failedCount}
-            pendingCount={campaign.pendingCount ?? 0}
-            heldCount={campaign.pressureHeldCount ?? 0}
+            sentCount={campaign.sendState.sent}
+            failedCount={campaign.sendState.failed}
+            pendingCount={campaign.sendState.pending}
+            heldCount={campaign.sendState.deferred}
             status={campaign.status}
             size="lg"
             className="w-full"
@@ -447,6 +489,8 @@ export default function CampaignDetail() {
           />
         </CardContent>
       </Card>
+
+      <StepPauseResults campaign={campaign} />
 
       {/* Auto-resend (Task #56) — show linked counterpart when present so the
           user can jump between parent and follow-up child in one click. The
@@ -641,13 +685,13 @@ export default function CampaignDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center p-4 bg-muted/50 rounded-lg">
                 <div className="text-3xl font-bold text-foreground" data-testid="stat-sent">
-                  {campaign.sentCount.toLocaleString()}
+                  {campaign.sendState.sent.toLocaleString()}
                 </div>
                 <div className="text-sm text-muted-foreground">Emails Sent</div>
               </div>
               <div className="text-center p-4 bg-muted/50 rounded-lg">
                 <div className="text-3xl font-bold text-destructive" data-testid="stat-failed">
-                  {campaign.failedCount.toLocaleString()}
+                  {campaign.sendState.failed.toLocaleString()}
                 </div>
                 <div className="text-sm text-muted-foreground">Failed</div>
               </div>

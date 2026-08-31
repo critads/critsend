@@ -55,10 +55,12 @@ import {
   CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
-import type { Campaign } from "@shared/schema";
+import type { Campaign, CampaignSendStateTotals } from "@shared/schema";
+import { getCampaignAnalyticsNotice } from "@/lib/campaign-analytics-state";
 
 interface CampaignAnalytics {
   campaign: Campaign;
+  sendState: CampaignSendStateTotals;
   totalOpens: number;
   uniqueOpens: number;
   totalClicks: number;
@@ -505,6 +507,12 @@ function BatchOpenRateCard({ campaignId }: { campaignId: string }) {
 function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
   const { data, isLoading } = useQuery<CampaignAnalytics>({
     queryKey: ["/api/analytics/campaign", campaignId],
+    refetchInterval: (query) => {
+      const current = query.state.data as CampaignAnalytics | undefined;
+      return current?.campaign.status === "sending" || current?.campaign.status === "paused"
+        ? 15_000
+        : false;
+    },
   });
 
   const { data: providerRates, isLoading: providerLoading } = useQuery<ProviderOpenRate[]>({
@@ -527,6 +535,9 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
       fetch(`/api/analytics/campaign/${campaignId}/heatmap-data`)
         .then(r => r.json()),
   });
+  const analyticsNotice = data
+    ? getCampaignAnalyticsNotice(data.sendState, data.uniqueOpens, data.uniqueClicks)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -543,6 +554,26 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
           <p className="text-muted-foreground">Campaign Analytics</p>
         </div>
       </div>
+
+      {data && analyticsNotice && (
+        <Card
+          data-testid={`card-analytics-${analyticsNotice}`}
+          className={analyticsNotice === "awaiting-finalization" ? "border-yellow-500/50" : undefined}
+        >
+          <CardHeader>
+            <CardTitle>
+              {analyticsNotice === "awaiting-finalization"
+                ? "No sends have finalized yet"
+                : "Sending results available — no engagement yet"}
+            </CardTitle>
+            <CardDescription>
+              {analyticsNotice === "awaiting-finalization"
+                ? `${data.sendState.pending.toLocaleString()} contacts are still pending, including ${data.sendState.deferred.toLocaleString()} temporarily deferred. Opens and clicks will appear after sends finalize.`
+                : `${data.sendState.finalized.toLocaleString()} sends have finalized (${data.sendState.sent.toLocaleString()} sent, ${data.sendState.failed.toLocaleString()} failed). Unique opens and clicks are currently zero.`}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
@@ -563,8 +594,8 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
           title="Unsubscribes"
           value={data?.unsubscribeCount.toLocaleString() ?? 0}
           subValue={
-            data && data.campaign.sentCount > 0
-              ? `${((data.unsubscribeCount / data.campaign.sentCount) * 100).toFixed(2)}% unsub rate`
+            data && data.sendState.sent > 0
+              ? `${((data.unsubscribeCount / data.sendState.sent) * 100).toFixed(2)}% unsub rate`
               : undefined
           }
           icon={UserMinus}
@@ -572,7 +603,7 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
         />
         <StatCard
           title="Emails Sent"
-          value={data?.campaign.sentCount?.toLocaleString() ?? 0}
+          value={data?.sendState.sent.toLocaleString() ?? 0}
           icon={Mail}
           isLoading={isLoading}
         />
@@ -628,7 +659,9 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
               </div>
             ) : (
               <p className="text-center py-8 text-muted-foreground">
-                No click data yet
+                {data?.sendState.finalized === 0
+                  ? "No click data yet because no sends have finalized."
+                  : `0 unique clickers across ${data?.sendState.sent.toLocaleString() ?? 0} sent emails.`}
               </p>
             )}
           </CardContent>
@@ -673,7 +706,9 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
               </div>
             ) : (
               <p className="text-center py-8 text-muted-foreground">
-                No activity yet
+                {data?.sendState.finalized === 0
+                  ? "No activity yet because no sends have finalized."
+                  : "No opens or clicks recorded yet."}
               </p>
             )}
           </CardContent>
@@ -826,7 +861,7 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
         </Card>
       )}
 
-      {data && data.campaign.sentCount > 0 && (
+      {data && data.sendState.sent > 0 && (
         <BatchOpenRateCard campaignId={campaignId} />
       )}
     </div>

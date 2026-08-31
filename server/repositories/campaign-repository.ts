@@ -11,6 +11,7 @@ import {
   campaignSegments,
   type Campaign,
   type CampaignListItem,
+  type CampaignSendStateTotals,
   type InsertCampaign,
   type CampaignStat,
   type CampaignSend,
@@ -1183,7 +1184,9 @@ export async function finalizeSend(campaignId: string, subscriberId: string, suc
   const result = await db.execute(sql`
     WITH updated_send AS (
       UPDATE campaign_sends SET status = ${success ? 'sent' : 'failed'}${writeClass ? sql`, smtp_outcome_class = ${outcomeClass}` : sql``}
-      WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'pending'
+      WHERE campaign_id = ${campaignId}
+        AND subscriber_id = ${subscriberId}
+        AND status IN ('pending', 'attempting')
       RETURNING id
     ),
     counter_update AS (
@@ -1200,7 +1203,7 @@ export async function finalizeSend(campaignId: string, subscriberId: string, suc
   `);
   const updatedCount = Number(result.rows[0]?.updated_count ?? 0);
   if (updatedCount === 0) {
-    throw new Error(`finalizeSend invariant violation: No pending row found for campaign=${campaignId}, subscriber=${subscriberId}.`);
+    throw new Error(`finalizeSend invariant violation: No active row found for campaign=${campaignId}, subscriber=${subscriberId}.`);
   }
 }
 
@@ -1347,7 +1350,9 @@ export async function forceFailPendingSend(campaignId: string, subscriberId: str
   const result = await db.execute(sql`
     WITH updated AS (
       UPDATE campaign_sends SET status = 'failed'${writeClass ? sql`, smtp_outcome_class = ${outcomeClass}` : sql``}
-      WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'pending'
+      WHERE campaign_id = ${campaignId}
+        AND subscriber_id = ${subscriberId}
+        AND status IN ('pending', 'attempting')
       RETURNING id
     ),
     counter_update AS (
@@ -1501,6 +1506,48 @@ export async function getUniqueClickCount(campaignId: string): Promise<number> {
     SELECT COUNT(*) as count FROM campaign_sends WHERE campaign_id = ${campaignId} AND first_click_at IS NOT NULL
   `);
   return Number((result.rows[0] as any)?.count || 0);
+}
+
+type CampaignSendStateRow = {
+  sent?: string | number | null;
+  failed?: string | number | null;
+  pending?: string | number | null;
+  deferred?: string | number | null;
+};
+
+export function buildCampaignSendStateTotals(row: CampaignSendStateRow | undefined): CampaignSendStateTotals {
+  const sent = Math.max(0, Number(row?.sent ?? 0));
+  const failed = Math.max(0, Number(row?.failed ?? 0));
+  const pending = Math.max(0, Number(row?.pending ?? 0));
+  const deferred = Math.min(pending, Math.max(0, Number(row?.deferred ?? 0)));
+  const finalized = sent + failed;
+  return {
+    processed: finalized + pending,
+    finalized,
+    sent,
+    failed,
+    pending,
+    deferred,
+  };
+}
+
+/**
+ * Authoritative live snapshot for user-facing progress and analytics.
+ * Deferred rows are deliberately included in pending and never added twice.
+ */
+export async function getCampaignSendStateTotals(campaignId: string): Promise<CampaignSendStateTotals> {
+  const result = await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'sent')::bigint AS sent,
+      COUNT(*) FILTER (WHERE status IN ('failed', 'bounced'))::bigint AS failed,
+      COUNT(*) FILTER (WHERE status IN ('pending', 'reserved', 'attempting'))::bigint AS pending,
+      COUNT(*) FILTER (
+        WHERE status = 'pending' AND eligible_at IS NOT NULL
+      )::bigint AS deferred
+    FROM campaign_sends
+    WHERE campaign_id = ${campaignId}
+  `);
+  return buildCampaignSendStateTotals(result.rows[0] as CampaignSendStateRow | undefined);
 }
 
 export async function getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number, attempting: number}> {

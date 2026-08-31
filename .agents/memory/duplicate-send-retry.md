@@ -36,6 +36,9 @@ discriminator column `smtp_outcome_class ∈ {delivered, pre_data_retryable, amb
 Every path that (a) finalizes a send, (b) flips `attempting→failed`, or
 (c) flips/deletes `failed→pending` MUST treat ambiguous as terminal, or it
 re-introduces duplicates. Known paths that must stay in lockstep:
+- Bulk and per-row finalization fallbacks must accept both active states,
+  `pending` and `attempting`; a no-op/false fallback result is unresolved
+  durability, not success, and must block cursor advancement and job replay.
 - **TWO full send paths**: `campaign-sender.ts` (main loop + retry phase) **and**
   `pressure-guard-worker.ts` drain (deferred sends — easy to forget; it has its own
   finalize + auto-requeue).
@@ -55,3 +58,19 @@ requeue path, route ambiguous → `failed`+`smtp_outcome_class='ambiguous'` and 
 it from selection with `smtp_outcome_class IS DISTINCT FROM 'ambiguous'`.
 **Operational caveat:** do NOT toggle the guard OFF after it has produced terminal
 ambiguous rows unless you accept that legacy retry semantics will resend them.
+
+## Finalization checkpoints must fail closed
+Never advance a durable enumeration/step cursor until every buffered SMTP outcome
+has reached a durable terminal or recoverable state. If bulk, tiered, individual,
+and force-fail persistence all leave unresolved rows, surface a dedicated
+non-transient durability failure and keep the campaign terminally failed. The
+worker error handler must absorb that failure before all generic retry logic,
+even when its own best-effort job/status bookkeeping fails.
+
+**Why:** An unresolved write can represent an email that reached the MTA but was
+not recorded. Advancing the cursor silently skips it; automatically replaying the
+job can send it twice. The only safe automated response is to stop.
+
+**How to apply:** Any new buffering, checkpoint, step-pause, job-error, startup
+recovery, or auto-requeue path must prove durable finalization before advancing
+and must explicitly exclude finalization-durability failures from replay.

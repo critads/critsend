@@ -26,6 +26,12 @@ import {
   suggestTagsFromHistory,
 } from "../services/tag-suggestions";
 import { isCampaignNameUnaccentIndexReady } from "../repositories/campaign-repository";
+import {
+  buildStepResumeOverrides,
+  InvalidStepResumeLimitError,
+  shouldResetOrphanedFailedSends,
+  type StepResumeOverrides,
+} from "../services/step-resume";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 
 // Brand-unsubscribe safeguard (Task #209). Two configurable thresholds gate the
@@ -704,7 +710,13 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      res.json(campaign);
+      const sendState = await storage.getCampaignSendStateTotals(req.params.id);
+      res.json({
+        ...campaign,
+        sendState,
+        pressureHeldCount: sendState.deferred,
+        realPendingCount: sendState.pending,
+      });
     } catch (error) {
       logger.error("Error fetching campaign:", error);
       res.status(500).json({ error: "Failed to fetch campaign" });
@@ -1260,80 +1272,102 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
-      await storage.clearStuckJobsForCampaign(req.params.id);
-      
-      const resetCount = await storage.resetOrphanedFailedSends(req.params.id);
-      if (resetCount > 0) {
-        logger.info(`[CAMPAIGN_RESUME] Reset ${resetCount} orphaned failed sends for campaign ${req.params.id}`);
-      }
-      
-      // If the campaign was paused before its scheduledAt fired, resume it
-      // back to 'scheduled' (no job insert) so the scheduled-poller picks it
-      // up at the original time. Otherwise resume to 'sending' immediately.
-      const existing = await storage.getCampaign(req.params.id);
-      const futureScheduled = !!(existing?.scheduledAt && new Date(existing.scheduledAt).getTime() > Date.now());
+      const resumeResult = await db.transaction(async (tx) => {
+        // Serialize resume requests on the campaign row BEFORE touching jobs
+        // or failed sends. A stale second request waits for the first commit,
+        // then observes status != paused and exits without destructive cleanup.
+        const [existing] = await tx.select()
+          .from(campaigns)
+          .where(eq(campaigns.id, req.params.id))
+          .for("update");
+        if (!existing) return { kind: "not_found" as const };
+        if (existing.status !== "paused") return { kind: "conflict" as const };
 
-      // Step-by-step sending (Task #242): when resuming a campaign that was
-      // auto-paused at a step limit, the client chooses one of two actions:
-      //   "finish"   → clear the limit (run to completion)
-      //   "continue" → reset step counter, optionally update limit
-      // Step overrides are only applied when the campaign was actually paused
-      // by the step-limit mechanism — not for manual pauses or mta_down.
-      // Step-by-step sending (Task #242): typed to include the cursor column.
-      let stepOverrides: {
-        stepSendLimit?: number | null;
-        stepProcessedCount?: number;
-        stepCursorId?: string | null;
-      } = {};
-      const isStepLimitPause = existing?.pauseReason === "step_limit";
-      if (isStepLimitPause) {
-        const { stepAction, stepLimit } = req.body ?? {};
-        if (stepAction === "finish") {
-          // Clear the limit so the sender runs to completion.
-          // Also clear stepCursorId so the sender restarts from the
-          // beginning — with no step budget the re-scan is harmless since
-          // already-sent contacts are excluded by the pressure guard and
-          // step accounting is disabled (stepSendLimit === null).
-          stepOverrides = { stepSendLimit: null, stepProcessedCount: 0, stepCursorId: null };
-        } else if (stepAction === "continue") {
-          // Strict parse: reject strings like "1abc" that parseInt would
-          // accept — Number() returns NaN for them.
-          const raw = stepLimit;
-          const parsedLimit = (typeof raw === "number") ? raw : Number(raw);
-          if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
-            return res.status(400).json({ error: "stepLimit must be a positive integer when stepAction is 'continue'" });
+        const isStepLimitPause = existing.pauseReason === "step_limit";
+        let stepOverrides: StepResumeOverrides;
+        try {
+          stepOverrides = buildStepResumeOverrides(isStepLimitPause, req.body);
+        } catch (error) {
+          if (error instanceof InvalidStepResumeLimitError) {
+            return { kind: "invalid" as const, message: error.message };
           }
-          // Reset counter but PRESERVE stepCursorId — the sender resumes
-          // exactly where the previous step ended, skipping already-processed
-          // contacts without consuming the new step budget.
-          stepOverrides = { stepSendLimit: parsedLimit, stepProcessedCount: 0 };
-        } else {
-          // Plain resume of a step_limit campaign (no explicit action): reset
-          // counter, keep limit and cursor — same effect as "continue" with
-          // the same X.  Lets the old pauseResumeMutation path work without
-          // the dialog if the operator uses keyboard or API directly.
-          stepOverrides = { stepProcessedCount: 0 };
+          throw error;
         }
-      }
 
-      const campaign = await db.transaction(async (tx) => {
+        await tx.update(campaignJobs)
+          .set({
+            status: "failed",
+            completedAt: new Date(),
+            errorMessage: "Cancelled for campaign resume",
+          })
+          .where(and(
+            eq(campaignJobs.campaignId, req.params.id),
+            sql`${campaignJobs.status} IN ('pending', 'processing')`,
+          ));
+
+        let resetCount = 0;
+        if (shouldResetOrphanedFailedSends(isStepLimitPause)) {
+          const klassPredicate = zeroDupSendGuardEnabled()
+            ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'`
+            : sql``;
+          const resetResult = await tx.execute(sql`
+            DELETE FROM campaign_sends
+            WHERE campaign_id = ${req.params.id}
+              AND status = 'failed'${klassPredicate}
+              AND retry_count = 0
+              AND first_open_at IS NULL
+              AND first_click_at IS NULL
+            RETURNING id
+          `);
+          resetCount = resetResult.rows.length;
+        }
+
+        // If the campaign was paused before its scheduledAt fired, resume it
+        // back to scheduled (no job insert). Otherwise resume immediately.
+        const futureScheduled = !!(
+          existing.scheduledAt
+          && new Date(existing.scheduledAt).getTime() > Date.now()
+        );
         const targetStatus = futureScheduled ? "scheduled" : "sending";
         const [updated] = await tx.update(campaigns).set({
           status: targetStatus,
           pauseReason: null,
+          ...(resetCount > 0
+            ? { failedCount: sql`GREATEST(${campaigns.failedCount} - ${resetCount}, 0)` as any }
+            : {}),
           ...(stepOverrides as any),
-        }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
-        if (!updated) return null;
+        }).where(and(
+          eq(campaigns.id, req.params.id),
+          eq(campaigns.status, "paused"),
+        )).returning();
+        if (!updated) return { kind: "conflict" as const };
         if (!futureScheduled) {
           await tx.insert(campaignJobs).values({
             campaignId: updated.id,
             status: "pending",
           });
         }
-        return updated;
+        return {
+          kind: "resumed" as const,
+          campaign: updated,
+          futureScheduled,
+          resetCount,
+        };
       });
-      if (!campaign) {
+
+      if (resumeResult.kind === "not_found") {
         return res.status(404).json({ error: "Campaign not found" });
+      }
+      if (resumeResult.kind === "conflict") {
+        return res.status(409).json({ error: "Campaign is no longer paused" });
+      }
+      if (resumeResult.kind === "invalid") {
+        return res.status(400).json({ error: resumeResult.message });
+      }
+
+      const { campaign, futureScheduled, resetCount } = resumeResult;
+      if (resetCount > 0) {
+        logger.info(`[CAMPAIGN_RESUME] Reset ${resetCount} orphaned failed sends for campaign ${req.params.id}`);
       }
       // Task #199: status transition done via raw tx — invalidate the list cache.
       publishCampaignsListInvalidation();

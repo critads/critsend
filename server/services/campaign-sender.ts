@@ -23,6 +23,8 @@ import { messageQueue } from "../message-queue";
 import { classifyDbError, SenderRetriesExhaustedError } from "../db-errors";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { prioritizeFinalizationDurabilityError } from "./campaign-job-error-policy";
+import { runAfterDurableFinalization } from "./step-durability";
 
 const MAX_AUTO_RETRIES = 3;
 const SENDER_MAX_ATTEMPTS = 3;
@@ -134,6 +136,18 @@ async function retryDbOp<T>(fn: () => Promise<T>, label: string, maxAttempts = S
 const FALLBACK_CONCURRENCY = 5;
 const BATCH_TIERS = [500, 100, 25];
 
+export class FinalizationDurabilityError extends Error {
+  readonly senderFinalizationIncomplete = true;
+
+  constructor(readonly lostRowCount: number, details: string[]) {
+    super(
+      `Finalization could not durably resolve ${lostRowCount} send row(s): `
+      + details.slice(0, 5).join("; "),
+    );
+    this.name = "FinalizationDurabilityError";
+  }
+}
+
 export async function tieredFinalizeFallback(
   campaignId: string,
   successBatch: string[],
@@ -210,7 +224,12 @@ export async function tieredFinalizeFallback(
           })
           .catch(() =>
             storage.forceFailPendingSend(campaignId, item.id, isAmbiguous ? "ambiguous" : undefined)
-              .then(() => { finalizeFallbackRowsTotal.inc({ outcome: "force_failed" }); })
+              .then((updated) => {
+                if (!updated) {
+                  throw new Error(`No active send row found for subscriber ${item.id}`);
+                }
+                finalizeFallbackRowsTotal.inc({ outcome: "force_failed" });
+              })
               .catch((err: Error) => {
                 finalizeFallbackRowsTotal.inc({ outcome: "lost" });
                 errors.push(`${item.id}: ${err.message}`);
@@ -232,6 +251,12 @@ export async function tieredFinalizeFallback(
 
   if (errors.length > 0) {
     logger.error(`${logPrefix} Individual fallback completed with ${errors.length} permanent failures: ${errors.slice(0, 5).join("; ")}${errors.length > 5 ? ` (+${errors.length - 5} more)` : ""}`);
+    // Never report this flush as durable and never advance a step cursor past
+    // these rows. The caller's fatal path marks the campaign failed; this
+    // custom non-transient error must not trigger an automatic job replay,
+    // which could duplicate SMTP outcomes that reached the wire but could not
+    // be persisted.
+    throw new FinalizationDurabilityError(errors.length, errors);
   } else {
     logger.info(`${logPrefix} Individual fallback completed successfully (${items.length} rows)`);
   }
@@ -480,7 +505,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
    * concurrent manual End/Pause overwriting a terminal status).
    */
   async function persistStepPause(): Promise<void> {
-    const saveCursor = cursorId ?? null;
+    const saveCursor = stepDurableCursorId ?? null;
     logger.info(`${logPrefix} [STEP] Step limit reached (${stepProcessedCount}/${stepSendLimit}), cursor=${saveCursor} — pausing campaign`);
     await db.execute(sql`
       UPDATE campaigns
@@ -505,6 +530,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     }
     if (stepProcessedCount >= stepSendLimit && !stepLimitReached) {
       stepLimitReached = true;
+      // The current capped batch has now been fully attempted, but its SMTP
+      // outcomes may still be buffered. Flush them before advancing the
+      // durable cursor and publishing the paused state. Otherwise a crash
+      // between the pause UPDATE and the normal post-loop flush could save a
+      // cursor past rows that are still only pending/attempting.
+      if (flushPromise) await flushPromise;
+      await flushBuffer();
+      stepDurableCursorId = cursorId;
       await persistStepPause();
     }
   }
@@ -846,10 +879,6 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       // single campaign never holds two main-pool connections at the same time.
       // This is what lets WORKER_PG_POOL_MAX cover MAX_CONCURRENT_CAMPAIGNS
       // 1:1 instead of needing 2× headroom.
-      if (flushPromise) {
-        try { await flushPromise; } catch { /* swallowed; doFlush already logs */ }
-      }
-
       // Durable cursor checkpoint: after flushPromise resolves, the PREVIOUS
       // batch's sends are fully finalized in the DB (sent/failed rows written).
       // We can now safely advance the durable cursor to prevCursorId — the END
@@ -861,10 +890,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       //     the whole batch, and does NOT permanently skip any recipients.
       //   • If persistStepCount() fires mid-batch (via accountStepProcessed),
       //     it writes (count, prevCursorId), which is conservative but safe.
-      if (stepSendLimit !== null && !stepLimitReached) {
-        stepDurableCursorId = prevCursorId;
-        await persistStepCount();
-      }
+      await runAfterDurableFinalization(flushPromise, async () => {
+        if (stepSendLimit !== null && !stepLimitReached) {
+          stepDurableCursorId = prevCursorId;
+          await persistStepCount();
+        }
+      });
 
       startPrefetch(cursorId);
 
@@ -1074,12 +1105,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     }
   } catch (error: any) {
     logger.error(`${logPrefix} Fatal error in send loop: ${error.message}`, { stack: error.stack });
+    let propagatedError: any = error;
 
     try {
       if (flushPromise) await flushPromise;
       await flushBuffer();
     } catch (flushErr: any) {
       logger.error(`${logPrefix} Emergency flush failed: ${flushErr.message}`);
+      propagatedError = prioritizeFinalizationDurabilityError(error, flushErr);
     }
 
     // NOTE: do NOT call closeTransporter(mta.id) here. The transporterPool is
@@ -1091,9 +1124,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     // for closeNullsinkTransporter(). Nodemailer's socketTimeout handles
     // idle connection cleanup; on process exit pools die with the process.
 
-    const fatalClassified = (error as any)?.senderRetriesExhausted
-      ? (error as any).classification
-      : classifyDbError(error);
+      const fatalClassified = (propagatedError as any)?.senderFinalizationIncomplete
+        ? {
+            transient: false,
+            kind: "finalization_incomplete",
+            code: undefined,
+            message: propagatedError.message,
+          }
+        : (propagatedError as any)?.senderRetriesExhausted
+      ? (propagatedError as any).classification
+      : classifyDbError(propagatedError);
     if (fatalClassified.transient) {
       logger.warn(`${logPrefix} Transient DB error — re-throwing for job-level requeue (sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}) [kind=${fatalClassified.kind}, code=${fatalClassified.code ?? 'n/a'}]`);
     } else {
@@ -1103,7 +1143,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       await storage.logError({
         type: "campaign_fatal",
         severity: "error",
-        message: `Campaign send failed: ${error.message}`,
+        message: `Campaign send failed: ${propagatedError.message}`,
         campaignId,
         details: `sent: ${totalSent}, failed: ${totalFailed}, processed: ${processedCount}/${total}`,
       }).catch((err: any) => {
@@ -1120,10 +1160,10 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       totalRows: total,
       sentCount: totalSent,
       failedCount: totalFailed,
-      errorMessage: error.message || "Unknown error",
+      errorMessage: propagatedError.message || "Unknown error",
     });
 
-    throw error;
+    throw propagatedError;
   }
 
   if (flushPromise) {

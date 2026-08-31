@@ -107,9 +107,6 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
         ? 10000
         : Math.min(50000, Math.max(1000, rawBatchSize));
       const data = await storage.getCampaignBatchOpenStats(req.params.id, batchSize);
-      if (data.length === 0) {
-        return res.status(404).json({ error: "No send data found for this campaign" });
-      }
       res.json(data);
     } catch (error) {
       logger.error("Error fetching batch open stats:", error);
