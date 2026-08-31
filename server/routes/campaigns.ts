@@ -19,6 +19,7 @@ import { sanitizeCampaignHtml, generateBase62, mapWithConcurrency } from "../uti
 import { processHtmlImages, normalizeImageHostingDomain } from "../services/html-image-processor";
 import {
   extractCampaignBrand,
+  historicalBrandKeys,
   likePattern,
   resolveHistoricalBrand,
   suggestSegmentsFromRecentHistory,
@@ -627,9 +628,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
   });
 
   // Segment suggestions use the same strict brand resolver as tag suggestions,
-  // then rank the segments used by only the ten most recently sent campaigns.
-  // The client presents these as optional buttons; this route never selects a
-  // segment or changes a campaign on its own.
+  // then rank all canonical audience associations from a bounded history.
   app.get("/api/campaigns/segment-suggestions", async (req: Request, res: Response) => {
     try {
       const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
@@ -638,17 +637,17 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
       const requestedBrand = extractCampaignBrand(name);
       if (!requestedBrand) {
-        return res.json({ brand: null, campaignsConsidered: 0, suggestions: [] });
+        return res.json({ brand: null, campaignsConsidered: 0, strategy: "recent_use", suggestions: [] });
       }
 
       const excludeId = typeof req.query.excludeId === "string" ? req.query.excludeId : null;
       const candidates = await storage.getSegmentPerformanceHistoryCandidates(
-        likePattern(requestedBrand.tokens[0]),
+        historicalBrandKeys(requestedBrand),
         excludeId,
       );
       const resolvedBrand = resolveHistoricalBrand(requestedBrand, candidates);
       if (!resolvedBrand) {
-        return res.json({ brand: null, campaignsConsidered: 0, suggestions: [] });
+        return res.json({ brand: null, campaignsConsidered: 0, strategy: "recent_use", suggestions: [] });
       }
 
       const result = suggestSegmentsFromRecentHistory(resolvedBrand, candidates);

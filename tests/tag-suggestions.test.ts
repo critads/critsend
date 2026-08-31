@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   campaignMatchesBrand,
   extractCampaignBrand,
+  historicalBrandKeys,
   tagSuggestTokens,
   likePattern,
   modeOfTags,
@@ -65,12 +66,37 @@ describe("likePattern", () => {
   });
 });
 
+describe("historicalBrandKeys", () => {
+  it("tries descriptive names from the longest key down to a strict brand anchor", () => {
+    const requested = extractCampaignBrand("#4000 Air France Holiday Push - kamma")!;
+    expect(historicalBrandKeys(requested)).toEqual([
+      "air\u001ffrance\u001fholiday\u001fpush",
+      "air\u001ffrance\u001fholiday",
+      "air\u001ffrance",
+      "air",
+    ]);
+  });
+
+  it("deduplicates repeated significant words like the SQL brand key", () => {
+    const requested = extractCampaignBrand("#4000 Foo Foo Bar - kamma")!;
+    expect(requested.key).toBe("foo\u001fbar");
+    expect(historicalBrandKeys(requested)).toEqual(["foo\u001fbar", "foo"]);
+  });
+});
+
 describe("campaignMatchesBrand", () => {
   it("requires the complete brand prefix, not one common word", () => {
     const brand = extractCampaignBrand("#3103 Air France - 4beTPA - Kamma")!;
     expect(campaignMatchesBrand("#3086 Air France - 4beTPA - rndaserver", brand)).toBe(true);
     expect(campaignMatchesBrand("#4000 Air France 20-30/08 - mayesale", brand)).toBe(true);
     expect(campaignMatchesBrand("#3081 Air Caraibes - 4axS9H - rndaserver", brand)).toBe(false);
+  });
+
+  it("does not expand a generic one-token anchor into unrelated multiword brands", () => {
+    const brand = extractCampaignBrand("#3100 Air - code - kamma")!;
+    expect(campaignMatchesBrand("#3099 Air - another - mta", brand)).toBe(true);
+    expect(campaignMatchesBrand("#3098 Air France - code - mta", brand)).toBe(false);
+    expect(campaignMatchesBrand("#3097 Air Caraibes - code - mta", brand)).toBe(false);
   });
 });
 
@@ -194,41 +220,109 @@ describe("suggestSegmentsFromRecentHistory", () => {
     segmentId: string,
     segmentName: string,
     totalClicks: number,
+    deliveredCount: number,
     firstSentAt: string,
-  ) => ({ campaignId, name, segmentId, segmentName, totalClicks, firstSentAt });
+  ) => ({ campaignId, name, segmentId, segmentName, totalClicks, deliveredCount, firstSentAt });
 
-  it("isolates exact brands, takes the latest ten, and sums total clicks by segment", () => {
-    const recentAirFrance = Array.from({ length: 11 }, (_, index) =>
-      row(
-        `fr-${index}`,
-        `#${4900 - index} Air France - code${index} - mta`,
-        index < 2 ? "vip" : "general",
-        index < 2 ? "VIP" : "General",
-        index === 0 ? 80 : 10,
-        `2026-08-${String(20 - index).padStart(2, "0")}T10:00:00.000Z`,
-      ));
+  it("isolates exact brands and includes every segment from multi-segment campaigns", () => {
     const result = suggestSegmentsFromRecentHistory(brand, [
-      ...recentAirFrance,
-      row("caribes", "#4880 Air Caraibes - code - mta", "wrong", "Wrong", 9_999, "2026-08-24T10:00:00.000Z"),
+      row("fr-1", "#4900 Air France - code - mta", "vip", "VIP", 200, 10_000, "2026-08-20T10:00:00.000Z"),
+      row("fr-1", "#4900 Air France - code - mta", "general", "General", 200, 10_000, "2026-08-20T10:00:00.000Z"),
+      row("fr-2", "#4899 Air France - code - mta", "vip", "VIP", 150, 10_000, "2026-08-19T10:00:00.000Z"),
+      row("caribes", "#4880 Air Caraibes - code - mta", "wrong", "Wrong", 9_999, 10_000, "2026-08-24T10:00:00.000Z"),
     ]);
 
-    expect(result.campaignsConsidered).toBe(10);
-    expect(result.suggestions).toEqual([
-      { segmentId: "vip", segmentName: "VIP", totalClicks: 90, campaignCount: 2 },
-      { segmentId: "general", segmentName: "General", totalClicks: 80, campaignCount: 8 },
-    ]);
+    expect(result.campaignsConsidered).toBe(2);
+    expect(result.strategy).toBe("performance");
+    expect(result.suggestions.map((item) => item.segmentId)).toEqual(["vip", "general"]);
+    expect(result.suggestions[0]).toMatchObject({
+      segmentId: "vip",
+      campaignCount: 2,
+      deliveredCount: 20_000,
+      totalClicks: 350,
+      evidence: "performance",
+      metricScope: "campaigns_using_segment",
+    });
   });
 
-  it("keeps zero-click campaigns and uses deterministic ties", () => {
+  it("prefers repeatable click rate over one campaign's large absolute click count", () => {
     const result = suggestSegmentsFromRecentHistory(brand, [
-      row("a", "#4900 Air France - code - mta", "z", "Zulu", 0, "2026-08-23T10:00:00.000Z"),
-      row("b", "#4899 Air France - code - mta", "a", "Alpha", 0, "2026-08-22T10:00:00.000Z"),
-      row("c", "#4898 Air France - code - mta", "m", "Middle", 1, "2026-08-21T10:00:00.000Z"),
+      row("large", "#4900 Air France - code - mta", "large", "One huge send", 10_000, 1_000_000, "2026-08-23T10:00:00.000Z"),
+      row("repeat-1", "#4899 Air France - code - mta", "repeat", "Repeat winner", 300, 10_000, "2026-08-22T10:00:00.000Z"),
+      row("repeat-2", "#4898 Air France - code - mta", "repeat", "Repeat winner", 300, 10_000, "2026-08-21T10:00:00.000Z"),
     ]);
-    expect(result.suggestions).toEqual([
-      { segmentId: "m", segmentName: "Middle", totalClicks: 1, campaignCount: 1 },
-      { segmentId: "a", segmentName: "Alpha", totalClicks: 0, campaignCount: 1 },
-      { segmentId: "z", segmentName: "Zulu", totalClicks: 0, campaignCount: 1 },
+
+    expect(result.suggestions.map((item) => item.segmentId)).toEqual(["repeat", "large"]);
+  });
+
+  it("uses an explicit recent-use fallback for sparse zero-click history", () => {
+    const result = suggestSegmentsFromRecentHistory(brand, [
+      row("a", "#4900 Air France - code - mta", "older", "Older", 0, 5_000, "2026-08-22T10:00:00.000Z"),
+      row("b", "#4899 Air France - code - mta", "recent", "Recent", 0, 500, "2026-08-23T10:00:00.000Z"),
     ]);
+
+    expect(result.strategy).toBe("recent_use");
+    expect(result.suggestions.map((item) => item.segmentId)).toEqual(["recent", "older"]);
+    expect(result.suggestions.every((item) => item.evidence === "recent_use")).toBe(true);
+  });
+
+  it("uses stable segment IDs to break otherwise identical ties", () => {
+    const result = suggestSegmentsFromRecentHistory(brand, [
+      row("a", "#4900 Air France - code - mta", "z", "Same", 10, 1_000, "2026-08-23T10:00:00.000Z"),
+      row("b", "#4899 Air France - code - mta", "a", "Same", 10, 1_000, "2026-08-23T10:00:00.000Z"),
+    ]);
+
+    expect(result.suggestions.map((item) => item.segmentId)).toEqual(["a", "z"]);
+  });
+
+  it("bounds ranking work to the 250 most recent matching campaigns", () => {
+    const candidates = Array.from({ length: 251 }, (_, index) =>
+      row(
+        `campaign-${index}`,
+        `#${5000 - index} Air France - code - mta`,
+        `segment-${index}`,
+        `Segment ${index}`,
+        10,
+        1_000,
+        new Date(Date.UTC(2026, 7, 31 - index)).toISOString(),
+      ));
+
+    const result = suggestSegmentsFromRecentHistory(brand, candidates);
+
+    expect(result.campaignsConsidered).toBe(250);
+    expect(result.suggestions).toHaveLength(3);
+  });
+
+  it("applies the history limit after strict brand filtering", () => {
+    const unrelated = Array.from({ length: 251 }, (_, index) =>
+      row(
+        `caraibes-${index}`,
+        `#${6000 - index} Air Caraibes - code - mta`,
+        "wrong",
+        "Wrong",
+        100,
+        1_000,
+        new Date(Date.UTC(2026, 7, 31 - index)).toISOString(),
+      ));
+    const result = suggestSegmentsFromRecentHistory(brand, [
+      ...unrelated,
+      row("fr-1", "#4900 Air France - code - mta", "right", "Right", 20, 1_000, "2025-01-02T00:00:00.000Z"),
+      row("fr-2", "#4899 Air France - code - mta", "right", "Right", 20, 1_000, "2025-01-01T00:00:00.000Z"),
+    ]);
+
+    expect(result.campaignsConsidered).toBe(2);
+    expect(result.suggestions.map((item) => item.segmentId)).toEqual(["right"]);
+  });
+
+  it("keeps a generic one-token brand isolated from longer brands", () => {
+    const genericBrand = extractCampaignBrand("#5000 Air - code - mta")!;
+    const result = suggestSegmentsFromRecentHistory(genericBrand, [
+      row("air", "#4999 Air - code - mta", "exact", "Exact", 20, 1_000, "2026-08-03T00:00:00.000Z"),
+      row("fr", "#4998 Air France - code - mta", "fr", "France", 2_000, 10_000, "2026-08-02T00:00:00.000Z"),
+      row("car", "#4997 Air Caraibes - code - mta", "car", "Caraibes", 2_000, 10_000, "2026-08-01T00:00:00.000Z"),
+    ]);
+
+    expect(result.campaignsConsidered).toBe(1);
+    expect(result.suggestions.map((item) => item.segmentId)).toEqual(["exact"]);
   });
 });

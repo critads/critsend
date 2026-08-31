@@ -7,18 +7,30 @@ import { MousePointerClick } from "lucide-react";
 type SegmentSuggestionResponse = {
   brand: string | null;
   campaignsConsidered: number;
+  strategy: "performance" | "recent_use";
   suggestions: Array<{
     segmentId: string;
     segmentName: string;
     totalClicks: number;
     campaignCount: number;
+    deliveredCount: number;
+    clickRate: number;
+    smoothedClickRate: number;
+    lastUsedAt: string;
+    evidence: "performance" | "recent_use";
+    metricScope: "campaigns_using_segment";
   }>;
 };
 
-/**
- * Optional segment choices based on the highest total-click segments used by
- * the latest sent campaigns for the exact campaign-name brand.
- */
+const numberFormat = new Intl.NumberFormat("en-US");
+
+function recencyLabel(value: string): string {
+  const ageDays = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000));
+  if (ageDays === 0) return "today";
+  if (ageDays === 1) return "1 day ago";
+  return `${ageDays} days ago`;
+}
+
 export function SegmentSuggestions({
   campaignName,
   excludeId,
@@ -66,23 +78,31 @@ export function SegmentSuggestions({
       <div>
         <p className="font-medium">Suggested segments</p>
         <p className="text-sm text-muted-foreground">
-          Top segments by total clicks from the last {data.campaignsConsidered} sent
-          {data.campaignsConsidered === 1 ? " campaign" : " campaigns"} for “{data.brand}”.
+          {data.strategy === "performance"
+            ? `Ranked by repeatable results from campaigns where each segment was used, across ${data.campaignsConsidered} sent ${data.campaignsConsidered === 1 ? "campaign" : "campaigns"} for “${data.brand}”.`
+            : `Not enough performance history yet; showing the most recently used segments for “${data.brand}”.`}
         </p>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="grid gap-2">
         {data.suggestions.map((suggestion) => (
           <Button
             key={suggestion.segmentId}
             type="button"
             variant="outline"
-            size="sm"
             onClick={() => onSelect(suggestion.segmentId)}
+            className="h-auto min-h-10 justify-start whitespace-normal py-2 text-left"
             data-testid={`button-segment-suggestion-${suggestion.segmentId}`}
           >
-            <MousePointerClick className="mr-2 h-4 w-4" />
-            {suggestion.segmentName}
-            <span className="ml-2 text-muted-foreground">{suggestion.totalClicks.toLocaleString()} clicks</span>
+            <MousePointerClick className="mr-2 h-4 w-4 shrink-0" />
+            <span>
+              <span className="font-medium">{suggestion.segmentName}</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {suggestion.campaignCount} {suggestion.campaignCount === 1 ? "use" : "uses"}
+                {" · "}{numberFormat.format(suggestion.deliveredCount)} campaign deliveries
+                {" · "}{suggestion.clickRate.toFixed(2)}% campaign CTR
+                {" · "}last used {recencyLabel(suggestion.lastUsedAt)}
+              </span>
+            </span>
           </Button>
         ))}
       </div>

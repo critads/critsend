@@ -17,6 +17,7 @@ import {
   type NullsinkCapture,
   type InsertNullsinkCapture,
 } from "@shared/schema";
+import { TAG_SUGGEST_STOPWORDS } from "../services/tag-suggestions";
 import { db, pool } from "../db";
 import { eq, desc, and, or, sql, ilike, isNull, ne, gte, lt, inArray } from "drizzle-orm";
 import crypto from "crypto";
@@ -128,25 +129,83 @@ export type SegmentPerformanceHistoryCandidate = {
   segmentId: string;
   segmentName: string;
   totalClicks: number;
+  deliveredCount: number;
   firstSentAt: Date;
 };
 
 /**
  * Fetches the small set of fields needed to rank segments for campaigns whose
- * names could match a requested brand. The name predicate is only a
- * trigram-indexed prefilter; exact brand validation happens in the pure
- * suggestion service before any recent-history limit is applied.
+ * names could match a requested brand. SQL reproduces the service's normalized
+ * brand key and resolves the longest historical prefix before limiting history,
+ * so brands sharing a first word cannot crowd one another out.
  */
 export async function getSegmentPerformanceHistoryCandidates(
-  firstTokenPattern: string,
+  requestedBrandKeys: string[],
   excludeId?: string | null,
 ): Promise<SegmentPerformanceHistoryCandidate[]> {
-  const nameExpr = isCampaignNameUnaccentIndexReady() ? "f_unaccent(c.name)" : "c.name";
-  const params: unknown[] = [firstTokenPattern];
+  const unaccentReady = isCampaignNameUnaccentIndexReady();
+  const nameExpr = (alias: string) => unaccentReady ? `f_unaccent(${alias}.name)` : `${alias}.name`;
+  const brandKeyExpr = (alias: string, stopwordsParam: string) => {
+    const section = `(regexp_split_to_array(regexp_replace(${alias}.name, '^\\s*#\\s*\\d+\\s*', ''), '\\s+(?:-|–|—|\\|)\\s+'))[1]`;
+    const normalizedSection = unaccentReady ? `f_unaccent(${section})` : section;
+    return `(
+      SELECT string_agg(token, chr(31) ORDER BY ordinal)
+      FROM (
+        SELECT token, min(ordinal) AS ordinal
+        FROM regexp_split_to_table(lower(${normalizedSection}), '[^a-z0-9]+')
+          WITH ORDINALITY AS parts(token, ordinal)
+        WHERE length(token) >= 3
+          AND token !~ '^\\d+$'
+          AND NOT (token = ANY(${stopwordsParam}::text[]))
+        GROUP BY token
+        ORDER BY min(ordinal)
+        LIMIT 8
+      ) normalized_tokens
+    )`;
+  };
+  const stopwords = [...TAG_SUGGEST_STOPWORDS];
+  let resolvedKey: string | null = null;
+  let anchorId: string | null = null;
+
+  for (const key of requestedBrandKeys) {
+    const pattern = `%${key.split("\u001f").join("%")}%`;
+    const anchorParams: unknown[] = [pattern, key, stopwords];
+    let anchorExcludeClause = "";
+    if (excludeId) {
+      anchorParams.push(excludeId);
+      anchorExcludeClause = ` AND c.id != $4`;
+    }
+    const anchor = await pool.query<{ id: string }>(
+      `SELECT c.id
+       FROM campaigns c
+       WHERE ${nameExpr("c")} ILIKE $1
+         AND ${brandKeyExpr("c", "$3")} = $2
+         AND c.status IN ('completed', 'sent')
+         AND c.first_send_at IS NOT NULL
+         AND c.sent_count > 0${anchorExcludeClause}
+       ORDER BY c.first_send_at DESC, c.id ASC
+       LIMIT 1`,
+      anchorParams,
+    );
+    if (anchor.rows[0]) {
+      resolvedKey = key;
+      anchorId = anchor.rows[0].id;
+      break;
+    }
+  }
+
+  if (!resolvedKey || !anchorId) return [];
+
+  const resolvedPattern = `%${resolvedKey.split("\u001f").join("%")}%`;
+  const params: unknown[] = [resolvedPattern, resolvedKey, stopwords, anchorId];
+  const normalizedBrandKey = brandKeyExpr("c", "$3");
+  const brandMatchClause = resolvedKey.includes("\u001f")
+    ? `(${normalizedBrandKey} = $2 OR ${normalizedBrandKey} LIKE $2 || chr(31) || '%')`
+    : `${normalizedBrandKey} = $2`;
   let excludeClause = "";
   if (excludeId) {
     params.push(excludeId);
-    excludeClause = ` AND c.id != $${params.length}`;
+    excludeClause = ` AND c.id != $5`;
   }
 
   const result = await pool.query<{
@@ -155,22 +214,49 @@ export async function getSegmentPerformanceHistoryCandidates(
     segment_id: string;
     segment_name: string;
     total_clicks_count: number | string | null;
+    sent_count: number | string;
     first_send_at: Date | string;
   }>(
-    `SELECT
+    `WITH recent_campaigns AS (
+       SELECT c.id, c.name, c.segment_id, c.total_clicks_count, c.sent_count, c.first_send_at
+       FROM campaigns c
+       WHERE ${nameExpr("c")} ILIKE $1
+         AND ${brandMatchClause}
+         AND c.status IN ('completed', 'sent')
+         AND c.first_send_at IS NOT NULL
+         AND c.sent_count > 0${excludeClause}
+       ORDER BY c.first_send_at DESC, c.id ASC
+       LIMIT 250
+     ),
+     candidate_campaigns AS (
+       SELECT * FROM recent_campaigns
+       UNION ALL
+       SELECT c.id, c.name, c.segment_id, c.total_clicks_count, c.sent_count, c.first_send_at
+       FROM campaigns c
+       WHERE c.id = $4
+         AND NOT EXISTS (SELECT 1 FROM recent_campaigns rc WHERE rc.id = c.id)
+     )
+     SELECT
        c.id AS campaign_id,
        c.name,
-       c.segment_id,
-       s.name AS segment_name,
+       audience.segment_id,
+       audience.segment_name,
        c.total_clicks_count,
+       c.sent_count,
        c.first_send_at
-     FROM campaigns c
-     INNER JOIN segments s ON s.id = c.segment_id
-     WHERE ${nameExpr} ILIKE $1
-       AND c.status IN ('completed', 'sent')
-       AND c.first_send_at IS NOT NULL
-       AND c.sent_count > 0${excludeClause}
-     ORDER BY c.first_send_at DESC, c.id ASC`,
+     FROM candidate_campaigns c
+     INNER JOIN LATERAL (
+       SELECT cs.segment_id, s.name AS segment_name, cs.position
+       FROM campaign_segments cs
+       INNER JOIN segments s ON s.id = cs.segment_id
+       WHERE cs.campaign_id = c.id
+       UNION ALL
+       SELECT c.segment_id, s.name AS segment_name, 0 AS position
+       FROM segments s
+       WHERE s.id = c.segment_id
+         AND NOT EXISTS (SELECT 1 FROM campaign_segments cs WHERE cs.campaign_id = c.id)
+     ) audience ON true
+     ORDER BY c.first_send_at DESC, c.id ASC, audience.position ASC`,
     params,
   );
 
@@ -180,6 +266,7 @@ export async function getSegmentPerformanceHistoryCandidates(
     segmentId: row.segment_id,
     segmentName: row.segment_name,
     totalClicks: Number(row.total_clicks_count) || 0,
+    deliveredCount: Number(row.sent_count) || 0,
     firstSentAt: new Date(row.first_send_at),
   }));
 }

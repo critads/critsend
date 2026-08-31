@@ -9,7 +9,7 @@
  * becoming the match key and mixing unrelated advertisers.
  */
 
-const TAG_SUGGEST_STOPWORDS = new Set([
+export const TAG_SUGGEST_STOPWORDS = new Set([
   // FR + EN months and generic campaign vocabulary that would otherwise
   // match across brands.
   "janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout",
@@ -84,6 +84,14 @@ export function likePattern(token: string): string {
   return `%${token.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 
+/** Longest-to-shortest exact keys used to resolve descriptive name variants. */
+export function historicalBrandKeys(brand: CampaignBrand): string[] {
+  return Array.from(
+    { length: brand.tokens.length },
+    (_, index) => brand.tokens.slice(0, brand.tokens.length - index).join("\u001f"),
+  );
+}
+
 /**
  * Brand-prefix match after the SQL candidate query. Once a reliable historical
  * anchor identifies "Air France", this includes descriptive variants such as
@@ -92,6 +100,9 @@ export function likePattern(token: string): string {
 export function campaignMatchesBrand(name: string, brand: CampaignBrand): boolean {
   const candidate = extractCampaignBrand(name);
   if (!candidate || candidate.tokens.length < brand.tokens.length) return false;
+  // A one-token anchor is too generic for prefix expansion: accepting "Air *"
+  // for the exact historical brand "Air" would mix distinct advertisers.
+  if (brand.tokens.length === 1) return candidate.key === brand.key;
   return brand.tokens.every((token, index) => candidate.tokens[index] === token);
 }
 
@@ -175,6 +186,7 @@ export type SegmentPerformanceCandidate = {
   segmentId: string;
   segmentName: string;
   totalClicks: number;
+  deliveredCount: number;
   firstSentAt: Date | string;
 };
 
@@ -183,21 +195,28 @@ export type SegmentPerformanceSuggestion = {
   segmentName: string;
   totalClicks: number;
   campaignCount: number;
+  deliveredCount: number;
+  clickRate: number;
+  smoothedClickRate: number;
+  lastUsedAt: string;
+  evidence: "performance" | "recent_use";
+  metricScope: "campaigns_using_segment";
 };
 
 /**
- * Ranks segments using cached total-click counters from the ten most recently
- * sent campaigns for one exact brand. Candidates may share a first token (for
- * example "Air France" and "Air Caraïbes"), so the existing strict brand
- * matcher remains the authority before the recent-history window is applied.
+ * Ranks every segment used by matching campaigns. Campaign-level click rate is
+ * smoothed toward the brand baseline; repeat use, delivered volume, and recency
+ * then provide bounded confidence boosts. Sparse/zero-click histories still
+ * return deterministic recent-use suggestions instead of disappearing.
  */
 export function suggestSegmentsFromRecentHistory(
   brand: CampaignBrand,
   candidates: SegmentPerformanceCandidate[],
-  historyLimit = 10,
+  historyLimit = 250,
   suggestionLimit = 3,
 ): {
   campaignsConsidered: number;
+  strategy: "performance" | "recent_use";
   suggestions: SegmentPerformanceSuggestion[];
 } {
   const matching = candidates
@@ -206,31 +225,99 @@ export function suggestSegmentsFromRecentHistory(
       const byFirstSend = new Date(b.firstSentAt).getTime() - new Date(a.firstSentAt).getTime();
       return byFirstSend || a.campaignId.localeCompare(b.campaignId);
     })
-    .slice(0, historyLimit);
+    .filter((row) => Number(row.deliveredCount) > 0);
 
-  const totals = new Map<string, SegmentPerformanceSuggestion>();
+  const campaignDates = new Map<string, number>();
   for (const row of matching) {
+    campaignDates.set(row.campaignId, new Date(row.firstSentAt).getTime());
+  }
+  const includedCampaignIds = [...campaignDates.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, historyLimit)
+    .map(([id]) => id);
+  const includedIds = new Set(includedCampaignIds);
+  const included = matching.filter((row) => includedIds.has(row.campaignId));
+
+  type Aggregate = SegmentPerformanceSuggestion & { campaignIds: Set<string>; lastUsedMs: number; score: number };
+  const totals = new Map<string, Aggregate>();
+  for (const row of included) {
     const existing = totals.get(row.segmentId);
     if (existing) {
+      if (existing.campaignIds.has(row.campaignId)) continue;
+      existing.campaignIds.add(row.campaignId);
       existing.totalClicks += Number(row.totalClicks) || 0;
+      existing.deliveredCount += Number(row.deliveredCount) || 0;
       existing.campaignCount += 1;
+      existing.lastUsedMs = Math.max(existing.lastUsedMs, new Date(row.firstSentAt).getTime());
       continue;
     }
+    const lastUsedMs = new Date(row.firstSentAt).getTime();
     totals.set(row.segmentId, {
       segmentId: row.segmentId,
       segmentName: row.segmentName,
       totalClicks: Number(row.totalClicks) || 0,
+      deliveredCount: Number(row.deliveredCount) || 0,
       campaignCount: 1,
+      clickRate: 0,
+      smoothedClickRate: 0,
+      lastUsedAt: new Date(lastUsedMs).toISOString(),
+      evidence: "performance",
+      metricScope: "campaigns_using_segment",
+      campaignIds: new Set([row.campaignId]),
+      lastUsedMs,
+      score: 0,
     });
   }
 
+  const uniqueCampaigns = new Map<string, { clicks: number; delivered: number }>();
+  for (const row of included) {
+    if (!uniqueCampaigns.has(row.campaignId)) {
+      uniqueCampaigns.set(row.campaignId, {
+        clicks: Number(row.totalClicks) || 0,
+        delivered: Number(row.deliveredCount) || 0,
+      });
+    }
+  }
+  const brandClicks = [...uniqueCampaigns.values()].reduce((sum, row) => sum + row.clicks, 0);
+  const brandDelivered = [...uniqueCampaigns.values()].reduce((sum, row) => sum + row.delivered, 0);
+  const baselineRate = brandDelivered > 0 ? brandClicks / brandDelivered : 0;
+  const strategy = uniqueCampaigns.size < 2 || brandClicks === 0 ? "recent_use" : "performance";
+  const newestMs = Math.max(0, ...campaignDates.values());
+  const priorDelivered = 2_000;
+
+  for (const item of totals.values()) {
+    const clickRate = item.deliveredCount > 0 ? item.totalClicks / item.deliveredCount : 0;
+    const smoothedRate = (item.totalClicks + baselineRate * priorDelivered)
+      / (item.deliveredCount + priorDelivered);
+    const ageDays = Math.max(0, newestMs - item.lastUsedMs) / 86_400_000;
+    const repeatability = Math.min(1, item.campaignCount / 3);
+    const volumeConfidence = Math.min(1, Math.log10(item.deliveredCount + 1) / 5);
+    const recency = Math.exp(-ageDays / 90);
+    item.clickRate = clickRate * 100;
+    item.smoothedClickRate = smoothedRate * 100;
+    item.lastUsedAt = new Date(item.lastUsedMs).toISOString();
+    item.evidence = strategy;
+    item.score = smoothedRate * 100 * 0.45
+      + repeatability * 0.40
+      + volumeConfidence * 0.10
+      + recency * 0.05;
+  }
+
   const suggestions = [...totals.values()]
-    .sort((a, b) =>
-      b.totalClicks - a.totalClicks ||
-      b.campaignCount - a.campaignCount ||
-      a.segmentName.localeCompare(b.segmentName) ||
-      a.segmentId.localeCompare(b.segmentId))
+    .sort((a, b) => strategy === "recent_use"
+      ? b.lastUsedMs - a.lastUsedMs ||
+        b.campaignCount - a.campaignCount ||
+        b.deliveredCount - a.deliveredCount ||
+        a.segmentId.localeCompare(b.segmentId)
+      : b.score - a.score ||
+        b.campaignCount - a.campaignCount ||
+        b.lastUsedMs - a.lastUsedMs ||
+        a.segmentId.localeCompare(b.segmentId))
     .slice(0, suggestionLimit);
 
-  return { campaignsConsidered: matching.length, suggestions };
+  return {
+    campaignsConsidered: uniqueCampaigns.size,
+    strategy,
+    suggestions: suggestions.map(({ campaignIds: _, lastUsedMs: __, score: ___, ...item }) => item),
+  };
 }
