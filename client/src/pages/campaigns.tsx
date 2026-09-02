@@ -94,6 +94,71 @@ import {
   getParisDayBounds,
 } from "@/lib/paris-time";
 
+function CampaignSegmentsCell({
+  campaign,
+  segmentNameById,
+}: {
+  campaign: Pick<CampaignListItem, "id" | "segmentId" | "segmentIds">;
+  segmentNameById: Map<string, string>;
+}) {
+  const segmentIds = getCampaignListSegmentIds(campaign);
+  if (segmentIds.length === 0) {
+    return <span className="text-sm text-muted-foreground">All subscribers</span>;
+  }
+
+  const [firstSegmentId, ...additionalSegmentIds] = segmentIds;
+  const firstName = segmentNameById.get(firstSegmentId) ?? "Unknown segment";
+
+  return (
+    <div className="flex min-w-[180px] max-w-[240px] items-center gap-2">
+      <Link href={`/segments/${firstSegmentId}`} className="min-w-0">
+        <span
+          className="block truncate text-sm text-foreground hover:text-primary hover:underline"
+          title={firstName}
+        >
+          {firstName}
+        </span>
+      </Link>
+      {additionalSegmentIds.length > 0 && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 shrink-0 rounded-full px-2 text-xs font-medium"
+              aria-label={`Show ${additionalSegmentIds.length} more segment${additionalSegmentIds.length > 1 ? "s" : ""}`}
+              data-testid={`button-more-segments-${campaign.id}`}
+            >
+              +{additionalSegmentIds.length}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 p-2" align="start">
+            <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+              Other segments
+            </div>
+            <div className="flex max-h-64 flex-col overflow-y-auto">
+              {additionalSegmentIds.map((segmentId) => {
+                const name = segmentNameById.get(segmentId) ?? "Unknown segment";
+                return (
+                  <Link
+                    key={segmentId}
+                    href={`/segments/${segmentId}`}
+                    className="rounded-md px-2 py-2 text-sm leading-snug hover:bg-muted hover:text-primary"
+                    title={name}
+                  >
+                    {name}
+                  </Link>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+    </div>
+  );
+}
+
 function CampaignStatusBadge({ status, onClick, campaignId }: { status: string; onClick?: () => void; campaignId?: string }) {
   const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }> = {
     draft: { variant: "secondary", icon: <Clock className="h-3 w-3" /> },
@@ -979,22 +1044,10 @@ export default function Campaigns() {
                         </div>
                       </TableCell>
                       <TableCell data-testid={`text-segment-${campaign.id}`}>
-                        {getCampaignListSegmentIds(campaign).length > 0 ? (
-                          <div className="flex min-w-[180px] max-w-[240px] flex-col items-start gap-1">
-                            {getCampaignListSegmentIds(campaign).map((segmentId) => (
-                              <Link key={segmentId} href={`/segments/${segmentId}`}>
-                                <span
-                                  className="block break-words text-sm leading-tight text-foreground hover:text-primary hover:underline"
-                                  title={segmentNameById.get(segmentId) ?? segmentId}
-                                >
-                                  {segmentNameById.get(segmentId) ?? "Unknown segment"}
-                                </span>
-                              </Link>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">All subscribers</span>
-                        )}
+                        <CampaignSegmentsCell
+                          campaign={campaign}
+                          segmentNameById={segmentNameById}
+                        />
                       </TableCell>
                       <TableCell data-testid={`text-mta-${campaign.id}`}>
                         <span className="text-sm text-muted-foreground truncate max-w-[120px] inline-block align-bottom">
