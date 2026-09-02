@@ -16,6 +16,7 @@ import {
   deleteCampaignsWithProgress,
   type BulkDeleteProgress,
 } from "@/lib/bulk-delete-campaigns";
+import { getCampaignListSegmentIds } from "@/lib/campaign-list-segments";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -978,12 +979,19 @@ export default function Campaigns() {
                         </div>
                       </TableCell>
                       <TableCell data-testid={`text-segment-${campaign.id}`}>
-                        {campaign.segmentId ? (
-                          <Link href={`/segments/${campaign.segmentId}`}>
-                            <span className="text-sm text-foreground hover:text-primary hover:underline truncate max-w-[180px] inline-block align-bottom">
-                              {segmentNameById.get(campaign.segmentId) ?? "—"}
-                            </span>
-                          </Link>
+                        {getCampaignListSegmentIds(campaign).length > 0 ? (
+                          <div className="flex min-w-[180px] max-w-[240px] flex-col items-start gap-1">
+                            {getCampaignListSegmentIds(campaign).map((segmentId) => (
+                              <Link key={segmentId} href={`/segments/${segmentId}`}>
+                                <span
+                                  className="block break-words text-sm leading-tight text-foreground hover:text-primary hover:underline"
+                                  title={segmentNameById.get(segmentId) ?? segmentId}
+                                >
+                                  {segmentNameById.get(segmentId) ?? "Unknown segment"}
+                                </span>
+                              </Link>
+                            ))}
+                          </div>
                         ) : (
                           <span className="text-sm text-muted-foreground">All subscribers</span>
                         )}

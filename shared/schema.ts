@@ -955,6 +955,8 @@ export type CampaignWithSendState = Campaign & {
 };
 export type CampaignListItem = Campaign & {
   mtaName: string | null;
+  /** Canonical ordered segment associations; falls back to legacy segmentId in repository reads. */
+  segmentIds: string[];
   // Live count of sends currently held by the Marketing Pressure Guard for
   // this campaign — i.e. `campaign_sends` rows with `status = 'pending'`
   // AND `eligible_at IS NOT NULL`. Computed on every list query (not a
