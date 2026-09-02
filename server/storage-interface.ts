@@ -66,11 +66,17 @@ export interface IStorage {
   getSegment(id: string): Promise<Segment | undefined>;
   getSegmentsByIds(ids: string[]): Promise<Segment[]>;
   createSegment(data: InsertSegment): Promise<Segment>;
+  createSegmentWithExclusions(data: InsertSegment, hashes: string[]): Promise<{
+    segment: Segment;
+    exclusionHashCount: number;
+    matchedExclusionCount: number;
+    finalSegmentCount: number;
+  }>;
   updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined>;
   deleteSegment(id: string): Promise<void>;
   getSegmentSubscriberCountCached(segmentId: string): Promise<number>;
   invalidateSegmentCountCache(segmentId?: string): Promise<void>;
-  previewSegmentRules(rules: SegmentRulesV2, sampleLimit?: number): Promise<{ count: number; sample: Subscriber[] }>;
+  previewSegmentRules(rules: SegmentRulesV2, sampleLimit?: number, exclusionHashes?: string[]): Promise<{ count: number; sample: Subscriber[] }>;
   duplicateSegment(id: string): Promise<Segment | undefined>;
 
   // ═══════════════════════════════════════════════════════════════

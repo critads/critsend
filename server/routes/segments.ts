@@ -6,6 +6,88 @@ import type { SegmentRulesV2 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import multer from "multer";
+import os from "os";
+import path from "path";
+import fs from "fs/promises";
+import crypto from "crypto";
+import {
+  MAX_SEGMENT_EXCLUSION_CSV_BYTES,
+  parseSegmentExclusionCsvFile,
+} from "../services/segment-exclusion-csv";
+import rateLimit from "express-rate-limit";
+
+const exclusionOperationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many exclusion CSV operations. Please try again in a minute." },
+});
+
+let activeExclusionOperations = 0;
+const limitExclusionOperations = (req: Request, res: Response, next: (error?: any) => void) => {
+  if (!req.is("multipart/form-data")) return next();
+  exclusionOperationLimiter(req, res, () => {
+    if (activeExclusionOperations >= 2) {
+      return res.status(429).json({ error: "Two exclusion CSV operations are already running. Please try again shortly." });
+    }
+    activeExclusionOperations += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      activeExclusionOperations = Math.max(0, activeExclusionOperations - 1);
+    };
+    res.once("finish", release);
+    res.once("close", release);
+    next();
+  });
+};
+
+const exclusionUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => callback(null, os.tmpdir()),
+    filename: (_req, _file, callback) =>
+      callback(null, `segment-exclusions-${crypto.randomUUID()}.csv`),
+  }),
+  limits: { fileSize: MAX_SEGMENT_EXCLUSION_CSV_BYTES, files: 1, fields: 20 },
+  fileFilter: (_req, file, callback) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    if (extension === ".csv" || extension === ".txt") callback(null, true);
+    else callback(new Error("Exclusion upload must be a CSV or text file"));
+  },
+});
+
+const acceptExclusionUpload = (req: Request, res: Response, next: (error?: any) => void) => {
+  exclusionUpload.fields([
+    { name: "exclusionFile", maxCount: 1 },
+    { name: "exclusionCsv", maxCount: 1 },
+    { name: "file", maxCount: 1 },
+  ])(req, res, (error: any) => {
+    if (!error) return next();
+    const status = error?.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    return res.status(status).json({ error: error.message || "Invalid exclusion upload" });
+  });
+};
+
+function uploadedExclusionFiles(req: Request): Express.Multer.File[] {
+  const groups = (req.files || {}) as Record<string, Express.Multer.File[]>;
+  return Object.values(groups).flat();
+}
+
+async function cleanupExclusionFiles(files: Express.Multer.File[]): Promise<void> {
+  await Promise.all(files.map((file) => fs.unlink(file.path).catch(() => {})));
+}
+
+function parseJsonMultipartField(value: unknown, field: string): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`Multipart field "${field}" must contain valid JSON`);
+  }
+}
 
 (async () => {
   try {
@@ -116,9 +198,11 @@ export function registerSegmentRoutes(app: Express, helpers: {
     }
   });
 
-  app.post("/api/segments/preview-count", async (req: Request, res: Response) => {
+  app.post("/api/segments/preview-count", limitExclusionOperations, acceptExclusionUpload, async (req: Request, res: Response) => {
+    const files = uploadedExclusionFiles(req);
     try {
-      const { rules } = req.body;
+      if (files.length > 1) return res.status(400).json({ error: "Only one exclusion CSV may be uploaded" });
+      const rules = parseJsonMultipartField(req.body?.rules, "rules");
       if (!rules) return res.json({ count: 0, sample: [] });
       
       const normalized = normalizeRules(rules);
@@ -131,14 +215,23 @@ export function registerSegmentRoutes(app: Express, helpers: {
       segmentRulesInputSchema.parse(rules);
       
       const sampleLimit = Math.min(parseInt(req.query.sampleLimit as string) || 10, 25);
-      const result = await storage.previewSegmentRules(normalized, sampleLimit);
-      res.json(result);
+      const hashes = files[0] ? await parseSegmentExclusionCsvFile(files[0].path) : [];
+      if (files[0] && hashes.length === 0) {
+        return res.status(400).json({ error: "Exclusion CSV does not contain any SHA-256 hashes" });
+      }
+      const result = await storage.previewSegmentRules(normalized, sampleLimit, hashes);
+      res.json({ ...result, exclusionHashCount: hashes.length });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
+      if (error instanceof Error && /Exclusion CSV|SHA-256|hexadecimal|unique hashes|valid JSON/.test(error.message)) {
+        return res.status(400).json({ error: error.message });
+      }
       logger.error("Error counting segment preview:", error);
       res.status(500).json({ error: "Failed to count subscribers" });
+    } finally {
+      await cleanupExclusionFiles(files);
     }
   });
 
@@ -220,25 +313,64 @@ export function registerSegmentRoutes(app: Express, helpers: {
     }
   });
 
-  app.post("/api/segments", async (req: Request, res: Response) => {
+  app.post(["/api/segments", "/api/segments/with-exclusions"], limitExclusionOperations, acceptExclusionUpload, async (req: Request, res: Response) => {
+    const files = uploadedExclusionFiles(req);
     try {
-      const data = insertSegmentSchema.parse(req.body);
+      if (files.length > 1) return res.status(400).json({ error: "Only one exclusion CSV may be uploaded" });
+      const multipartData = req.body?.data !== undefined
+        ? parseJsonMultipartField(req.body.data, "data")
+        : req.body;
+      if (!multipartData || typeof multipartData !== "object" || Array.isArray(multipartData)) {
+        return res.status(400).json({ error: "Segment data must be an object" });
+      }
+      const body = {
+        ...multipartData,
+        rules: parseJsonMultipartField((multipartData as any).rules, "rules"),
+      };
+      const data = insertSegmentSchema.parse(body);
       if (data.rules) {
         segmentRulesInputSchema.parse(data.rules);
       }
-      if (data.rules && data.rules.version === 2) {
-        if (!data.rules.root?.children?.length) {
+      const parsedRules = data.rules as any;
+      if (parsedRules && parsedRules.version === 2) {
+        if (!parsedRules.root?.children?.length) {
           return res.status(400).json({ error: "Segment must have at least one rule" });
         }
       }
-      const segment = await storage.createSegment(data);
-      res.status(201).json(segment);
+      if (!files[0]) {
+        const segment = await storage.createSegment(data);
+        return res.status(201).json(segment);
+      }
+      const hashes = await parseSegmentExclusionCsvFile(files[0].path);
+      if (files[0] && hashes.length === 0) {
+        return res.status(400).json({ error: "Exclusion CSV does not contain any SHA-256 hashes" });
+      }
+      const result = await storage.createSegmentWithExclusions(data, hashes);
+      res.status(201).json({
+        ...result.segment,
+        exclusionHashCount: result.exclusionHashCount,
+        finalHashCount: result.exclusionHashCount,
+        matchedExclusionCount: result.matchedExclusionCount,
+        finalSegmentCount: result.finalSegmentCount,
+        exclusionSummary: {
+          hashCount: result.exclusionHashCount,
+          matchedCount: result.matchedExclusionCount,
+          finalCount: result.finalSegmentCount,
+        },
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
+      if (error instanceof Error && (
+        /Exclusion CSV|SHA-256|hexadecimal|unique hashes|valid JSON/.test(error.message)
+      )) {
+        return res.status(400).json({ error: error.message });
+      }
       logger.error("Error creating segment:", error);
       res.status(500).json({ error: "Failed to create segment" });
+    } finally {
+      await cleanupExclusionFiles(files);
     }
   });
 

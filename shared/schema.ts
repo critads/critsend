@@ -44,6 +44,17 @@ export const segments = pgTable("segments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Task #257: externally supplied SHA-256 suppression values. Only hashes from
+// the uploaded CSV are stored here; subscriber email hashes are computed in
+// SQL while evaluating an audience and are never persisted.
+export const segmentExclusionHashes = pgTable("segment_exclusion_hashes", {
+  segmentId: varchar("segment_id").notNull().references(() => segments.id, { onDelete: "cascade" }),
+  emailHash: varchar("email_hash", { length: 64 }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.segmentId, table.emailHash] }),
+  hashIdx: index("segment_exclusion_hashes_hash_idx").on(table.emailHash),
+}));
+
 // MTA (Mail Transfer Agent) settings
 export const mtas = pgTable("mtas", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

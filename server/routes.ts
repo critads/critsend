@@ -31,12 +31,14 @@ import { registerAdminStuckCampaignsRoutes } from "./routes/admin-stuck-campaign
 import { registerPmtaRoutes } from "./routes/pmta";
 import { registerApiKeyRoutes } from "./routes/api-keys";
 import { ensureCampaignSegmentsSchema } from "./campaign-segments-bootstrap";
+import { ensureSegmentExclusionsSchema } from "./segment-exclusions-bootstrap";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   await ensureCampaignSegmentsSchema();
+  await ensureSegmentExclusionsSchema();
 
   const generalLimiter = rateLimit({
     windowMs: 60 * 1000,

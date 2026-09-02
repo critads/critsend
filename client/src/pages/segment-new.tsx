@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { type ChangeEvent, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { apiRequest, fetchCsrfToken, queryClient } from "@/lib/queryClient";
 import { useLocation, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Filter, Users, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileText, Filter, Loader2, Upload, Users, X } from "lucide-react";
 import type { Subscriber, SegmentRulesV2, SegmentGroup } from "@shared/schema";
 import {
   GroupBuilder,
@@ -30,6 +30,14 @@ interface PreviewResult {
   sample: Subscriber[];
 }
 
+interface ExclusionSummary {
+  hashCount: number;
+  matchedCount: number;
+  finalCount: number;
+}
+
+const MAX_EXCLUSION_FILE_BYTES = 25 * 1024 * 1024;
+
 export default function SegmentNew() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -39,27 +47,111 @@ export default function SegmentNew() {
   const [rootGroup, setRootGroup] = useState<SegmentGroup>(defaultRootGroup());
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
   const [isCountLoading, setIsCountLoading] = useState(false);
+  const [exclusionFile, setExclusionFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [exclusionSummary, setExclusionSummary] = useState<ExclusionSummary | null>(null);
+  const exclusionInputRef = useRef<HTMLInputElement>(null);
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; description: string; rules: SegmentRulesV2 }) =>
-      apiRequest("POST", "/api/segments", data),
-    onSuccess: () => {
+    mutationFn: async ({
+      data,
+      file,
+    }: {
+      data: { name: string; description: string; rules: SegmentRulesV2 };
+      file: File | null;
+    }) => {
+      if (!file) return apiRequest("POST", "/api/segments", data);
+
+      const csrfToken = await fetchCsrfToken();
+      return new Promise<Response>((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", "/api/segments/with-exclusions");
+        request.withCredentials = true;
+        request.setRequestHeader("x-csrf-token", csrfToken);
+        request.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+        request.onerror = () => reject(new Error("The exclusion file upload failed."));
+        request.onload = async () => {
+          const response = new Response(request.responseText, {
+            status: request.status,
+            statusText: request.statusText,
+            headers: { "Content-Type": request.getResponseHeader("Content-Type") || "application/json" },
+          });
+          if (request.status >= 200 && request.status < 300) resolve(response);
+          else {
+            const body = await response.clone().json().catch(() => null);
+            reject(new Error(
+              typeof body?.error === "string"
+                ? body.error
+                : "The segment could not be created with this exclusion file.",
+            ));
+          }
+        };
+        const formData = new FormData();
+        formData.append("data", JSON.stringify(data));
+        formData.append("exclusionFile", file);
+        request.send(formData);
+      });
+    },
+    onSuccess: async (response, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
+      const result = await response.json().catch(() => null);
+      const summary = result?.exclusionSummary;
+      setUploadProgress(null);
+      if (variables.file && summary && [summary.hashCount, summary.matchedCount, summary.finalCount].every((value) => typeof value === "number")) {
+        setExclusionSummary(summary);
+        toast({
+          title: "Segment created with exclusions",
+          description: `${summary.finalCount.toLocaleString()} subscribers remain in this segment.`,
+        });
+        return;
+      }
       toast({
         title: "Segment created",
         description: "Your new segment has been created successfully.",
       });
       navigate("/segments");
     },
-    onError: () => {
+    onError: (error: Error) => {
+      setUploadProgress(null);
       toast({
         title: "Error",
-        description: "Failed to create segment. Please try again.",
+        description: error.message || "Failed to create segment. Please try again.",
         variant: "destructive",
       });
     },
   });
+
+  const handleExclusionFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast({ title: "CSV required", description: "Select a .csv file of SHA-256 hashes.", variant: "destructive" });
+      event.target.value = "";
+      return;
+    }
+    if (file.size === 0 || file.size > MAX_EXCLUSION_FILE_BYTES) {
+      toast({
+        title: "File size not supported",
+        description: "Choose a CSV between 1 byte and 25 MB.",
+        variant: "destructive",
+      });
+      event.target.value = "";
+      return;
+    }
+    setExclusionSummary(null);
+    setExclusionFile(file);
+  };
+
+  const removeExclusionFile = () => {
+    setExclusionFile(null);
+    setUploadProgress(null);
+    if (exclusionInputRef.current) exclusionInputRef.current.value = "";
+  };
 
   const handleSubmit = () => {
     if (!name.trim()) {
@@ -78,10 +170,14 @@ export default function SegmentNew() {
       });
       return;
     }
+    setUploadProgress(exclusionFile ? 0 : null);
     createMutation.mutate({
-      name: name.trim(),
-      description: description.trim(),
-      rules: { version: 2 as const, root: rootGroup } as SegmentRulesV2,
+      data: {
+        name: name.trim(),
+        description: description.trim(),
+        rules: { version: 2 as const, root: rootGroup } as SegmentRulesV2,
+      },
+      file: exclusionFile,
     });
   };
 
@@ -97,15 +193,36 @@ export default function SegmentNew() {
     setIsCountLoading(true);
     setPreviewResult(null);
     try {
-      const res = await apiRequest("POST", "/api/segments/preview-count", {
-        rules: { version: 2, root: rootGroup } as SegmentRulesV2,
-      });
+      let res: Response;
+      if (exclusionFile) {
+        const csrfToken = await fetchCsrfToken();
+        const formData = new FormData();
+        formData.append("rules", JSON.stringify({
+          version: 2,
+          root: rootGroup,
+        } satisfies SegmentRulesV2));
+        formData.append("exclusionFile", exclusionFile);
+        res = await fetch("/api/segments/preview-count", {
+          method: "POST",
+          credentials: "include",
+          headers: { "x-csrf-token": csrfToken },
+          body: formData,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(typeof body?.error === "string" ? body.error : "Failed to preview.");
+        }
+      } else {
+        res = await apiRequest("POST", "/api/segments/preview-count", {
+          rules: { version: 2, root: rootGroup } as SegmentRulesV2,
+        });
+      }
       const data = await res.json();
       setPreviewResult(data);
-    } catch {
+    } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to preview. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to preview. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -115,6 +232,25 @@ export default function SegmentNew() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
+      {exclusionSummary && (
+        <Card className="border-primary/30 bg-primary/5" data-testid="exclusion-import-summary">
+          <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 text-primary" />
+              <div>
+                <p className="font-semibold">Segment created with exclusions</p>
+                <p className="text-sm text-muted-foreground">Your audience is ready to review.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center text-sm">
+              <div><p className="font-semibold">{exclusionSummary.hashCount.toLocaleString()}</p><p className="text-muted-foreground">hashes imported</p></div>
+              <div><p className="font-semibold">{exclusionSummary.matchedCount.toLocaleString()}</p><p className="text-muted-foreground">matched exclusions</p></div>
+              <div><p className="font-semibold">{exclusionSummary.finalCount.toLocaleString()}</p><p className="text-muted-foreground">final segment</p></div>
+            </div>
+            <Button onClick={() => navigate("/segments")} data-testid="button-view-created-segment">View segments</Button>
+          </CardContent>
+        </Card>
+      )}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild data-testid="button-back-segments">
           <Link href="/segments">
@@ -159,6 +295,42 @@ export default function SegmentNew() {
                   data-testid="input-segment-description"
                 />
               </div>
+              <div className="rounded-lg border border-dashed bg-muted/30 p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-md bg-background p-2"><FileText className="h-4 w-4 text-primary" /></div>
+                  <div className="space-y-1">
+                    <Label htmlFor="segment-exclusions">Exclusion hashes (optional CSV)</Label>
+                    <p className="text-sm text-muted-foreground">
+                      One SHA-256 hash per row. Hash each address as <code className="rounded bg-muted px-1 font-mono text-xs">SHA-256(lower(trim(email)))</code>.
+                    </p>
+                    <p className="text-xs text-muted-foreground">CSV files up to 25 MB. This is available only when creating a segment.</p>
+                  </div>
+                </div>
+                <input
+                  ref={exclusionInputRef}
+                  id="segment-exclusions"
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="sr-only"
+                  onChange={handleExclusionFileChange}
+                  disabled={createMutation.isPending}
+                  data-testid="input-exclusion-csv"
+                />
+                {exclusionFile ? (
+                  <div className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+                    <div className="min-w-0"><p className="truncate text-sm font-medium">{exclusionFile.name}</p><p className="text-xs text-muted-foreground">{(exclusionFile.size / 1024 / 1024).toFixed(2)} MB</p></div>
+                    <Button type="button" variant="ghost" size="icon" onClick={removeExclusionFile} disabled={createMutation.isPending} aria-label="Remove exclusion file" data-testid="button-remove-exclusion-csv"><X className="h-4 w-4" /></Button>
+                  </div>
+                ) : (
+                  <Button type="button" variant="outline" onClick={() => exclusionInputRef.current?.click()} disabled={createMutation.isPending} data-testid="button-select-exclusion-csv"><Upload className="mr-2 h-4 w-4" />Select CSV</Button>
+                )}
+                {uploadProgress !== null && (
+                  <div className="space-y-1" aria-live="polite" data-testid="exclusion-upload-progress">
+                    <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${uploadProgress}%` }} /></div>
+                    <p className="text-xs text-muted-foreground">{uploadProgress < 100 ? `Uploading exclusions: ${uploadProgress}%` : "Creating segment..."}</p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -192,7 +364,7 @@ export default function SegmentNew() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || !!exclusionSummary}
               data-testid="button-submit-segment"
             >
               {createMutation.isPending && (

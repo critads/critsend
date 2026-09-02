@@ -1,6 +1,7 @@
 import {
   subscribers,
   segments,
+  segmentExclusionHashes,
   pendingTagOperations,
   type Subscriber,
   type InsertSubscriber,
@@ -249,6 +250,25 @@ export async function countByEmails(emails: string[]): Promise<number> {
 // SEGMENT OPERATIONS
 // ═══════════════════════════════════════════════════════════════
 
+// This expression is the canonical Task #257 contract:
+// SHA-256(UTF-8(lower(trim(email)))). It is evaluated transiently and is never
+// selected into or written to a table.
+const subscriberEmailSha256 = sql`encode(digest(convert_to(lower(btrim(${subscribers.email})), 'UTF8'), 'sha256'), 'hex')`;
+
+function notInUploadedExclusions(segmentId: string) {
+  return sql`NOT EXISTS (
+    SELECT 1 FROM segment_exclusion_hashes seh
+    WHERE seh.segment_id = ${segmentId}
+      AND seh.email_hash = ${subscriberEmailSha256}
+  )`;
+}
+
+function notInHashArray(hashes: string[]) {
+  return hashes.length
+    ? sql`NOT (${subscriberEmailSha256} = ANY(${hashes}::text[]))`
+    : sql`TRUE`;
+}
+
 export async function getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]> {
   const segment = await getSegment(segmentId);
   if (!segment) return [];
@@ -262,6 +282,7 @@ export async function getSubscribersForSegment(segmentId: string, limit?: number
       not(sql`'BCK' = ANY(${subscribers.tags})`),
       sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
       whereCondition,
+      notInUploadedExclusions(segmentId),
     )
   );
 
@@ -278,7 +299,7 @@ async function compileSegmentWhere(segmentId: string) {
   if (!segment) return null;
   const normalized = normalizeRules(segment.rules);
   if (!normalized) return null;
-  return compileSegmentRules(normalized);
+  return and(compileSegmentRules(normalized), notInUploadedExclusions(segmentId));
 }
 
 async function compileSegmentWheres(segmentIds: string[]) {
@@ -288,7 +309,12 @@ async function compileSegmentWheres(segmentIds: string[]) {
   const compiled = new Map<string, ReturnType<typeof compileSegmentRules>>();
   for (const segment of found) {
     const normalized = normalizeRules(segment.rules);
-    if (normalized) compiled.set(segment.id, compileSegmentRules(normalized));
+    if (normalized) {
+      compiled.set(
+        segment.id,
+        and(compileSegmentRules(normalized), notInUploadedExclusions(segment.id))!,
+      );
+    }
   }
   return compiled;
 }
@@ -469,12 +495,17 @@ export async function countSubscribersForRules(rules: any[]): Promise<number> {
   return Number(count);
 }
 
-export async function previewSegmentRules(rules: SegmentRulesV2, sampleLimit: number = 10): Promise<{ count: number; sample: Subscriber[] }> {
+export async function previewSegmentRules(rules: SegmentRulesV2, sampleLimit: number = 10, exclusionHashes: string[] = []): Promise<{ count: number; sample: Subscriber[] }> {
   const normalized = normalizeRules(rules);
   if (!normalized) return { count: 0, sample: [] };
 
   const whereCondition = compileSegmentRules(normalized);
-  const condition = and(not(sql`'BCK' = ANY(${subscribers.tags})`), whereCondition);
+  const condition = and(
+    not(sql`'BCK' = ANY(${subscribers.tags})`),
+    sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+    whereCondition,
+    notInHashArray(exclusionHashes),
+  );
 
   const [{ count }, sample] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(subscribers).where(condition).then(r => r[0]),
@@ -545,6 +576,66 @@ export async function getSegmentsByIds(ids: string[]): Promise<Segment[]> {
 export async function createSegment(data: InsertSegment): Promise<Segment> {
   const [segment] = await db.insert(segments).values(data).returning();
   return segment;
+}
+
+export async function createSegmentWithExclusions(
+  data: InsertSegment,
+  hashes: string[],
+): Promise<{
+  segment: Segment;
+  exclusionHashCount: number;
+  matchedExclusionCount: number;
+  finalSegmentCount: number;
+}> {
+  return db.transaction(async (tx) => {
+    const [segment] = await tx.insert(segments).values(data).returning();
+    for (let i = 0; i < hashes.length; i += 5_000) {
+      await tx.insert(segmentExclusionHashes).values(
+        hashes.slice(i, i + 5_000).map((emailHash) => ({
+          segmentId: segment.id,
+          emailHash,
+        })),
+      ).onConflictDoNothing();
+    }
+
+    const normalized = normalizeRules(segment.rules);
+    if (!normalized) {
+      return {
+        segment,
+        exclusionHashCount: hashes.length,
+        matchedExclusionCount: 0,
+        finalSegmentCount: 0,
+      };
+    }
+    const base = and(
+      not(sql`'BCK' = ANY(${subscribers.tags})`),
+      sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+      compileSegmentRules(normalized),
+    );
+    const [counts] = await tx.select({
+      baseCount: sql<number>`count(*)::int`,
+      matchedCount: sql<number>`count(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM segment_exclusion_hashes seh
+          WHERE seh.segment_id = ${segment.id}
+            AND seh.email_hash = ${subscriberEmailSha256}
+        )
+      )::int`,
+    }).from(subscribers).where(base);
+    const baseCount = Number(counts?.baseCount ?? 0);
+    const matchedExclusionCount = Number(counts?.matchedCount ?? 0);
+    const finalSegmentCount = baseCount - matchedExclusionCount;
+    const [publishedSegment] = await tx.update(segments)
+      .set({ cachedCount: finalSegmentCount })
+      .where(eq(segments.id, segment.id))
+      .returning();
+    return {
+      segment: publishedSegment,
+      exclusionHashCount: hashes.length,
+      matchedExclusionCount,
+      finalSegmentCount,
+    };
+  });
 }
 
 export async function updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined> {
