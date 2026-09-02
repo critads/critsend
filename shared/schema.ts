@@ -783,6 +783,16 @@ export const insertEmailHeaderSchema = createInsertSchema(emailHeaders).omit({ i
   name: z.string().min(1, "Name required").max(200, "Header name too long"),
   value: z.string().min(1, "Value required").max(2000, "Header value too long"),
 });
+
+const campaignScheduledAtSchema = z.preprocess(
+  (value) => {
+    if (value === "" || value === null) return null;
+    if (typeof value === "string") return new Date(value);
+    return value;
+  },
+  z.date().nullable().optional(),
+);
+
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({ 
   id: true, 
   sentCount: true, 
@@ -805,6 +815,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   subject: z.string().min(1, "Subject required").max(998, "Subject too long"),
   preheader: z.string().max(500, "Preheader too long").nullable().optional(),
   htmlContent: z.string().min(1, "HTML content required").max(5000000, "Content too large"),
+  scheduledAt: campaignScheduledAtSchema,
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   // Auto-resend to openers — settable on the parent at create time. Match
   // the same 1-168h range enforced on the wizard input and on PATCH.
@@ -844,6 +855,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   subject: z.string().max(998, "Subject too long").optional().default(""),
   preheader: z.string().max(500, "Preheader too long").nullable().optional(),
   htmlContent: z.string().max(5000000, "Content too large").optional().default(""),
+  scheduledAt: campaignScheduledAtSchema,
   mtaId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   segmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   segmentIds: z.array(z.string().min(1)).refine(
@@ -890,10 +902,7 @@ export const updateCampaignDraftSchema = z.object({
     z.string().nullable().optional()
   ),
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
-  scheduledAt: z.preprocess(
-    (v) => (v === "" || v === null ? null : v),
-    z.union([z.string(), z.date()]).nullable().optional()
-  ),
+  scheduledAt: campaignScheduledAtSchema,
   status: z.string().optional(),
   openTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   clickTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
