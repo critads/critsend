@@ -41,6 +41,7 @@ export const segments = pgTable("segments", {
   description: text("description"),
   rules: jsonb("rules").notNull().default(sql`'[]'::jsonb`),
   cachedCount: integer("cached_count"),
+  exclusionVersion: integer("exclusion_version").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

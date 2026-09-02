@@ -72,6 +72,14 @@ export interface IStorage {
     matchedExclusionCount: number;
     finalSegmentCount: number;
   }>;
+  replaceSegmentExclusions(id: string, hashes: string[]): Promise<{
+    segment: Segment;
+    exclusionHashCount: number;
+    matchedExclusionCount: number;
+    finalSegmentCount: number;
+  } | undefined>;
+  getSegmentExclusionHashCount(id: string): Promise<number>;
+  getSegmentExclusionHashCounts(ids: string[]): Promise<Record<string, number>>;
   updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined>;
   deleteSegment(id: string): Promise<void>;
   getSegmentSubscriberCountCached(segmentId: string): Promise<number>;

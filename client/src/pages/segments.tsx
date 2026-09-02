@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ChangeEvent } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, fetchCsrfToken } from "@/lib/queryClient";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,9 @@ import {
   RefreshCw,
   Search,
   Loader2,
+  FileText,
+  Upload,
+  X,
 } from "lucide-react";
 import type { Segment, SegmentGroup, SegmentRulesV2, Subscriber } from "@shared/schema";
 import { operatorLabelsV2 } from "@shared/schema";
@@ -72,6 +75,9 @@ interface PreviewResult {
   sample: Subscriber[];
 }
 
+type SegmentWithExclusions = Segment & { exclusionHashCount?: number };
+const MAX_EXCLUSION_FILE_BYTES = 25 * 1024 * 1024;
+
 function summarizeRules(rules: unknown): Array<{ text: string; depth: number }> {
   const root = getRulesAsV2(rules);
   const results: Array<{ text: string; depth: number }> = [];
@@ -95,7 +101,7 @@ function summarizeRules(rules: unknown): Array<{ text: string; depth: number }> 
 }
 
 export default function Segments() {
-  const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
+  const [editingSegment, setEditingSegment] = useState<SegmentWithExclusions | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Segment | null>(null);
   const [viewingSegment, setViewingSegment] = useState<Segment | null>(null);
   const [viewPage, setViewPage] = useState(1);
@@ -128,10 +134,13 @@ export default function Segments() {
   const [rootGroup, setRootGroup] = useState<SegmentGroup>(defaultRootGroup());
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
   const [isCountLoading, setIsCountLoading] = useState(false);
+  const [exclusionFile, setExclusionFile] = useState<File | null>(null);
+  const [exclusionUploadProgress, setExclusionUploadProgress] = useState<number | null>(null);
+  const exclusionInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const { data: segmentsPage, isLoading } = useQuery<{
-    segments: Segment[];
+    segments: SegmentWithExclusions[];
     total: number;
     page: number;
     limit: number;
@@ -266,14 +275,82 @@ export default function Segments() {
     setRootGroup(defaultRootGroup());
     setPreviewResult(null);
     setIsCountLoading(false);
+    setExclusionFile(null);
+    setExclusionUploadProgress(null);
+    if (exclusionInputRef.current) exclusionInputRef.current.value = "";
   };
 
-  const handleEditClick = (segment: Segment) => {
+  const handleEditClick = (segment: SegmentWithExclusions) => {
     setEditingSegment(segment);
     setName(segment.name);
     setDescription(segment.description || "");
     setRootGroup(getRulesAsV2(segment.rules));
     setPreviewResult(null);
+  };
+
+  const refreshSegmentQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/segments/counts"] });
+  };
+
+  const replaceExclusionsMutation = useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const csrfToken = await fetchCsrfToken();
+      return new Promise<Response>((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("PUT", `/api/segments/${id}/exclusions`);
+        request.withCredentials = true;
+        request.setRequestHeader("x-csrf-token", csrfToken);
+        request.upload.onprogress = (event) => {
+          if (event.lengthComputable) setExclusionUploadProgress(Math.round(event.loaded / event.total * 100));
+        };
+        request.onerror = () => reject(new Error("The exclusion file upload failed."));
+        request.onload = async () => {
+          const response = new Response(request.responseText, { status: request.status });
+          if (request.status >= 200 && request.status < 300) return resolve(response);
+          const body = await response.clone().json().catch(() => null);
+          reject(new Error(typeof body?.error === "string" ? body.error : "Failed to replace exclusions."));
+        };
+        const formData = new FormData();
+        formData.append("exclusionFile", file);
+        request.send(formData);
+      });
+    },
+    onSuccess: async (response) => {
+      const result = await response.json();
+      refreshSegmentQueries();
+      setEditingSegment((current) => current ? { ...current, exclusionHashCount: result.exclusionHashCount, cachedCount: result.cachedCount } : current);
+      setExclusionFile(null);
+      setExclusionUploadProgress(null);
+      if (exclusionInputRef.current) exclusionInputRef.current.value = "";
+      toast({ title: "Exclusions replaced", description: `${result.exclusionHashCount.toLocaleString()} active hashes. ${result.cachedCount.toLocaleString()} subscribers remain.` });
+    },
+    onError: (error: Error) => {
+      setExclusionUploadProgress(null);
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeExclusionsMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/segments/${id}/exclusions`),
+    onSuccess: async (response) => {
+      const result = await response.json();
+      refreshSegmentQueries();
+      setEditingSegment((current) => current ? { ...current, exclusionHashCount: 0, cachedCount: result.cachedCount } : current);
+      toast({ title: "Exclusions removed", description: "The subscriber count has been recalculated." });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to remove exclusions.", variant: "destructive" }),
+  });
+
+  const handleExclusionFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv") || file.size === 0 || file.size > MAX_EXCLUSION_FILE_BYTES) {
+      toast({ title: "Invalid CSV", description: "Choose a non-empty .csv file up to 25 MB.", variant: "destructive" });
+      event.target.value = "";
+      return;
+    }
+    setExclusionFile(file);
   };
 
   const updateMutation = useMutation({
@@ -458,6 +535,45 @@ export default function Segments() {
           testIdPrefix="root"
         />
       </div>
+      {editingSegment && (
+        <div className="rounded-lg border border-dashed bg-muted/30 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="rounded-md bg-background p-2"><FileText className="h-4 w-4 text-primary" /></div>
+            <div>
+              <Label htmlFor="edit-segment-exclusions">Exclusion hashes</Label>
+              <p className="text-sm text-muted-foreground" data-testid="text-active-exclusion-count">
+                {(editingSegment.exclusionHashCount ?? 0).toLocaleString()} active SHA-256 hashes
+              </p>
+            </div>
+          </div>
+          <input ref={exclusionInputRef} id="edit-segment-exclusions" type="file" accept=".csv,text/csv" className="sr-only" onChange={handleExclusionFileChange} disabled={replaceExclusionsMutation.isPending} data-testid="input-edit-exclusion-csv" />
+          {exclusionFile ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
+              <span className="truncate text-sm">{exclusionFile.name}</span>
+              <Button type="button" variant="ghost" size="icon" onClick={() => { setExclusionFile(null); if (exclusionInputRef.current) exclusionInputRef.current.value = ""; }} disabled={replaceExclusionsMutation.isPending}><X className="h-4 w-4" /></Button>
+            </div>
+          ) : (
+            <Button type="button" variant="outline" onClick={() => exclusionInputRef.current?.click()} disabled={replaceExclusionsMutation.isPending} data-testid="button-select-edit-exclusion-csv"><Upload className="mr-2 h-4 w-4" />Select replacement CSV</Button>
+          )}
+          {exclusionFile && (
+            <Button type="button" onClick={() => { setExclusionUploadProgress(0); replaceExclusionsMutation.mutate({ id: editingSegment.id, file: exclusionFile }); }} disabled={replaceExclusionsMutation.isPending} data-testid="button-replace-exclusions">
+              {replaceExclusionsMutation.isPending ? "Replacing..." : "Replace exclusions"}
+            </Button>
+          )}
+          {exclusionUploadProgress !== null && (
+            <div className="space-y-1" aria-live="polite"><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${exclusionUploadProgress}%` }} /></div><p className="text-xs text-muted-foreground">{exclusionUploadProgress < 100 ? `Uploading: ${exclusionUploadProgress}%` : "Validating and replacing..."}</p></div>
+          )}
+          {(editingSegment.exclusionHashCount ?? 0) > 0 && (
+            <Button type="button" variant="destructive" onClick={() => {
+              if (window.confirm(`Remove all ${(editingSegment.exclusionHashCount ?? 0).toLocaleString()} exclusion hashes? The segment subscriber count will increase for matching addresses.`)) {
+                removeExclusionsMutation.mutate(editingSegment.id);
+              }
+            }} disabled={removeExclusionsMutation.isPending || replaceExclusionsMutation.isPending} data-testid="button-remove-exclusions">
+              {removeExclusionsMutation.isPending ? "Removing..." : "Remove all exclusions"}
+            </Button>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-3 pt-2 flex-wrap">
         <Button
           type="button"

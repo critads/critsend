@@ -26,8 +26,8 @@ const exclusionOperationLimiter = rateLimit({
 });
 
 let activeExclusionOperations = 0;
+const releaseExclusionOperation = Symbol("releaseExclusionOperation");
 const limitExclusionOperations = (req: Request, res: Response, next: (error?: any) => void) => {
-  if (!req.is("multipart/form-data")) return next();
   exclusionOperationLimiter(req, res, () => {
     if (activeExclusionOperations >= 2) {
       return res.status(429).json({ error: "Two exclusion CSV operations are already running. Please try again shortly." });
@@ -39,11 +39,19 @@ const limitExclusionOperations = (req: Request, res: Response, next: (error?: an
       released = true;
       activeExclusionOperations = Math.max(0, activeExclusionOperations - 1);
     };
-    res.once("finish", release);
-    res.once("close", release);
+    (req as any)[releaseExclusionOperation] = release;
     next();
   });
 };
+
+const limitExclusionUploads = (req: Request, res: Response, next: (error?: any) => void) => {
+  if (!req.is("multipart/form-data")) return next();
+  limitExclusionOperations(req, res, next);
+};
+
+function releaseExclusionOperationForRequest(req: Request): void {
+  (req as any)[releaseExclusionOperation]?.();
+}
 
 const exclusionUpload = multer({
   storage: multer.diskStorage({
@@ -66,6 +74,7 @@ const acceptExclusionUpload = (req: Request, res: Response, next: (error?: any) 
     { name: "file", maxCount: 1 },
   ])(req, res, (error: any) => {
     if (!error) return next();
+    releaseExclusionOperationForRequest(req);
     const status = error?.code === "LIMIT_FILE_SIZE" ? 413 : 400;
     return res.status(status).json({ error: error.message || "Invalid exclusion upload" });
   });
@@ -92,6 +101,7 @@ function parseJsonMultipartField(value: unknown, field: string): unknown {
 (async () => {
   try {
     await db.execute(sql`ALTER TABLE segments ADD COLUMN IF NOT EXISTS cached_count integer`);
+    await db.execute(sql`ALTER TABLE segments ADD COLUMN IF NOT EXISTS exclusion_version integer NOT NULL DEFAULT 0`);
     logger.info("[SEGMENT] Bootstrap migration: cached_count column ready");
   } catch (err: any) {
     logger.error(`[SEGMENT] Bootstrap migration FAILED (cached_count): ${err?.message || err}`);
@@ -129,10 +139,19 @@ export function registerSegmentRoutes(app: Express, helpers: {
         }
         const search = (typeof req.query.search === "string" ? req.query.search : "").trim() || undefined;
         const result = await storage.getSegmentsPaginated({ page: pageNum, limit: limitNum, search });
-        return res.json({ segments: result.segments, total: result.total, page: pageNum, limit: limitNum });
+        const exclusionCounts = await storage.getSegmentExclusionHashCounts(result.segments.map((segment) => segment.id));
+        const segmentsWithExclusions = result.segments.map((segment) => ({
+          ...segment,
+          exclusionHashCount: exclusionCounts[segment.id] ?? 0,
+        }));
+        return res.json({ segments: segmentsWithExclusions, total: result.total, page: pageNum, limit: limitNum });
       }
       const segmentsList = await storage.getSegments();
-      res.json(segmentsList);
+      const exclusionCounts = await storage.getSegmentExclusionHashCounts(segmentsList.map((segment) => segment.id));
+      res.json(segmentsList.map((segment) => ({
+        ...segment,
+        exclusionHashCount: exclusionCounts[segment.id] ?? 0,
+      })));
     } catch (error) {
       logger.error("Error fetching segments:", error);
       res.status(500).json({ error: "Failed to fetch segments" });
@@ -198,7 +217,7 @@ export function registerSegmentRoutes(app: Express, helpers: {
     }
   });
 
-  app.post("/api/segments/preview-count", limitExclusionOperations, acceptExclusionUpload, async (req: Request, res: Response) => {
+  app.post("/api/segments/preview-count", limitExclusionUploads, acceptExclusionUpload, async (req: Request, res: Response) => {
     const files = uploadedExclusionFiles(req);
     try {
       if (files.length > 1) return res.status(400).json({ error: "Only one exclusion CSV may be uploaded" });
@@ -232,6 +251,7 @@ export function registerSegmentRoutes(app: Express, helpers: {
       res.status(500).json({ error: "Failed to count subscribers" });
     } finally {
       await cleanupExclusionFiles(files);
+      releaseExclusionOperationForRequest(req);
     }
   });
 
@@ -244,7 +264,10 @@ export function registerSegmentRoutes(app: Express, helpers: {
       if (!segment) {
         return res.status(404).json({ error: "Segment not found" });
       }
-      res.json(segment);
+      res.json({
+        ...segment,
+        exclusionHashCount: await storage.getSegmentExclusionHashCount(segment.id),
+      });
     } catch (error) {
       logger.error("Error fetching segment:", error);
       res.status(500).json({ error: "Failed to fetch segment" });
@@ -313,7 +336,7 @@ export function registerSegmentRoutes(app: Express, helpers: {
     }
   });
 
-  app.post(["/api/segments", "/api/segments/with-exclusions"], limitExclusionOperations, acceptExclusionUpload, async (req: Request, res: Response) => {
+  app.post(["/api/segments", "/api/segments/with-exclusions"], limitExclusionUploads, acceptExclusionUpload, async (req: Request, res: Response) => {
     const files = uploadedExclusionFiles(req);
     try {
       if (files.length > 1) return res.status(400).json({ error: "Only one exclusion CSV may be uploaded" });
@@ -371,6 +394,7 @@ export function registerSegmentRoutes(app: Express, helpers: {
       res.status(500).json({ error: "Failed to create segment" });
     } finally {
       await cleanupExclusionFiles(files);
+      releaseExclusionOperationForRequest(req);
     }
   });
 
@@ -398,6 +422,60 @@ export function registerSegmentRoutes(app: Express, helpers: {
       }
       logger.error("Error updating segment:", error);
       res.status(500).json({ error: "Failed to update segment" });
+    }
+  });
+
+  app.put("/api/segments/:id/exclusions", limitExclusionUploads, acceptExclusionUpload, async (req: Request, res: Response) => {
+    const files = uploadedExclusionFiles(req);
+    try {
+      if (!validateId(req.params.id)) return res.status(400).json({ error: "Invalid ID format" });
+      if (files.length !== 1) return res.status(400).json({ error: "One exclusion CSV must be uploaded" });
+      const hashes = await parseSegmentExclusionCsvFile(files[0].path);
+      if (hashes.length === 0) {
+        return res.status(400).json({ error: "Exclusion CSV does not contain any SHA-256 hashes" });
+      }
+      const result = await storage.replaceSegmentExclusions(req.params.id, hashes);
+      if (!result) return res.status(404).json({ error: "Segment not found" });
+      res.json({
+        ...result.segment,
+        exclusionHashCount: result.exclusionHashCount,
+        exclusionSummary: {
+          hashCount: result.exclusionHashCount,
+          matchedCount: result.matchedExclusionCount,
+          finalCount: result.finalSegmentCount,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && /Exclusion CSV|SHA-256|hexadecimal|unique hashes/.test(error.message)) {
+        return res.status(400).json({ error: error.message });
+      }
+      logger.error("Error replacing segment exclusions:", error);
+      res.status(500).json({ error: "Failed to replace segment exclusions" });
+    } finally {
+      await cleanupExclusionFiles(files);
+      releaseExclusionOperationForRequest(req);
+    }
+  });
+
+  app.delete("/api/segments/:id/exclusions", limitExclusionOperations, async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) return res.status(400).json({ error: "Invalid ID format" });
+      const result = await storage.replaceSegmentExclusions(req.params.id, []);
+      if (!result) return res.status(404).json({ error: "Segment not found" });
+      res.json({
+        ...result.segment,
+        exclusionHashCount: 0,
+        exclusionSummary: {
+          hashCount: 0,
+          matchedCount: 0,
+          finalCount: result.finalSegmentCount,
+        },
+      });
+    } catch (error) {
+      logger.error("Error removing segment exclusions:", error);
+      res.status(500).json({ error: "Failed to remove segment exclusions" });
+    } finally {
+      releaseExclusionOperationForRequest(req);
     }
   });
 

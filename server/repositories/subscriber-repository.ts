@@ -26,6 +26,9 @@ const REDIS_SEGMENT_COUNT_PREFIX = "segment:count:";
 
 const segmentCountCache = new Map<string, { count: number; timestamp: number }>();
 
+function segmentCountCacheKey(segmentId: string, exclusionVersion: number): string {
+  return `${segmentId}:v${exclusionVersion}`;
+}
 
 // Auto-prune expired in-memory entries every 5 minutes (no-op when Redis is used)
 setInterval(() => {
@@ -35,10 +38,10 @@ setInterval(() => {
   }
 }, 300_000).unref();
 
-async function redisGetSegmentCount(segmentId: string): Promise<number | null> {
+async function redisGetSegmentCount(segmentId: string, exclusionVersion: number): Promise<number | null> {
   if (!redisConnection) return null;
   try {
-    const v = await redisConnection.get(REDIS_SEGMENT_COUNT_PREFIX + segmentId);
+    const v = await redisConnection.get(REDIS_SEGMENT_COUNT_PREFIX + segmentCountCacheKey(segmentId, exclusionVersion));
     if (v == null) return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
@@ -48,11 +51,11 @@ async function redisGetSegmentCount(segmentId: string): Promise<number | null> {
   }
 }
 
-async function redisSetSegmentCount(segmentId: string, count: number): Promise<void> {
+async function redisSetSegmentCount(segmentId: string, exclusionVersion: number, count: number): Promise<void> {
   if (!redisConnection) return;
   try {
     await redisConnection.set(
-      REDIS_SEGMENT_COUNT_PREFIX + segmentId,
+      REDIS_SEGMENT_COUNT_PREFIX + segmentCountCacheKey(segmentId, exclusionVersion),
       String(count),
       "EX",
       SEGMENT_COUNT_CACHE_TTL_SEC,
@@ -66,7 +69,18 @@ async function redisDeleteSegmentCount(segmentId?: string): Promise<void> {
   if (!redisConnection) return;
   try {
     if (segmentId) {
-      await redisConnection.del(REDIS_SEGMENT_COUNT_PREFIX + segmentId);
+      let cursor = "0";
+      do {
+        const [next, keys] = await redisConnection.scan(
+          cursor,
+          "MATCH",
+          `${REDIS_SEGMENT_COUNT_PREFIX}${segmentId}*`,
+          "COUNT",
+          100,
+        );
+        cursor = next;
+        if (keys.length > 0) await redisConnection.del(...keys);
+      } while (cursor !== "0");
       return;
     }
     let cursor = "0";
@@ -529,6 +543,25 @@ export async function getSegments(): Promise<Segment[]> {
   return db.select().from(segments).orderBy(desc(segments.createdAt));
 }
 
+export async function getSegmentExclusionHashCount(id: string): Promise<number> {
+  const [row] = await db.select({ count: sql<number>`count(*)::int` })
+    .from(segmentExclusionHashes)
+    .where(eq(segmentExclusionHashes.segmentId, id));
+  return Number(row?.count ?? 0);
+}
+
+export async function getSegmentExclusionHashCounts(ids: string[]): Promise<Record<string, number>> {
+  if (ids.length === 0) return {};
+  const rows = await db.select({
+    segmentId: segmentExclusionHashes.segmentId,
+    count: sql<number>`count(*)::int`,
+  })
+    .from(segmentExclusionHashes)
+    .where(inArray(segmentExclusionHashes.segmentId, ids))
+    .groupBy(segmentExclusionHashes.segmentId);
+  return Object.fromEntries(rows.map((row) => [row.segmentId, Number(row.count)]));
+}
+
 export async function getSegmentsPaginated(opts: {
   page: number;
   limit: number;
@@ -638,6 +671,74 @@ export async function createSegmentWithExclusions(
   });
 }
 
+export async function replaceSegmentExclusions(
+  id: string,
+  hashes: string[],
+): Promise<{
+  segment: Segment;
+  exclusionHashCount: number;
+  matchedExclusionCount: number;
+  finalSegmentCount: number;
+} | undefined> {
+  const result = await db.transaction(async (tx) => {
+    const [segment] = await tx.select().from(segments).where(eq(segments.id, id)).for("update");
+    if (!segment) return undefined;
+
+    await tx.delete(segmentExclusionHashes).where(eq(segmentExclusionHashes.segmentId, id));
+    for (let i = 0; i < hashes.length; i += 5_000) {
+      await tx.insert(segmentExclusionHashes).values(
+        hashes.slice(i, i + 5_000).map((emailHash) => ({ segmentId: id, emailHash })),
+      ).onConflictDoNothing();
+    }
+
+    const normalized = normalizeRules(segment.rules);
+    let matchedExclusionCount = 0;
+    let finalSegmentCount = 0;
+    if (normalized) {
+      const base = and(
+        not(sql`'BCK' = ANY(${subscribers.tags})`),
+        sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
+        compileSegmentRules(normalized),
+      );
+      const [counts] = await tx.select({
+        baseCount: sql<number>`count(*)::int`,
+        matchedCount: sql<number>`count(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1 FROM segment_exclusion_hashes seh
+            WHERE seh.segment_id = ${id}
+              AND seh.email_hash = ${subscriberEmailSha256}
+          )
+        )::int`,
+      }).from(subscribers).where(base);
+      const baseCount = Number(counts?.baseCount ?? 0);
+      matchedExclusionCount = Number(counts?.matchedCount ?? 0);
+      finalSegmentCount = baseCount - matchedExclusionCount;
+    }
+
+    const [updatedSegment] = await tx.update(segments)
+      .set({
+        cachedCount: finalSegmentCount,
+        exclusionVersion: sql`${segments.exclusionVersion} + 1`,
+      })
+      .where(eq(segments.id, id))
+      .returning();
+    return {
+      segment: updatedSegment,
+      exclusionHashCount: hashes.length,
+      matchedExclusionCount,
+      finalSegmentCount,
+    };
+  });
+
+  if (result) {
+    for (const key of segmentCountCache.keys()) {
+      if (key.startsWith(`${id}:v`)) segmentCountCache.delete(key);
+    }
+    await redisDeleteSegmentCount(id);
+  }
+  return result;
+}
+
 export async function updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined> {
   const [segment] = await db.update(segments).set(data).where(eq(segments.id, id)).returning();
   return segment;
@@ -648,27 +749,38 @@ export async function deleteSegment(id: string): Promise<void> {
 }
 
 export async function getSegmentSubscriberCountCached(segmentId: string): Promise<number> {
+  const [versionRow] = await db.select({ exclusionVersion: segments.exclusionVersion })
+    .from(segments)
+    .where(eq(segments.id, segmentId));
+  if (!versionRow) return 0;
+  const exclusionVersion = versionRow.exclusionVersion;
+  const cacheKey = segmentCountCacheKey(segmentId, exclusionVersion);
   if (isRedisConfigured) {
-    const fromRedis = await redisGetSegmentCount(segmentId);
+    const fromRedis = await redisGetSegmentCount(segmentId, exclusionVersion);
     if (fromRedis !== null) return fromRedis;
     const count = await countSubscribersForSegment(segmentId);
-    await redisSetSegmentCount(segmentId, count);
-    await persistSegmentCachedCount(segmentId, count);
+    await redisSetSegmentCount(segmentId, exclusionVersion, count);
+    await persistSegmentCachedCount(segmentId, exclusionVersion, count);
     return count;
   }
-  const cached = segmentCountCache.get(segmentId);
+  const cached = segmentCountCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < SEGMENT_COUNT_CACHE_TTL) {
     return cached.count;
   }
   const count = await countSubscribersForSegment(segmentId);
-  segmentCountCache.set(segmentId, { count, timestamp: Date.now() });
-  await persistSegmentCachedCount(segmentId, count);
+  segmentCountCache.set(cacheKey, { count, timestamp: Date.now() });
+  await persistSegmentCachedCount(segmentId, exclusionVersion, count);
   return count;
 }
 
-async function persistSegmentCachedCount(segmentId: string, count: number): Promise<void> {
+async function persistSegmentCachedCount(segmentId: string, exclusionVersion: number, count: number): Promise<void> {
   try {
-    await db.update(segments).set({ cachedCount: count }).where(eq(segments.id, segmentId));
+    await db.update(segments)
+      .set({ cachedCount: count })
+      .where(and(
+        eq(segments.id, segmentId),
+        eq(segments.exclusionVersion, exclusionVersion),
+      ));
   } catch (err: any) {
     logger.warn(`[SEGMENT] Failed to persist cachedCount for ${segmentId}: ${err.message}`);
   }
@@ -676,7 +788,9 @@ async function persistSegmentCachedCount(segmentId: string, count: number): Prom
 
 export async function invalidateSegmentCountCache(segmentId?: string): Promise<void> {
   if (segmentId) {
-    segmentCountCache.delete(segmentId);
+    for (const key of segmentCountCache.keys()) {
+      if (key.startsWith(`${segmentId}:v`)) segmentCountCache.delete(key);
+    }
   } else {
     segmentCountCache.clear();
   }
