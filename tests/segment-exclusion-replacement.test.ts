@@ -19,12 +19,12 @@ describe("segment exclusion replacement invariants", () => {
     expect(implementation).toContain("db.transaction");
     expect(implementation).toContain(".for(\"update\")");
     expect(implementation).toContain("tx.delete(segmentExclusionHashes)");
-    expect(implementation).toContain("tx.insert(segmentExclusionHashes)");
+    expect(implementation).toContain("unnest(${sql.param(batch)}::text[])");
     expect(implementation).toContain("cachedCount: finalSegmentCount");
     expect(implementation).toContain("exclusionVersion");
     expect(implementation.indexOf("tx.delete(segmentExclusionHashes)"))
-      .toBeLessThan(implementation.indexOf("tx.insert(segmentExclusionHashes)"));
-    expect(implementation.indexOf("tx.insert(segmentExclusionHashes)"))
+      .toBeLessThan(implementation.indexOf("unnest(${sql.param(batch)}::text[])"));
+    expect(implementation.indexOf("unnest(${sql.param(batch)}::text[])"))
       .toBeLessThan(implementation.indexOf("cachedCount: finalSegmentCount"));
   });
 

@@ -279,7 +279,7 @@ function notInUploadedExclusions(segmentId: string) {
 
 function notInHashArray(hashes: string[]) {
   return hashes.length
-    ? sql`NOT (${subscriberEmailSha256} = ANY(${hashes}::text[]))`
+    ? sql`NOT (${subscriberEmailSha256} = ANY(${sql.param(hashes)}::text[]))`
     : sql`TRUE`;
 }
 
@@ -623,12 +623,15 @@ export async function createSegmentWithExclusions(
   return db.transaction(async (tx) => {
     const [segment] = await tx.insert(segments).values(data).returning();
     for (let i = 0; i < hashes.length; i += 5_000) {
-      await tx.insert(segmentExclusionHashes).values(
-        hashes.slice(i, i + 5_000).map((emailHash) => ({
-          segmentId: segment.id,
-          emailHash,
-        })),
-      ).onConflictDoNothing();
+      const batch = hashes.slice(i, i + 5_000);
+      // Keep the query AST and parameter count bounded for near-limit imports.
+      // Expanding 5,000 value objects makes Drizzle recursively merge tens of
+      // thousands of SQL nodes and can overflow the JS call stack.
+      await tx.execute(sql`
+        INSERT INTO segment_exclusion_hashes (segment_id, email_hash)
+        SELECT ${segment.id}, unnest(${sql.param(batch)}::text[])
+        ON CONFLICT DO NOTHING
+      `);
     }
 
     const normalized = normalizeRules(segment.rules);
@@ -686,9 +689,12 @@ export async function replaceSegmentExclusions(
 
     await tx.delete(segmentExclusionHashes).where(eq(segmentExclusionHashes.segmentId, id));
     for (let i = 0; i < hashes.length; i += 5_000) {
-      await tx.insert(segmentExclusionHashes).values(
-        hashes.slice(i, i + 5_000).map((emailHash) => ({ segmentId: id, emailHash })),
-      ).onConflictDoNothing();
+      const batch = hashes.slice(i, i + 5_000);
+      await tx.execute(sql`
+        INSERT INTO segment_exclusion_hashes (segment_id, email_hash)
+        SELECT ${id}, unnest(${sql.param(batch)}::text[])
+        ON CONFLICT DO NOTHING
+      `);
     }
 
     const normalized = normalizeRules(segment.rules);
