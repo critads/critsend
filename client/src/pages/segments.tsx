@@ -76,7 +76,7 @@ interface PreviewResult {
 }
 
 type SegmentWithExclusions = Segment & { exclusionHashCount?: number };
-const MAX_EXCLUSION_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_EXCLUSION_FILE_BYTES = 100 * 1024 * 1024;
 
 function summarizeRules(rules: unknown): Array<{ text: string; depth: number }> {
   const root = getRulesAsV2(rules);
@@ -345,8 +345,18 @@ export default function Segments() {
   const handleExclusionFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".csv") || file.size === 0 || file.size > MAX_EXCLUSION_FILE_BYTES) {
-      toast({ title: "Invalid CSV", description: "Choose a non-empty .csv file up to 25 MB.", variant: "destructive" });
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast({ title: "Invalid CSV", description: "The selected file must have a .csv extension.", variant: "destructive" });
+      event.target.value = "";
+      return;
+    }
+    if (file.size === 0) {
+      toast({ title: "Empty CSV", description: "The selected CSV does not contain any data.", variant: "destructive" });
+      event.target.value = "";
+      return;
+    }
+    if (file.size > MAX_EXCLUSION_FILE_BYTES) {
+      toast({ title: "CSV too large", description: "Choose a CSV file up to 100 MB.", variant: "destructive" });
       event.target.value = "";
       return;
     }

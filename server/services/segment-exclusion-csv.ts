@@ -1,8 +1,10 @@
 import fs from "fs";
 import readline from "readline";
 
-export const MAX_SEGMENT_EXCLUSION_CSV_BYTES = 25 * 1024 * 1024;
-export const MAX_SEGMENT_EXCLUSION_HASHES = 250_000;
+export const MAX_SEGMENT_EXCLUSION_CSV_BYTES = 100 * 1024 * 1024;
+// A one-column CSV containing 64 hex characters plus a newline fits roughly
+// 1.6 million hashes inside the 100 MiB upload ceiling.
+export const MAX_SEGMENT_EXCLUSION_HASHES = 1_600_000;
 
 const SHA256 = /^[0-9a-fA-F]{64}$/;
 const HEADERS = new Set([
@@ -47,7 +49,7 @@ export function parseSegmentExclusionCsv(input: Buffer | string): string[] {
   return [...hashes];
 }
 
-/** Stream the upload from disk so a valid 25 MiB file is never duplicated in memory. */
+/** Stream the upload from disk so a valid 100 MiB file is never duplicated in memory. */
 export async function parseSegmentExclusionCsvFile(filePath: string): Promise<string[]> {
   const hashes = new Set<string>();
   let sawValue = false;

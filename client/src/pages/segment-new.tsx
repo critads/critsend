@@ -36,7 +36,7 @@ interface ExclusionSummary {
   finalCount: number;
 }
 
-const MAX_EXCLUSION_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_EXCLUSION_FILE_BYTES = 100 * 1024 * 1024;
 
 export default function SegmentNew() {
   const [, navigate] = useLocation();
@@ -137,7 +137,7 @@ export default function SegmentNew() {
     if (file.size === 0 || file.size > MAX_EXCLUSION_FILE_BYTES) {
       toast({
         title: "File size not supported",
-        description: "Choose a CSV between 1 byte and 25 MB.",
+        description: "Choose a CSV between 1 byte and 100 MB.",
         variant: "destructive",
       });
       event.target.value = "";
@@ -303,7 +303,7 @@ export default function SegmentNew() {
                     <p className="text-sm text-muted-foreground">
                       One SHA-256 hash per row. Hash each address as <code className="rounded bg-muted px-1 font-mono text-xs">SHA-256(lower(trim(email)))</code>.
                     </p>
-                    <p className="text-xs text-muted-foreground">CSV files up to 25 MB. This is available only when creating a segment.</p>
+                    <p className="text-xs text-muted-foreground">CSV files up to 100 MB. This is available only when creating a segment.</p>
                   </div>
                 </div>
                 <input

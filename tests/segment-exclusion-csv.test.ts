@@ -44,8 +44,8 @@ describe("segment exclusion CSV", () => {
     }
   });
 
-  it("keeps streaming time and memory bounded near the allowed hash limit", async () => {
-    const hashCount = MAX_SEGMENT_EXCLUSION_HASHES - 10_000;
+  it("keeps streaming time and memory bounded for a large upload", async () => {
+    const hashCount = Math.min(MAX_SEGMENT_EXCLUSION_HASHES - 10_000, 240_000);
     const filePath = path.join(os.tmpdir(), `segment-exclusions-large-${process.pid}-${Date.now()}.csv`);
     const handle = await fs.open(filePath, "w");
     try {

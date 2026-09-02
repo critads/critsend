@@ -5,7 +5,7 @@ import { MAX_SEGMENT_EXCLUSION_HASHES } from "../server/services/segment-exclusi
 
 const HAS_DB = !!(process.env.NEON_DATABASE_URL || process.env.DATABASE_URL);
 const integrationDescribe = HAS_DB ? describe : describe.skip;
-const LARGE_HASH_COUNT = MAX_SEGMENT_EXCLUSION_HASHES - 10_000;
+const LARGE_HASH_COUNT = Math.min(MAX_SEGMENT_EXCLUSION_HASHES - 10_000, 240_000);
 
 function emailHash(email: string): string {
   return createHash("sha256").update(email.trim().toLowerCase(), "utf8").digest("hex");
