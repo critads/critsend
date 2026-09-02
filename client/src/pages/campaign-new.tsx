@@ -280,6 +280,13 @@ export default function CampaignNew() {
       }
       showSavedIndicator();
     },
+    onError: (error: Error) => {
+      toast({
+        title: "Draft not saved",
+        description: error.message || "The campaign draft could not be saved. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const sendMutation = useMutation({
@@ -445,7 +452,7 @@ export default function CampaignNew() {
     }
   };
 
-  const handleSaveDraft = () => {
+  const handleSaveDraft = async () => {
     if (!formData.name) {
       toast({
         title: "Name required",
@@ -454,7 +461,13 @@ export default function CampaignNew() {
       });
       return;
     }
-    saveDraftMutation.mutate(formData);
+    try {
+      await saveDraftMutation.mutateAsync(formData);
+      navigate("/campaigns");
+    } catch {
+      // The mutation displays the server error and keeps the wizard open so
+      // the operator cannot mistake a failed request for a saved draft.
+    }
   };
 
   const isReadyToSend = (): string[] => {
