@@ -994,6 +994,21 @@ export type CampaignListItem = Campaign & {
   // shapes remain valid; callers fall back to `pendingCount` when missing.
   realPendingCount?: number;
 };
+export type CampaignCalendarItem = Pick<
+  Campaign,
+  | "id"
+  | "name"
+  | "mtaId"
+  | "status"
+  | "scheduledAt"
+  | "firstSendAt"
+  | "lastSendAt"
+  | "startedAt"
+  | "completedAt"
+> & {
+  mtaName: string | null;
+};
+export type CampaignCalendarMta = Pick<Mta, "id" | "name">;
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
 
 export type CampaignStat = typeof campaignStats.$inferSelect;

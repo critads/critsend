@@ -37,6 +37,7 @@ import {
   shouldEvaluateBrandGuardForPatch,
 } from "../services/brand-unsubscribe-guard";
 import type { RateLimitRequestHandler } from "express-rate-limit";
+import { parseCampaignCalendarRange } from "../services/campaign-calendar";
 
 function envInt(name: string, fallback: number, min: number): number {
   const raw = process.env[name];
@@ -684,6 +685,29 @@ export function registerCampaignRoutes(app: Express, helpers: {
         error: "Impossible de vérifier actuellement la limite de désabonnements",
         code: "BRAND_UNSUB_CHECK_UNAVAILABLE",
       });
+    }
+  });
+
+  app.get("/api/campaigns/calendar", async (req: Request, res: Response) => {
+    try {
+      const range = parseCampaignCalendarRange(req.query.from, req.query.to);
+      if (!range.ok) {
+        return res.status(400).json({ error: range.error });
+      }
+
+      const asOf = new Date();
+      const [calendarCampaigns, allMtas] = await Promise.all([
+        storage.getCampaignCalendar(range.from, range.to, asOf),
+        storage.getMtas(),
+      ]);
+      res.json({
+        campaigns: calendarCampaigns,
+        mtas: allMtas.map(({ id, name }) => ({ id, name })),
+        asOf: asOf.toISOString(),
+      });
+    } catch (error) {
+      logger.error("Error fetching campaign calendar:", error);
+      res.status(500).json({ error: "Failed to fetch campaign calendar" });
     }
   });
 

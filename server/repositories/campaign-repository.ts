@@ -11,6 +11,7 @@ import {
   campaignSegments,
   type Campaign,
   type CampaignListItem,
+  type CampaignCalendarItem,
   type CampaignSendStateTotals,
   type InsertCampaign,
   type CampaignStat,
@@ -20,7 +21,7 @@ import {
 } from "@shared/schema";
 import { TAG_SUGGEST_STOPWORDS } from "../services/tag-suggestions";
 import { db, pool } from "../db";
-import { eq, desc, and, or, sql, ilike, isNull, ne, gte, lt, inArray } from "drizzle-orm";
+import { eq, desc, and, or, sql, ilike, isNull, isNotNull, ne, gte, gt, lt, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { logger } from "../logger";
 import { campaignQueue } from "../queues";
@@ -435,6 +436,62 @@ export async function getCampaignsPaginated(opts: {
   return { campaigns: enriched as unknown as CampaignListItem[], total };
 }
 
+export async function getCampaignCalendar(
+  from: Date,
+  to: Date,
+  asOf = new Date(),
+): Promise<CampaignCalendarItem[]> {
+  const actualStart = sql<Date>`COALESCE(${campaigns.firstSendAt}, ${campaigns.startedAt}, ${campaigns.scheduledAt})`;
+  const actualEnd = sql<Date>`COALESCE(${campaigns.lastSendAt}, ${campaigns.completedAt}, ${campaigns.firstSendAt}, ${campaigns.startedAt}, ${campaigns.scheduledAt})`;
+  const finishedStatuses = ["paused", "failed", "completed", "sent", "cancelled"];
+
+  return db.select({
+    id: campaigns.id,
+    name: campaigns.name,
+    mtaId: campaigns.mtaId,
+    mtaName: mtas.name,
+    status: campaigns.status,
+    scheduledAt: campaigns.scheduledAt,
+    firstSendAt: campaigns.firstSendAt,
+    lastSendAt: campaigns.lastSendAt,
+    startedAt: campaigns.startedAt,
+    completedAt: campaigns.completedAt,
+  })
+    .from(campaigns)
+    .leftJoin(mtas, eq(campaigns.mtaId, mtas.id))
+    .where(and(
+      inArray(campaigns.status, [
+        "scheduled",
+        "sending",
+        "paused",
+        "failed",
+        "completed",
+        "sent",
+        "cancelled",
+      ]),
+      or(
+        and(
+          eq(campaigns.status, "scheduled"),
+          gte(campaigns.scheduledAt, from),
+          lt(campaigns.scheduledAt, to),
+        ),
+        and(
+          eq(campaigns.status, "sending"),
+          sql`${actualStart} IS NOT NULL`,
+          lt(actualStart, to),
+          gt(sql`${asOf}`, from),
+        ),
+        and(
+          inArray(campaigns.status, finishedStatuses),
+          sql`${actualStart} IS NOT NULL`,
+          lt(actualStart, to),
+          gt(actualEnd, from),
+        ),
+      ),
+    ))
+    .orderBy(sql`COALESCE(${campaigns.scheduledAt}, ${campaigns.firstSendAt}, ${campaigns.startedAt}) ASC`);
+}
+
 /**
  * Partial covering index for the hot `/api/campaigns?originalsOnly=true`
  * list path (the default Campaigns screen view). Without it, Postgres falls
@@ -546,6 +603,68 @@ export async function ensureCampaignsScheduledAtIndex(): Promise<LockResult | "e
     logger.info("[INDEX] campaigns_scheduled_at_idx creation skipped — another process is handling it");
   } else {
     logger.warn("[INDEX] campaigns_scheduled_at_idx creation encountered an error during advisory lock");
+  }
+  return result;
+}
+
+/**
+ * Expression indexes matching the calendar's bounded interval predicates.
+ * They keep historical completed campaigns and long-running live campaigns
+ * from turning calendar navigation into a growing sequential table scan.
+ */
+export async function ensureCampaignCalendarIndexes(): Promise<LockResult | "exists"> {
+  const definitions = [
+    {
+      name: "campaigns_calendar_actual_end_idx",
+      sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaigns_calendar_actual_end_idx
+            ON campaigns (
+              (COALESCE(last_send_at, completed_at, first_send_at, started_at, scheduled_at))
+            )
+            WHERE status IN ('paused', 'failed', 'completed', 'sent', 'cancelled')`,
+    },
+    {
+      name: "campaigns_calendar_sending_start_idx",
+      sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaigns_calendar_sending_start_idx
+            ON campaigns (
+              (COALESCE(first_send_at, started_at, scheduled_at))
+            )
+            WHERE status = 'sending'`,
+    },
+  ];
+  const validity = await Promise.all(
+    definitions.map(({ name }) => indexExistsAndValid(name)),
+  );
+  if (validity.every(Boolean)) {
+    logger.info("[INDEX] Campaign calendar indexes already exist — skipping");
+    return "exists";
+  }
+  const result = await withAdvisoryLock(
+    LOCK_KEYS.CAMPAIGN_CALENDAR_INDEXES,
+    "CAMPAIGN_CALENDAR_INDEXES",
+    async (_lockClient) => {
+      for (const definition of definitions) {
+        const invalidIndex = await pool.query<{ invalid: boolean }>(`
+          SELECT EXISTS (
+            SELECT 1
+            FROM pg_index
+            WHERE indexrelid = to_regclass('${definition.name}')
+              AND indisvalid = false
+          ) AS invalid
+        `);
+        if (invalidIndex.rows[0]?.invalid) {
+          logger.warn(`[INDEX] ${definition.name} is invalid — rebuilding`);
+          await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS ${definition.name}`);
+        }
+        await pool.query(definition.sql);
+      }
+    },
+  );
+  if (result === "ran") {
+    logger.info("[INDEX] Campaign calendar indexes created successfully");
+  } else if (result === "skipped") {
+    logger.info("[INDEX] Campaign calendar index creation skipped — another process is handling it");
+  } else {
+    logger.warn("[INDEX] Campaign calendar index creation encountered an error during advisory lock");
   }
   return result;
 }

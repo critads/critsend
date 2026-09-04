@@ -38,6 +38,7 @@ import SystemMetrics from "@/pages/system-metrics";
 import CampaignQueue from "@/pages/campaign-queue";
 import AdminPressureQueue from "@/pages/admin-pressure-queue";
 import PmtaQueues from "@/pages/pmta";
+import CampaignCalendar from "@/pages/campaign-calendar";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -52,6 +53,7 @@ function Router() {
       <Route path="/mtas/new" component={MtaNew} />
       <Route path="/mtas/:id/edit" component={MtaEdit} />
       <Route path="/campaigns" component={Campaigns} />
+      <Route path="/calendar" component={CampaignCalendar} />
       <Route path="/campaigns/new" component={CampaignNew} />
       <Route path="/campaigns/:id/edit" component={CampaignEdit} />
       <Route path="/campaigns/:id/queue" component={CampaignQueue} />

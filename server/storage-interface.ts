@@ -26,6 +26,7 @@ import type {
   InsertDbMaintenanceRule,
   DbMaintenanceLog,
   CampaignListItem,
+  CampaignCalendarItem,
   CampaignSendStateTotals,
 } from "@shared/schema";
 import type { SegmentRulesV2 } from "@shared/schema";
@@ -119,6 +120,7 @@ export interface IStorage {
     scheduledFrom?: Date;
     scheduledTo?: Date;
   }): Promise<{ campaigns: CampaignListItem[]; total: number }>;
+  getCampaignCalendar(from: Date, to: Date, asOf?: Date): Promise<CampaignCalendarItem[]>;
   getRecentLowOpenCampaignAlerts(): Promise<Array<{
     id: string;
     name: string;

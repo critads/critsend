@@ -864,7 +864,7 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
   ensureSegmentNameLowerIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create segment name lower index (non-fatal):', err?.message || err));
 
-  const { ensureCampaignNameTrigramIndex, ensureCampaignNameUnaccentTrigramIndex, ensureCampaignSubjectTrigramIndex, ensureCampaignOriginalsListIndex, ensureCampaignSendsPressureHeldIndex, ensureCampaignsScheduledAtIndex } = await import("./repositories/campaign-repository");
+  const { ensureCampaignNameTrigramIndex, ensureCampaignNameUnaccentTrigramIndex, ensureCampaignSubjectTrigramIndex, ensureCampaignOriginalsListIndex, ensureCampaignSendsPressureHeldIndex, ensureCampaignsScheduledAtIndex, ensureCampaignCalendarIndexes } = await import("./repositories/campaign-repository");
   ensureCampaignNameTrigramIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign name trigram index (non-fatal):', err?.message || err));
   ensureCampaignNameUnaccentTrigramIndex()
@@ -877,6 +877,8 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign_sends pressure-held index (non-fatal):', err?.message || err));
   ensureCampaignsScheduledAtIndex()
     .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaigns scheduled_at index (non-fatal):', err?.message || err));
+  ensureCampaignCalendarIndexes()
+    .catch((err: any) => logger.error('[BOOTSTRAP] Failed to create campaign calendar indexes (non-fatal):', err?.message || err));
 
   const { ensureMtaNameTrigramIndex, ensureMtaHostnameTrigramIndex } = await import("./repositories/mta-repository");
   ensureMtaNameTrigramIndex()
