@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
-import { MousePointerClick } from "lucide-react";
+import { shouldRetrySegmentSuggestions } from "@/lib/segment-suggestion-retry";
+import { AlertCircle, MousePointerClick, RefreshCw } from "lucide-react";
 
 type SegmentSuggestionResponse = {
   brand: string | null;
@@ -41,11 +42,12 @@ export function SegmentSuggestions({
   onSelect: (segmentId: string) => void;
 }) {
   const name = (campaignName || "").trim();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["/api/campaigns/segment-suggestions", { name, excludeId: excludeId || undefined }],
     enabled: name.length > 0,
     staleTime: 5 * 60 * 1000,
-    retry: false,
+    retry: shouldRetrySegmentSuggestions,
+    retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 2_000),
     queryFn: async () => {
       const params = new URLSearchParams({ name });
       if (excludeId) params.set("excludeId", excludeId);
@@ -54,7 +56,7 @@ export function SegmentSuggestions({
     },
   });
 
-  if (!name || (!isLoading && (!data || data.suggestions.length === 0))) {
+  if (!name || (!isLoading && !isError && (!data || data.suggestions.length === 0))) {
     return null;
   }
 
@@ -67,8 +69,21 @@ export function SegmentSuggestions({
     );
   }
 
-  // React Query can enter an error/refetch state without data. Suggestions are
-  // deliberately non-blocking, so silently omit this optional panel then.
+  if (isError && !data) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+        <span className="flex items-center gap-2 text-muted-foreground">
+          <AlertCircle className="h-4 w-4 text-destructive" />
+          Segment suggestions are temporarily unavailable.
+        </span>
+        <Button type="button" variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (!data || data.suggestions.length === 0) {
     return null;
   }

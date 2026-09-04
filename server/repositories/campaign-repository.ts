@@ -783,6 +783,9 @@ export async function deleteCampaign(id: string): Promise<void> {
 export async function copyCampaign(id: string): Promise<Campaign | undefined> {
   const original = await getCampaign(id);
   if (!original) return undefined;
+  const sourceSegmentIds = original.segmentIds.length
+    ? original.segmentIds
+    : (original.segmentId ? [original.segmentId] : []);
   // Strip identity, timing, counters, AND follow-up linkage. A copy is a
   // brand-new original — never inherit parent/child references because the
   // partial-unique index on parent_campaign_id would block the insert if
@@ -815,18 +818,34 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     // A copy must not inherit the original's schedule — default it to the
     // moment of the copy (operator request 2026-08-09).
     scheduledAt: _sched,
+    segmentIds: _segmentIds,
     ...copyData
   } = original;
-  return createCampaign({
-    ...copyData,
-    scheduledAt: new Date(),
-    // Keep the operator's original campaign name unchanged. The duplicate is
-    // already identifiable as a distinct draft by its own ID and creation
-    // time; adding "(Copy)" breaks naming conventions used for tag history.
-    name: original.name,
-    status: "draft",
-    sendingSpeed: original.sendingSpeed as "drip" | "very_slow" | "slow" | "medium" | "fast" | "godzilla",
+  const copied = await db.transaction(async (tx) => {
+    const [campaign] = await tx.insert(campaigns).values({
+      ...copyData,
+      segmentId: sourceSegmentIds[0] ?? null,
+      scheduledAt: new Date(),
+      // Keep the operator's original campaign name unchanged. The duplicate is
+      // already identifiable as a distinct draft by its own ID and creation
+      // time; adding "(Copy)" breaks naming conventions used for tag history.
+      name: original.name,
+      status: "draft",
+      sendingSpeed: original.sendingSpeed as "drip" | "very_slow" | "slow" | "medium" | "fast" | "godzilla",
+    }).returning();
+    if (sourceSegmentIds.length) {
+      await tx.insert(campaignSegments).values(
+        sourceSegmentIds.map((segmentId, position) => ({
+          campaignId: campaign.id,
+          segmentId,
+          position,
+        })),
+      );
+    }
+    return campaign;
   });
+  publishCampaignsListInvalidation();
+  return copied;
 }
 
 // ═══════════════════════════════════════════════════════════════
