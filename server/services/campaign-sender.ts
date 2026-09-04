@@ -25,6 +25,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { prioritizeFinalizationDurabilityError } from "./campaign-job-error-policy";
 import { runAfterDurableFinalization } from "./step-durability";
+import { evaluateBrandUnsubscribeGuard } from "./brand-unsubscribe-guard";
 
 const MAX_AUTO_RETRIES = 3;
 const SENDER_MAX_ATTEMPTS = 3;
@@ -297,6 +298,18 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   }
   if (campaign.status !== "sending") {
     logger.warn(`${logPrefix} Campaign status is '${campaign.status}', expected 'sending' - aborting`);
+    return;
+  }
+  const brandGuard = await evaluateBrandUnsubscribeGuard(campaign.name);
+  if (brandGuard.status === "blocked") {
+    logger.warn(
+      `${logPrefix} Brand unsubscribe limit blocks sending: brand=${brandGuard.brand} `
+      + `count=${brandGuard.count} limit=${brandGuard.limit} windowDays=${brandGuard.windowDays}`,
+    );
+    await storage.updateCampaign(campaignId, {
+      status: "paused",
+      pauseReason: "brand_unsubscribe_limit",
+    });
     return;
   }
 

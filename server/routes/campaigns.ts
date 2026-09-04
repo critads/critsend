@@ -4,7 +4,6 @@ import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { zeroDupSendGuardEnabled } from "../config/send-guard";
 import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignSegments, campaignJobs, errorLogs } from "@shared/schema";
-import { extractBrand } from "@shared/brand";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
@@ -32,27 +31,26 @@ import {
   shouldResetOrphanedFailedSends,
   type StepResumeOverrides,
 } from "../services/step-resume";
+import {
+  brandUnsubscribeBlockPayload,
+  evaluateBrandUnsubscribeGuard,
+  shouldEvaluateBrandGuardForPatch,
+} from "../services/brand-unsubscribe-guard";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 
-// Brand-unsubscribe safeguard (Task #209). Two configurable thresholds gate the
-// campaign wizard's Content -> Tracking step based on how many DISTINCT
-// subscribers have unsubscribed from the subject's brand over a rolling window:
-//   count <= warn            -> "ok"      (silent)
-//   warn < count <= limit    -> "warn"    (non-blocking alert in the wizard)
-//   count > limit            -> "blocked" (wizard refuses to advance)
-// envInt allows an explicit "0" (unlike `parseInt(...) || default`) and rejects
-// values below `min` / non-numeric input by falling back to the default.
-function envInt(name: string, def: number, min: number): number {
+function envInt(name: string, fallback: number, min: number): number {
   const raw = process.env[name];
-  if (raw === undefined || raw.trim() === "") return def;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n >= min ? n : def;
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
 }
-const BRAND_UNSUB_LIMIT = envInt("BRAND_UNSUB_LIMIT", 2000, 0);
-// Warn threshold can never exceed the hard limit (otherwise the warn tier would
-// be unreachable); clamp defensively.
-const BRAND_UNSUB_WARN_THRESHOLD = Math.min(envInt("BRAND_UNSUB_WARN_THRESHOLD", 1500, 0), BRAND_UNSUB_LIMIT);
-const BRAND_UNSUB_WINDOW_DAYS = envInt("BRAND_UNSUB_WINDOW_DAYS", 10, 1);
+
+async function rejectBlockedBrand(res: Response, campaignName: string): Promise<boolean> {
+  const decision = await evaluateBrandUnsubscribeGuard(campaignName);
+  if (decision.status !== "blocked") return false;
+  res.status(409).json(brandUnsubscribeBlockPayload(decision));
+  return true;
+}
 
 
 // Bootstrap: add auto_retry_count column to campaigns if upgrading from older schema.
@@ -674,30 +672,18 @@ export function registerCampaignRoutes(app: Express, helpers: {
     }
   });
 
-  // Brand-unsubscribe safeguard (Task #209). Authenticated read used by the
-  // campaign wizard before advancing from Content (step 3) to Tracking (step 4).
-  // MUST be registered BEFORE "/api/campaigns/:id" so the literal path isn't
-  // captured as an :id. Fail-open is the client's job: a 500 here lets the
-  // wizard advance rather than trapping the operator.
+  // Brand-unsubscribe safeguard. MUST be registered before "/api/campaigns/:id"
+  // so the literal path is not captured as an :id.
   app.get("/api/campaigns/brand-unsub-check", async (req: Request, res: Response) => {
     try {
-      const subject = typeof req.query.subject === "string" ? req.query.subject : "";
-      const brand = extractBrand(subject);
-      const base = {
-        warnThreshold: BRAND_UNSUB_WARN_THRESHOLD,
-        limit: BRAND_UNSUB_LIMIT,
-        windowDays: BRAND_UNSUB_WINDOW_DAYS,
-      };
-      if (!brand) {
-        return res.json({ brand: null, count: 0, status: "ok", ...base });
-      }
-      const count = await storage.countBrandUnsubscribes(brand, BRAND_UNSUB_WINDOW_DAYS);
-      const status =
-        count > BRAND_UNSUB_LIMIT ? "blocked" : count > BRAND_UNSUB_WARN_THRESHOLD ? "warn" : "ok";
-      res.json({ brand, count, status, ...base });
+      const name = typeof req.query.name === "string" ? req.query.name : "";
+      res.json(await evaluateBrandUnsubscribeGuard(name));
     } catch (error) {
       logger.error("Error checking brand unsubscribes:", error);
-      res.status(500).json({ error: "Failed to check brand unsubscribes" });
+      res.status(503).json({
+        error: "Impossible de vérifier actuellement la limite de désabonnements",
+        code: "BRAND_UNSUB_CHECK_UNAVAILABLE",
+      });
     }
   });
 
@@ -937,6 +923,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (data.htmlContent && data.htmlContent !== "") {
         data.htmlContent = sanitizeCampaignHtml(data.htmlContent);
       }
+      if ((data.status === "sending" || data.status === "scheduled") && await rejectBlockedBrand(res, data.name)) {
+        return;
+      }
       delete data.segmentIds;
        const campaign = await db.transaction(async (tx) => {
         const [created] = await tx.insert(campaigns).values(data).returning();
@@ -1055,6 +1044,18 @@ export function registerCampaignRoutes(app: Express, helpers: {
         ? normalizedBody.segmentIds
         : ("segmentId" in normalizedBody ? (normalizedBody.segmentId ? [normalizedBody.segmentId] : []) : undefined);
       const effectiveStatus = normalizedBody.status ?? existingCampaign.status;
+      const effectiveName = normalizedBody.name ?? existingCampaign.name;
+      if (
+        shouldEvaluateBrandGuardForPatch(
+          existingCampaign.status,
+          effectiveStatus,
+          existingCampaign.name,
+          effectiveName,
+        )
+        && await rejectBlockedBrand(res, effectiveName)
+      ) {
+        return;
+      }
       if (requestedSegmentIds !== undefined) {
         if (!Array.isArray(requestedSegmentIds) ||
             requestedSegmentIds.some((id) => typeof id !== "string" || !id.trim()) ||
@@ -1272,6 +1273,14 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
+      const campaignForGuard = await storage.getCampaign(req.params.id);
+      if (!campaignForGuard) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      if (campaignForGuard.status !== "paused") {
+        return res.status(409).json({ error: "Campaign is no longer paused" });
+      }
+      if (await rejectBlockedBrand(res, campaignForGuard.name)) return;
       const resumeResult = await db.transaction(async (tx) => {
         // Serialize resume requests on the campaign row BEFORE touching jobs
         // or failed sends. A stale second request waits for the first commit,
@@ -1741,6 +1750,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!existingCampaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
+      if (await rejectBlockedBrand(res, existingCampaign.name)) return;
 
       // All three operations in one transaction for atomicity.
       const { campaign, resetCount } = await db.transaction(async (tx) => {
@@ -1823,6 +1833,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (existingCampaign.status !== "failed") {
         return res.status(400).json({ error: "Only failed campaigns can be requeued" });
       }
+      if (await rejectBlockedBrand(res, existingCampaign.name)) return;
 
       await storage.clearStuckJobsForCampaign(req.params.id);
 
@@ -1958,6 +1969,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           details: validationErrors 
         });
       }
+      if (await rejectBlockedBrand(res, effectiveCampaign.name)) return;
       
       const mta = await storage.getMta(effectiveCampaign.mtaId!);
       if (!mta) {

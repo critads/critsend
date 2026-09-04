@@ -134,6 +134,25 @@ export type SegmentPerformanceHistoryCandidate = {
   firstSentAt: Date;
 };
 
+function campaignBrandKeySql(alias: string, stopwordsParam: string, useUnaccent: boolean): string {
+  const section = `(regexp_split_to_array(regexp_replace(${alias}.name, '^\\s*#\\s*\\d+\\s*', ''), '\\s+(?:-|–|—|\\|)\\s+'))[1]`;
+  const normalizedSection = useUnaccent ? `f_unaccent(${section})` : section;
+  return `(
+    SELECT string_agg(token, chr(31) ORDER BY ordinal)
+    FROM (
+      SELECT token, min(ordinal) AS ordinal
+      FROM regexp_split_to_table(lower(${normalizedSection}), '[^a-z0-9]+')
+        WITH ORDINALITY AS parts(token, ordinal)
+      WHERE length(token) >= 3
+        AND token !~ '^\\d+$'
+        AND NOT (token = ANY(${stopwordsParam}::text[]))
+      GROUP BY token
+      ORDER BY min(ordinal)
+      LIMIT 8
+    ) normalized_tokens
+  )`;
+}
+
 /**
  * Fetches the small set of fields needed to rank segments for campaigns whose
  * names could match a requested brand. SQL reproduces the service's normalized
@@ -146,24 +165,6 @@ export async function getSegmentPerformanceHistoryCandidates(
 ): Promise<SegmentPerformanceHistoryCandidate[]> {
   const unaccentReady = isCampaignNameUnaccentIndexReady();
   const nameExpr = (alias: string) => unaccentReady ? `f_unaccent(${alias}.name)` : `${alias}.name`;
-  const brandKeyExpr = (alias: string, stopwordsParam: string) => {
-    const section = `(regexp_split_to_array(regexp_replace(${alias}.name, '^\\s*#\\s*\\d+\\s*', ''), '\\s+(?:-|–|—|\\|)\\s+'))[1]`;
-    const normalizedSection = unaccentReady ? `f_unaccent(${section})` : section;
-    return `(
-      SELECT string_agg(token, chr(31) ORDER BY ordinal)
-      FROM (
-        SELECT token, min(ordinal) AS ordinal
-        FROM regexp_split_to_table(lower(${normalizedSection}), '[^a-z0-9]+')
-          WITH ORDINALITY AS parts(token, ordinal)
-        WHERE length(token) >= 3
-          AND token !~ '^\\d+$'
-          AND NOT (token = ANY(${stopwordsParam}::text[]))
-        GROUP BY token
-        ORDER BY min(ordinal)
-        LIMIT 8
-      ) normalized_tokens
-    )`;
-  };
   const stopwords = [...TAG_SUGGEST_STOPWORDS];
   let resolvedKey: string | null = null;
   let anchorId: string | null = null;
@@ -180,7 +181,7 @@ export async function getSegmentPerformanceHistoryCandidates(
       `SELECT c.id
        FROM campaigns c
        WHERE ${nameExpr("c")} ILIKE $1
-         AND ${brandKeyExpr("c", "$3")} = $2
+          AND ${campaignBrandKeySql("c", "$3", unaccentReady)} = $2
          AND c.status IN ('completed', 'sent')
          AND c.first_send_at IS NOT NULL
          AND c.sent_count > 0${anchorExcludeClause}
@@ -199,7 +200,7 @@ export async function getSegmentPerformanceHistoryCandidates(
 
   const resolvedPattern = `%${resolvedKey.split("\u001f").join("%")}%`;
   const params: unknown[] = [resolvedPattern, resolvedKey, stopwords, anchorId];
-  const normalizedBrandKey = brandKeyExpr("c", "$3");
+  const normalizedBrandKey = campaignBrandKeySql("c", "$3", unaccentReady);
   const brandMatchClause = resolvedKey.includes("\u001f")
     ? `(${normalizedBrandKey} = $2 OR ${normalizedBrandKey} LIKE $2 || chr(31) || '%')`
     : `${normalizedBrandKey} = $2`;
@@ -1048,46 +1049,72 @@ export async function getCampaignStats(campaignId: string): Promise<CampaignStat
 }
 
 /**
- * Counts DISTINCT subscribers who unsubscribed from ANY campaign of a given
- * brand within the last `windowDays` calendar days (Europe/Paris boundaries).
- *
- * "Brand" is matched against `campaigns.subject` in its bracketed form
- * (`[brand]`, case-insensitive) so unrelated mentions of the word in body or
- * subject text don't false-match. Wildcards in the brand are escaped so a
- * brand containing `%` or `_` can't broaden the match.
- *
- * Performance: `campaign_stats` is huge and (per the live schema) effectively
- * indexed on `campaign_id`. We therefore resolve the SMALL set of this brand's
- * campaign IDs first (CTE), then count distinct unsubscribers across only those
- * campaigns via the campaign-id index — never a full-table scan by timestamp.
- *
- * The window lower bound is the start of `(today - (windowDays-1))` at
- * Europe/Paris local midnight, converted to the naive-UTC instant that matches
- * how `campaign_stats.timestamp` is stored (same convention as the analytics
- * period bounds).
+ * Resolves the longest exact historical brand key represented by a sent
+ * campaign. This mirrors the tag/segment historical suggestion convention.
  */
-export async function countBrandUnsubscribes(brand: string, windowDays: number): Promise<number> {
+export async function findCampaignBrandAnchor(requestedBrandKeys: string[]): Promise<string | null> {
+  if (!requestedBrandKeys.length) return null;
+  if (!isCampaignNameUnaccentIndexReady()) {
+    throw new Error("Campaign brand index is not ready");
+  }
+  const stopwords = [...TAG_SUGGEST_STOPWORDS];
+  const brandKey = campaignBrandKeySql("c", "$3", true);
+  for (const key of requestedBrandKeys) {
+    const pattern = `%${key.split("\u001f").join("%")}%`;
+    const result = await pool.query<{ name: string }>(
+      `SELECT c.name
+         FROM campaigns c
+        WHERE f_unaccent(c.name) ILIKE $1
+          AND ${brandKey} = $2
+          AND c.status IN ('completed', 'sent')
+          AND c.first_send_at IS NOT NULL
+          AND c.sent_count > 0
+        ORDER BY c.first_send_at DESC, c.id ASC
+        LIMIT 1`,
+      [pattern, key, stopwords],
+    );
+    if (result.rows[0]?.name) return result.rows[0].name;
+  }
+  return null;
+}
+
+/**
+ * Counts distinct subscribers who unsubscribed from campaigns whose canonical
+ * name-based brand matches `brandKey`, over Europe/Paris calendar boundaries.
+ * Campaign IDs are materialized first so the large stats table is reached via
+ * its campaign_id index.
+ */
+export async function countBrandUnsubscribes(brandKey: string, windowDays: number): Promise<number> {
+  if (!brandKey) return 0;
+  if (!isCampaignNameUnaccentIndexReady()) {
+    throw new Error("Campaign brand index is not ready");
+  }
   const days = Math.max(1, Math.floor(windowDays));
-  const parisDayStart = sql`date_trunc('day', (now() AT TIME ZONE 'Europe/Paris')) - make_interval(days => ${days - 1})`;
-  const windowStart = sql`((${parisDayStart}) AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC'`;
-  // Resolve this brand's campaigns using the SAME rule as shared/brand.ts
-  // extractBrand(): the FIRST `[...]` group, trimmed, compared case-insensitively.
-  // The regex MUST stay in lockstep with extractBrand's /\[([^\]]+)\]/ — a plain
-  // ILIKE '%[brand]%' would mis-match (any bracket, untrimmed) and over/undercount.
-  // MATERIALIZED forces the small campaign-id set to be computed first so
-  // campaign_stats is only ever accessed via its campaign_id index, never a
-  // full scan by type/timestamp (which are unindexed on that huge table).
-  const result = await db.execute<{ count: number }>(sql`
-    WITH brand_campaigns AS MATERIALIZED (
-      SELECT id FROM campaigns
-      WHERE lower(btrim(substring(subject from '\\[([^\\]]+)\\]'))) = lower(${brand})
-    )
-    SELECT COUNT(DISTINCT cs.subscriber_id)::int AS count
-    FROM campaign_stats cs
-    JOIN brand_campaigns bc ON cs.campaign_id = bc.id
-    WHERE cs.type = 'unsubscribe'
-      AND cs.timestamp >= ${windowStart}
-  `);
+  const stopwords = [...TAG_SUGGEST_STOPWORDS];
+  const normalizedBrandKey = campaignBrandKeySql("c", "$3", true);
+  const brandMatch = brandKey.includes("\u001f")
+    ? `(${normalizedBrandKey} = $2 OR ${normalizedBrandKey} LIKE $2 || chr(31) || '%')`
+    : `${normalizedBrandKey} = $2`;
+  const pattern = `%${brandKey.split("\u001f").join("%")}%`;
+  const result = await pool.query<{ count: number | string }>(
+    `WITH brand_campaigns AS MATERIALIZED (
+       SELECT c.id
+         FROM campaigns c
+        WHERE f_unaccent(c.name) ILIKE $1
+          AND ${brandMatch}
+     )
+     SELECT COUNT(DISTINCT cs.subscriber_id)::int AS count
+       FROM campaign_stats cs
+       JOIN brand_campaigns bc ON cs.campaign_id = bc.id
+      WHERE cs.type = 'unsubscribe'
+        AND cs.timestamp >= (
+          (
+            date_trunc('day', now() AT TIME ZONE 'Europe/Paris')
+            - make_interval(days => $4::int - 1)
+          ) AT TIME ZONE 'Europe/Paris'
+        ) AT TIME ZONE 'UTC'`,
+    [pattern, brandKey, stopwords, days],
+  );
   return Number(result.rows[0]?.count ?? 0);
 }
 

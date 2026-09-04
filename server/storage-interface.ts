@@ -157,7 +157,8 @@ export interface IStorage {
   // ═══════════════════════════════════════════════════════════════
   addCampaignStat(campaignId: string, subscriberId: string, type: string, link?: string, ctx?: import('./repositories/campaign-repository').TrackingContext): Promise<void>;
   getCampaignStats(campaignId: string): Promise<CampaignStat[]>;
-  countBrandUnsubscribes(brand: string, windowDays: number): Promise<number>;
+  findCampaignBrandAnchor(requestedBrandKeys: string[]): Promise<string | null>;
+  countBrandUnsubscribes(brandKey: string, windowDays: number): Promise<number>;
   recordCampaignSend(campaignId: string, subscriberId: string, status?: string): Promise<boolean>;
   wasEmailSent(campaignId: string, subscriberId: string): Promise<boolean>;
   getCampaignSendCount(campaignId: string): Promise<number>;

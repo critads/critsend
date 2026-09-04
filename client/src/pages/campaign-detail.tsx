@@ -34,6 +34,7 @@ import {
 import type { Campaign, CampaignWithSendState, Mta, Segment } from "@shared/schema";
 import { CampaignProgress, computeProgressBreakdown } from "@/components/campaign-progress";
 import { formatParisDateTime } from "@/lib/paris-time";
+import { campaignActionErrorMessage } from "@/lib/campaign-wizard";
 
 interface SnowballStatus {
   deferred: number;
@@ -345,7 +346,7 @@ export default function CampaignDetail() {
     onError: (err) => {
       toast({
         title: "Retry failed",
-        description: err.message || "Could not queue retry.",
+        description: campaignActionErrorMessage(err, "Could not queue retry."),
         variant: "destructive",
       });
     },

@@ -192,9 +192,10 @@ export function normalizeForApi(data: Partial<InsertCampaign>) {
   };
 }
 
-// Shape returned by GET /api/campaigns/brand-unsub-check (Task #209).
+// Shape returned by GET /api/campaigns/brand-unsub-check.
 export type BrandUnsubResult = {
   brand: string | null;
+  brandKey: string | null;
   count: number;
   warnThreshold: number;
   limit: number;
@@ -210,4 +211,14 @@ export function buildBrandMessage(data: BrandUnsubResult): string {
     return `La marque ${data.brand} a déjà généré ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (limite : ${fmt(data.limit)}). Impossible de continuer.`;
   }
   return `La marque ${data.brand} approche de sa limite : ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (limite : ${fmt(data.limit)}).`;
+}
+
+export function campaignActionErrorMessage(error: unknown, fallback: string): string {
+  const body = (error as { body?: any } | null)?.body;
+  if (body?.code === "BRAND_UNSUB_LIMIT_EXCEEDED" && body.brandGuard) {
+    return buildBrandMessage(body.brandGuard as BrandUnsubResult);
+  }
+  if (typeof body?.error === "string" && body.error) return body.error;
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }

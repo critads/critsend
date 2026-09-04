@@ -17,6 +17,7 @@ import {
   type BulkDeleteProgress,
 } from "@/lib/bulk-delete-campaigns";
 import { getCampaignListSegmentIds } from "@/lib/campaign-list-segments";
+import { campaignActionErrorMessage } from "@/lib/campaign-wizard";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -534,10 +535,10 @@ export default function Campaigns() {
         description: action === "pause" ? "The campaign has been paused." : "The campaign is now sending.",
       });
     },
-    onError: () => {
+    onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to update campaign status. Please try again.",
+        description: campaignActionErrorMessage(error, "Failed to update campaign status. Please try again."),
         variant: "destructive",
       });
     },
@@ -553,8 +554,12 @@ export default function Campaigns() {
       setStepResumeDialog(null);
       toast({ title: "Campaign resumed", description: "The campaign is now sending." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to resume campaign.", variant: "destructive" });
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: campaignActionErrorMessage(error, "Failed to resume campaign."),
+        variant: "destructive",
+      });
     },
   });
 
@@ -669,10 +674,10 @@ export default function Campaigns() {
         description: "The campaign has been requeued for sending.",
       });
     },
-    onError: () => {
+    onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to requeue campaign. Please try again.",
+        description: campaignActionErrorMessage(error, "Failed to requeue campaign. Please try again."),
         variant: "destructive",
       });
     },
@@ -1070,12 +1075,16 @@ export default function Campaigns() {
                               className="text-xs text-muted-foreground truncate max-w-[180px]"
                               title={campaign.pauseReason === "step_limit"
                                 ? `Auto-paused after step: ${(campaign.stepProcessedCount ?? 0).toLocaleString()} / ${(campaign.stepSendLimit ?? "?").toLocaleString()} emails processed`
-                                : campaign.pauseReason}
+                                : campaign.pauseReason === "brand_unsubscribe_limit"
+                                  ? "Envoi bloqué : cette marque a dépassé sa limite de désabonnements"
+                                  : campaign.pauseReason}
                               data-testid={`text-pause-reason-${campaign.id}`}
                             >
                               {campaign.pauseReason === "step_limit"
                                 ? `Step paused — ${(campaign.stepProcessedCount ?? 0).toLocaleString()} processed`
-                                : campaign.pauseReason}
+                                : campaign.pauseReason === "brand_unsubscribe_limit"
+                                  ? "Bloquée — limite de désabonnements de la marque"
+                                  : campaign.pauseReason}
                             </span>
                           )}
                         </div>
