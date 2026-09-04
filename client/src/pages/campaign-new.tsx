@@ -645,7 +645,29 @@ export default function CampaignNew() {
         return (
           <div className="space-y-6">
             <div className="space-y-2">
-               <Label>Select Segments *</Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label>Select Segments *</Label>
+                {segmentIds.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setFormData((old: any) => ({
+                        ...old,
+                        segmentIds: [],
+                        segmentId: "",
+                        excludeSegmentId: "",
+                      }));
+                      setShowExclusion(false);
+                    }}
+                    data-testid="button-reset-segments"
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    Reset segments
+                  </Button>
+                )}
+              </div>
               {loadingSegments ? (
                 <Skeleton className="h-10 w-full" />
               ) : segments && segments.length > 0 ? (
