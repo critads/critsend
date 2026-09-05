@@ -2,17 +2,28 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Tag, Mail, Calendar, Globe, Layers, X, Activity } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, Tag, Mail, Calendar, Globe, Layers, X, Activity } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2 } from "@shared/schema";
 import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/schema";
+import { useState } from "react";
 
 export const fieldLabels: Record<string, string> = {
   tags: "Tags",
@@ -112,6 +123,7 @@ function RecentSentCampaignSelect({
   onChange: (value: string) => void;
   testId: string;
 }) {
+  const [open, setOpen] = useState(false);
   const requestUrl = recentSentCampaignsUrl(value);
   const { data, isLoading, isError } = useQuery<{ campaigns: RecentSentCampaign[] }>({
     queryKey: ["/api/campaigns/recent-sent", value || null],
@@ -121,38 +133,91 @@ function RecentSentCampaignSelect({
   const campaigns = data?.campaigns ?? [];
   const selectedCampaignMissing =
     Boolean(value) && !campaigns.some((campaign) => campaign.id === value);
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === value);
+  const formatCampaignDate = (firstSendAt: string) => new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(firstSendAt));
 
   return (
-    <Select value={value || undefined} onValueChange={onChange}>
-      <SelectTrigger className="min-w-[280px] flex-1" data-testid={testId}>
-        <SelectValue placeholder="Select a campaign sent in the last 30 days" />
-      </SelectTrigger>
-      <SelectContent>
-        {selectedCampaignMissing && (
-          <SelectItem value={value} disabled>
-            Previously selected campaign · unavailable
-          </SelectItem>
-        )}
-        {isLoading ? (
-          <SelectItem value="__loading" disabled>Loading campaigns…</SelectItem>
-        ) : isError ? (
-          <SelectItem value="__error" disabled>Unable to load campaigns</SelectItem>
-        ) : campaigns.length === 0 ? (
-          <SelectItem value="__empty" disabled>No campaigns sent in the last 30 days</SelectItem>
-        ) : (
-          campaigns.map((campaign) => (
-            <SelectItem key={campaign.id} value={campaign.id}>
-              {campaign.name} · {new Intl.DateTimeFormat("fr-FR", {
-                timeZone: "Europe/Paris",
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-              }).format(new Date(campaign.firstSendAt))}
-            </SelectItem>
-          ))
-        )}
-      </SelectContent>
-    </Select>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="min-w-[280px] flex-1 justify-between font-normal"
+          data-testid={testId}
+        >
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {isLoading
+              ? "Loading campaigns…"
+              : selectedCampaign
+                ? `${selectedCampaign.name} · ${formatCampaignDate(selectedCampaign.firstSendAt)}`
+                : selectedCampaignMissing
+                  ? "Previously selected campaign · unavailable"
+                  : "Select a campaign sent in the last 60 days"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput
+            placeholder="Search campaigns..."
+            data-testid={`${testId}-search`}
+          />
+          <CommandList>
+            {isError ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                Unable to load campaigns
+              </div>
+            ) : isLoading ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                Loading campaigns…
+              </div>
+            ) : (
+              <>
+                <CommandEmpty>
+                  {campaigns.length === 0
+                    ? "No campaigns sent in the last 60 days"
+                    : "No campaigns found"}
+                </CommandEmpty>
+                <CommandGroup>
+                  {selectedCampaignMissing && (
+                    <CommandItem value="Previously selected campaign unavailable" disabled>
+                      Previously selected campaign · unavailable
+                    </CommandItem>
+                  )}
+                  {campaigns.map((campaign) => (
+                    <CommandItem
+                      key={campaign.id}
+                      value={`${campaign.name} ${formatCampaignDate(campaign.firstSendAt)}`}
+                      onSelect={() => {
+                        onChange(campaign.id);
+                        setOpen(false);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4 shrink-0",
+                          value === campaign.id ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <span className="truncate">
+                        {campaign.name} · {formatCampaignDate(campaign.firstSendAt)}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 

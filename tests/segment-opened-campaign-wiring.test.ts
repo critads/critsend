@@ -24,7 +24,7 @@ describe("selected campaign opener segment wiring", () => {
     expect(recentRoute).toBeLessThan(idRoute);
   });
 
-  it("only offers campaigns with sends in the last 30 days", () => {
+  it("only offers campaigns with sends in the last 60 days", () => {
     const methodStart = repositorySource.indexOf(
       "export async function getRecentSentCampaignOptions",
     );
@@ -33,7 +33,7 @@ describe("selected campaign opener segment wiring", () => {
       methodStart + 1,
     );
     const implementation = repositorySource.slice(methodStart, nextMethod);
-    expect(implementation).toContain("NOW() - INTERVAL '30 days'");
+    expect(implementation).toContain("NOW() - INTERVAL '60 days'");
     expect(implementation).toContain("gt(campaigns.sentCount, 0)");
     expect(implementation).toContain("isNotNull(campaigns.firstSendAt)");
   });
@@ -45,5 +45,12 @@ describe("selected campaign opener segment wiring", () => {
     expect(builderSource).toContain("selectedCampaignMissing");
     expect(builderSource).toContain("Previously selected campaign");
     expect(repositorySource).toContain("eq(campaigns.id, includeCampaignId)");
+  });
+
+  it("provides campaign search at the top of the dropdown", () => {
+    expect(builderSource).toContain('placeholder="Search campaigns..."');
+    expect(builderSource).toContain("<CommandInput");
+    expect(builderSource).toContain("No campaigns found");
+    expect(builderSource).toContain("last 60 days");
   });
 });

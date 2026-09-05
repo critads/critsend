@@ -89,10 +89,10 @@ export async function getRecentSentCampaignOptions(includeCampaignId?: string): 
       ne(campaigns.status, "automation_internal"),
       includeCampaignId
         ? or(
-            gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '30 days'`),
+            gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '60 days'`),
             eq(campaigns.id, includeCampaignId),
           )
-        : gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '30 days'`),
+        : gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '60 days'`),
     ))
     .orderBy(desc(campaigns.firstSendAt));
 
