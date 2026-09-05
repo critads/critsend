@@ -35,7 +35,11 @@ describe("selected campaign opener segment wiring", () => {
     const implementation = repositorySource.slice(methodStart, nextMethod);
     expect(implementation).toContain("NOW() - INTERVAL '60 days'");
     expect(implementation).toContain("gt(campaigns.sentCount, 0)");
-    expect(implementation).toContain("isNotNull(campaigns.firstSendAt)");
+    expect(implementation).toContain(
+      "COALESCE(${campaigns.firstSendAt}, ${campaigns.startedAt})",
+    );
+    expect(implementation).toContain("firstSendAt: effectiveFirstSendAt");
+    expect(implementation).not.toContain("isNotNull(campaigns.firstSendAt)");
   });
 
   it("keeps an aged persisted selection available to the editor", () => {

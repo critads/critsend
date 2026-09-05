@@ -76,29 +76,35 @@ export async function getRecentSentCampaignOptions(includeCampaignId?: string): 
   firstSendAt: Date;
   status: string;
 }>> {
+  // Legacy campaigns can predate the first_send_at cache column. sent_count > 0
+  // proves that they delivered at least one message, so started_at is the safe
+  // bounded fallback without scanning the very large campaign_sends table.
+  const effectiveFirstSendAt = sql<Date>`COALESCE(${campaigns.firstSendAt}, ${campaigns.startedAt})`;
   const rows = await db.select({
     id: campaigns.id,
     name: campaigns.name,
-    firstSendAt: campaigns.firstSendAt,
+    firstSendAt: effectiveFirstSendAt,
     status: campaigns.status,
   })
     .from(campaigns)
     .where(and(
-      isNotNull(campaigns.firstSendAt),
+      sql`${effectiveFirstSendAt} IS NOT NULL`,
       gt(campaigns.sentCount, 0),
       ne(campaigns.status, "automation_internal"),
       includeCampaignId
         ? or(
-            gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '60 days'`),
+            gte(effectiveFirstSendAt, sql`NOW() - INTERVAL '60 days'`),
             eq(campaigns.id, includeCampaignId),
           )
-        : gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '60 days'`),
+        : gte(effectiveFirstSendAt, sql`NOW() - INTERVAL '60 days'`),
     ))
-    .orderBy(desc(campaigns.firstSendAt));
+    .orderBy(desc(effectiveFirstSendAt));
 
   return rows.map((row) => ({
     ...row,
-    firstSendAt: row.firstSendAt!,
+    firstSendAt: row.firstSendAt instanceof Date
+      ? row.firstSendAt
+      : new Date(row.firstSendAt as unknown as string),
   }));
 }
 
