@@ -70,6 +70,38 @@ export async function getCampaigns(): Promise<CampaignWithSegmentIds[]> {
   return attachSegmentIds(await db.select().from(campaigns).orderBy(desc(campaigns.createdAt)));
 }
 
+export async function getRecentSentCampaignOptions(includeCampaignId?: string): Promise<Array<{
+  id: string;
+  name: string;
+  firstSendAt: Date;
+  status: string;
+}>> {
+  const rows = await db.select({
+    id: campaigns.id,
+    name: campaigns.name,
+    firstSendAt: campaigns.firstSendAt,
+    status: campaigns.status,
+  })
+    .from(campaigns)
+    .where(and(
+      isNotNull(campaigns.firstSendAt),
+      gt(campaigns.sentCount, 0),
+      ne(campaigns.status, "automation_internal"),
+      includeCampaignId
+        ? or(
+            gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '30 days'`),
+            eq(campaigns.id, includeCampaignId),
+          )
+        : gte(campaigns.firstSendAt, sql`NOW() - INTERVAL '30 days'`),
+    ))
+    .orderBy(desc(campaigns.firstSendAt));
+
+  return rows.map((row) => ({
+    ...row,
+    firstSendAt: row.firstSendAt!,
+  }));
+}
+
 export type LowOpenCampaignAlert = {
   id: string;
   name: string;

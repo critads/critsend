@@ -44,6 +44,13 @@ function compileCondition(cond: SegmentCondition): SQL {
     logger.warn("Invalid unsubscribe campaign count threshold", { field, operator, value });
     return sql`FALSE`;
   }
+  if (
+    operator === "opened_campaign" &&
+    (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,255}$/.test(value))
+  ) {
+    logger.warn("Invalid campaign ID for opener segment", { field, operator });
+    return sql`FALSE`;
+  }
 
   if (field === "email") {
     const v = String(value);
@@ -166,6 +173,13 @@ function compileCondition(cond: SegmentCondition): SQL {
       // just without the distinct-campaign threshold.
       case "clicked_recently":
         return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id)`;
+      case "opened_campaign":
+        return sql`${subscribers.id} IN (
+          SELECT cs.subscriber_id
+          FROM campaign_sends cs
+          WHERE cs.campaign_id = ${String(value)}
+            AND cs.first_open_at IS NOT NULL
+        )`;
       case "top_active_clicker":
         return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS})`;
       case "ultra_active_clicker":

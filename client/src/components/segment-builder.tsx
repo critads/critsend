@@ -9,6 +9,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Tag, Mail, Calendar, Globe, Layers, X, Activity } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2 } from "@shared/schema";
 import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/schema";
 
@@ -79,10 +81,79 @@ export function isConditionValid(c: SegmentCondition): boolean {
 
 export function hasValidCondition(group: SegmentGroup): boolean {
   for (const child of group.children) {
-    if (child.type === "condition" && isConditionValid(child)) return true;
+    if (
+      child.type === "condition"
+      && isConditionValid({ ...child, value2: child.value2 ?? null })
+    ) return true;
     if (child.type === "group" && hasValidCondition(child)) return true;
   }
   return false;
+}
+
+interface RecentSentCampaign {
+  id: string;
+  name: string;
+  firstSendAt: string;
+  status: string;
+}
+
+export function recentSentCampaignsUrl(selectedCampaignId: string): string {
+  return selectedCampaignId
+    ? `/api/campaigns/recent-sent?include=${encodeURIComponent(selectedCampaignId)}`
+    : "/api/campaigns/recent-sent";
+}
+
+function RecentSentCampaignSelect({
+  value,
+  onChange,
+  testId,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  testId: string;
+}) {
+  const requestUrl = recentSentCampaignsUrl(value);
+  const { data, isLoading, isError } = useQuery<{ campaigns: RecentSentCampaign[] }>({
+    queryKey: ["/api/campaigns/recent-sent", value || null],
+    queryFn: async () => (await apiRequest("GET", requestUrl)).json(),
+    staleTime: 60_000,
+  });
+  const campaigns = data?.campaigns ?? [];
+  const selectedCampaignMissing =
+    Boolean(value) && !campaigns.some((campaign) => campaign.id === value);
+
+  return (
+    <Select value={value || undefined} onValueChange={onChange}>
+      <SelectTrigger className="min-w-[280px] flex-1" data-testid={testId}>
+        <SelectValue placeholder="Select a campaign sent in the last 30 days" />
+      </SelectTrigger>
+      <SelectContent>
+        {selectedCampaignMissing && (
+          <SelectItem value={value} disabled>
+            Previously selected campaign · unavailable
+          </SelectItem>
+        )}
+        {isLoading ? (
+          <SelectItem value="__loading" disabled>Loading campaigns…</SelectItem>
+        ) : isError ? (
+          <SelectItem value="__error" disabled>Unable to load campaigns</SelectItem>
+        ) : campaigns.length === 0 ? (
+          <SelectItem value="__empty" disabled>No campaigns sent in the last 30 days</SelectItem>
+        ) : (
+          campaigns.map((campaign) => (
+            <SelectItem key={campaign.id} value={campaign.id}>
+              {campaign.name} · {new Intl.DateTimeFormat("fr-FR", {
+                timeZone: "Europe/Paris",
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              }).format(new Date(campaign.firstSendAt))}
+            </SelectItem>
+          ))
+        )}
+      </SelectContent>
+    </Select>
+  );
 }
 
 export function ConditionRow({
@@ -101,6 +172,7 @@ export function ConditionRow({
   const isBetween = condition.operator === "between";
   const isDays = condition.operator === "in_last_days" || condition.operator === "not_in_last_days";
   const isCampaignCount = condition.operator === "unsubscribed_from_fewer_campaigns";
+  const isOpenedCampaign = condition.operator === "opened_campaign";
   const isDate = condition.operator === "before" || condition.operator === "after";
   const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag" || condition.operator === "tag_contains" || condition.operator === "tag_not_contains";
   const isRefText = condition.operator === "has_ref" || condition.operator === "not_has_ref" || condition.operator === "ref_contains";
@@ -120,10 +192,12 @@ export function ConditionRow({
   const handleOperatorChange = (op: string) => {
     const wasUnary = unaryOperators.includes(condition.operator);
     const nowUnary = unaryOperators.includes(op);
+    const changesCampaignSelector =
+      op === "opened_campaign" || condition.operator === "opened_campaign";
     onChange({
       ...condition,
-      operator: op,
-      value: nowUnary ? null : wasUnary ? "" : condition.value,
+      operator: op as SegmentCondition["operator"],
+      value: nowUnary ? null : wasUnary || changesCampaignSelector ? "" : condition.value,
       value2: op === "between" ? (condition.value2 || "") : null,
     });
   };
@@ -165,7 +239,13 @@ export function ConditionRow({
 
       {!isUnary && (
         <>
-          {isBetween ? (
+          {isOpenedCampaign ? (
+            <RecentSentCampaignSelect
+              value={typeof condition.value === "string" ? condition.value : ""}
+              onChange={(value) => onChange({ ...condition, value })}
+              testId={`${testIdPrefix}-value`}
+            />
+          ) : isBetween ? (
             <div className="flex gap-2 flex-1 min-w-[150px]">
               <Input
                 type="date"
@@ -351,7 +431,7 @@ export function GroupBuilder({
           )}
           {child.type === "condition" ? (
             <ConditionRow
-              condition={child}
+              condition={{ ...child, value2: child.value2 ?? null }}
               onChange={(c) => updateChild(index, c)}
               onRemove={() => removeChild(index)}
               testIdPrefix={`${testIdPrefix}-c${index}`}

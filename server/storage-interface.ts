@@ -120,6 +120,12 @@ export interface IStorage {
     scheduledFrom?: Date;
     scheduledTo?: Date;
   }): Promise<{ campaigns: CampaignListItem[]; total: number }>;
+  getRecentSentCampaignOptions(includeCampaignId?: string): Promise<Array<{
+    id: string;
+    name: string;
+    firstSendAt: Date;
+    status: string;
+  }>>;
   getCampaignCalendar(from: Date, to: Date, asOf?: Date): Promise<CampaignCalendarItem[]>;
   getRecentLowOpenCampaignAlerts(): Promise<Array<{
     id: string;

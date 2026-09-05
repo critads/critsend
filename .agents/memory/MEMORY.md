@@ -18,3 +18,4 @@
 - [Concurrent index reaping](concurrent-index-reaping.md) — INVALID-index cleanup must skip pg_stat_progress_create_index entries or it can deadlock and delete a healthy concurrent build.
 - [Segment SHA-256 exclusions](segment-sha256-exclusions.md) — hashes use UTF-8 lower(trim(email)); enforce exclusions in each segment branch, including real campaign cursors.
 - [Calendar live-interval semantics](calendar-live-intervals.md) — sending stays open through one server asOf instant; paused ends at its last actual send so idle MTAs are not shown as busy.
+- [Campaign IDs are opaque](campaign-id-compatibility.md) — legacy campaign IDs are not guaranteed to be UUIDs despite the current DB default; validate them as bounded opaque varchar values.

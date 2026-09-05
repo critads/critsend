@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { zeroDupSendGuardEnabled } from "../config/send-guard";
-import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignSegments, campaignJobs, errorLogs } from "@shared/schema";
+import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignSegments, campaignJobs, errorLogs, campaignReferenceIdSchema } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
@@ -462,6 +462,28 @@ export function registerCampaignRoutes(app: Express, helpers: {
         error: "internal_error",
         message: "Failed to fetch campaigns",
       });
+    }
+  });
+
+  app.get("/api/campaigns/recent-sent", async (req: Request, res: Response) => {
+    try {
+      const include = req.query.include;
+      if (
+        include !== undefined
+        && (
+          typeof include !== "string"
+          || !campaignReferenceIdSchema.safeParse(include).success
+        )
+      ) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+      const campaigns = await storage.getRecentSentCampaignOptions(
+        typeof include === "string" ? include : undefined,
+      );
+      res.json({ campaigns });
+    } catch (error) {
+      logger.error("Error fetching recent sent campaigns:", error);
+      res.status(500).json({ error: "Failed to fetch recent sent campaigns" });
     }
   });
 
