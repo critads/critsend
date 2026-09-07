@@ -140,6 +140,8 @@ function RecentSentCampaignSelect({
     month: "2-digit",
     year: "numeric",
   }).format(new Date(firstSendAt));
+  const campaignLabel = (campaign: RecentSentCampaign) =>
+    `${formatCampaignDate(campaign.firstSendAt)} · ${campaign.name}`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -155,7 +157,7 @@ function RecentSentCampaignSelect({
             {isLoading
               ? "Loading campaigns…"
               : selectedCampaign
-                ? `${selectedCampaign.name} · ${formatCampaignDate(selectedCampaign.firstSendAt)}`
+                ? campaignLabel(selectedCampaign)
                 : selectedCampaignMissing
                   ? "Previously selected campaign · unavailable"
                   : "Select a campaign sent in the last 60 days"}
@@ -194,7 +196,7 @@ function RecentSentCampaignSelect({
                   {campaigns.map((campaign) => (
                     <CommandItem
                       key={campaign.id}
-                      value={`${campaign.name} ${formatCampaignDate(campaign.firstSendAt)}`}
+                      value={campaignLabel(campaign)}
                       onSelect={() => {
                         onChange(campaign.id);
                         setOpen(false);
@@ -207,7 +209,7 @@ function RecentSentCampaignSelect({
                         )}
                       />
                       <span className="truncate">
-                        {campaign.name} · {formatCampaignDate(campaign.firstSendAt)}
+                        {campaignLabel(campaign)}
                       </span>
                     </CommandItem>
                   ))}

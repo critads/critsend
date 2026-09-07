@@ -57,4 +57,16 @@ describe("selected campaign opener segment wiring", () => {
     expect(builderSource).toContain("No campaigns found");
     expect(builderSource).toContain("last 60 days");
   });
+
+  it("shows the sent date before the campaign name without changing the selected id", () => {
+    expect(builderSource).toContain(
+      "`${formatCampaignDate(campaign.firstSendAt)} · ${campaign.name}`",
+    );
+    expect(builderSource).toContain("campaignLabel(selectedCampaign)");
+    expect(builderSource).toContain("value={campaignLabel(campaign)}");
+    expect(builderSource).toContain("onChange(campaign.id)");
+    expect(builderSource).not.toContain(
+      "{campaign.name} · {formatCampaignDate(campaign.firstSendAt)}",
+    );
+  });
 });
