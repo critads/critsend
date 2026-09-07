@@ -369,6 +369,7 @@ export interface IStorage {
   }>;
   getCampaignProviderOpenRates(campaignId: string): Promise<Array<{
     provider: string; recipients: number; uniqueOpeners: number; openRate: number;
+    complaints: number; complaintRate: number;
   }>>;
   getCampaignAnalytics(campaignId: string): Promise<{
     campaign: Campaign; totalOpens: number; uniqueOpens: number; totalClicks: number; uniqueClicks: number;

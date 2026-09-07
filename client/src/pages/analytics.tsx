@@ -155,6 +155,8 @@ interface ProviderOpenRate {
   recipients: number;
   uniqueOpeners: number;
   openRate: number;
+  complaints: number;
+  complaintRate: number;
 }
 
 interface BatchOpenStat {
@@ -791,7 +793,7 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
             Open Rate by Email Provider
           </CardTitle>
           <CardDescription>
-            Unique openers vs. recipients per domain (top 50 providers by volume)
+            Unique openers and complaints detected via opener IP per domain (top 50 providers by volume)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -811,6 +813,8 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
                     <TableHead className="text-right">Recipients</TableHead>
                     <TableHead className="text-right">Unique Openers</TableHead>
                     <TableHead className="text-right">Open Rate</TableHead>
+                    <TableHead className="text-right">Complaints</TableHead>
+                    <TableHead className="text-right">Complaint Rate</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -829,6 +833,14 @@ function CampaignAnalyticsView({ campaignId }: { campaignId: string }) {
                           variant={row.openRate >= 10 ? "default" : row.openRate >= 3 ? "secondary" : "outline"}
                         >
                           {row.openRate.toFixed(2)}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {row.complaints.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant={row.complaintRate > 0 ? "destructive" : "outline"}>
+                          {row.complaintRate.toFixed(2)}%
                         </Badge>
                       </TableCell>
                     </TableRow>

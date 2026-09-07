@@ -502,18 +502,28 @@ export async function getCampaignProviderOpenRates(campaignId: string): Promise<
   recipients: number;
   uniqueOpeners: number;
   openRate: number;
+  complaints: number;
+  complaintRate: number;
 }>> {
   const result = await db.execute(sql`
     SELECT
       SPLIT_PART(s.email, '@', 2)                                                 AS provider,
-      COUNT(DISTINCT cs.subscriber_id)::int                                        AS recipients,
-      COUNT(DISTINCT CASE WHEN st.type = 'open' THEN st.subscriber_id END)::int   AS unique_openers
+      COUNT(DISTINCT cs.subscriber_id)::int                                       AS recipients,
+      COUNT(DISTINCT CASE WHEN st.type = 'open' THEN st.subscriber_id END)::int  AS unique_openers,
+      COUNT(DISTINCT CASE
+        WHEN st.ip_address = '195.154.17.225'
+          AND st.type IN ('open', 'complaint')
+        THEN st.subscriber_id
+      END)::int                                                                  AS complaints
     FROM campaign_sends cs
     JOIN subscribers s ON s.id = cs.subscriber_id
     LEFT JOIN campaign_stats st
       ON st.campaign_id = cs.campaign_id
       AND st.subscriber_id = cs.subscriber_id
-      AND st.type = 'open'
+      AND (
+        st.type = 'open'
+        OR (st.type = 'complaint' AND st.ip_address = '195.154.17.225')
+      )
     WHERE cs.campaign_id = ${campaignId}
     GROUP BY provider
     ORDER BY recipients DESC
@@ -525,6 +535,10 @@ export async function getCampaignProviderOpenRates(campaignId: string): Promise<
     uniqueOpeners: Number(r.unique_openers),
     openRate: Number(r.recipients) > 0
       ? Math.round((Number(r.unique_openers) / Number(r.recipients)) * 10000) / 100
+      : 0,
+    complaints: Number(r.complaints),
+    complaintRate: Number(r.recipients) > 0
+      ? Math.round((Number(r.complaints) / Number(r.recipients)) * 10000) / 100
       : 0,
   }));
 }
