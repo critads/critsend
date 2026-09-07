@@ -204,6 +204,26 @@ describe("Task #214 — engagement recency compiler", () => {
     }).success).toBe(false);
   });
 
+  it("exposes and validates the selected-campaign clicker condition", () => {
+    const campaignId = "123e4567-e89b-42d3-a456-426614174000";
+    expect(fieldOperatorsV2.engagement).toContain("clicked_campaign");
+    expect(operatorLabelsV2.clicked_campaign).toBe("Clicked a specific campaign");
+    expect(segmentConditionSchema.safeParse({
+      type: "condition",
+      field: "engagement",
+      operator: "clicked_campaign",
+      value: campaignId,
+      value2: null,
+    }).success).toBe(true);
+    expect(segmentConditionSchema.safeParse({
+      type: "condition",
+      field: "engagement",
+      operator: "clicked_campaign",
+      value: "<invalid>",
+      value2: null,
+    }).success).toBe(false);
+  });
+
   it("matches unique campaign recipients with a recorded first open", () => {
     const campaignId = "123e4567-e89b-42d3-a456-426614174000";
     const { sql: s, params } = renderQuery(rulesForValue("opened_campaign", campaignId));
@@ -215,7 +235,19 @@ describe("Task #214 — engagement recency compiler", () => {
     expect(s).not.toContain("FALSE");
   });
 
+  it("matches unique campaign recipients with a recorded first click", () => {
+    const campaignId = "123e4567-e89b-42d3-a456-426614174000";
+    const { sql: s, params } = renderQuery(rulesForValue("clicked_campaign", campaignId));
+    expect(s).toContain("campaign_sends");
+    expect(s).toContain("campaign_id");
+    expect(s).toContain("first_click_at IS NOT NULL");
+    expect(s).not.toContain("campaign_stats");
+    expect(params).toContain(campaignId);
+    expect(s).not.toContain("FALSE");
+  });
+
   it("fails closed when an invalid campaign ID bypasses schema validation", () => {
     expect(renderSql(rulesForValue("opened_campaign", "<invalid>"))).toContain("FALSE");
+    expect(renderSql(rulesForValue("clicked_campaign", "<invalid>"))).toContain("FALSE");
   });
 });

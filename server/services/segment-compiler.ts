@@ -45,10 +45,10 @@ function compileCondition(cond: SegmentCondition): SQL {
     return sql`FALSE`;
   }
   if (
-    operator === "opened_campaign" &&
+    (operator === "opened_campaign" || operator === "clicked_campaign") &&
     (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,255}$/.test(value))
   ) {
-    logger.warn("Invalid campaign ID for opener segment", { field, operator });
+    logger.warn("Invalid campaign ID for campaign engagement segment", { field, operator });
     return sql`FALSE`;
   }
 
@@ -179,6 +179,13 @@ function compileCondition(cond: SegmentCondition): SQL {
           FROM campaign_sends cs
           WHERE cs.campaign_id = ${String(value)}
             AND cs.first_open_at IS NOT NULL
+        )`;
+      case "clicked_campaign":
+        return sql`${subscribers.id} IN (
+          SELECT cs.subscriber_id
+          FROM campaign_sends cs
+          WHERE cs.campaign_id = ${String(value)}
+            AND cs.first_click_at IS NOT NULL
         )`;
       case "top_active_clicker":
         return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS})`;

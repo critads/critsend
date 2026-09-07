@@ -69,4 +69,17 @@ describe("selected campaign opener segment wiring", () => {
       "{campaign.name} · {formatCampaignDate(campaign.firstSendAt)}",
     );
   });
+
+  it("reuses the campaign selector for open and click conditions", () => {
+    expect(builderSource).toContain(
+      'condition.operator === "opened_campaign" ||',
+    );
+    expect(builderSource).toContain(
+      'condition.operator === "clicked_campaign"',
+    );
+    expect(builderSource).toContain(
+      'const campaignOperators = ["opened_campaign", "clicked_campaign"]',
+    );
+    expect(builderSource).toContain("{isSpecificCampaign ? (");
+  });
 });

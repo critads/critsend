@@ -239,7 +239,9 @@ export function ConditionRow({
   const isBetween = condition.operator === "between";
   const isDays = condition.operator === "in_last_days" || condition.operator === "not_in_last_days";
   const isCampaignCount = condition.operator === "unsubscribed_from_fewer_campaigns";
-  const isOpenedCampaign = condition.operator === "opened_campaign";
+  const isSpecificCampaign =
+    condition.operator === "opened_campaign" ||
+    condition.operator === "clicked_campaign";
   const isDate = condition.operator === "before" || condition.operator === "after";
   const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag" || condition.operator === "tag_contains" || condition.operator === "tag_not_contains";
   const isRefText = condition.operator === "has_ref" || condition.operator === "not_has_ref" || condition.operator === "ref_contains";
@@ -259,8 +261,10 @@ export function ConditionRow({
   const handleOperatorChange = (op: string) => {
     const wasUnary = unaryOperators.includes(condition.operator);
     const nowUnary = unaryOperators.includes(op);
+    const campaignOperators = ["opened_campaign", "clicked_campaign"];
     const changesCampaignSelector =
-      op === "opened_campaign" || condition.operator === "opened_campaign";
+      campaignOperators.includes(op) ||
+      campaignOperators.includes(condition.operator);
     onChange({
       ...condition,
       operator: op as SegmentCondition["operator"],
@@ -306,7 +310,7 @@ export function ConditionRow({
 
       {!isUnary && (
         <>
-          {isOpenedCampaign ? (
+          {isSpecificCampaign ? (
             <RecentSentCampaignSelect
               value={typeof condition.value === "string" ? condition.value : ""}
               onChange={(value) => onChange({ ...condition, value })}

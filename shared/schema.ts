@@ -1053,7 +1053,7 @@ export const segmentConditionSchema = z.object({
     "has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains",
     "before", "after", "between", "in_last_days", "not_in_last_days",
     "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker",
-    "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns", "opened_campaign",
+    "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns", "opened_campaign", "clicked_campaign",
   ]),
   value: z.union([z.string(), z.array(z.string()), z.null()]),
   value2: z.string().nullable().default(null),
@@ -1069,7 +1069,7 @@ export const segmentConditionSchema = z.object({
     });
   }
   if (
-    condition.operator === "opened_campaign" &&
+    (condition.operator === "opened_campaign" || condition.operator === "clicked_campaign") &&
     !campaignReferenceIdSchema.safeParse(condition.value).success
   ) {
     ctx.addIssue({
@@ -1109,7 +1109,7 @@ export const fieldOperatorsV2 = {
   refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
-  engagement: ["engaged_recently", "not_engaged_recently", "clicked_recently", "opened_campaign", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns"],
+  engagement: ["engaged_recently", "not_engaged_recently", "clicked_recently", "opened_campaign", "clicked_campaign", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns"],
 } as const;
 
 export const operatorLabelsV2: Record<string, string> = {
@@ -1140,6 +1140,7 @@ export const operatorLabelsV2: Record<string, string> = {
   engaged_recently: "opened/clicked in last 60 days",
   clicked_recently: "clicked in last 60 days",
   opened_campaign: "opened a specific campaign",
+  clicked_campaign: "Clicked a specific campaign",
   not_engaged_recently: "no open/click in last 60 days",
   top_active_clicker: "Top active clicker — clicked >3 campaigns in last 60 days",
   ultra_active_clicker: "Ultra active clicker — clicked >5 campaigns in last 60 days",
