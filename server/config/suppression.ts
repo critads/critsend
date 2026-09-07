@@ -15,6 +15,17 @@
 export const UNSUBSCRIBE_COOLING_OFF_DAYS = 21;
 
 /**
+ * Temporary suppression for opens reported by the fixed complaint-detection IP.
+ *
+ * These opens remain complaint analytics events, but the subscriber is paused
+ * from every audience for this many days after the detection. Unlike BCK, this
+ * expires automatically through the shared suppressed_until eligibility guard.
+ */
+export const COMPLAINT_IP = "195.154.17.225";
+export const COMPLAINT_IP_SUPPRESSION_DAYS = 15;
+export const COMPLAINT_IPS: ReadonlySet<string> = new Set([COMPLAINT_IP]);
+
+/**
  * Unsubscribe-source IP blocklist.
  *
  * Some automated systems (security scanners, corporate gateways) mass-fire
@@ -71,7 +82,7 @@ export function blockedUnsubMarkerTag(ip: string): string {
 //   BOT_OPENER_WINDOW_DAYS  rolling window in days (default 30)
 // Invalid env values fall back to the defaults (never crash the boot path).
 
-const DEFAULT_BOT_OPENER_IPS = ["195.154.17.225"];
+const DEFAULT_BOT_OPENER_IPS = [COMPLAINT_IP];
 
 export const BOT_OPENER_IPS: readonly string[] = [
   ...new Set([

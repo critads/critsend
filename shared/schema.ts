@@ -366,6 +366,9 @@ export const campaignStats = pgTable("campaign_stats", {
   botOpenSubscriberIdx: index("campaign_stats_bot_open_subscriber_idx")
     .on(table.subscriberId)
     .where(sql`ip_address = '195.154.17.225' AND type IN ('open', 'complaint')`),
+  complaintIpTimestampSubscriberIdx: index("campaign_stats_complaint_ip_timestamp_subscriber_idx")
+    .on(table.timestamp, table.subscriberId)
+    .where(sql`ip_address = '195.154.17.225' AND type IN ('open', 'complaint')`),
   unsubscribeSubscriberCampaignIdx: index("campaign_stats_unsubscribe_subscriber_campaign_idx")
     .on(table.subscriberId, table.campaignId)
     .where(sql`type = 'unsubscribe'`),

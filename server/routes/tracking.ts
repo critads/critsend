@@ -18,6 +18,11 @@ import {
   resolveTrackingTokenViaTrackingPool,
   getCampaignTagsViaTrackingPool,
 } from "../tracking-queries";
+import {
+  COMPLAINT_IP,
+  COMPLAINT_IPS,
+  COMPLAINT_IP_SUPPRESSION_DAYS,
+} from "../config/suppression";
 
 (async () => {
   await withAdvisoryLock(
@@ -47,6 +52,68 @@ import {
         }
       } catch (err: any) {
         logger.error(`[TRACKING] Bootstrap migration FAILED (suppressed_until): ${err?.message || err}`);
+      }
+
+      if (!(await indexExistsAndValid("campaign_stats_complaint_ip_timestamp_subscriber_idx"))) {
+        try {
+          await runIndexDdlNoTimeout(
+            `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_stats_complaint_ip_timestamp_subscriber_idx
+               ON campaign_stats (timestamp, subscriber_id)
+               WHERE ip_address = '195.154.17.225'
+                 AND type IN ('open', 'complaint')`,
+            "CREATE campaign_stats_complaint_ip_timestamp_subscriber_idx",
+          );
+          logger.info("[TRACKING] Bootstrap migration: complaint-IP timestamp backfill index ready");
+        } catch (err: any) {
+          logger.error(
+            `[TRACKING] Bootstrap migration FAILED (complaint-IP timestamp index): ${err?.message || err}`,
+          );
+        }
+      } else {
+        logger.info("[TRACKING] Bootstrap migration: complaint-IP timestamp backfill index already exists — skipping");
+      }
+
+      // Apply the complaint-IP cooling-off rule retroactively on every deploy.
+      // Current detections are stored as complaint rows; historical rows may
+      // still be opens, so both event types are included. MAX(timestamp) keeps
+      // the deadline anchored to the latest actual detection, while the WHERE
+      // clause makes this idempotent and never shortens a later suppression.
+      try {
+        const result = await db.execute(sql`
+          WITH latest_complaint_ip_detection AS (
+            SELECT subscriber_id, MAX(timestamp) AS detected_at
+            FROM campaign_stats
+            WHERE ip_address = ${COMPLAINT_IP}
+              AND type IN ('open', 'complaint')
+              AND timestamp >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+                - make_interval(days => ${COMPLAINT_IP_SUPPRESSION_DAYS})
+            GROUP BY subscriber_id
+          ),
+          updated AS (
+            UPDATE subscribers s
+            SET suppressed_until = d.detected_at
+              + make_interval(days => ${COMPLAINT_IP_SUPPRESSION_DAYS})
+            FROM latest_complaint_ip_detection d
+            WHERE s.id = d.subscriber_id
+              AND (
+                s.suppressed_until IS NULL
+                OR s.suppressed_until < d.detected_at
+                  + make_interval(days => ${COMPLAINT_IP_SUPPRESSION_DAYS})
+              )
+            RETURNING 1
+          )
+          SELECT COUNT(*)::int AS affected FROM updated
+        `);
+        const affected = Number(
+          (result.rows[0] as { affected?: number | string } | undefined)?.affected ?? 0,
+        );
+        logger.info(
+          `[TRACKING] Bootstrap migration: complaint-IP 15-day suppression backfill applied to ${affected} subscriber(s)`,
+        );
+      } catch (err: any) {
+        logger.error(
+          `[TRACKING] Bootstrap migration FAILED (complaint-IP suppression backfill): ${err?.message || err}`,
+        );
       }
 
       if (!(await indexExistsAndValid("campaign_stats_campaign_subscriber_type_idx"))) {
@@ -151,11 +218,11 @@ import {
 })();
 
 function extractTrackingContext(req: Request): TrackingContext {
-  const rawIp =
-    (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-    req.headers["x-real-ip"] as string ||
-    req.socket.remoteAddress ||
-    "";
+  // server/index.ts trusts exactly one reverse-proxy hop. Express therefore
+  // derives req.ip from the right-hand side of X-Forwarded-For and ignores any
+  // client-prepended spoofed value. Reading the raw first header entry here
+  // would let anyone holding a valid tracking URL fake the complaint IP.
+  const rawIp = req.ip || req.socket.remoteAddress || "";
   const ip = rawIp.replace(/^::ffff:/, "");
 
   const ua = req.headers["user-agent"] || "";
@@ -224,13 +291,11 @@ async function _fetchTagsCached(campaignId: string): Promise<CachedTags | null> 
 }
 
 // ─── Complaint bot IPs ──────────────────────────────────────────────────────
-// Re-enabled COUNTING-ONLY (2026-08-08): opens from these IPs are recorded as
+// Opens from these IPs are recorded as
 // campaign_stats(type='complaint') and bump the campaign's complaints_count,
-// but take NO action on the subscriber — no unsubscribeTag, no STOP tag, no
-// suppression (event is enqueued with unsubscribeTag: null, which makes
-// processSideEffects a no-op for it). The FBL webhook (POST /api/webhooks)
-// remains the actionable complaint source and is unchanged.
-const COMPLAINT_BOT_IPS = new Set<string>(["195.154.17.225"]);
+// without adding an unsubscribe/BCK tag. The tracking buffer applies a
+// temporary suppressed_until window only to these IP-attributed complaints.
+// The FBL webhook (POST /api/webhooks) remains unchanged.
 
 // ─── Shared HTML helpers ────────────────────────────────────────────────────
 
@@ -454,19 +519,19 @@ export function registerTrackingRoutes(app: Express) {
 
     try {
       const ctx = extractTrackingContext(req);
-      const isComplaintBot = COMPLAINT_BOT_IPS.has(ctx.ipAddress || "");
+      const isComplaintBot = COMPLAINT_IPS.has(ctx.ipAddress || "");
 
       // Tag lookup is in-process cached (60s TTL) — only one DB hit per
       // campaign per minute, so safe on the request path.
       const tags = await getCampaignTagsCached(campaignId).catch(() => null);
 
       if (isComplaintBot) {
-        // COUNTING ONLY (2026-08-08, operator request): the campaign-level
+        // The campaign-level
         // complaints_count and the campaign_stats(type='complaint') analytics
-        // row are written, but the subscriber is untouched — unsubscribeTag is
-        // deliberately null so processSideEffects enqueues NO tag (its loop
-        // skips events without unsubscribeTag), and complaints never get a
-        // suppression window. FBL webhook complaints keep their tag behavior.
+        // row are written. unsubscribeTag remains null so no permanent/plain
+        // unsubscribe tag is added; the tracking buffer applies only the
+        // complaint-IP temporary suppression window. FBL webhook complaints
+        // keep their existing tag behavior and no temporary suppression.
         // skipDedupe so a complaint is never silently dropped because a normal
         // open with the same (campaign, subscriber) was just enqueued.
         enqueueTrackingEvent(

@@ -28,6 +28,8 @@ import {
   UNSUBSCRIBE_COOLING_OFF_DAYS,
   BLOCKED_UNSUBSCRIBE_IPS,
   blockedUnsubMarkerTag,
+  COMPLAINT_IPS,
+  COMPLAINT_IP_SUPPRESSION_DAYS,
 } from "./config/suppression";
 import {
   trackingBufferEnqueued,
@@ -52,6 +54,13 @@ interface BaseEvent {
   clickTag?: string | null;
   unsubscribeTag?: string | null;
   _retryCount?: number;
+}
+
+function formatUtcTimestamp(epochMs: number): string {
+  return new Date(epochMs)
+    .toISOString()
+    .replace("T", " ")
+    .replace("Z", "");
 }
 
 const FLUSH_INTERVAL_MS = Number(process.env.TRACKING_FLUSH_INTERVAL_MS || 1500);
@@ -345,9 +354,18 @@ async function flush(): Promise<void> {
       unsubscribe: new Map(),
       complaint: new Map(),
     };
+    let complaintSequence = 0;
     for (const ev of batch) {
       const k = `${ev.campaignId}|${ev.subscriberId}|${ev.link ?? ""}`;
-      if (!buckets[ev.type].has(k)) buckets[ev.type].set(k, ev);
+      if (ev.type === "complaint") {
+        // Complaint requests intentionally bypass enqueue dedupe. Preserve
+        // every detection so the suppression transaction can use the true
+        // latest timestamp even when the same pair fires repeatedly in one
+        // flush batch.
+        buckets.complaint.set(`${k}|${complaintSequence++}`, ev);
+      } else if (!buckets[ev.type].has(k)) {
+        buckets[ev.type].set(k, ev);
+      }
     }
 
     for (const type of ["open", "click", "unsubscribe", "complaint"] as TrackingEventType[]) {
@@ -423,9 +441,9 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
     // campaign_stats while the headline counters (which read first_open_at
     // / first_click_at on campaign_sends) silently stayed at 0 forever.
     //
-    // For unsubscribe/complaint, the first-mark equivalent is the
-    // suppressed_until update which lives in processSideEffects below;
-    // it is lower-volume and is reconciled by the counter-drift worker.
+    // Complaint-IP suppressed_until is updated in the same transaction as the
+    // raw complaint rows below. A DB failure therefore rolls back and requeues
+    // the event instead of permanently losing the campaign block.
     // Insert raw events AND bump the cached campaigns.* counters in the
     // SAME transaction. The cached counters power the /campaigns list page
     // — keeping them in lock-step with raw events here means the list view
@@ -440,11 +458,10 @@ async function flushType(type: TrackingEventType, events: BaseEvent[]): Promise<
     }
     trackingBufferFlushed.inc({ type }, toWrite.length);
 
-    // Post-commit side effects (tag enqueues, suppressed_until for
-    // unsub/complaint). These are intentionally NOT in the txn — a tag
-    // enqueue failure must not roll back the raw event row. Tracked in
-    // pendingSideEffects so graceful shutdown can await them before the
-    // tracking pool is closed.
+    // Post-commit tag side effects are intentionally NOT in the txn — a tag
+    // enqueue failure must not roll back the raw event row. The complaint-IP
+    // suppression itself is already committed atomically above. Tracked in
+    // pendingSideEffects so graceful shutdown can await them before closing.
     const sideEffectPromise: Promise<unknown> = processSideEffects(type, toWrite, firsts)
       .catch((err) => {
         logger.error(`[TRACKING BUFFER] side-effects (${type}) failed: ${err?.message || err}`);
@@ -607,6 +624,25 @@ async function insertBatchAndBumpCounters(
       batchPairs.push({ cid: ev.campaignId, sid: ev.subscriberId, key });
     }
 
+    // Serialize uniqueness checks for the same event type + campaign/subscriber
+    // pair across PM2 instances. Under READ COMMITTED, a transaction waiting
+    // here sees the first transaction's committed row in the SELECT below.
+    // Sort the 64-bit hashes so batches with overlapping pairs cannot deadlock.
+    if (batchPairs.length > 0) {
+      const lockKeys = batchPairs.map(
+        (pair) => `${type}\u001f${pair.cid}\u001f${pair.sid}`,
+      );
+      await client.query(
+        `SELECT pg_advisory_xact_lock(lock_hash)
+           FROM (
+             SELECT DISTINCT hashtextextended(lock_key, 0) AS lock_hash
+             FROM unnest($1::text[]) AS keys(lock_key)
+           ) locks
+          ORDER BY lock_hash`,
+        [lockKeys],
+      );
+    }
+
     // Find pairs that ALREADY have a row of this type in campaign_stats.
     // Those must NOT bump the unique counter (they are duplicates from a
     // previous flush whose dedupe window has long since expired).
@@ -638,6 +674,9 @@ async function insertBatchAndBumpCounters(
     }
 
     await insertBatchOnClient(client, type, events);
+    if (type === "complaint") {
+      await applyComplaintIpSuppressionsOnClient(client, events);
+    }
 
     // Build the per-campaign unique delta from ONLY first-time pairs. The
     // actual UPDATE campaigns runs OUTSIDE this txn (post-commit) so the
@@ -659,6 +698,53 @@ async function insertBatchAndBumpCounters(
     accumulateUnsubComplaintDeltas(type, newPairsByCampaign);
   }
   client.release();
+}
+
+/**
+ * Advance complaint-IP suppression deadlines inside the same transaction that
+ * persists the complaint events. Event timestamps are passed as UTC timestamp
+ * values without a zone because both campaign_stats.timestamp and
+ * subscribers.suppressed_until are PostgreSQL `timestamp` columns.
+ */
+async function applyComplaintIpSuppressionsOnClient(
+  client: import("pg").PoolClient,
+  events: BaseEvent[],
+): Promise<void> {
+  const latestDetectionBySubscriber = new Map<string, number>();
+  for (const ev of events) {
+    const ip = ev.ctx?.ipAddress;
+    if (!ip || !COMPLAINT_IPS.has(ip)) continue;
+    const previous = latestDetectionBySubscriber.get(ev.subscriberId) ?? 0;
+    if (ev.enqueuedAt > previous) {
+      latestDetectionBySubscriber.set(ev.subscriberId, ev.enqueuedAt);
+    }
+  }
+  if (latestDetectionBySubscriber.size === 0) return;
+
+  const subscriberIds = [...latestDetectionBySubscriber.keys()];
+  const detectedAtUtc = subscriberIds.map((id) =>
+    formatUtcTimestamp(latestDetectionBySubscriber.get(id)!)
+  );
+
+  await client.query(
+    `WITH detections AS (
+       SELECT *
+       FROM unnest($1::varchar[], $2::timestamp[])
+         AS d(subscriber_id, detected_at)
+     )
+     UPDATE subscribers s
+        SET suppressed_until = d.detected_at + make_interval(days => $3)
+       FROM detections d
+      WHERE s.id = d.subscriber_id
+        AND (
+          s.suppressed_until IS NULL
+          OR s.suppressed_until < d.detected_at + make_interval(days => $3)
+        )`,
+    [subscriberIds, detectedAtUtc, COMPLAINT_IP_SUPPRESSION_DAYS],
+  );
+  logger.info(
+    `[TRACKING BUFFER] complaint-IP suppression applied to ${subscriberIds.length} subscriber(s) for ${COMPLAINT_IP_SUPPRESSION_DAYS} days`,
+  );
 }
 
 /**
@@ -813,9 +899,9 @@ function buildInsertBatchSql(
   const placeholders: string[] = [];
   let p = 1;
   for (const e of events) {
-    const ts = new Date(e.enqueuedAt);
+    const ts = formatUtcTimestamp(e.enqueuedAt);
     placeholders.push(
-      `($${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++})`,
+      `($${p++}, $${p++}, $${p++}, $${p++}, $${p++}::timestamp, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++})`,
     );
     values.push(
       e.campaignId,
@@ -859,15 +945,11 @@ async function insertBatchOnClient(
  *                returned (campaign,subscriber) fire openTag if present.
  *   click      → same as open with recordFirstClick + clickTag.
  *   unsubscribe → bulk setSuppressedUntil + per-event unsubscribeTag.
- *   complaint   → per-event unsubscribeTag ONLY (no suppression window, no
- *                 STOP- prefix). A spam complaint is treated identically to
- *                 a self-unsubscribe on the subscriber side: the campaign's
- *                 plain unsubscribeTag is added so segments that exclude
- *                 unsubscribers also exclude complainers. The campaign-level
- *                 complaints_count and the campaign_stats(type='complaint')
- *                 row are unaffected — analytics and deliverability dashboards
- *                 still distinguish complaints from unsubscribes. Pre-existing
- *                 STOP-* tags on subscribers are preserved (no migration).
+ *   complaint   → per-event unsubscribeTag with no STOP prefix. Complaints
+ *                 attributed to COMPLAINT_IPS also set a temporary
+ *                 suppressed_until window; FBL/webhook complaints without
+ *                 that IP retain tag-only behavior. The campaign-level
+ *                 complaints_count and campaign_stats row are unchanged.
  *
  * Tag operations are enqueued via storage.enqueueTagOperation. That call
  * itself writes to the DB, but the volume is at most one per first-open or
@@ -925,11 +1007,6 @@ async function processSideEffects(
   }
 
   if (type === "unsubscribe" || type === "complaint") {
-    // Only real unsubscribes get the suppression window (cooling-off =
-    // UNSUBSCRIBE_COOLING_OFF_DAYS). Complaints skip suppression entirely —
-    // they instead get the campaign's plain unsubscribeTag below, which
-    // existing segments already exclude via NOT has_tag(...). See
-    // processSideEffects header comment.
     if (type === "unsubscribe") {
       const subscriberIds = [...new Set(events.map((e) => e.subscriberId))];
       if (subscriberIds.length > 0) {

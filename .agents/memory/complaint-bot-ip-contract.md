@@ -1,9 +1,9 @@
 ---
-name: Complaint-bot IP counting-only contract
-description: Opens from complaint-bot IPs are stored as type='complaint'; downstream consumers of type='open' rows must account for it.
+name: Complaint-IP temporary suppression contract
+description: Complaint-IP opens remain complaint analytics while imposing a renewable 15-day subscriber cooling-off period.
 ---
-Opens from complaint-bot IPs (195.154.17.225) are recorded in campaign_stats as type='complaint' (counting-only: unsubscribeTag null, no suppression, no tags — subscriber untouched).
+Opens attributed to the configured complaint IP remain complaint analytics events and add no permanent tag, but temporarily suppress the subscriber from every campaign for 15 days after the latest detection. A later existing deadline must never be shortened.
 
-**Why:** operator request; the old version unsubscribed real subscribers. Regression tests lock this in (tests/complaint-ip-counting.test.ts).
+**Why:** the operator replaced the former counting-only policy with a reversible cooling-off period, while explicitly rejecting permanent BCK/STOP-style exclusions.
 
-**How to apply:** any query that counts "opens by IP" (e.g. the bot-opener DEL marker) must also count bot-IP complaint rows, or it goes blind on that IP. FBL webhook complaints keep their tag behavior and must stay excluded via the IP filter.
+**How to apply:** new detections extend from event time and recent history is reconciled from both legacy open and current complaint rows. Open-by-IP consumers must count both types. FBL/webhook complaints without that IP remain unchanged.
