@@ -18,6 +18,10 @@ import {
 } from "./campaign-repository";
 import { getSubscriber } from "./subscriber-repository";
 import { mapWithConcurrency } from "../utils";
+import {
+  buildCampaignProviderQuickViews,
+  type CampaignProviderQuickViews,
+} from "../lib/campaign-provider-quick-views";
 
 // ═══════════════════════════════════════════════════════════════
 // HEALTH CHECK
@@ -541,6 +545,46 @@ export async function getCampaignProviderOpenRates(campaignId: string): Promise<
       ? Math.round((Number(r.complaints) / Number(r.recipients)) * 10000) / 100
       : 0,
   }));
+}
+
+export async function getCampaignProviderQuickViews(
+  campaignId: string,
+): Promise<CampaignProviderQuickViews> {
+  const result = await db.execute(sql`
+    SELECT
+      LOWER(SPLIT_PART(s.email, '@', 2)) AS provider,
+      COUNT(DISTINCT cs.subscriber_id)::int AS recipients,
+      COUNT(DISTINCT CASE
+        WHEN st.type = 'open' THEN st.subscriber_id
+      END)::int AS unique_openers,
+      COUNT(DISTINCT CASE
+        WHEN st.ip_address = '195.154.17.225'
+          AND st.type IN ('open', 'complaint')
+        THEN st.subscriber_id
+      END)::int AS complaints
+    FROM campaign_sends cs
+    JOIN subscribers s ON s.id = cs.subscriber_id
+    LEFT JOIN campaign_stats st
+      ON st.campaign_id = cs.campaign_id
+     AND st.subscriber_id = cs.subscriber_id
+     AND (
+       st.type = 'open'
+       OR (st.type = 'complaint' AND st.ip_address = '195.154.17.225')
+     )
+    WHERE cs.campaign_id = ${campaignId}
+      AND cs.status = 'sent'
+      AND SPLIT_PART(s.email, '@', 2) <> ''
+    GROUP BY LOWER(SPLIT_PART(s.email, '@', 2))
+  `);
+
+  return buildCampaignProviderQuickViews(
+    (result.rows as any[]).map((row) => ({
+      provider: String(row.provider),
+      recipients: Number(row.recipients),
+      uniqueOpeners: Number(row.unique_openers),
+      complaints: Number(row.complaints),
+    })),
+  );
 }
 
 export async function getCampaignAnalytics(campaignId: string) {

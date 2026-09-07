@@ -97,6 +97,19 @@ export function registerAnalyticsRoutes(app: Express, helpers: {
     }
   });
 
+  app.get("/api/analytics/campaign/:id/provider-quick-views", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const data = await storage.getCampaignProviderQuickViews(req.params.id);
+      res.json(data);
+    } catch (error) {
+      logger.error("Error fetching provider quick views:", error);
+      res.status(500).json({ error: "Failed to fetch provider quick views" });
+    }
+  });
+
   app.get("/api/analytics/campaign/:id/batch-opens", async (req: Request, res: Response) => {
     try {
       if (!validateId(req.params.id)) {

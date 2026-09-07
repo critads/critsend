@@ -371,6 +371,9 @@ export interface IStorage {
     provider: string; recipients: number; uniqueOpeners: number; openRate: number;
     complaints: number; complaintRate: number;
   }>>;
+  getCampaignProviderQuickViews(
+    campaignId: string,
+  ): Promise<import("./lib/campaign-provider-quick-views").CampaignProviderQuickViews>;
   getCampaignAnalytics(campaignId: string): Promise<{
     campaign: Campaign; totalOpens: number; uniqueOpens: number; totalClicks: number; uniqueClicks: number;
     unsubscribeCount: number; openRate: number; clickRate: number;

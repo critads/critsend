@@ -231,6 +231,26 @@ interface PaginatedCampaigns {
   totalPages: number;
 }
 
+interface CampaignProviderQuickViews {
+  openers: Array<{
+    provider: string;
+    recipients: number;
+    uniqueOpeners: number;
+    openRate: number;
+  }>;
+  complaints: Array<{
+    provider: string;
+    recipients: number;
+    complaints: number;
+    complaintRate: number;
+  }>;
+}
+
+type ProviderQuickViewSelection = {
+  campaign: Pick<CampaignListItem, "id" | "name">;
+  metric: "opens" | "complaints";
+};
+
 export default function Campaigns() {
   useJobStream();
   const [, navigate] = useLocation();
@@ -252,6 +272,7 @@ export default function Campaigns() {
   const [urgentConfirm, setUrgentConfirm] = useState<CampaignListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [failedInfoCampaign, setFailedInfoCampaign] = useState<Campaign | null>(null);
+  const [providerQuickView, setProviderQuickView] = useState<ProviderQuickViewSelection | null>(null);
   // Step-by-step sending (Task #242): dialog shown when resuming a campaign
   // that was auto-paused at a step limit.
   const [stepResumeDialog, setStepResumeDialog] = useState<CampaignListItem | null>(null);
@@ -388,6 +409,26 @@ export default function Campaigns() {
   const campaigns = campaignsData?.campaigns;
   const totalPages = campaignsData?.totalPages ?? 1;
   const totalCampaigns = campaignsData?.total ?? 0;
+  const {
+    data: providerQuickViewData,
+    isLoading: providerQuickViewLoading,
+    isError: providerQuickViewError,
+  } = useQuery<CampaignProviderQuickViews>({
+    queryKey: [
+      "/api/analytics/campaign",
+      providerQuickView?.campaign.id ?? null,
+      "provider-quick-views",
+    ],
+    queryFn: async () => {
+      const response = await apiRequest(
+        "GET",
+        `/api/analytics/campaign/${providerQuickView!.campaign.id}/provider-quick-views`,
+      );
+      return response.json();
+    },
+    enabled: Boolean(providerQuickView),
+    staleTime: 60_000,
+  });
 
   const { data: lowOpenAlertData } = useQuery<{ campaigns: LowOpenCampaignAlertSummary[] }>({
     queryKey: ["/api/campaigns/low-open-alerts"],
@@ -1110,7 +1151,16 @@ export default function Campaigns() {
                         </div>
                       </TableCell>
                       <TableCell data-testid={`text-opens-${campaign.id}`}>
-                        <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setProviderQuickView({ campaign, metric: "opens" });
+                          }}
+                          className="-mx-2 flex flex-col gap-0.5 rounded-md px-2 py-1 text-left hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={`View opener breakdown by email provider for ${campaign.name}`}
+                          data-testid={`button-opens-quick-view-${campaign.id}`}
+                        >
                           <span className="font-medium tabular-nums">
                             {(campaign.uniqueOpensCount ?? 0).toLocaleString()}
                           </span>
@@ -1119,7 +1169,7 @@ export default function Campaigns() {
                               {(((campaign.uniqueOpensCount ?? 0) / campaign.sentCount) * 100).toFixed(1)}%
                             </span>
                           )}
-                        </div>
+                        </button>
                       </TableCell>
                       <TableCell data-testid={`text-clicks-${campaign.id}`}>
                         <div className="flex flex-col gap-0.5">
@@ -1139,9 +1189,20 @@ export default function Campaigns() {
                         </span>
                       </TableCell>
                       <TableCell data-testid={`text-complaints-${campaign.id}`}>
-                        <span className={`font-medium tabular-nums ${(campaign.complaintsCount ?? 0) > 0 ? "text-orange-600" : ""}`}>
-                          {(campaign.complaintsCount ?? 0).toLocaleString()}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setProviderQuickView({ campaign, metric: "complaints" });
+                          }}
+                          className="-mx-2 rounded-md px-2 py-1 text-left hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={`View complaint breakdown by email provider for ${campaign.name}`}
+                          data-testid={`button-complaints-quick-view-${campaign.id}`}
+                        >
+                          <span className={`font-medium tabular-nums ${(campaign.complaintsCount ?? 0) > 0 ? "text-orange-600" : ""}`}>
+                            {(campaign.complaintsCount ?? 0).toLocaleString()}
+                          </span>
+                        </button>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-sm">
@@ -1372,6 +1433,114 @@ export default function Campaigns() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(providerQuickView)}
+        onOpenChange={(open) => {
+          if (!open) setProviderQuickView(null);
+        }}
+      >
+        <DialogContent className="max-w-xl" data-testid="dialog-provider-quick-view">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {providerQuickView?.metric === "complaints" ? (
+                <ShieldAlert className="h-5 w-5 text-orange-600" />
+              ) : (
+                <Eye className="h-5 w-5 text-primary" />
+              )}
+              {providerQuickView?.metric === "complaints"
+                ? "Complaints by Email Provider"
+                : "Openers by Email Provider"}
+            </DialogTitle>
+            <DialogDescription>
+              {providerQuickView?.campaign.name}
+              {providerQuickView?.metric === "complaints"
+                ? " · Top 3 providers by unique complaint detections"
+                : " · Top 5 providers by delivered email volume"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {providerQuickViewLoading ? (
+            <div className="space-y-3 py-2" data-testid="provider-quick-view-loading">
+              {[1, 2, 3].map((index) => (
+                <Skeleton key={index} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : providerQuickViewError ? (
+            <Alert variant="destructive" data-testid="provider-quick-view-error">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Unable to load provider details</AlertTitle>
+              <AlertDescription>
+                Please close this quick view and try again.
+              </AlertDescription>
+            </Alert>
+          ) : (() => {
+            const rows = providerQuickView?.metric === "complaints"
+              ? providerQuickViewData?.complaints ?? []
+              : providerQuickViewData?.openers ?? [];
+
+            if (rows.length === 0) {
+              return (
+                <div
+                  className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground"
+                  data-testid="provider-quick-view-empty"
+                >
+                  {providerQuickView?.metric === "complaints"
+                    ? "No complaint detections for this campaign."
+                    : "No opener data for this campaign."}
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-2" data-testid="provider-quick-view-results">
+                {rows.map((row, index) => {
+                  const isComplaints = providerQuickView?.metric === "complaints";
+                  const count = isComplaints
+                    ? "complaints" in row ? row.complaints : 0
+                    : "uniqueOpeners" in row ? row.uniqueOpeners : 0;
+                  const rate = isComplaints
+                    ? "complaintRate" in row ? row.complaintRate : 0
+                    : "openRate" in row ? row.openRate : 0;
+
+                  return (
+                    <div
+                      key={row.provider}
+                      className="flex items-center gap-3 rounded-lg border p-3"
+                      data-testid={`provider-quick-view-row-${index}`}
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-mono text-sm font-medium">{row.provider}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {row.recipients.toLocaleString()} delivered emails
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold tabular-nums">{count.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {isComplaints ? "complaints" : "unique openers"}
+                        </p>
+                      </div>
+                      <Badge variant={isComplaints && rate > 0 ? "destructive" : "outline"}>
+                        {rate.toFixed(2)}%
+                      </Badge>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProviderQuickView(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent>
