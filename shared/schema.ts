@@ -1006,6 +1006,7 @@ export type CampaignCalendarItem = Pick<
   | "scheduledAt"
 > & {
   mtaName: string | null;
+  segments: Array<Pick<Segment, "id" | "name">>;
 };
 export type CampaignCalendarMta = Pick<Mta, "id" | "name">;
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;

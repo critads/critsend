@@ -36,6 +36,7 @@ import {
   evaluateBrandUnsubscribeGuard,
   shouldEvaluateBrandGuardForPatch,
 } from "../services/brand-unsubscribe-guard";
+import { parseStrictIsoInstant } from "../services/campaign-calendar";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 import { parseCampaignCalendarRange } from "../services/campaign-calendar";
 
@@ -728,6 +729,71 @@ export function registerCampaignRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error fetching campaign calendar:", error);
       res.status(500).json({ error: "Failed to fetch campaign calendar" });
+    }
+  });
+
+  app.patch("/api/campaigns/:id/schedule", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const uid: string | undefined = (req as any).session?.userId;
+      if (!uid) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const scheduledAt = parseStrictIsoInstant(req.body?.scheduledAt);
+      const expectedScheduledAt = parseStrictIsoInstant(req.body?.expectedScheduledAt);
+      if (!scheduledAt || !expectedScheduledAt) {
+        return res.status(400).json({ error: "scheduledAt and expectedScheduledAt must be valid ISO instants" });
+      }
+      if (scheduledAt.getTime() <= Date.now()) {
+        return res.status(400).json({ error: "A campaign cannot be scheduled in the past" });
+      }
+
+      const current: any = await db.execute(sql`
+        SELECT c.user_id, c.status, u.is_admin
+        FROM campaigns c
+        LEFT JOIN users u ON u.id = ${uid}
+        WHERE c.id = ${req.params.id}
+      `);
+      if (!current.rows?.length) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      const row = current.rows[0] as {
+        user_id: string | null;
+        status: string;
+        is_admin: boolean | null;
+      };
+      if (row.is_admin !== true && row.user_id && row.user_id !== uid) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      if (row.status !== "scheduled") {
+        return res.status(409).json({
+          error: "Only campaigns that are still scheduled can be moved",
+          status: row.status,
+        });
+      }
+
+      const updated: any = await db.execute(sql`
+        UPDATE campaigns
+        SET scheduled_at = ${scheduledAt}, updated_at = NOW()
+        WHERE id = ${req.params.id}
+          AND status = 'scheduled'
+          AND scheduled_at = ${expectedScheduledAt}
+        RETURNING id, scheduled_at, status
+      `);
+      if (!updated.rows?.length) {
+        return res.status(409).json({
+          error: "The campaign schedule changed while it was being moved",
+        });
+      }
+
+      publishCampaignsListInvalidation();
+      res.json(updated.rows[0]);
+    } catch (error) {
+      logger.error("Error rescheduling campaign from calendar:", error);
+      res.status(500).json({ error: "Failed to reschedule campaign" });
     }
   });
 

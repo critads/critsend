@@ -34,7 +34,7 @@ function parisCivilParts(date: Date): {
   };
 }
 
-function parseStrictIsoInstant(value: unknown): Date | null {
+export function parseStrictIsoInstant(value: unknown): Date | null {
   if (typeof value !== "string") return null;
   const match = ISO_INSTANT_PATTERN.exec(value);
   if (!match) return null;

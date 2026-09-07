@@ -43,6 +43,19 @@ describe("campaign calendar wiring", () => {
     );
   });
 
+  it("protects calendar rescheduling against auth, status, past-time and start races", () => {
+    const route = routesSource.slice(
+      routesSource.indexOf('app.patch("/api/campaigns/:id/schedule"'),
+      routesSource.indexOf('app.get("/api/campaigns/:id"'),
+    );
+    expect(route).toContain("Authentication required");
+    expect(route).toContain("scheduledAt.getTime() <= Date.now()");
+    expect(route).toContain('row.status !== "scheduled"');
+    expect(route).toContain("AND status = 'scheduled'");
+    expect(route).toContain("AND scheduled_at = ${expectedScheduledAt}");
+    expect(route).toContain("publishCampaignsListInvalidation()");
+  });
+
   it("queries only scheduled_at inside the requested day", () => {
     const start = repositorySource.indexOf("export async function getCampaignCalendar");
     const end = repositorySource.indexOf("\nexport async function", start + 1);
@@ -60,6 +73,9 @@ describe("campaign calendar wiring", () => {
     expect(implementation).not.toContain("completedAt");
     expect(implementation).not.toContain("campaignSends");
     expect(implementation).not.toContain("campaign_sends");
+    expect(implementation).toContain(".innerJoin(segments");
+    expect(implementation).toContain("campaignSegments.position");
+    expect(implementation).toContain("legacySegmentId");
   });
 
   it("renders one daily timeline with MTA and unidentified columns", () => {
@@ -71,5 +87,23 @@ describe("campaign calendar wiring", () => {
     expect(calendarPageSource).toContain("Aucune campagne programmée pour cette journée.");
     expect(calendarPageSource).toContain('aria-label="Jour précédent"');
     expect(calendarPageSource).toContain('aria-label="Jour suivant"');
+  });
+
+  it("drags only scheduled cards and exposes each campaign audience", () => {
+    expect(calendarPageSource).toContain(
+      'const canDrag = campaign.status === "scheduled" && !rescheduling',
+    );
+    expect(calendarPageSource).toContain("calendarDropInstant(day, snappedMinute)");
+    expect(calendarPageSource).toContain("Math.round(rawMinute / 15) * 15");
+    expect(calendarPageSource).toContain(
+      'apiRequest("PATCH", `/api/campaigns/${campaignId}/schedule`',
+    );
+    expect(calendarPageSource).toContain("expectedScheduledAt: campaign.scheduledAt");
+    expect(calendarPageSource).toContain("queryClient.setQueryData");
+    expect(calendarPageSource).toContain("Segments programmés");
+    expect(calendarPageSource).toContain("campaign.segments ?? []");
+    expect(calendarPageSource).toContain(
+      "event.stopPropagation()",
+    );
   });
 });

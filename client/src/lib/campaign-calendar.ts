@@ -7,6 +7,7 @@ export interface CalendarCampaignRecord {
   mtaName: string | null;
   status: string;
   scheduledAt: string | null;
+  segments?: Array<{ id: string; name: string }>;
 }
 
 export const CALENDAR_DAY_MS = 86_400_000;
@@ -86,6 +87,39 @@ export function campaignTimelinePlacement(
     top: startMinute * TIMELINE_PIXELS_PER_MINUTE,
     height: Math.max(34, durationMinutes * TIMELINE_PIXELS_PER_MINUTE),
   };
+}
+
+export function calendarDropInstant(
+  day: Date,
+  minuteOfDay: number,
+): Date | null {
+  if (
+    !Number.isInteger(minuteOfDay) ||
+    minuteOfDay < 0 ||
+    minuteOfDay >= 24 * 60
+  ) {
+    return null;
+  }
+  const hours = Math.floor(minuteOfDay / 60);
+  const minutes = minuteOfDay % 60;
+  const instant = fromParisTime(
+    day.getUTCFullYear(),
+    day.getUTCMonth() + 1,
+    day.getUTCDate(),
+    hours,
+    minutes,
+  );
+  const resolved = toParisDate(instant);
+  if (
+    resolved.year !== day.getUTCFullYear() ||
+    resolved.month !== day.getUTCMonth() + 1 ||
+    resolved.day !== day.getUTCDate() ||
+    resolved.hours !== hours ||
+    resolved.minutes !== minutes
+  ) {
+    return null;
+  }
+  return instant;
 }
 
 export function layoutCampaignTimeline(

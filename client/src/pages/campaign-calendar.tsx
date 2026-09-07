@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, type DragEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   CalendarDays,
@@ -7,6 +7,8 @@ import {
   ChevronRight,
   CircleAlert,
   Filter,
+  GripVertical,
+  Plus,
   RefreshCw,
   Server,
 } from "lucide-react";
@@ -19,13 +21,16 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   addCalendarDays as addDays,
+  calendarDropInstant,
   campaignCalendarColumnId,
   campaignScheduledForParisDay,
   layoutCampaignTimeline,
   parisCivilDate as parisCivil,
   startOfParisCalendarDay as startOfParis,
+  TIMELINE_PIXELS_PER_MINUTE,
   UNIDENTIFIED_MTA_COLUMN_ID,
   type CalendarCampaignRecord as CalendarCampaign,
 } from "@/lib/campaign-calendar";
@@ -67,27 +72,90 @@ const dayLabel = (d: Date, long = false) =>
 function CampaignCard({
   campaign,
   expanded = false,
+  rescheduling = false,
+  onDragStart,
+  onDragEnd,
 }: {
   campaign: CalendarCampaign;
   expanded?: boolean;
+  rescheduling?: boolean;
+  onDragStart?: (event: DragEvent<HTMLDivElement>, campaign: CalendarCampaign) => void;
+  onDragEnd?: () => void;
 }) {
   const status = campaign.status.replace(/_/g, " ");
+  const canDrag = campaign.status === "scheduled" && !rescheduling;
   return (
-    <Link
-      href={`/campaigns/${campaign.id}`}
-      className={`group block rounded-md border p-2 transition-all hover:-translate-y-px hover:border-stone-500 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500/70 ${colours[campaign.status] ?? "border-stone-200 bg-stone-50 text-stone-800"}`}
+    <div
+      className={`group relative h-full rounded-md border transition-all hover:-translate-y-px hover:border-stone-500 hover:shadow-sm ${
+        canDrag ? "cursor-grab active:cursor-grabbing" : ""
+      } ${rescheduling ? "opacity-60" : ""} ${colours[campaign.status] ?? "border-stone-200 bg-stone-50 text-stone-800"}`}
+      draggable={canDrag}
+      onDragStart={(event) => onDragStart?.(event, campaign)}
+      onDragEnd={onDragEnd}
+      data-testid={`calendar-campaign-${campaign.id}`}
     >
-      <div className="flex items-start gap-2">
-        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-semibold">{campaign.name}</div>
-          <div className="mt-1 flex items-center justify-between gap-2 text-[10px] opacity-70">
-            <span>{time(campaign.scheduledAt)}</span>
-            {expanded && <span className="capitalize">{status}</span>}
+      <Link
+        href={`/campaigns/${campaign.id}`}
+        className="block h-full rounded-md p-2 pr-8 focus:outline-none focus:ring-2 focus:ring-amber-500/70"
+      >
+        <div className="flex items-start gap-2">
+          {canDrag ? (
+            <GripVertical className="mt-0.5 h-3 w-3 shrink-0 opacity-45" />
+          ) : (
+            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60" />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-semibold">{campaign.name}</div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-[10px] opacity-70">
+              <span>{time(campaign.scheduledAt)}</span>
+              {expanded && <span className="capitalize">{status}</span>}
+            </div>
           </div>
         </div>
-      </div>
-    </Link>
+      </Link>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="absolute right-1 top-1 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-white/70 text-current shadow-sm ring-1 ring-black/10 hover:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+            aria-label={`Afficher les segments de ${campaign.name}`}
+            title="Afficher les segments"
+            draggable={false}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onDragStart={(event) => event.preventDefault()}
+            data-testid={`calendar-campaign-segments-${campaign.id}`}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-72 bg-[#fffdf7] p-3"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="text-xs font-semibold text-stone-900">
+            Segments programmés
+          </div>
+          {(campaign.segments ?? []).length > 0 ? (
+            <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+              {(campaign.segments ?? []).map((segment) => (
+                <li
+                  key={segment.id}
+                  className="rounded bg-stone-100 px-2 py-1.5 text-xs text-stone-700"
+                >
+                  {segment.name}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-xs text-stone-500">
+              Aucun segment associé.
+            </p>
+          )}
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -96,12 +164,25 @@ function Timeline({
   campaigns,
   mtas,
   knownMtaIds,
+  draggedCampaignId,
+  reschedulingCampaignId,
+  onDragStart,
+  onDragEnd,
+  onReschedule,
 }: {
   day: Date;
   campaigns: CalendarCampaign[];
   mtas: { id: string; name: string }[];
   knownMtaIds: ReadonlySet<string>;
+  draggedCampaignId: string | null;
+  reschedulingCampaignId: string | null;
+  onDragStart: (event: DragEvent<HTMLDivElement>, campaign: CalendarCampaign) => void;
+  onDragEnd: () => void;
+  onReschedule: (campaignId: string, scheduledAt: Date) => void;
 }) {
+  const draggedCampaign = campaigns.find(
+    (campaign) => campaign.id === draggedCampaignId,
+  );
   return (
     <div className="overflow-x-auto rounded-xl border border-stone-200 bg-[#fffdf7]">
       <div className="min-w-[760px]">
@@ -137,10 +218,37 @@ function Timeline({
                 campaignCalendarColumnId(campaign, knownMtaIds) === mta.id,
             );
             const timelineItems = layoutCampaignTimeline(items, day);
+            const acceptsDrop =
+              draggedCampaign?.status === "scheduled" &&
+              campaignCalendarColumnId(draggedCampaign, knownMtaIds) === mta.id;
             return (
               <div
                 key={mta.id}
-                className="relative h-[1152px] min-w-[220px] flex-1 border-r border-stone-200"
+                className={`relative h-[1152px] min-w-[220px] flex-1 border-r border-stone-200 transition-colors ${
+                  acceptsDrop ? "bg-amber-50/60" : ""
+                }`}
+                onDragOver={(event) => {
+                  if (!acceptsDrop) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  if (!acceptsDrop) return;
+                  event.preventDefault();
+                  const campaignId =
+                    event.dataTransfer.getData("application/x-critsend-campaign") ||
+                    event.dataTransfer.getData("text/plain");
+                  if (!campaignId || campaignId !== draggedCampaignId) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const rawMinute =
+                    (event.clientY - rect.top) / TIMELINE_PIXELS_PER_MINUTE;
+                  const snappedMinute = Math.max(
+                    0,
+                    Math.min(23 * 60 + 45, Math.round(rawMinute / 15) * 15),
+                  );
+                  const instant = calendarDropInstant(day, snappedMinute);
+                  if (instant) onReschedule(campaignId, instant);
+                }}
                 style={{
                   backgroundImage:
                     "linear-gradient(to bottom, transparent 47px, rgba(120,113,108,.11) 48px)",
@@ -160,7 +268,13 @@ function Timeline({
                         width: `${widthPercent}%`,
                       }}
                     >
-                      <CampaignCard campaign={campaign} expanded />
+                      <CampaignCard
+                        campaign={campaign}
+                        expanded
+                        rescheduling={reschedulingCampaignId === campaign.id}
+                        onDragStart={onDragStart}
+                        onDragEnd={onDragEnd}
+                      />
                     </div>
                   );
                 })}
@@ -193,6 +307,10 @@ export default function CampaignCalendar() {
   const [anchor, setAnchor] = useState(parisCivil(new Date()));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filterOpen, setFilterOpen] = useState(false);
+  const [draggedCampaignId, setDraggedCampaignId] = useState<string | null>(null);
+  const [reschedulingCampaignId, setReschedulingCampaignId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const from = startOfParis(anchor).toISOString();
   const to = startOfParis(addDays(anchor, 1)).toISOString();
   const query = useQuery<CalendarResponse>({
@@ -242,6 +360,73 @@ export default function CampaignCalendar() {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+  const handleDragStart = (
+    event: DragEvent<HTMLDivElement>,
+    campaign: CalendarCampaign,
+  ) => {
+    if (campaign.status !== "scheduled") {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-critsend-campaign", campaign.id);
+    event.dataTransfer.setData("text/plain", campaign.id);
+    setDraggedCampaignId(campaign.id);
+  };
+  const handleReschedule = async (campaignId: string, scheduledAt: Date) => {
+    const campaign = query.data?.campaigns.find((item) => item.id === campaignId);
+    if (!campaign?.scheduledAt || campaign.status !== "scheduled") return;
+    if (scheduledAt.getTime() <= Date.now()) {
+      toast({
+        title: "Créneau invalide",
+        description: "Une campagne ne peut pas être déplacée dans le passé.",
+        variant: "destructive",
+      });
+      setDraggedCampaignId(null);
+      return;
+    }
+
+    const queryKey = ["/api/campaigns/calendar", from, to] as const;
+    const previous = queryClient.getQueryData<CalendarResponse>(queryKey);
+    queryClient.setQueryData<CalendarResponse>(queryKey, (current) =>
+      current
+        ? {
+            ...current,
+            campaigns: current.campaigns.map((item) =>
+              item.id === campaignId
+                ? { ...item, scheduledAt: scheduledAt.toISOString() }
+                : item,
+            ),
+          }
+        : current,
+    );
+    setDraggedCampaignId(null);
+    setReschedulingCampaignId(campaignId);
+    try {
+      await apiRequest("PATCH", `/api/campaigns/${campaignId}/schedule`, {
+        scheduledAt: scheduledAt.toISOString(),
+        expectedScheduledAt: campaign.scheduledAt,
+      });
+      toast({
+        title: "Campagne reprogrammée",
+        description: `Nouvel horaire : ${time(scheduledAt.toISOString())}.`,
+      });
+    } catch (error: any) {
+      if (previous) queryClient.setQueryData(queryKey, previous);
+      toast({
+        title: "Déplacement impossible",
+        description:
+          error?.body?.error ||
+          "La campagne a peut-être déjà commencé à être envoyée.",
+        variant: "destructive",
+      });
+    } finally {
+      setReschedulingCampaignId(null);
+      await queryClient.invalidateQueries({
+        queryKey: ["/api/campaigns/calendar"],
+      });
+    }
+  };
   return (
     <main className="mx-auto max-w-[1510px] pb-2" data-testid="campaign-calendar">
       <section className="rounded-[1.6rem] border border-stone-200/75 bg-[#fffdf7]/80 px-5 py-5 shadow-sm sm:px-7">
@@ -255,6 +440,9 @@ export default function CampaignCalendar() {
             </h1>
             <p className="mt-1 text-sm text-stone-500">
               Campagnes programmées par MTA, en heure de Paris.
+            </p>
+            <p className="mt-1 text-xs text-stone-400">
+              Glissez une campagne planifiée verticalement pour modifier son horaire par pas de 15 minutes.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -366,6 +554,11 @@ export default function CampaignCalendar() {
             campaigns={visibleCampaigns}
             mtas={mtas}
             knownMtaIds={knownMtaIds}
+            draggedCampaignId={draggedCampaignId}
+            reschedulingCampaignId={reschedulingCampaignId}
+            onDragStart={handleDragStart}
+            onDragEnd={() => setDraggedCampaignId(null)}
+            onReschedule={handleReschedule}
           />
         ) : (
           <EmptyState text="Aucune campagne programmée pour cette journée." />

@@ -478,13 +478,14 @@ export async function getCampaignCalendar(
   from: Date,
   to: Date,
 ): Promise<CampaignCalendarItem[]> {
-  return db.select({
+  const rows = await db.select({
     id: campaigns.id,
     name: campaigns.name,
     mtaId: campaigns.mtaId,
     mtaName: mtas.name,
     status: campaigns.status,
     scheduledAt: campaigns.scheduledAt,
+    legacySegmentId: campaigns.segmentId,
   })
     .from(campaigns)
     .leftJoin(mtas, eq(campaigns.mtaId, mtas.id))
@@ -495,6 +496,51 @@ export async function getCampaignCalendar(
       lt(campaigns.scheduledAt, to),
     ))
     .orderBy(campaigns.scheduledAt, campaigns.id);
+
+  if (rows.length === 0) return [];
+
+  const campaignIds = rows.map((row) => row.id);
+  const audienceRows = await db.select({
+    campaignId: campaignSegments.campaignId,
+    segmentId: segments.id,
+    segmentName: segments.name,
+  })
+    .from(campaignSegments)
+    .innerJoin(segments, eq(campaignSegments.segmentId, segments.id))
+    .where(inArray(campaignSegments.campaignId, campaignIds))
+    .orderBy(campaignSegments.campaignId, campaignSegments.position);
+
+  const segmentsByCampaign = new Map<string, Array<{ id: string; name: string }>>();
+  for (const row of audienceRows) {
+    const values = segmentsByCampaign.get(row.campaignId) ?? [];
+    values.push({ id: row.segmentId, name: row.segmentName });
+    segmentsByCampaign.set(row.campaignId, values);
+  }
+
+  // Legacy campaigns may predate campaign_segments. Preserve their original
+  // singular audience until the bootstrap backfill has populated the relation.
+  const legacyIds = [
+    ...new Set(
+      rows
+        .filter((row) => !segmentsByCampaign.has(row.id) && row.legacySegmentId)
+        .map((row) => row.legacySegmentId!),
+    ),
+  ];
+  const legacyNames = new Map<string, string>();
+  if (legacyIds.length > 0) {
+    const legacyRows = await db.select({ id: segments.id, name: segments.name })
+      .from(segments)
+      .where(inArray(segments.id, legacyIds));
+    for (const row of legacyRows) legacyNames.set(row.id, row.name);
+  }
+
+  return rows.map(({ legacySegmentId, ...campaign }) => ({
+    ...campaign,
+    segments: segmentsByCampaign.get(campaign.id) ??
+      (legacySegmentId && legacyNames.has(legacySegmentId)
+        ? [{ id: legacySegmentId, name: legacyNames.get(legacySegmentId)! }]
+        : []),
+  }));
 }
 
 /**
