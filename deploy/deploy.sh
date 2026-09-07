@@ -352,42 +352,75 @@ if [[ "$_verify_failed" == "1" ]]; then
     fail "One or more PM2 processes did not emit their boot line — investigate above logs."
 fi
 
-# ─── Step 8: Health check ────────────────────────────────────────────────────
-step "Waiting for app to become healthy..."
-HEALTH_OK=false
+# ─── Step 8: Immediate health confirmation ──────────────────────────────────
+# `pm2 reload/start` has already waited for the exact same readiness transition:
+# critsend-web has wait_ready=true, and server/index.ts sends the PM2 "ready"
+# signal at the same moment /api/health/startup changes to {"status":"ready"}.
+# Do not add a retry sleep here — that used to cost up to 60 s, only to accept
+# PM2 "online" as a fallback afterward. This single request is a diagnostic
+# confirmation; PM2's wait_ready/listen_timeout remains the authoritative gate.
+step "Confirming app health after PM2 readiness..."
 # /api/health/startup ALWAYS returns HTTP 200 — it reports readiness in the JSON
 # body ({"status":"ready"} once routes+static are mounted, {"status":"starting"}
 # during boot). So we must inspect the body, not just the status code, otherwise
-# we'd declare a still-booting instance healthy. This is the authoritative web
-# readiness gate (the boot-line grep in Step 7b is only an advisory warning).
-for i in $(seq 1 20); do
-    sleep 3
-    BODY=$(curl -s --max-time 10 http://localhost:5000/api/health/startup 2>/dev/null || echo "")
-    HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:5000/api/health/startup 2>/dev/null || echo "000")
-    echo "[deploy]   Health check attempt $i/20: HTTP $HTTP_CODE body=${BODY:-<none>}"
-    if [ "$HTTP_CODE" = "200" ] && echo "$BODY" | grep -q '"status":"ready"'; then
-        HEALTH_OK=true
-        break
-    fi
-done
+# we'd declare a still-booting instance healthy. This confirms PM2's readiness
+# gate over HTTP (the boot-line grep in Step 7b is only advisory).
+HEALTH_RESPONSE="$(curl -sS --max-time 10 -w $'\n%{http_code}' \
+    http://localhost:5000/api/health/startup 2>/dev/null || true)"
+if [[ "$HEALTH_RESPONSE" == *$'\n'* ]]; then
+    HTTP_CODE="${HEALTH_RESPONSE##*$'\n'}"
+    BODY="${HEALTH_RESPONSE%$'\n'*}"
+else
+    HTTP_CODE="000"
+    BODY=""
+fi
+echo "[deploy]   Immediate health check: HTTP $HTTP_CODE body=${BODY:-<none>}"
 
-if [ "$HEALTH_OK" = "true" ]; then
+# Validate the complete cluster on every path. A successful localhost request
+# can be served by one healthy instance while another is stopped or errored.
+# Read the expected count from the ecosystem config so this guard stays correct
+# if the cluster size changes later.
+PM2_WEB_CHECK="$(node -e '
+  const fs = require("fs");
+  const path = require("path");
+  const cfg = require(path.resolve("deploy/ecosystem.config.cjs"));
+  const web = (cfg.apps || []).find(app => app.name === "critsend-web");
+  const expected = Number(web && web.instances);
+  if (!Number.isInteger(expected) || expected < 1) process.exit(2);
+  const running = JSON.parse(fs.readFileSync(0, "utf8"));
+  const statuses = running
+    .filter(proc => proc.name === "critsend-web")
+    .map(proc => (proc.pm2_env && proc.pm2_env.status) || "unknown");
+  const allOnline = statuses.length === expected
+    && statuses.every(status => status === "online");
+  process.stdout.write([
+    expected,
+    statuses.length,
+    allOnline ? "yes" : "no",
+    statuses.join(",") || "missing",
+  ].join("|"));
+' < <(pm2 jlist 2>/dev/null) 2>/dev/null || echo "unknown|0|no|unknown")"
+IFS='|' read -r EXPECTED_WEB_COUNT ACTUAL_WEB_COUNT PM2_ALL_ONLINE PM2_STATUS <<< "$PM2_WEB_CHECK"
+echo "[deploy]   critsend-web instances: $ACTUAL_WEB_COUNT/$EXPECTED_WEB_COUNT; status(es): $PM2_STATUS"
+
+HEALTH_READY=false
+if [ "$HTTP_CODE" = "200" ] && echo "$BODY" | grep -q '"status":"ready"'; then
+    HEALTH_READY=true
+fi
+
+if [ "$HEALTH_READY" = "true" ] && [ "$PM2_ALL_ONLINE" = "yes" ]; then
     ok "App is healthy"
 else
-    echo "[deploy] ⚠ Health endpoint did not respond within 60s"
-    echo "[deploy]   This is normal during heavy campaign sending or long bootstrap migrations."
-    echo "[deploy]   Checking PM2 process status instead..."
-    PM2_STATUS=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((p['pm2_env']['status'] for p in d if p['name']=='critsend-web'), 'missing'))" 2>/dev/null || echo "unknown")
-    if [ "$PM2_STATUS" = "online" ]; then
-        ok "PM2 process is online — app will become fully healthy once bootstrap completes"
+    echo "[deploy] ⚠ Immediate health confirmation or PM2 cluster validation failed."
+    echo "[deploy]   Last 20 lines of web error log:"
+    tail -20 /var/log/critsend/web-err.log 2>/dev/null || echo "(no error log found)"
+    echo ""
+    echo "[deploy]   Last 10 lines of web out log:"
+    tail -10 /var/log/critsend/web-out.log 2>/dev/null || echo "(no out log found)"
+    if [ "$PM2_ALL_ONLINE" = "yes" ]; then
+        echo "[deploy] ⚠ PM2 wait_ready completed and every web instance is online; continuing without a redundant 60s retry loop."
     else
-        echo "[deploy]   PM2 status: $PM2_STATUS"
-        echo "[deploy]   Last 20 lines of web error log:"
-        tail -20 /var/log/critsend/web-err.log 2>/dev/null || echo "(no error log found)"
-        echo ""
-        echo "[deploy]   Last 10 lines of web out log:"
-        tail -10 /var/log/critsend/web-out.log 2>/dev/null || echo "(no out log found)"
-        fail "App process is not online (status: $PM2_STATUS). Check logs above."
+        fail "Expected $EXPECTED_WEB_COUNT online web instances, found $ACTUAL_WEB_COUNT (statuses: $PM2_STATUS). Check logs above."
     fi
 fi
 
