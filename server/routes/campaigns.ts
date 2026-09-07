@@ -775,22 +775,26 @@ export function registerCampaignRoutes(app: Express, helpers: {
         });
       }
 
-      const updated: any = await db.execute(sql`
-        UPDATE campaigns
-        SET scheduled_at = ${scheduledAt}, updated_at = NOW()
-        WHERE id = ${req.params.id}
-          AND status = 'scheduled'
-          AND scheduled_at = ${expectedScheduledAt}
-        RETURNING id, scheduled_at, status
-      `);
-      if (!updated.rows?.length) {
+      const updated = await db.update(campaigns)
+        .set({ scheduledAt })
+        .where(and(
+          eq(campaigns.id, req.params.id),
+          eq(campaigns.status, "scheduled"),
+          eq(campaigns.scheduledAt, expectedScheduledAt),
+        ))
+        .returning({
+          id: campaigns.id,
+          scheduledAt: campaigns.scheduledAt,
+          status: campaigns.status,
+        });
+      if (!updated.length) {
         return res.status(409).json({
           error: "The campaign schedule changed while it was being moved",
         });
       }
 
       publishCampaignsListInvalidation();
-      res.json(updated.rows[0]);
+      res.json(updated[0]);
     } catch (error) {
       logger.error("Error rescheduling campaign from calendar:", error);
       res.status(500).json({ error: "Failed to reschedule campaign" });

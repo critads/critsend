@@ -51,8 +51,10 @@ describe("campaign calendar wiring", () => {
     expect(route).toContain("Authentication required");
     expect(route).toContain("scheduledAt.getTime() <= Date.now()");
     expect(route).toContain('row.status !== "scheduled"');
-    expect(route).toContain("AND status = 'scheduled'");
-    expect(route).toContain("AND scheduled_at = ${expectedScheduledAt}");
+    expect(route).toContain(".update(campaigns)");
+    expect(route).toContain('eq(campaigns.status, "scheduled")');
+    expect(route).toContain("eq(campaigns.scheduledAt, expectedScheduledAt)");
+    expect(route).not.toContain("updated_at");
     expect(route).toContain("publishCampaignsListInvalidation()");
   });
 
