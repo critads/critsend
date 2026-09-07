@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  campaignCalendarStart,
-  campaignOverlapsParisDay,
+  campaignCalendarColumnId,
+  campaignScheduledForParisDay,
   campaignTimelinePlacement,
   layoutCampaignTimeline,
+  UNIDENTIFIED_MTA_COLUMN_ID,
   type CalendarCampaignRecord,
 } from "../client/src/lib/campaign-calendar";
 
@@ -13,103 +14,100 @@ function campaign(overrides: Partial<CalendarCampaignRecord> = {}): CalendarCamp
     name: "Campaign",
     mtaId: "mta-1",
     mtaName: "MTA 1",
-    status: "completed",
-    scheduledAt: null,
-    firstSendAt: null,
-    lastSendAt: null,
-    startedAt: null,
-    completedAt: null,
+    status: "scheduled",
+    scheduledAt: "2026-09-04T08:00:00.000Z",
     ...overrides,
   };
 }
 
-describe("campaign calendar time placement", () => {
-  it("uses the scheduled time for a scheduled campaign", () => {
-    const item = campaign({
-      status: "scheduled",
-      scheduledAt: "2026-09-04T08:00:00.000Z",
-      firstSendAt: "2026-09-04T07:00:00.000Z",
-    });
-    expect(campaignCalendarStart(item)).toBe("2026-09-04T08:00:00.000Z");
+describe("daily scheduled campaign calendar", () => {
+  const parisDay = new Date(Date.UTC(2026, 8, 4, 12));
+
+  it("includes scheduled_at at midnight and excludes the next midnight", () => {
+    expect(campaignScheduledForParisDay(
+      campaign({ scheduledAt: "2026-09-03T22:00:00.000Z" }),
+      parisDay,
+    )).toBe(true);
+    expect(campaignScheduledForParisDay(
+      campaign({ scheduledAt: "2026-09-04T22:00:00.000Z" }),
+      parisDay,
+    )).toBe(false);
   });
 
-  it("shows a campaign on both Paris days when it crosses midnight", () => {
-    const item = campaign({
-      firstSendAt: "2026-09-04T21:30:00.000Z",
-      lastSendAt: "2026-09-04T22:30:00.000Z",
-    });
-    const friday = new Date(Date.UTC(2026, 8, 4, 12));
-    const saturday = new Date(Date.UTC(2026, 8, 5, 12));
-    expect(campaignOverlapsParisDay(item, friday)).toBe(true);
-    expect(campaignOverlapsParisDay(item, saturday)).toBe(true);
+  it("never includes drafts or campaigns without scheduled_at", () => {
+    expect(campaignScheduledForParisDay(
+      campaign({ status: "draft" }),
+      parisDay,
+    )).toBe(false);
+    expect(campaignScheduledForParisDay(
+      campaign({ scheduledAt: null }),
+      parisDay,
+    )).toBe(false);
   });
 
-  it("positions spring-DST events by Paris wall-clock time", () => {
-    const item = campaign({
-      firstSendAt: "2026-03-28T23:30:00.000Z",
-      lastSendAt: "2026-03-29T01:30:00.000Z",
-    });
-    const dstDay = new Date(Date.UTC(2026, 2, 29, 12));
-    expect(campaignTimelinePlacement(item, dstDay)).toEqual({
-      top: 24,
-      height: 144,
-    });
+  it.each([
+    "scheduled",
+    "sending",
+    "paused",
+    "completed",
+    "failed",
+    "cancelled",
+  ])(
+    "includes an in-day %s campaign based only on scheduled_at",
+    (status) => {
+      expect(campaignScheduledForParisDay(
+        campaign({ status, scheduledAt: "2026-09-04T08:00:00.000Z" }),
+        parisDay,
+      )).toBe(true);
+    },
+  );
+
+  it("never exposes synthetic automation tracking campaigns", () => {
+    expect(campaignScheduledForParisDay(
+      campaign({ status: "automation_internal" }),
+      parisDay,
+    )).toBe(false);
   });
 
-  it("gives point-in-time scheduled events a visible minimum duration", () => {
-    const item = campaign({
-      status: "scheduled",
-      scheduledAt: "2026-09-04T08:00:00.000Z",
-    });
-    const day = new Date(Date.UTC(2026, 8, 4, 12));
-    expect(campaignTimelinePlacement(item, day)).toEqual({
+  it.each(["sending", "paused", "completed", "failed", "cancelled"])(
+    "excludes an out-of-day %s campaign regardless of status",
+    (status) => {
+      expect(campaignScheduledForParisDay(
+        campaign({ status, scheduledAt: "2026-09-03T21:59:59.999Z" }),
+        parisDay,
+      )).toBe(false);
+    },
+  );
+
+  it("places each campaign at its scheduled Paris wall-clock time", () => {
+    expect(campaignTimelinePlacement(campaign(), parisDay)).toEqual({
       top: 480,
       height: 36,
     });
   });
 
-  it("places overlapping campaigns in separate visible lanes", () => {
-    const day = new Date(Date.UTC(2026, 8, 4, 12));
-    const first = campaign({
-      id: "first",
-      firstSendAt: "2026-09-04T08:00:00.000Z",
-      lastSendAt: "2026-09-04T09:00:00.000Z",
-    });
-    const second = campaign({
-      id: "second",
-      firstSendAt: "2026-09-04T08:30:00.000Z",
-      lastSendAt: "2026-09-04T09:30:00.000Z",
-    });
-    const layout = layoutCampaignTimeline([first, second], day);
-    expect(layout.map(({ lane, laneCount }) => ({ lane, laneCount }))).toEqual([
+  it("places simultaneous scheduled campaigns in separate visible lanes", () => {
+    const first = campaign({ id: "first" });
+    const second = campaign({ id: "second" });
+    expect(
+      layoutCampaignTimeline([first, second], parisDay)
+        .map(({ lane, laneCount }) => ({ lane, laneCount })),
+    ).toEqual([
       { lane: 0, laneCount: 2 },
       { lane: 1, laneCount: 2 },
     ]);
   });
 
-  it("keeps an ongoing campaign visible when it started before the viewed day", () => {
-    const ongoing = campaign({
-      status: "sending",
-      firstSendAt: "2026-09-03T08:00:00.000Z",
-      lastSendAt: "2026-09-03T09:00:00.000Z",
-    });
-    const day = new Date(Date.UTC(2026, 8, 4, 12));
-    const asOf = new Date("2026-09-04T12:00:00.000Z").getTime();
-    expect(campaignOverlapsParisDay(ongoing, day, asOf)).toBe(true);
-    expect(campaignTimelinePlacement(ongoing, day, asOf)).toEqual({
-      top: 0,
-      height: 672,
-    });
-  });
-
-  it("does not carry a paused campaign past its actual last send", () => {
-    const paused = campaign({
-      status: "paused",
-      firstSendAt: "2026-09-03T08:00:00.000Z",
-      lastSendAt: "2026-09-03T09:00:00.000Z",
-    });
-    const nextDay = new Date(Date.UTC(2026, 8, 4, 12));
-    const asOf = new Date("2026-09-04T12:00:00.000Z").getTime();
-    expect(campaignOverlapsParisDay(paused, nextDay, asOf)).toBe(false);
+  it("groups missing and unknown MTA references in the explicit fallback column", () => {
+    const knownMtaIds = new Set(["mta-1"]);
+    expect(campaignCalendarColumnId(campaign(), knownMtaIds)).toBe("mta-1");
+    expect(campaignCalendarColumnId(
+      campaign({ mtaId: null }),
+      knownMtaIds,
+    )).toBe(UNIDENTIFIED_MTA_COLUMN_ID);
+    expect(campaignCalendarColumnId(
+      campaign({ mtaId: "deleted-mta" }),
+      knownMtaIds,
+    )).toBe(UNIDENTIFIED_MTA_COLUMN_ID);
   });
 });

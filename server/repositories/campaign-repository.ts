@@ -477,12 +477,7 @@ export async function getCampaignsPaginated(opts: {
 export async function getCampaignCalendar(
   from: Date,
   to: Date,
-  asOf = new Date(),
 ): Promise<CampaignCalendarItem[]> {
-  const actualStart = sql<Date>`COALESCE(${campaigns.firstSendAt}, ${campaigns.startedAt}, ${campaigns.scheduledAt})`;
-  const actualEnd = sql<Date>`COALESCE(${campaigns.lastSendAt}, ${campaigns.completedAt}, ${campaigns.firstSendAt}, ${campaigns.startedAt}, ${campaigns.scheduledAt})`;
-  const finishedStatuses = ["paused", "failed", "completed", "sent", "cancelled"];
-
   return db.select({
     id: campaigns.id,
     name: campaigns.name,
@@ -490,44 +485,16 @@ export async function getCampaignCalendar(
     mtaName: mtas.name,
     status: campaigns.status,
     scheduledAt: campaigns.scheduledAt,
-    firstSendAt: campaigns.firstSendAt,
-    lastSendAt: campaigns.lastSendAt,
-    startedAt: campaigns.startedAt,
-    completedAt: campaigns.completedAt,
   })
     .from(campaigns)
     .leftJoin(mtas, eq(campaigns.mtaId, mtas.id))
     .where(and(
-      inArray(campaigns.status, [
-        "scheduled",
-        "sending",
-        "paused",
-        "failed",
-        "completed",
-        "sent",
-        "cancelled",
-      ]),
-      or(
-        and(
-          eq(campaigns.status, "scheduled"),
-          gte(campaigns.scheduledAt, from),
-          lt(campaigns.scheduledAt, to),
-        ),
-        and(
-          eq(campaigns.status, "sending"),
-          sql`${actualStart} IS NOT NULL`,
-          lt(actualStart, to),
-          gt(sql`${asOf}`, from),
-        ),
-        and(
-          inArray(campaigns.status, finishedStatuses),
-          sql`${actualStart} IS NOT NULL`,
-          lt(actualStart, to),
-          gt(actualEnd, from),
-        ),
-      ),
+      ne(campaigns.status, "draft"),
+      ne(campaigns.status, "automation_internal"),
+      gte(campaigns.scheduledAt, from),
+      lt(campaigns.scheduledAt, to),
     ))
-    .orderBy(sql`COALESCE(${campaigns.scheduledAt}, ${campaigns.firstSendAt}, ${campaigns.startedAt}) ASC`);
+    .orderBy(campaigns.scheduledAt, campaigns.id);
 }
 
 /**

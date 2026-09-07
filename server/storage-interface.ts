@@ -126,7 +126,7 @@ export interface IStorage {
     firstSendAt: Date;
     status: string;
   }>>;
-  getCampaignCalendar(from: Date, to: Date, asOf?: Date): Promise<CampaignCalendarItem[]>;
+  getCampaignCalendar(from: Date, to: Date): Promise<CampaignCalendarItem[]>;
   getRecentLowOpenCampaignAlerts(): Promise<Array<{
     id: string;
     name: string;

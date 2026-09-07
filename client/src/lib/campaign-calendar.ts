@@ -7,14 +7,11 @@ export interface CalendarCampaignRecord {
   mtaName: string | null;
   status: string;
   scheduledAt: string | null;
-  firstSendAt: string | null;
-  lastSendAt: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
 }
 
 export const CALENDAR_DAY_MS = 86_400_000;
 export const TIMELINE_PIXELS_PER_MINUTE = 0.8;
+export const UNIDENTIFIED_MTA_COLUMN_ID = "__unidentified__";
 const DEFAULT_EVENT_MINUTES = 45;
 
 export function addCalendarDays(date: Date, amount: number): Date {
@@ -42,15 +39,13 @@ export function startOfParisCalendarDay(date: Date): Date {
   );
 }
 
-export function campaignCalendarStart(campaign: CalendarCampaignRecord): string | null {
-  if (campaign.status === "scheduled") return campaign.scheduledAt;
-  return campaign.firstSendAt ?? campaign.startedAt ?? campaign.scheduledAt;
-}
-
-export function campaignCalendarEnd(campaign: CalendarCampaignRecord): string | null {
-  return campaign.lastSendAt
-    ?? campaign.completedAt
-    ?? campaignCalendarStart(campaign);
+export function campaignCalendarColumnId(
+  campaign: Pick<CalendarCampaignRecord, "mtaId">,
+  knownMtaIds: ReadonlySet<string>,
+): string {
+  return campaign.mtaId && knownMtaIds.has(campaign.mtaId)
+    ? campaign.mtaId
+    : UNIDENTIFIED_MTA_COLUMN_ID;
 }
 
 function timestamp(value: string | null): number | null {
@@ -59,65 +54,33 @@ function timestamp(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function campaignCalendarInterval(
-  campaign: CalendarCampaignRecord,
-  openEndMs = Date.now(),
-): { startMs: number; endMs: number } | null {
-  const startMs = timestamp(campaignCalendarStart(campaign));
-  if (startMs === null) return null;
-  if (campaign.status === "sending") {
-    return {
-      startMs,
-      endMs: Math.max(startMs + 1, openEndMs),
-    };
-  }
-  const rawEndMs = timestamp(campaignCalendarEnd(campaign)) ?? startMs;
-  return {
-    startMs,
-    endMs: rawEndMs > startMs
-      ? rawEndMs
-      : startMs + DEFAULT_EVENT_MINUTES * 60_000,
-  };
-}
-
-export function campaignOverlapsParisDay(
+export function campaignScheduledForParisDay(
   campaign: CalendarCampaignRecord,
   day: Date,
-  openEndMs?: number,
 ): boolean {
-  const interval = campaignCalendarInterval(campaign, openEndMs);
-  if (!interval) return false;
+  const scheduledMs = timestamp(campaign.scheduledAt);
+  if (
+    scheduledMs === null
+    || campaign.status === "draft"
+    || campaign.status === "automation_internal"
+  ) {
+    return false;
+  }
   const dayStartMs = startOfParisCalendarDay(day).getTime();
   const dayEndMs = startOfParisCalendarDay(addCalendarDays(day, 1)).getTime();
-  return interval.startMs < dayEndMs && interval.endMs > dayStartMs;
+  return scheduledMs >= dayStartMs && scheduledMs < dayEndMs;
 }
 
 export function campaignTimelinePlacement(
   campaign: CalendarCampaignRecord,
   day: Date,
-  openEndMs?: number,
 ): { top: number; height: number } | null {
-  const interval = campaignCalendarInterval(campaign, openEndMs);
-  if (!interval) return null;
-  const dayStartMs = startOfParisCalendarDay(day).getTime();
-  const dayEndMs = startOfParisCalendarDay(addCalendarDays(day, 1)).getTime();
-  const clippedStartMs = Math.max(interval.startMs, dayStartMs);
-  const clippedEndMs = Math.min(interval.endMs, dayEndMs);
-  if (clippedStartMs >= clippedEndMs) return null;
-
-  const startParts = toParisDate(new Date(clippedStartMs));
-  const endParts = toParisDate(new Date(clippedEndMs));
-  const startMinute = clippedStartMs === dayStartMs
-    ? 0
-    : startParts.hours * 60 + startParts.minutes;
-  const civilEndMinute = clippedEndMs === dayEndMs
-    ? 24 * 60
-    : endParts.hours * 60 + endParts.minutes;
-  const elapsedMinutes = (clippedEndMs - clippedStartMs) / 60_000;
-  const durationMinutes = Math.min(
-    24 * 60 - startMinute,
-    Math.max(DEFAULT_EVENT_MINUTES, civilEndMinute - startMinute, elapsedMinutes),
-  );
+  if (!campaignScheduledForParisDay(campaign, day)) return null;
+  const scheduledMs = timestamp(campaign.scheduledAt);
+  if (scheduledMs === null) return null;
+  const parts = toParisDate(new Date(scheduledMs));
+  const startMinute = parts.hours * 60 + parts.minutes;
+  const durationMinutes = Math.min(DEFAULT_EVENT_MINUTES, 24 * 60 - startMinute);
 
   return {
     top: startMinute * TIMELINE_PIXELS_PER_MINUTE,
@@ -128,7 +91,6 @@ export function campaignTimelinePlacement(
 export function layoutCampaignTimeline(
   campaigns: CalendarCampaignRecord[],
   day: Date,
-  openEndMs?: number,
 ): Array<{
   campaign: CalendarCampaignRecord;
   top: number;
@@ -138,7 +100,7 @@ export function layoutCampaignTimeline(
 }> {
   const positioned = campaigns
     .map((campaign) => {
-      const placement = campaignTimelinePlacement(campaign, day, openEndMs);
+      const placement = campaignTimelinePlacement(campaign, day);
       return placement ? { campaign, ...placement } : null;
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)

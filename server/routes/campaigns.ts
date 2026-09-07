@@ -717,15 +717,13 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: range.error });
       }
 
-      const asOf = new Date();
       const [calendarCampaigns, allMtas] = await Promise.all([
-        storage.getCampaignCalendar(range.from, range.to, asOf),
+        storage.getCampaignCalendar(range.from, range.to),
         storage.getMtas(),
       ]);
       res.json({
         campaigns: calendarCampaigns,
         mtas: allMtas.map(({ id, name }) => ({ id, name })),
-        asOf: asOf.toISOString(),
       });
     } catch (error) {
       logger.error("Error fetching campaign calendar:", error);

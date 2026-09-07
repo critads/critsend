@@ -1001,10 +1001,6 @@ export type CampaignCalendarItem = Pick<
   | "mtaId"
   | "status"
   | "scheduledAt"
-  | "firstSendAt"
-  | "lastSendAt"
-  | "startedAt"
-  | "completedAt"
 > & {
   mtaName: string | null;
 };

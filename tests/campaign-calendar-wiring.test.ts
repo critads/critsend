@@ -13,6 +13,10 @@ const repositorySource = readFileSync(
   new URL("../server/repositories/campaign-repository.ts", import.meta.url),
   "utf8",
 );
+const calendarPageSource = readFileSync(
+  new URL("../client/src/pages/campaign-calendar.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("campaign calendar wiring", () => {
   it("places Calendar once in primary navigation and Automation in overflow", () => {
@@ -39,27 +43,33 @@ describe("campaign calendar wiring", () => {
     );
   });
 
-  it("uses cached campaign timestamps without scanning individual sends", () => {
+  it("queries only scheduled_at inside the requested day", () => {
     const start = repositorySource.indexOf("export async function getCampaignCalendar");
     const end = repositorySource.indexOf("\nexport async function", start + 1);
     const implementation = repositorySource.slice(
       start,
       end >= 0 ? end : repositorySource.length,
     );
-    expect(implementation).toContain("firstSendAt");
-    expect(implementation).toContain("lastSendAt");
+    expect(implementation).toContain("gte(campaigns.scheduledAt, from)");
+    expect(implementation).toContain("lt(campaigns.scheduledAt, to)");
+    expect(implementation).toContain('ne(campaigns.status, "draft")');
+    expect(implementation).toContain('ne(campaigns.status, "automation_internal")');
+    expect(implementation).not.toContain("firstSendAt");
+    expect(implementation).not.toContain("lastSendAt");
+    expect(implementation).not.toContain("startedAt");
+    expect(implementation).not.toContain("completedAt");
     expect(implementation).not.toContain("campaignSends");
     expect(implementation).not.toContain("campaign_sends");
   });
 
-  it("defines indexes matching finished and live calendar interval expressions", () => {
-    expect(repositorySource).toContain("campaigns_calendar_actual_end_idx");
-    expect(repositorySource).toContain(
-      "COALESCE(last_send_at, completed_at, first_send_at, started_at, scheduled_at)",
-    );
-    expect(repositorySource).toContain("campaigns_calendar_sending_start_idx");
-    expect(repositorySource).toContain(
-      "COALESCE(first_send_at, started_at, scheduled_at)",
-    );
+  it("renders one daily timeline with MTA and unidentified columns", () => {
+    expect(calendarPageSource).not.toContain('type ViewMode = "week" | "day"');
+    expect(calendarPageSource).not.toContain('"Semaine"');
+    expect(calendarPageSource).toContain("setAnchor((day) => addDays(day, n))");
+    expect(calendarPageSource).toContain("Sans MTA identifiable");
+    expect(calendarPageSource).not.toContain("hasUnidentified");
+    expect(calendarPageSource).toContain("Aucune campagne programmée pour cette journée.");
+    expect(calendarPageSource).toContain('aria-label="Jour précédent"');
+    expect(calendarPageSource).toContain('aria-label="Jour suivant"');
   });
 });
