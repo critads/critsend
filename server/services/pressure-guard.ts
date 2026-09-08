@@ -110,6 +110,56 @@ export const PRESSURE_NEAR_AGING_HOURS = (() => {
   return parsed;
 })();
 
+// A campaign must not remain in `sending` indefinitely because its final
+// pressure-held recipients still have future eligible_at values. Start the
+// terminal drain one hour before the 72h product deadline so the 30s poller,
+// bounded campaign slots and SMTP finalization have time to finish.
+const CAMPAIGN_SENDING_DEADLINE_MIN_HOURS = 24;
+const CAMPAIGN_SENDING_DEADLINE_MAX_HOURS = 720;
+export const CAMPAIGN_MAX_SENDING_HOURS = (() => {
+  const raw = process.env.CAMPAIGN_MAX_SENDING_HOURS;
+  if (!raw) return 72;
+  const parsed = Number(raw);
+  if (
+    !Number.isFinite(parsed)
+    || parsed < CAMPAIGN_SENDING_DEADLINE_MIN_HOURS
+    || parsed > CAMPAIGN_SENDING_DEADLINE_MAX_HOURS
+  ) {
+    throw new Error(
+      `[PRESSURE_GUARD] CAMPAIGN_MAX_SENDING_HOURS=${raw} is invalid; ` +
+      `must be a finite number in [${CAMPAIGN_SENDING_DEADLINE_MIN_HOURS}h, ${CAMPAIGN_SENDING_DEADLINE_MAX_HOURS}h]`,
+    );
+  }
+  return parsed;
+})();
+
+export const CAMPAIGN_DEADLINE_DRAIN_LEAD_MINUTES = (() => {
+  const raw = process.env.CAMPAIGN_DEADLINE_DRAIN_LEAD_MINUTES;
+  if (!raw) return 60;
+  const parsed = Number(raw);
+  const max = Math.min(12 * 60, CAMPAIGN_MAX_SENDING_HOURS * 60 - 5);
+  if (!Number.isFinite(parsed) || parsed < 5 || parsed > max) {
+    throw new Error(
+      `[PRESSURE_GUARD] CAMPAIGN_DEADLINE_DRAIN_LEAD_MINUTES=${raw} is invalid; ` +
+      `must be a finite number in [5min, ${max}min]`,
+    );
+  }
+  return parsed;
+})();
+
+export const CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS =
+  CAMPAIGN_MAX_SENDING_HOURS - CAMPAIGN_DEADLINE_DRAIN_LEAD_MINUTES / 60;
+
+export function isCampaignPressureDeadlineReached(
+  firstSendAt: Date | string | null | undefined,
+  nowMs = Date.now(),
+): boolean {
+  if (!firstSendAt) return false;
+  const firstSendMs = new Date(firstSendAt).getTime();
+  return Number.isFinite(firstSendMs)
+    && firstSendMs <= nowMs - CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS * 60 * 60 * 1000;
+}
+
 let bootstrapState: "pending" | "ready" | "deferred" = "pending";
 export function getPressureGuardBootstrapState() {
   return bootstrapState;
@@ -362,38 +412,59 @@ export async function ensurePressureGuardEssentialSchema(): Promise<void> {
     }
   }
 
-  // One-time-compatible backfill for campaigns that delivered recently before
-  // first_send_at was introduced. The campaign filter keeps this bounded, and
-  // the existing campaign_sends(campaign_id, ...) access path means PostgreSQL
-  // only visits send rows for recent candidates. MIN intentionally looks at
-  // the full history of each candidate so an old campaign resumed recently is
-  // not misclassified as newly started.
+  // Backfill campaigns that delivered before first_send_at was introduced.
+  // In addition to recent campaigns, include otherwise-finished legacy
+  // campaigns with a held tail so the 72h deadline can classify them.
   try {
-    await pool.query(`
-      WITH recent_candidates AS (
-        SELECT id
-        FROM campaigns
-        WHERE first_send_at IS NULL
-          AND sent_count > 0
-          AND COALESCE(last_send_at, started_at) >= NOW() - INTERVAL '48 hours'
-      ),
-      first_deliveries AS (
-        SELECT rc.id, MIN(cs.sent_at) AS first_send_at
-        FROM recent_candidates rc
-        JOIN campaign_sends cs
-          ON cs.campaign_id = rc.id
-         AND cs.status = 'sent'
-        GROUP BY rc.id
-      )
-      UPDATE campaigns c
-      SET first_send_at = fd.first_send_at
-      FROM first_deliveries fd
-      WHERE c.id = fd.id
-        AND c.first_send_at IS NULL
-    `);
+    await reconcileLegacyPressureTailFirstSendAt();
   } catch (err: any) {
     logger.error(`[PRESSURE_GUARD] first_send_at backfill failed: ${err?.message || err}`);
   }
+}
+
+export async function reconcileLegacyPressureTailFirstSendAt(): Promise<number> {
+  const result = await pool.query(`
+    WITH recent_candidates AS (
+      SELECT id
+      FROM campaigns c
+      WHERE c.first_send_at IS NULL
+        AND c.sent_count > 0
+        AND (
+          COALESCE(c.last_send_at, c.started_at) >= NOW() - INTERVAL '48 hours'
+          OR (
+            c.status = 'sending'
+            AND EXISTS (
+              SELECT 1
+              FROM campaign_sends cs
+              WHERE cs.campaign_id = c.id
+                AND cs.status = 'pending'
+                AND cs.eligible_at IS NOT NULL
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM campaign_jobs cj
+              WHERE cj.campaign_id = c.id
+                AND cj.status IN ('pending', 'processing')
+            )
+          )
+        )
+    ),
+    first_deliveries AS (
+      SELECT rc.id, MIN(cs.sent_at) AS first_send_at
+      FROM recent_candidates rc
+      JOIN campaign_sends cs
+        ON cs.campaign_id = rc.id
+       AND cs.status = 'sent'
+      GROUP BY rc.id
+    )
+    UPDATE campaigns c
+    SET first_send_at = fd.first_send_at
+    FROM first_deliveries fd
+    WHERE c.id = fd.id
+      AND c.first_send_at IS NULL
+    RETURNING c.id
+  `);
+  return result.rowCount ?? 0;
 }
 
 async function runPressureGuardHeavyMaintenance(): Promise<"ready" | "deferred"> {

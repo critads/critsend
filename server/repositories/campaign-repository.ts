@@ -1427,6 +1427,150 @@ export async function updateCampaignStatusAtomic(campaignId: string, newStatus: 
 // the campaign is no longer 'sending'). Folding both guards INTO the UPDATE's
 // WHERE clause makes the decision atomic: if anything is still in flight or
 // retryable-with-budget, the UPDATE matches 0 rows and we hold 'sending'.
+export type PressureDeadlineCompletion = {
+  campaignId: string;
+  terminalizedCount: number;
+};
+
+/**
+ * Hard wall-clock cutoff for campaigns whose only remaining active work is a
+ * pressure-held tail. The campaign row is locked before inspecting sends, so
+ * a retry/reopen cannot interleave with terminalization and completion.
+ */
+export async function completePressureHeldCampaignsPastDeadline(
+  maxSendingHours: number,
+  limit = 100,
+): Promise<PressureDeadlineCompletion[]> {
+  const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+  const completed = await db.transaction(async (tx) => {
+    const candidates = await tx.execute(sql`
+      SELECT c.id
+      FROM campaigns c
+      WHERE c.status = 'sending'
+        AND c.first_send_at IS NOT NULL
+        AND c.first_send_at <= NOW() - (${maxSendingHours}::numeric || ' hours')::interval
+        AND EXISTS (
+          SELECT 1
+          FROM campaign_sends cs
+          WHERE cs.campaign_id = c.id
+            AND cs.status = 'pending'
+            AND cs.eligible_at IS NOT NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM campaign_sends cs
+          WHERE cs.campaign_id = c.id
+            AND (
+              cs.status = 'attempting'
+              OR (cs.status = 'pending' AND cs.eligible_at IS NULL)
+            )
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM campaign_jobs cj
+          WHERE cj.campaign_id = c.id
+            AND cj.status IN ('pending', 'processing')
+        )
+      ORDER BY c.first_send_at ASC
+      LIMIT ${boundedLimit}
+      FOR UPDATE OF c SKIP LOCKED
+    `);
+
+    const results: PressureDeadlineCompletion[] = [];
+    for (const row of candidates.rows as Array<{ id: string }>) {
+      const state = await tx.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+          COUNT(*) FILTER (
+            WHERE status = 'pending' AND eligible_at IS NOT NULL
+          )::int AS held,
+          COUNT(*) FILTER (WHERE status = 'attempting')::int AS attempting,
+          EXISTS (
+            SELECT 1
+            FROM campaign_jobs cj
+            WHERE cj.campaign_id = ${row.id}
+              AND cj.status IN ('pending', 'processing')
+          ) AS has_active_job
+        FROM campaign_sends
+        WHERE campaign_id = ${row.id}
+          AND status IN ('pending', 'attempting')
+      `);
+      const counts = state.rows[0] as {
+        pending?: number;
+        held?: number;
+        attempting?: number;
+        has_active_job?: boolean;
+      } | undefined;
+      const pending = Number(counts?.pending ?? 0);
+      const held = Number(counts?.held ?? 0);
+      const attempting = Number(counts?.attempting ?? 0);
+
+      // Never truncate active enumeration or an SMTP attempt. This cutoff is
+      // specifically for the deferred tail that would otherwise hold status
+      // at `sending` after the campaign sender has finished.
+      if (
+        pending === 0
+        || pending !== held
+        || attempting > 0
+        || counts?.has_active_job === true
+      ) continue;
+
+      await tx.execute(sql`SAVEPOINT campaign_deadline_candidate`);
+      const terminalized = await tx.execute(sql`
+        UPDATE campaign_sends
+        SET status = 'failed',
+            eligible_at = NULL
+            ${zeroDupSendGuardEnabled() ? sql`, smtp_outcome_class = 'policy_blocked'` : sql``}
+        WHERE campaign_id = ${row.id}
+          AND status = 'pending'
+          AND eligible_at IS NOT NULL
+        RETURNING id
+      `);
+      const terminalizedCount = terminalized.rows.length;
+
+      const campaignUpdate = await tx.execute(sql`
+        UPDATE campaigns
+        SET status = 'completed',
+            completed_at = NOW(),
+            pending_count = 0,
+            deferred_count = 0,
+            failed_count = failed_count + ${terminalizedCount},
+            urgent_mode = false,
+            urgent_flush_job_id = NULL
+        WHERE id = ${row.id}
+          AND status = 'sending'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM campaign_sends
+            WHERE campaign_id = ${row.id}
+              AND status IN ('pending', 'attempting')
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM campaign_jobs
+            WHERE campaign_id = ${row.id}
+              AND status IN ('pending', 'processing')
+          )
+        RETURNING id
+      `);
+      if (campaignUpdate.rows.length > 0) {
+        results.push({ campaignId: row.id, terminalizedCount });
+        await tx.execute(sql`RELEASE SAVEPOINT campaign_deadline_candidate`);
+      } else {
+        // A claim/retry raced the cutoff. Restore every send mutation from
+        // this candidate instead of committing terminal rows without the
+        // matching campaign counters/status transition.
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT campaign_deadline_candidate`);
+        await tx.execute(sql`RELEASE SAVEPOINT campaign_deadline_candidate`);
+      }
+    }
+    return results;
+  });
+
+  if (completed.length > 0) publishCampaignsListInvalidation();
+  return completed;
+}
+
 export async function completeCampaignIfDrained(campaignId: string, maxAutoRetries: number): Promise<boolean> {
   // Zero-Duplicate Send Guard: ambiguous rows are terminal 'failed' rows that are
   // never retried, so they must NOT block completion — otherwise the campaign
@@ -1437,7 +1581,12 @@ export async function completeCampaignIfDrained(campaignId: string, maxAutoRetri
       SELECT auto_retry_count FROM campaigns WHERE id = ${campaignId} AND status = 'sending'
     )
     UPDATE campaigns
-    SET status = 'completed'
+    SET status = 'completed',
+        completed_at = NOW(),
+        pending_count = 0,
+        deferred_count = 0,
+        urgent_mode = false,
+        urgent_flush_job_id = NULL
     WHERE id = ${campaignId}
       AND status = 'sending'
       AND NOT EXISTS (

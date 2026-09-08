@@ -1,6 +1,6 @@
 ---
-name: Pressure-guard "held" vs "due" and aged-force-send priority gap
-description: Why deferred (held) rows can linger long even though they look "past the aged window"
+name: Pressure-guard held-tail semantics and campaign deadline
+description: How held/due/aged differ and the invariants for the 72-hour campaign cap
 ---
 
 When investigating why campaigns "still have held rows out of the aged window":
@@ -14,3 +14,11 @@ Drain selects only the top `PRESSURE_GUARD_MAX_CAMPAIGNS` (default 5) campaigns 
 
 **Aged rows now ALWAYS take drain priority (fixed):** the candidate query computes per-campaign `aged_count` and orders `(aged_count>0) DESC, aged_count DESC, drainable_count DESC, created_at ASC`; the JS allocation force-seats aged campaigns at the FRONT of finalPicks before volume+fairness fills the remaining slots, and aged campaigns bypass the winding-down throttle and are exempt from the urgent 50% cap. No starvation of others: aged rows force-CAS (bypass the gap), stamp `last_sent_at=NOW()`, get SENT and leave pending, so aged backlog strictly decreases and cannot re-age.
 **Why:** low-volume campaigns whose backlog crossed the cap were starved behind high-volume young campaigns because the old ORDER BY was volume-only — the aged cap merely relaxed the per-row gap AFTER selection, it never guaranteed selection.
+
+## Campaign wall-clock deadline
+
+**Rule:** use immutable `first_send_at`, never restart-sensitive `started_at`. Start deadline-priority force drainage before the 72-hour cap. At the hard cutoff, only close a held-only tail after durable audience handoff: no active campaign job, no normal pending row, and no SMTP attempt in flight. Residual undispatched held rows become terminal failures available for manual retry.
+
+**Why:** “all enrolled rows are held” does not prove audience enumeration is finished; a sender may be sleeping between batches. Closing without the active-job gate can silently omit contacts. Conversely, opening another automatic retry cycle near the deadline can keep an otherwise-finished campaign in `sending` indefinitely.
+
+**How to apply:** a NULL `first_send_at` never triggers the deadline directly. Legacy NULLs may be reconciled only from the earliest persisted successful send, never from `started_at`. Keep campaign-first locking, rollback terminalization if the guarded completion loses a race, and run the cutoff independently from potentially slow SMTP drain ticks.

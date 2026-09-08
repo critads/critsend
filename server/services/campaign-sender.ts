@@ -27,6 +27,10 @@ import { prioritizeFinalizationDurabilityError } from "./campaign-job-error-poli
 import { runAfterDurableFinalization } from "./step-durability";
 import { evaluateBrandUnsubscribeGuard } from "./brand-unsubscribe-guard";
 import { classifyAudienceBatch } from "./orange-wanadoo-risk";
+import {
+  CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS,
+  isCampaignPressureDeadlineReached,
+} from "./pressure-guard";
 
 const MAX_AUTO_RETRIES = 3;
 const SENDER_MAX_ATTEMPTS = 3;
@@ -1247,7 +1251,17 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   }
 
   const RETRY_WINDOW_MS = 12 * 60 * 60 * 1000;
-  const retryDeadline = campaign.retryUntil ? campaign.retryUntil.getTime() : Date.now() + RETRY_WINDOW_MS;
+  // `campaign` was loaded before the first send and can still have
+  // firstSendAt=null even though the DB set it during this run. Refresh once
+  // before retries so a long-running sender cannot inherit a 12h retry window
+  // that extends beyond the campaign wall-clock deadline.
+  const deadlineSnapshot = await storage.getCampaign(campaignId);
+  const firstSendAtForDeadline = deadlineSnapshot?.firstSendAt ?? campaign.firstSendAt;
+  const configuredRetryDeadline = campaign.retryUntil ? campaign.retryUntil.getTime() : Date.now() + RETRY_WINDOW_MS;
+  const campaignDeadlineMs = firstSendAtForDeadline
+    ? new Date(firstSendAtForDeadline).getTime() + CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS * 60 * 60 * 1000
+    : Number.POSITIVE_INFINITY;
+  const retryDeadline = Math.min(configuredRetryDeadline, campaignDeadlineMs);
 
   if (totalFailed > 0 && !shouldStop && Date.now() < retryDeadline) {
     logger.info(`${logPrefix} Starting retry phase for ${totalFailed} failed emails (deadline: ${new Date(retryDeadline).toISOString()})`);
@@ -1475,7 +1489,8 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // ── Auto-requeue: if failed sends remain and the campaign wasn't manually
   //    stopped, automatically re-enqueue up to MAX_AUTO_RETRIES times so the
   //    operator doesn't have to click "Retry Failed Sends" by hand.
-  if (totalFailed > 0 && !shouldStop) {
+  const campaignDeadlineReached = isCampaignPressureDeadlineReached(firstSendAtForDeadline);
+  if (totalFailed > 0 && !shouldStop && !campaignDeadlineReached) {
     try {
       const freshCampaign = await storage.getCampaign(campaignId);
       const currentAutoRetries = freshCampaign?.autoRetryCount ?? 0;
@@ -1495,6 +1510,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const msg = autoRetryErr instanceof Error ? autoRetryErr.message : String(autoRetryErr);
       logger.error(`${logPrefix} Auto-requeue failed (non-fatal, will mark completed): ${msg}`);
     }
+  } else if (totalFailed > 0 && campaignDeadlineReached) {
+    logger.warn(
+      `${logPrefix} 72h deadline drain active: skipping automatic requeue for ` +
+      `${totalFailed} failed send(s)`,
+    );
   }
 
   if (!shouldStop) {
@@ -1567,7 +1587,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       WHERE campaign_id = ${campaignId} AND status = 'failed'
     `);
     const dbFailedRemaining = Number((failedGate.rows[0] as { n?: number } | undefined)?.n ?? 0);
-    if (dbFailedRemaining > 0) {
+    if (dbFailedRemaining > 0 && !campaignDeadlineReached) {
       const freshForFailGate = await storage.getCampaign(campaignId);
       const currentAutoRetries = freshForFailGate?.autoRetryCount ?? 0;
       if (currentAutoRetries < MAX_AUTO_RETRIES) {
@@ -1581,11 +1601,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       } else {
         logger.warn(`${logPrefix} DB failed-gate: auto-retry limit reached (${MAX_AUTO_RETRIES}/${MAX_AUTO_RETRIES}); ${dbFailedRemaining} failed send(s) remain for manual retry`);
       }
+    } else if (dbFailedRemaining > 0) {
+      logger.warn(
+        `${logPrefix} DB failed-gate: 72h deadline drain active; ` +
+        `${dbFailedRemaining} failed send(s) remain for manual retry`,
+      );
     }
 
-    const wasCompleted = await storage.completeCampaignIfDrained(campaignId, MAX_AUTO_RETRIES);
+    const completionRetryBudget = campaignDeadlineReached ? 0 : MAX_AUTO_RETRIES;
+    const wasCompleted = await storage.completeCampaignIfDrained(campaignId, completionRetryBudget);
     if (wasCompleted) {
-      await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false, urgentFlushJobId: null });
       const finalCampaign = await storage.getCampaign(campaignId);
       logger.info(`${logPrefix} COMPLETED: ${finalCampaign?.sentCount} sent, ${finalCampaign?.failedCount} failed`);
       // Auto-resend (Task #56): an ORIGINAL parent that has follow-up enabled

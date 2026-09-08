@@ -28,6 +28,9 @@ import {
   PRESSURE_WINDOW_HOURS,
   PRESSURE_MAX_DEFER_HOURS,
   PRESSURE_NEAR_AGING_HOURS,
+  CAMPAIGN_MAX_SENDING_HOURS,
+  CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS,
+  isCampaignPressureDeadlineReached,
   getPressureGuardBootstrapState,
   pressureGuardForceReserveSendSlots,
 } from "../services/pressure-guard";
@@ -49,6 +52,7 @@ import { safeInterval, getLastTickAt, setSafeIntervalErrorListener } from "../li
 import type { Campaign, Mta, Subscriber } from "@shared/schema";
 import crypto from "crypto";
 import { classifyAudienceBatch } from "../services/orange-wanadoo-risk";
+import { completePressureHeldCampaignsPastDeadline } from "../repositories/campaign-repository";
 
 // Task #149: stable per-process holder ID for lease-based leader election.
 // Used to recognise our own lease rows when reclaiming an expired lease
@@ -74,6 +78,7 @@ function envInt(name: string, defaultValue: number, min: number, max: number): n
 }
 
 const POLL_INTERVAL_MS = envInt("PRESSURE_GUARD_POLL_MS", 30_000, 1_000, 24 * 60 * 60_000);
+const DEADLINE_SWEEP_INTERVAL_MS = envInt("CAMPAIGN_DEADLINE_SWEEP_MS", 10_000, 1_000, 60_000);
 const BATCH_PER_CAMPAIGN = envInt("PRESSURE_GUARD_BATCH", 200, 1, 100_000);
 const MAX_CAMPAIGNS_PER_TICK = envInt("PRESSURE_GUARD_MAX_CAMPAIGNS", 5, 1, 1_000);
 // Mirror of campaign-sender.ts MAX_AUTO_RETRIES. The drain has its own
@@ -165,6 +170,7 @@ const IS_DEDICATED_DRAINER = process.env.PROCESS_TYPE === "drainer";
 const EFFECTIVE_HANG_TIMEOUT_MS = Math.max(HANG_TIMEOUT_MS, SEND_TIMEOUT_MS * 2);
 
 let pollInterval: NodeJS.Timeout | null = null;
+let deadlineSweepInterval: NodeJS.Timeout | null = null;
 let maintenanceInterval: NodeJS.Timeout | null = null;
 let auditTtlInterval: NodeJS.Timeout | null = null;
 let isPolling = false;
@@ -243,6 +249,7 @@ const lastDrainTickByCampaign = new Map<string, number>();
 // Three known safeInterval names (used by the health endpoint and by
 // the metric labels — keep in sync with the names passed to safeInterval).
 const TICK_NAME_DRAIN = "pressure_drain";
+const TICK_NAME_DEADLINE = "campaign_sending_deadline";
 const TICK_NAME_MAINT = "pressure_maintenance";
 const TICK_NAME_AUDIT = "pressure_audit_ttl";
 
@@ -269,7 +276,7 @@ setSafeIntervalErrorListener((name, err) => {
 // even when the drain itself is healthy but quiet (no eligible rows).
 let gaugeRefreshInterval: NodeJS.Timeout | null = null;
 function refreshTickAgeGauges() {
-  for (const name of [TICK_NAME_DRAIN, TICK_NAME_MAINT, TICK_NAME_AUDIT]) {
+  for (const name of [TICK_NAME_DRAIN, TICK_NAME_DEADLINE, TICK_NAME_MAINT, TICK_NAME_AUDIT]) {
     const t = getLastTickAt(name);
     if (t == null) continue;
     try {
@@ -285,15 +292,21 @@ function refreshTickAgeGauges() {
 
 export function startPressureGuardWorker() {
   if (pollInterval) return;
-  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, smtp-concurrency=${SMTP_CONCURRENCY}, window=${PRESSURE_WINDOW_HOURS}h, max_defer=${PRESSURE_MAX_DEFER_HOURS}h, near_aging=${PRESSURE_NEAR_AGING_HOURS}h)`);
+  logger.info(`[PRESSURE_GUARD_WORKER] Starting (poll=${POLL_INTERVAL_MS}ms, batch=${BATCH_PER_CAMPAIGN}, max-campaigns=${MAX_CAMPAIGNS_PER_TICK}, drain-parallelism=${DRAIN_PARALLELISM}, smtp-concurrency=${SMTP_CONCURRENCY}, window=${PRESSURE_WINDOW_HOURS}h, max_defer=${PRESSURE_MAX_DEFER_HOURS}h, near_aging=${PRESSURE_NEAR_AGING_HOURS}h, campaign_force=${CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS}h, campaign_deadline=${CAMPAIGN_MAX_SENDING_HOURS}h)`);
   // Task #160: safeInterval wraps every tick in a top-level try/catch so
   // a single unhandled DB error inside pollDeferredQueue can no longer
   // silently kill the loop. Re-entrancy is also guarded by safeInterval
   // (independent of the legacy isPolling flag, which is preserved as a
   // defensive belt-and-braces).
   pollInterval = safeInterval(TICK_NAME_DRAIN, pollDeferredQueue, POLL_INTERVAL_MS);
+  deadlineSweepInterval = safeInterval(
+    TICK_NAME_DEADLINE,
+    runCampaignDeadlineSweep,
+    DEADLINE_SWEEP_INTERVAL_MS,
+  );
   // Kick off after a short delay to let bootstrap run first.
   setTimeout(pollDeferredQueue, 5_000);
+  setTimeout(runCampaignDeadlineSweep, 7_500);
   // R3 + R15 cadenced background jobs (also leader-elected).
   maintenanceInterval = safeInterval(TICK_NAME_MAINT, runMaintenanceTick, MAINTENANCE_INTERVAL_MS);
   auditTtlInterval = safeInterval(TICK_NAME_AUDIT, runAuditTtlTick, AUDIT_TTL_INTERVAL_MS);
@@ -320,6 +333,10 @@ export function stopPressureGuardWorker() {
   if (pollInterval) {
     clearInterval(pollInterval);
     pollInterval = null;
+  }
+  if (deadlineSweepInterval) {
+    clearInterval(deadlineSweepInterval);
+    deadlineSweepInterval = null;
   }
   if (maintenanceInterval) {
     clearInterval(maintenanceInterval);
@@ -455,6 +472,26 @@ async function withLeaderLease<T>(lockKey: number, label: string, fn: () => Prom
   }
 }
 
+async function runCampaignDeadlineSweep(): Promise<void> {
+  if (getPressureGuardBootstrapState() !== "ready") return;
+  await withLeaderLease(
+    LOCK_KEYS.CAMPAIGN_SENDING_DEADLINE,
+    "CAMPAIGN_SENDING_DEADLINE",
+    async () => {
+      const expired = await completePressureHeldCampaignsPastDeadline(
+        CAMPAIGN_MAX_SENDING_HOURS,
+        500,
+      );
+      for (const item of expired) {
+        logger.warn(
+          `[PRESSURE_GUARD_WORKER] Campaign ${item.campaignId}: hard 72h cutoff ` +
+          `completed campaign and terminalized ${item.terminalizedCount} held send(s)`,
+        );
+      }
+    },
+  );
+}
+
 async function pollDeferredQueue() {
   if (isPolling) return;
   // Task #149: emit canonical tick line even on early-bails so every tick
@@ -524,6 +561,7 @@ async function pollDeferredQueueInner() {
   let pickedVolume = 0;
   let pickedFairness = 0;
   let pickedAged = 0;
+  let pickedDeadline = 0;
   let windingDownActive = 0;
   try {
     const bs = getPressureGuardBootstrapState();
@@ -677,8 +715,10 @@ async function pollDeferredQueueInner() {
       const r = await eligClient.query<{
         campaign_id: string;
         created_at: Date | null;
+        first_send_at: Date | null;
         drainable_count: string;
         aged_count: string;
+       deadline_count: string;
         pending_count: number;
         sent_count: number;
         urgent_mode: boolean;
@@ -696,23 +736,38 @@ async function pollDeferredQueueInner() {
                   COUNT(*) FILTER (
                     WHERE cs.first_deferred_at IS NOT NULL
                       AND cs.first_deferred_at <= NOW() - ($2::numeric || ' hours')::interval
-                  )::bigint AS aged_count
+                   )::bigint AS aged_count,
+                   COUNT(*) FILTER (
+                     WHERE c0.status = 'sending'
+                       AND c0.first_send_at IS NOT NULL
+                       AND c0.first_send_at <= NOW() - ($3::numeric || ' hours')::interval
+                   )::bigint AS deadline_count
            FROM campaign_sends cs
+            JOIN campaigns c0 ON c0.id = cs.campaign_id
            WHERE cs.status = 'pending'
              AND cs.eligible_at IS NOT NULL
+              AND c0.status IN ('sending', 'paused')
+              AND NOT (c0.status = 'paused' AND c0.pause_reason = 'step_limit')
              AND (
                cs.eligible_at <= NOW()
                OR (
                  cs.first_deferred_at IS NOT NULL
                  AND cs.first_deferred_at <= NOW() - ($2::numeric || ' hours')::interval
                )
+                OR (
+                  c0.status = 'sending'
+                  AND c0.first_send_at IS NOT NULL
+                  AND c0.first_send_at <= NOW() - ($3::numeric || ' hours')::interval
+                )
              )
            GROUP BY cs.campaign_id
          )
          SELECT pc.campaign_id,
                 c.created_at,
+                c.first_send_at,
                 pc.drainable_count,
                 pc.aged_count,
+                 pc.deadline_count,
                 c.pending_count,
                 c.sent_count,
                 COALESCE(c.urgent_mode, false) AS urgent_mode
@@ -720,12 +775,14 @@ async function pollDeferredQueueInner() {
          JOIN campaigns c ON c.id = pc.campaign_id
          WHERE c.status IN ('sending', 'paused')
                AND NOT (c.status = 'paused' AND c.pause_reason = 'step_limit')
-         ORDER BY (pc.aged_count > 0) DESC,
+         ORDER BY (pc.deadline_count > 0) DESC,
+                  c.first_send_at ASC NULLS LAST,
+                  (pc.aged_count > 0) DESC,
                   pc.aged_count DESC,
                   pc.drainable_count DESC,
                   c.created_at ASC NULLS FIRST
          LIMIT $1`,
-        [MAX_CAMPAIGNS_PER_TICK * 3, PRESSURE_MAX_DEFER_HOURS],
+        [MAX_CAMPAIGNS_PER_TICK * 3, PRESSURE_MAX_DEFER_HOURS, CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS],
       );
       await eligClient.query("COMMIT");
       campaignsRes = { rows: r.rows };
@@ -762,8 +819,10 @@ async function pollDeferredQueueInner() {
     type EligRow = (typeof campaignsRes.rows)[number] & {
       drainable_count: string | number;
       aged_count?: string | number;
+      deadline_count?: string | number;
       pending_count: number;
       created_at: Date | null;
+      first_send_at?: Date | null;
       urgent_mode?: boolean;
     };
     const rows = campaignsRes.rows as EligRow[];
@@ -802,7 +861,8 @@ async function pollDeferredQueueInner() {
       // a row past PRESSURE_MAX_DEFER_HOURS must never be held back by the
       // 1-tick-in-N back-pressure schedule.
       const hasAged = Number(row.aged_count) > 0;
-      if (!isUrgent && !hasAged && isWindingDown && (tickCounter - lastTick) < WINDING_DOWN_TICKS_GAP) {
+      const hasDeadline = Number(row.deadline_count) > 0;
+      if (!isUrgent && !hasAged && !hasDeadline && isWindingDown && (tickCounter - lastTick) < WINDING_DOWN_TICKS_GAP) {
         backPressuredCount += 1;
         continue;
       }
@@ -817,18 +877,25 @@ async function pollDeferredQueueInner() {
     // aged campaigns first (aged_count DESC) so slicing the front honours
     // aged severity. Aged force-CAS bypasses the 6h gap and clears fast,
     // so this cannot permanently monopolise the per-tick slots.
-    const agedPicks = eligibleForDrain
-      .filter((r) => Number(r.aged_count) > 0)
+    const deadlinePicks = eligibleForDrain
+      .filter((r) => Number(r.deadline_count) > 0)
       .slice(0, MAX_CAMPAIGNS_PER_TICK);
+    const deadlinePickIds = new Set(deadlinePicks.map((r) => r.campaign_id));
+    const deadlineSlotsRemaining = Math.max(0, MAX_CAMPAIGNS_PER_TICK - deadlinePicks.length);
+    const agedPicks = eligibleForDrain
+      .filter((r) => !deadlinePickIds.has(r.campaign_id))
+      .filter((r) => Number(r.aged_count) > 0)
+      .slice(0, deadlineSlotsRemaining);
     const agedPickIds = new Set(agedPicks.map((r) => r.campaign_id));
-    const remainingSlots = Math.max(0, MAX_CAMPAIGNS_PER_TICK - agedPicks.length);
+    const priorityPickIds = new Set([...deadlinePickIds, ...agedPickIds]);
+    const remainingSlots = Math.max(0, MAX_CAMPAIGNS_PER_TICK - deadlinePicks.length - agedPicks.length);
 
     // (3b) volume + fairness split over the NON-aged tail, filling whatever
     // slots remain after aged campaigns are seated. Volume-picks come from
     // the front of the (drainable_count DESC, created_at ASC) ordered list.
     // Fairness picks are the OLDEST remaining campaigns by created_at ASC,
     // regardless of drainable_count.
-    const nonAged = eligibleForDrain.filter((r) => !agedPickIds.has(r.campaign_id));
+    const nonAged = eligibleForDrain.filter((r) => !priorityPickIds.has(r.campaign_id));
     const fairnessSlots = Math.floor((remainingSlots * FAIRNESS_PCT) / 100);
     const volumeSlots = Math.max(0, remainingSlots - fairnessSlots);
     const volumePicks = nonAged.slice(0, volumeSlots);
@@ -841,7 +908,7 @@ async function pollDeferredQueueInner() {
         return ta - tb;
       });
     const fairnessPicks = fairnessCandidates.slice(0, fairnessSlots);
-    let finalPicks = [...agedPicks, ...volumePicks, ...fairnessPicks];
+    let finalPicks = [...deadlinePicks, ...agedPicks, ...volumePicks, ...fairnessPicks];
 
     // 2026-05-23 — urgent-mode slot cap. Previously urgent campaigns
     // ALSO bypassed the slot allocation: a single urgent campaign with
@@ -862,12 +929,12 @@ async function pollDeferredQueueInner() {
     // is BOTH aged and urgent keeps its force-included slot (aged priority is
     // absolute). Only non-aged urgent picks are subject to the 50% cap.
     const URGENT_CAP = Math.max(1, Math.floor(MAX_CAMPAIGNS_PER_TICK / 2));
-    const urgentInPicks = finalPicks.filter((p) => p.urgent_mode === true && !agedPickIds.has(p.campaign_id));
+    const urgentInPicks = finalPicks.filter((p) => p.urgent_mode === true && !priorityPickIds.has(p.campaign_id));
     if (urgentInPicks.length > URGENT_CAP) {
       const keepUrgentIds = new Set(urgentInPicks.slice(0, URGENT_CAP).map((p) => p.campaign_id));
       // Drop excess urgent picks from the final list… (aged picks are always
       // retained — aged priority outranks the urgent cap).
-      finalPicks = finalPicks.filter((p) => p.urgent_mode !== true || keepUrgentIds.has(p.campaign_id) || agedPickIds.has(p.campaign_id));
+      finalPicks = finalPicks.filter((p) => p.urgent_mode !== true || keepUrgentIds.has(p.campaign_id) || priorityPickIds.has(p.campaign_id));
       // …and backfill from the next non-urgent eligible campaigns we hadn't picked.
       const pickedIds = new Set(finalPicks.map((p) => p.campaign_id));
       const backfillPool = eligibleForDrain
@@ -901,6 +968,7 @@ async function pollDeferredQueueInner() {
     pickedVolume = volumePicks.length;
     pickedFairness = fairnessPicks.length;
     pickedAged = agedPicks.length;
+    pickedDeadline = deadlinePicks.length;
 
     // Task #153: bounded-parallel drain. The previous implementation
     // awaited each drainCampaign sequentially, which capped per-tick
@@ -943,7 +1011,7 @@ async function pollDeferredQueueInner() {
     logger.info(
       `[PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=${bootstrapStateLabel}, ` +
       `has_pending=${hasPending ? "Y" : "N"}, eligible_campaigns=${eligibleCampaigns}, ` +
-      `picked=${pickedVolume}+${pickedFairness}+aged${pickedAged}, winding_down=${windingDownActive}, ` +
+      `picked=${pickedVolume}+${pickedFairness}+aged${pickedAged}+deadline${pickedDeadline}, winding_down=${windingDownActive}, ` +
       `back_pressured=${backPressuredCount}, drained_calls=${drainedCalls}, errors=${errorCount}`,
     );
     // Task #160: publish per-tick heartbeat to the leader-lease row so
@@ -1050,12 +1118,72 @@ async function runAuditTtlTick() {
   });
 }
 
+async function completeCampaignAfterPressureDrain(
+  campaignId: string,
+  deadlineForce: boolean,
+  emitProgress: (status: "sending" | "completed") => void,
+): Promise<boolean> {
+  try {
+    const remaining = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('pending', 'attempting'))::int AS active,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+      FROM campaign_sends
+      WHERE campaign_id = ${campaignId}
+    `);
+    const counts = remaining.rows[0] as { active?: number; failed?: number } | undefined;
+    const active = Number(counts?.active ?? 0);
+    const failedRemaining = Number(counts?.failed ?? 0);
+    if (active > 0) return false;
+
+    // Once the campaign deadline drain has started, opening another automatic
+    // retry cycle could keep status='sending' beyond 72h. Residual failures stay
+    // available for an explicit manual retry, but no longer block completion.
+    if (failedRemaining > 0 && !deadlineForce) {
+      const fresh = await storage.getCampaign(campaignId);
+      const currentAutoRetries = fresh?.autoRetryCount ?? 0;
+      if (currentAutoRetries < MAX_AUTO_RETRIES) {
+        const newCount = currentAutoRetries + 1;
+        const requeued = await storage.autoRequeueCampaignFailed(campaignId, newCount);
+        if (requeued) {
+          await messageQueue.notify("campaign_jobs", { campaignId });
+          logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} auto-retry ${newCount}/${MAX_AUTO_RETRIES}: requeued ${failedRemaining} drain-failed send(s)`);
+          emitProgress("sending");
+          return false;
+        }
+      } else {
+        logger.warn(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} auto-retry limit reached (${MAX_AUTO_RETRIES}/${MAX_AUTO_RETRIES}); ${failedRemaining} drain-failed send(s) remain for manual retry`);
+      }
+    } else if (failedRemaining > 0) {
+      logger.warn(
+        `[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: deadline drain leaves ` +
+        `${failedRemaining} failed send(s) for manual retry; automatic retry suppressed`,
+      );
+    }
+
+    const completionRetryBudget = deadlineForce ? 0 : MAX_AUTO_RETRIES;
+    const flipped = await storage.completeCampaignIfDrained(campaignId, completionRetryBudget);
+    if (!flipped) return false;
+    logger.info(
+      `[PRESSURE_GUARD_WORKER] Campaign ${campaignId} marked completed ` +
+      `(${deadlineForce ? "72h deadline drain" : "deferred queue drained"})`,
+    );
+    emitProgress("completed");
+    return true;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[PRESSURE_GUARD_WORKER] post-drain completion check failed for ${campaignId}: ${msg}`);
+    return false;
+  }
+}
+
 // Exported for tests: drives a single drain wave for `campaignId`. Tests
 // can call this directly to assert FIFO cascade and unsubscribe-during-
 // window behavior without spinning up the full poll interval.
 export async function drainCampaign(campaignId: string): Promise<void> {
   const campaign: Campaign | undefined = await storage.getCampaign(campaignId);
   if (!campaign) return;
+  const campaignDeadlineForce = isCampaignPressureDeadlineReached(campaign.firstSendAt);
   const mta: Mta | undefined = campaign.mtaId ? await storage.getMta(campaign.mtaId) : undefined;
   if (!mta) {
     logger.warn(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} has no MTA; skipping`);
@@ -1068,6 +1196,32 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   let claimedSubIds: string[] = [];
   try {
     await client.query("BEGIN");
+    // Campaign-first lock ordering is shared with the 72h cutoff transaction.
+    // It prevents a cutoff from terminalizing a held tail while this drain is
+    // concurrently introducing new `attempting` rows.
+    const campaignGate = await client.query(
+      `SELECT id
+       FROM campaigns
+       WHERE id = $1
+         AND (
+           status = 'sending'
+           OR (status = 'paused' AND pause_reason IS DISTINCT FROM 'step_limit')
+         )
+         AND (
+           NOT $2::boolean
+           OR (
+             status = 'sending'
+             AND first_send_at IS NOT NULL
+             AND first_send_at <= NOW() - ($3::numeric || ' hours')::interval
+           )
+         )
+       FOR UPDATE`,
+      [campaignId, campaignDeadlineForce, CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS],
+    );
+    if ((campaignGate.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return;
+    }
     // Task #169 — Aged rows bypass the eligible_at gate so they actually
     // dispatch on the next tick after crossing the cap, even if the
     // contact's 6h window is still pending. ORDER BY first_deferred_at
@@ -1076,17 +1230,41 @@ export async function drainCampaign(campaignId: string): Promise<void> {
       `SELECT subscriber_id FROM campaign_sends
        WHERE campaign_id = $1
          AND status = 'pending' AND eligible_at IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+           FROM campaigns c
+           WHERE c.id = $1
+             AND (
+               c.status = 'sending'
+               OR (c.status = 'paused' AND c.pause_reason IS DISTINCT FROM 'step_limit')
+             )
+             AND (
+               NOT $4::boolean
+               OR (
+                 c.status = 'sending'
+                 AND c.first_send_at IS NOT NULL
+                 AND c.first_send_at <= NOW() - ($5::numeric || ' hours')::interval
+               )
+             )
+         )
          AND (
            eligible_at <= NOW()
            OR (
              first_deferred_at IS NOT NULL
              AND first_deferred_at <= NOW() - ($3::numeric || ' hours')::interval
            )
+            OR $4::boolean
          )
        ORDER BY first_deferred_at ASC NULLS LAST, eligible_at ASC
        LIMIT $2
        FOR UPDATE SKIP LOCKED`,
-      [campaignId, BATCH_PER_CAMPAIGN, PRESSURE_MAX_DEFER_HOURS],
+      [
+        campaignId,
+        BATCH_PER_CAMPAIGN,
+        PRESSURE_MAX_DEFER_HOURS,
+        campaignDeadlineForce,
+        CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS,
+      ],
     );
     claimedSubIds = claim.rows.map((r) => r.subscriber_id as string);
     if (claimedSubIds.length === 0) {
@@ -1107,6 +1285,32 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     return;
   } finally {
     client.release();
+  }
+
+  // Selection and claim are separate transactions. Re-read the current manual
+  // state before any pressure reservation or SMTP work so a concurrent End or
+  // Complete cannot be force-dispatched from the stale entry snapshot.
+  const dispatchCampaign = await storage.getCampaign(campaignId);
+  const dispatchAllowed = dispatchCampaign
+    && (
+      dispatchCampaign.status === "sending"
+      || (!campaignDeadlineForce
+        && dispatchCampaign.status === "paused"
+        && dispatchCampaign.pauseReason !== "step_limit")
+    );
+  if (!dispatchAllowed) {
+    await db.execute(sql`
+      UPDATE campaign_sends
+      SET status = 'pending'
+      WHERE campaign_id = ${campaignId}
+        AND subscriber_id = ANY(${toPgTextArray(claimedSubIds)}::text[])
+        AND status = 'attempting'
+    `);
+    logger.info(
+      `[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: released ${claimedSubIds.length} ` +
+      `claimed send(s) after concurrent status change`,
+    );
+    return;
   }
 
   // Task #165: running deltas + helper so EVERY path that mutates the
@@ -1197,7 +1401,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   const isUrgent = (campaign as any).urgentMode === true;
   let agedWinners: string[];
   let normalWinnerIds: Set<string>;
-  if (isUrgent) {
+  if (isUrgent || campaignDeadlineForce) {
     // Treat every claimed row as if it were aged — force-CAS bypasses
     // the 6h window for ALL of them in a single round-trip. Aged rows
     // (if any) are already in this set; we union them so the force call
@@ -1246,6 +1450,12 @@ export async function drainCampaign(campaignId: string): Promise<void> {
       `[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: aging cap engaged — ` +
       `force-dispatched ${agedWinners.length}/${agedIds.length} send(s) ` +
       `aged > ${PRESSURE_MAX_DEFER_HOURS}h`,
+    );
+  }
+  if (campaignDeadlineForce) {
+    logger.warn(
+      `[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: 72h deadline drain engaged — ` +
+      `force-dispatched ${winnerIds.size}/${claimedSubIds.length} held send(s)`,
     );
   }
 
@@ -1337,7 +1547,12 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     emitProgress("sending");
   }
 
-  if (eligibleSubs.length === 0) return;
+  if (eligibleSubs.length === 0) {
+    if (campaignDeadlineForce) {
+      await completeCampaignAfterPressureDrain(campaignId, true, emitProgress);
+    }
+    return;
+  }
 
   // Final shared deferred-dispatch guard. This deliberately runs after the
   // existing unsubscribe/suppression recheck, and urgent/aged pressure modes
@@ -1366,7 +1581,12 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     `);
     logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: Orange/Wanadoo enforce guard dropped ${riskDropIds.length}`);
   }
-  if (eligibleSubs.length === 0) return;
+  if (eligibleSubs.length === 0) {
+    if (campaignDeadlineForce) {
+      await completeCampaignAfterPressureDrain(campaignId, true, emitProgress);
+    }
+    return;
+  }
 
   // Task #161: full tracking parity with the bulk sender hot-path.
   // The previous "HMAC fallback" comment was a lie — addTrackingToHtml needs
@@ -1579,70 +1799,5 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   pendingDelta -= successIds.length + failedIds.length + ambiguousIds.length;
   emitProgress("sending");
 
-  // Post-drain completion check (Task #144): the campaign-sender held the
-  // status at 'sending' while deferred rows were outstanding. Once the
-  // pressure-guard worker drains the last deferred row, flip the campaign
-  // to 'completed' here so downstream workflows (follow-up scheduling,
-  // dashboards, jobEvents listeners) advance correctly.
-  try {
-    const remaining = await db.execute(sql`
-      SELECT
-        COUNT(*) FILTER (WHERE status IN ('pending', 'attempting'))::int AS active,
-        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
-      FROM campaign_sends
-      WHERE campaign_id = ${campaignId}
-    `);
-    const counts = remaining.rows[0] as { active?: number; failed?: number } | undefined;
-    const n = Number(counts?.active ?? 0);
-    const failedRemaining = Number(counts?.failed ?? 0);
-    if (n === 0) {
-      // Before completing: auto-retry sends the drain marked 'failed'. The
-      // campaign-sender funnels its own failures through a retry phase +
-      // auto-requeue (campaign-sender.ts), but the drain has neither — so
-      // without this, drain-produced failures are abandoned at retry_count=0
-      // the instant the deferred queue empties (the historical bug behind
-      // campaigns "completed" with tens of thousands of un-retried failures).
-      // Mirror the sender's auto-requeue: failed → pending (+1 retry), enqueue
-      // a fresh campaign_job, and hold off completion until retries are
-      // exhausted (MAX_AUTO_RETRIES) — at which point the campaign completes
-      // and the residual failures remain available for manual "Retry Failed".
-      if (failedRemaining > 0) {
-        const fresh = await storage.getCampaign(campaignId);
-        const currentAutoRetries = fresh?.autoRetryCount ?? 0;
-        if (currentAutoRetries < MAX_AUTO_RETRIES) {
-          const newCount = currentAutoRetries + 1;
-          const requeued = await storage.autoRequeueCampaignFailed(campaignId, newCount);
-          if (requeued) {
-            await messageQueue.notify("campaign_jobs", { campaignId });
-            logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} auto-retry ${newCount}/${MAX_AUTO_RETRIES}: requeued ${failedRemaining} drain-failed send(s)`);
-            emitProgress("sending");
-            return;
-          }
-        } else {
-          logger.warn(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} auto-retry limit reached (${MAX_AUTO_RETRIES}/${MAX_AUTO_RETRIES}); ${failedRemaining} drain-failed send(s) remain for manual retry`);
-        }
-      }
-      const flipped = await storage.completeCampaignIfDrained(campaignId, MAX_AUTO_RETRIES);
-      if (flipped) {
-        // 2026-05-22 urgent-mode audit: clear the flag on natural drain
-        // completion (mirrors the two completion sites in campaign-sender).
-        // Without this, a campaign that finishes its queue in urgent mode
-        // would retain urgent_mode=true post-completion, and any future
-        // reopen path that does not explicitly clear (e.g. an internal
-        // sender path we haven't audited) would resurrect the bypass.
-        await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false, urgentFlushJobId: null });
-        logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} marked completed (deferred queue drained)`);
-        // Task #165: emit a terminal SSE event so the campaigns-list
-        // progress bar (and any open detail page) flips to "completed"
-        // immediately instead of waiting for the next 10s poll. Reuses
-        // the same in-memory deltas the per-wave emit used — no extra
-        // DB read in this hot path. The helper forces pendingCount=0
-        // when status="completed".
-        emitProgress("completed");
-      }
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(`[PRESSURE_GUARD_WORKER] post-drain completion check failed for ${campaignId}: ${msg}`);
-  }
+  await completeCampaignAfterPressureDrain(campaignId, campaignDeadlineForce, emitProgress);
 }
