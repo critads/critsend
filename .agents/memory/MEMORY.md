@@ -19,3 +19,4 @@
 - [Segment SHA-256 exclusions](segment-sha256-exclusions.md) — hashes use UTF-8 lower(trim(email)); enforce exclusions in each segment branch, including real campaign cursors.
 - [Calendar live-interval semantics](calendar-live-intervals.md) — sending stays open through one server asOf instant; paused ends at its last actual send so idle MTAs are not shown as busy.
 - [Campaign IDs are opaque](campaign-id-compatibility.md) — legacy campaign IDs are not guaranteed to be UUIDs despite the current DB default; validate them as bounded opaque varchar values.
+- [Production DB exploration](production-db-exploration.md) — query live critsend through the dedicated read-only explorer settings; never use app credentials or the stale Neon database.

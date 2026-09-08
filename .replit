@@ -59,6 +59,11 @@ NODE_OPTIONS = "--max-old-space-size=8192 --expose-gc"
 USE_BULLMQ = "true"
 REDIS_URL = "rediss://default:AZSLAAIncDE1M2M1NDVmNzE3Nzg0Y2IyYWJkYzFlMjYyZWI0MzYyY3AxMzgwMjc@mature-antelope-38027.upstash.io:6379"
 DISABLE_WORKERS = "true"
+CRITSEND_EXPLORER_DATABASE = "critsend"
+CRITSEND_EXPLORER_HOST = "157.180.98.150"
+CRITSEND_EXPLORER_PORT = "5432"
+CRITSEND_EXPLORER_SSL_MODE = "no-verify"
+CRITSEND_EXPLORER_USER = "replit_explorer"
 
 [userenv.production]
 PRESSURE_RATIO_THROTTLE_DISABLED = "true"
