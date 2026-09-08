@@ -75,10 +75,9 @@ const TIMEOUT_PATTERNS = [
   /timeout exceeded/i,
 ];
 
-export function classifyDbError(err: unknown): ClassifiedDbError {
+function classifySingleDbError(err: unknown): ClassifiedDbError {
   const message = (err as any)?.message ? String((err as any).message) : String(err);
   const code = typeof (err as any)?.code === "string" ? (err as any).code : undefined;
-
   if (code && PG_DISK_FULL_CODES.has(code)) {
     return { kind: "disk_full", transient: true, code, message };
   }
@@ -101,6 +100,28 @@ export function classifyDbError(err: unknown): ClassifiedDbError {
   }
 
   return { kind: "unknown", transient: false, code, message };
+}
+
+export function classifyDbError(err: unknown): ClassifiedDbError {
+  // Drizzle wraps node-postgres errors as `Failed query: ...` and puts the
+  // useful SQLSTATE / pool-acquisition message on `error.cause`. Looking only
+  // at the wrapper misclassifies transient DB outages as application bugs,
+  // bypassing sender retries and job-level backoff.
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  let outer: ClassifiedDbError | undefined;
+
+  for (let depth = 0; current != null && depth < 8 && !seen.has(current); depth++) {
+    seen.add(current);
+    const classified = classifySingleDbError(current);
+    if (!outer) outer = classified;
+    if (classified.transient) return classified;
+    current = typeof current === "object"
+      ? (current as { cause?: unknown }).cause
+      : undefined;
+  }
+
+  return outer ?? classifySingleDbError(err);
 }
 
 export function isDiskFullError(err: unknown): boolean {

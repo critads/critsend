@@ -178,7 +178,7 @@ export interface IStorage {
   reserveSendSlot(campaignId: string, subscriberId: string): Promise<boolean>;
   finalizeSend(campaignId: string, subscriberId: string, success: boolean, outcomeClass?: SmtpOutcomeClass): Promise<void>;
   recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>;
-  recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes?: number): Promise<number>;
+  recoverRetryCarryoverPendingSends(campaignId: string): Promise<number>;
   resetOrphanedFailedSends(campaignId: string): Promise<number>;
   autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean>;
   forceFailPendingSend(campaignId: string, subscriberId: string, outcomeClass?: SmtpOutcomeClass): Promise<boolean>;

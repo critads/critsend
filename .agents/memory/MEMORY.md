@@ -6,6 +6,7 @@
 - [Lockfile Replit proxy URLs](lockfile-replit-proxy-urls.md) — dep updates can write package-firewall.replit.local into package-lock.json; npm ci on prod wipes node_modules then fails — grep+fix before deploy.
 - [Unsubscribe link prefetch](unsubscribe-link-prefetch.md) — GET /u/:token mutates, so Gmail/Apple link-prefetch causes false unsubscribes + inflated stats; proper fix = GET confirmation page, mutate on POST.
 - [Duplicate sends: ambiguous must be terminal](duplicate-send-retry.md) — ambiguous outcomes and unresolved finalization writes are terminal; every send, retry, and worker path must block automatic replay.
+- [Sender restart reservations](sender-restart-reservations.md) — immediate pending rows are resumable outer-batch reservations; never age them into failed during active-campaign startup.
 - [Critsend tsc baseline](critsend-tsc-baseline.md) — repo has no clean tsc (builds via esbuild); only fix NEW error classes. nodemailer createTransport pool:false trips a tolerated TS2769 overload.
 - [Campaign completion failed-gate](campaign-completion-failed-gate.md) — two finalization paths can complete a campaign; both must ATOMICALLY refuse to complete while retryable failed sends remain, else a transient outage strands un-retried failures.
 - [node-pg sslmode overrides ssl object](node-pg-sslmode-override.md) — connection-string `sslmode` wins over code's `ssl:{rejectUnauthorized:false}`; self-signed server cert needs `sslmode=no-verify` in the URL (pg ≥8.11 `require` verifies).

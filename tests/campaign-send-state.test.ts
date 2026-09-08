@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 const { dbExecuteMock } = vi.hoisted(() => ({
@@ -18,6 +19,7 @@ import {
   finalizeSend,
   forceFailPendingSend,
   getCampaignSendStateTotals,
+  recoverRetryCarryoverPendingSends,
 } from "../server/repositories/campaign-repository";
 
 describe("campaign live send-state totals", () => {
@@ -114,5 +116,40 @@ describe("campaign live send-state totals", () => {
       .flatMap((chunk) => chunk.value ?? [])
       .join(" ");
     expect(sqlText).toContain("status IN ('pending', 'attempting')");
+  });
+
+  it("recovers only explicit retry carry-overs, never ordinary pending reservations", async () => {
+    dbExecuteMock.mockResolvedValueOnce({ rows: [{ recovered_count: "2" }] });
+
+    await expect(
+      recoverRetryCarryoverPendingSends("campaign-123"),
+    ).resolves.toBe(2);
+
+    const query = dbExecuteMock.mock.calls.at(-1)?.[0] as {
+      queryChunks?: Array<{ value?: string[] }>;
+    };
+    const sqlText = (query.queryChunks ?? [])
+      .flatMap((chunk) => chunk.value ?? [])
+      .join(" ");
+    expect(sqlText).toContain("status = 'pending'");
+    expect(sqlText).toContain("eligible_at IS NULL");
+    expect(sqlText).toContain("retry_count > 0 OR last_retry_at IS NOT NULL");
+    expect(sqlText).not.toContain("sent_at < NOW()");
+  });
+
+  it("does not age pending reservations into failed at sender startup", () => {
+    const senderSource = readFileSync(
+      "server/services/campaign-sender.ts",
+      "utf8",
+    );
+    const calls = senderSource.match(/recoverRetryCarryoverPendingSends\(/g) ?? [];
+    const recoveryCall = senderSource.indexOf("recoverRetryCarryoverPendingSends(");
+    const postFlushComment = senderSource.indexOf(
+      "After flushBuffer() all current-run sends are finalized",
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(recoveryCall).toBeGreaterThan(postFlushComment);
+    expect(senderSource).not.toContain("recoverOrphanedPendingSends(");
   });
 });

@@ -1659,21 +1659,19 @@ export async function recordSendAndUpdateCounters(campaignId: string, subscriber
   return true;
 }
 
-export async function recoverOrphanedPendingSends(campaignId: string, maxAgeMinutes: number = 5): Promise<number> {
-  // Pressure-guard rows (eligible_at IS NOT NULL) are owned by the
-  // pressure-guard worker — they are intentionally `pending` and the
-  // worker is responsible for draining them as `eligible_at` matures.
-  // We MUST NOT touch any row with `eligible_at IS NOT NULL` here, even
-  // if its eligible_at moment has just arrived: the drain worker is
-  // already racing to claim it and force-failing under it would lose
-  // sends. Pure orphans (status='pending' AND eligible_at IS NULL AND
-  // sent_at older than threshold) remain in scope.
+export async function recoverRetryCarryoverPendingSends(campaignId: string): Promise<number> {
+  // Only the retry-failed / auto-requeue paths stamp retry history before
+  // moving failed rows back to pending. Ordinary immediate pending rows are
+  // reservations from an outer sender batch and MUST survive a mid-batch
+  // restart so the durable cursor can re-fetch and dispatch them.
+  //
+  // Pressure-deferred rows are also excluded: they are owned by the drainer.
   const result = await db.execute(sql`
     WITH orphaned AS (
       UPDATE campaign_sends SET status = 'failed'
       WHERE campaign_id = ${campaignId} AND status = 'pending'
-        AND sent_at < NOW() - INTERVAL '1 minute' * ${maxAgeMinutes}
         AND eligible_at IS NULL
+        AND (retry_count > 0 OR last_retry_at IS NOT NULL)
       RETURNING id
     ),
     counter_update AS (
@@ -1686,7 +1684,7 @@ export async function recoverOrphanedPendingSends(campaignId: string, maxAgeMinu
     SELECT (SELECT COUNT(*) FROM orphaned) as recovered_count
   `);
   const recoveredCount = Number(result.rows[0]?.recovered_count ?? 0);
-  if (recoveredCount > 0) logger.info('Recovered orphaned pending sends', { recoveredCount, campaignId });
+  if (recoveredCount > 0) logger.info('Recovered retry carry-over pending sends', { recoveredCount, campaignId });
   return recoveredCount;
 }
 

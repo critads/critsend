@@ -1885,7 +1885,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
   // Mechanism:
   //   Failed rows are reset to 'pending' with a fresh sent_at timestamp. The main
   //   send loop (bulkReserveSendSlots / INSERT ON CONFLICT DO NOTHING) will skip
-  //   them, but campaign-sender.ts calls recoverOrphanedPendingSends(campaignId, 0)
+  //   them, but campaign-sender.ts calls recoverRetryCarryoverPendingSends(campaignId)
   //   after flushBuffer() to collect these carry-over rows, adds their count to
   //   totalFailed, and the retry phase then re-sends them via getFailedSendsForRetry.
   //   Already-sent rows (status='sent') are never touched.
@@ -1905,9 +1905,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
         // 1. Reset failed rows to pending.
         //    Eligibility is derived from actual DB rows (not just failedCount counter)
         //    to guard against counter drift.
-        //    sent_at is refreshed so recoverOrphanedPendingSends (2-min threshold)
-        //    at job start does NOT immediately revert them back to failed.
-        //    retry_count/last_retry_at are incremented to preserve history.
+        //    retry_count/last_retry_at identify these rows as explicit retry
+        //    carry-overs if their IDs sit before the durable audience cursor.
         const resetResult = await tx.execute(sql`
           UPDATE campaign_sends
           SET status = 'pending',

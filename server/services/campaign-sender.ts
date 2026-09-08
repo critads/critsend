@@ -396,11 +396,6 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // and per-subscriber serialization is sufficient. Global serialization
   // would needlessly stall newer campaigns whose audiences don't overlap
   // with older ones.
-  const recovered = await storage.recoverOrphanedPendingSends(campaignId, 2);
-  if (recovered > 0) {
-    logger.info(`${logPrefix} Recovered ${recovered} orphaned pending sends`);
-  }
-
   // Audience size: openers-of-parent for follow-up children, segment count
   // for everything else.
   const total = isFollowUp
@@ -1221,12 +1216,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // closing it on success kills any peer campaign mid-sendMail().
 
   // After flushBuffer() all current-run sends are finalized (sent/failed).
-  // Any remaining 'pending' rows must be carry-overs from the retry-failed
-  // endpoint, which resets failed rows to 'pending' before re-queuing.
-  // We recover them here (threshold=0 → any age) and add them to totalFailed
-  // so the retry phase below will pick them up via getFailedSendsForRetry.
+  // Explicit retry carry-overs can remain pending when their subscriber IDs
+  // sit before the durable audience cursor. Convert ONLY rows carrying retry
+  // history back to failed so the retry phase below can pick them up.
+  //
+  // Never age ordinary pending rows into failed here or at sender startup:
+  // pressureGuardReserveSendSlots creates the whole outer batch as pending
+  // before SMTP dispatch. If the job restarts mid-batch, those rows are valid
+  // resumable work, not failures.
   try {
-    const carryOverPending = await storage.recoverOrphanedPendingSends(campaignId, 0);
+    const carryOverPending = await storage.recoverRetryCarryoverPendingSends(campaignId);
     if (carryOverPending > 0) {
       totalFailed += carryOverPending;
       logger.info(`${logPrefix} Recovered ${carryOverPending} carry-over pending send(s) for retry phase`);
