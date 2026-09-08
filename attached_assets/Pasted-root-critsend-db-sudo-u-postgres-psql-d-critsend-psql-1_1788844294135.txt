@@ -1,0 +1,147 @@
+root@critsend-db ~ # sudo -u postgres psql -d critsend
+psql (17.10 (Ubuntu 17.10-1.pgdg24.04+1))
+Type "help" for help.
+
+critsend=# CREATE ROLE replit_explorer
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOREPLICATION
+  NOBYPASSRLS;
+
+\password replit_explorer
+
+GRANT CONNECT ON DATABASE critsend TO replit_explorer;
+GRANT USAGE ON SCHEMA public TO replit_explorer;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO replit_explorer;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO replit_explorer;
+
+ALTER ROLE replit_explorer SET default_transaction_read_only = on;
+ALTER ROLE replit_explorer SET statement_timeout = '60s';
+ALTER ROLE replit_explorer SET idle_in_transaction_session_timeout = '30s';
+CREATE ROLE
+Enter new password for user "replit_explorer": 
+Enter it again: 
+\password: extra argument "GRANT" ignored
+\password: extra argument "CONNECT" ignored
+\password: extra argument "ON" ignored
+\password: extra argument "DATABASE" ignored
+\password: extra argument "critsend" ignored
+\password: extra argument "TO" ignored
+\password: extra argument "replit_explorer;" ignored
+\password: extra argument "GRANT" ignored
+\password: extra argument "USAGE" ignored
+\password: extra argument "ON" ignored
+\password: extra argument "SCHEMA" ignored
+\password: extra argument "public" ignored
+\password: extra argument "TO" ignored
+\password: extra argument "replit_explorer;" ignored
+\password: extra argument "GRANT" ignored
+\password: extra argument "SELECT" ignored
+\password: extra argument "ON" ignored
+\password: extra argument "ALL" ignored
+\password: extra argument "TABLES" ignored
+\password: extra argument "IN" ignored
+\password: extra argument "SCHEMA" ignored
+\password: extra argument "public" ignored
+\password: extra argument "TO" ignored
+\password: extra argument "replit_explorer;" ignored
+\password: extra argument "GRANT" ignored
+\password: extra argument "SELECT" ignored
+\password: extra argument "ON" ignored
+\password: extra argument "ALL" ignored
+\password: extra argument "SEQUENCES" ignored
+\password: extra argument "IN" ignored
+\password: extra argument "SCHEMA" ignored
+\password: extra argument "public" ignored
+\password: extra argument "TO" ignored
+\password: extra argument "replit_explorer;" ignored
+\password: extra argument "ALTER" ignored
+\password: extra argument "ROLE" ignored
+\password: extra argument "replit_explorer" ignored
+\password: extra argument "SET" ignored
+\password: extra argument "default_transaction_read_only" ignored
+\password: extra argument "=" ignored
+\password: extra argument "on;" ignored
+\password: extra argument "ALTER" ignored
+\password: extra argument "ROLE" ignored
+\password: extra argument "replit_explorer" ignored
+\password: extra argument "SET" ignored
+\password: extra argument "statement_timeout" ignored
+\password: extra argument "=" ignored
+\password: extra argument "60s;" ignored
+\password: extra argument "ALTER" ignored
+\password: extra argument "ROLE" ignored
+\password: extra argument "replit_explorer" ignored
+\password: extra argument "SET" ignored
+\password: extra argument "idle_in_transaction_session_timeout" ignored
+\password: extra argument "=" ignored
+\password: extra argument "30s;" ignored
+critsend=# SELECT tableowner, COUNT(*)
+FROM pg_tables
+WHERE schemaname = 'public'
+GROUP BY tableowner
+ORDER BY tableowner;
+ tableowner | count 
+------------+-------
+ critsend   |    67
+(1 row)
+
+critsend=# GRANT CONNECT ON DATABASE critsend TO replit_explorer;
+GRANT USAGE ON SCHEMA public TO replit_explorer;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO replit_explorer;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO replit_explorer;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE critsend IN SCHEMA public
+  GRANT SELECT ON TABLES TO replit_explorer;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE critsend IN SCHEMA public
+  GRANT SELECT ON SEQUENCES TO replit_explorer;
+
+ALTER ROLE replit_explorer SET default_transaction_read_only = on;
+ALTER ROLE replit_explorer SET statement_timeout = '60s';
+ALTER ROLE replit_explorer SET idle_in_transaction_session_timeout = '30s';
+GRANT
+GRANT
+GRANT
+GRANT
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER ROLE
+ALTER ROLE
+ALTER ROLE
+critsend=# SELECT
+  rolname,
+  rolsuper,
+  rolcreatedb,
+  rolcreaterole,
+  rolreplication,
+  rolbypassrls,
+  rolconfig
+FROM pg_roles
+WHERE rolname = 'replit_explorer';
+
+SELECT
+  has_database_privilege('replit_explorer', 'critsend', 'CONNECT') AS can_connect,
+  has_schema_privilege('replit_explorer', 'public', 'USAGE') AS can_use_schema,
+  has_schema_privilege('replit_explorer', 'public', 'CREATE') AS can_create;
+
+     rolname     | rolsuper | rolcreatedb | rolcreaterole | rolreplication | rolbypassrls |                                            rolconfig                                             
+-----------------+----------+-------------+---------------+----------------+--------------+--------------------------------------------------------------------------------------------------
+ replit_explorer | f        | f           | f             | f              | f            | {default_transaction_read_only=on,statement_timeout=60s,idle_in_transaction_session_timeout=30s}
+(1 row)
+
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+(END)
