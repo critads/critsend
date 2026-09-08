@@ -20,4 +20,4 @@
 - [Calendar live-interval semantics](calendar-live-intervals.md) — sending stays open through one server asOf instant; paused ends at its last actual send so idle MTAs are not shown as busy.
 - [Campaign IDs are opaque](campaign-id-compatibility.md) — legacy campaign IDs are not guaranteed to be UUIDs despite the current DB default; validate them as bounded opaque varchar values.
 - [Production DB exploration](production-db-exploration.md) — query live critsend through the dedicated read-only explorer settings; never use app credentials or the stale Neon database.
-- [Orange/Wanadoo risk rollout](orange-wanadoo-risk-rollout.md) — observe keeps the existing 15-day cooling but adds no scoring filter; enforcement waits for calibration and fails closed on infrastructure errors.
+- [Orange/Wanadoo risk rollout](orange-wanadoo-risk-rollout.md) — production enforcement uses 10% deterministic probation after historical calibration; baseline 15-day cooling remains active.

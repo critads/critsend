@@ -1,0 +1,79 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ hostname
+cd /home/ubuntu/critsend
+
+grep '^ORANGE_WANADOO_' .env
+pm2 ls
+
+pm2 logs --nostream --lines 300 \
+  | grep -Ei 'orange.?wanadoo|risk profile schema|enforce' \
+  | tail -50
+Ubuntu-noble-latest-amd64-base
+ORANGE_WANADOO_RISK_MODE=enforce
+ORANGE_WANADOO_PROBATION_EXPOSURE=0.10
+ORANGE_WANADOO_TARGET_RATE=0.0045
+ORANGE_WANADOO_HARD_THRESHOLD=0.006
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 17 │ critsend-drainer   │ fork     │ 1    │ online    │ 0%       │ 91.0mb   │
+│ 14 │ critsend-web       │ cluster  │ 1    │ online    │ 0%       │ 274.0mb  │
+│ 15 │ critsend-web       │ cluster  │ 1    │ online    │ 0%       │ 271.0mb  │
+│ 16 │ critsend-worker    │ fork     │ 1    │ online    │ 0%       │ 2.0gb    │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 74.3mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+16|critsen | 2026-09-08 09:33:17 +02:00: 2026-09-08T07:33:17.642Z [INFO] [CAMPAIGN 14697b10-2785-42ad-92d2-cee2545c886b job:b17ffc2e] [ORANGE_WANADOO] mode=enforce tiers={"safe":8632,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:17 +02:00: 2026-09-08T07:33:17.646Z [INFO] [CAMPAIGN acf90228-876b-4ae6-96b5-2e68344f17b4 job:27439517] [ORANGE_WANADOO] mode=enforce tiers={"safe":8632,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:17 +02:00: 2026-09-08T07:33:17.700Z [INFO] [CAMPAIGN 59147a75-8504-4760-a916-66e1a896eb09 job:cd5601ba] [ORANGE_WANADOO] mode=enforce tiers={"safe":8204,"cooling":0,"probation":1,"blocked":0} skipped=1 warnings=none
+16|critsen | 2026-09-08 09:33:18 +02:00: 2026-09-08T07:33:18.259Z [INFO] [CAMPAIGN 739d6e60-cccc-46b0-b3eb-1d5bc19836e6 job:fecd7484] [ORANGE_WANADOO] mode=enforce tiers={"safe":8777,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:18 +02:00: 2026-09-08T07:33:18.535Z [INFO] [CAMPAIGN 897450fb-5ff6-4397-8089-af64b9ee303a job:2199e376] [ORANGE_WANADOO] mode=enforce tiers={"safe":8632,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:18 +02:00: 2026-09-08T07:33:18.748Z [INFO] [CAMPAIGN 85a75fe7-bfb7-48c0-b3af-b31cb4bd0725 job:77a201e4] [ORANGE_WANADOO] mode=enforce tiers={"safe":8513,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:18 +02:00: 2026-09-08T07:33:18.818Z [INFO] [CAMPAIGN 5661159b-c00f-4965-b536-f85aa06a0944 job:986ff9d2] [ORANGE_WANADOO] mode=enforce tiers={"safe":8590,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:19 +02:00: 2026-09-08T07:33:19.390Z [INFO] [CAMPAIGN 8e2e7ac9-2252-433a-8452-9aecb6619bd6 job:a9dd7884] [ORANGE_WANADOO] mode=enforce tiers={"safe":8349,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:19 +02:00: 2026-09-08T07:33:19.443Z [INFO] [CAMPAIGN 0b4a8604-4cf1-48e1-ada5-ad0b1e0180c5 job:fd60efc2] [ORANGE_WANADOO] mode=enforce tiers={"safe":2081,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:19 +02:00: 2026-09-08T07:33:19.614Z [INFO] [CAMPAIGN 0387ce0f-ddae-4b24-b66d-3be9b6334f4d job:207f8b53] [ORANGE_WANADOO] mode=enforce tiers={"safe":8293,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:19 +02:00: 2026-09-08T07:33:19.664Z [INFO] [CAMPAIGN fc508f20-9f91-45f5-ae29-2c48a3aa8828 job:4041a700] [ORANGE_WANADOO] mode=enforce tiers={"safe":8703,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:19 +02:00: 2026-09-08T07:33:19.679Z [INFO] [CAMPAIGN 3f4c24dd-c108-4ee2-ac14-1f64ac317178 job:53128b2c] [ORANGE_WANADOO] mode=enforce tiers={"safe":8518,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:19 +02:00: 2026-09-08T07:33:19.989Z [INFO] [CAMPAIGN 14697b10-2785-42ad-92d2-cee2545c886b job:b17ffc2e] [ORANGE_WANADOO] mode=enforce tiers={"safe":8640,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:19 +02:00: 2026-09-08T07:33:19.991Z [INFO] [CAMPAIGN 8c084f48-6b2f-43bf-9ae2-1adc481fdc2b job:82e9b76d] [ORANGE_WANADOO] mode=enforce tiers={"safe":8784,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:20 +02:00: 2026-09-08T07:33:20.286Z [INFO] [CAMPAIGN 0cea55d6-b7b8-473f-b600-ca5acc78fd2d job:4ff77429] [ORANGE_WANADOO] mode=enforce tiers={"safe":8728,"cooling":0,"probation":1,"blocked":0} skipped=1 warnings=none
+16|critsen | 2026-09-08 09:33:20 +02:00: 2026-09-08T07:33:20.351Z [INFO] [CAMPAIGN 5661159b-c00f-4965-b536-f85aa06a0944 job:986ff9d2] [ORANGE_WANADOO] mode=enforce tiers={"safe":8571,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:20 +02:00: 2026-09-08T07:33:20.354Z [INFO] [CAMPAIGN 85a75fe7-bfb7-48c0-b3af-b31cb4bd0725 job:77a201e4] [ORANGE_WANADOO] mode=enforce tiers={"safe":8518,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:20 +02:00: 2026-09-08T07:33:20.591Z [INFO] [CAMPAIGN 739d6e60-cccc-46b0-b3eb-1d5bc19836e6 job:fecd7484] [ORANGE_WANADOO] mode=enforce tiers={"safe":8763,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:20 +02:00: 2026-09-08T07:33:20.816Z [INFO] [CAMPAIGN acf90228-876b-4ae6-96b5-2e68344f17b4 job:27439517] [ORANGE_WANADOO] mode=enforce tiers={"safe":8682,"cooling":0,"probation":1,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:21 +02:00: 2026-09-08T07:33:21.090Z [INFO] [CAMPAIGN be8cf2dc-655b-4931-bbbf-1f61e8e61269 job:844b3c71] [ORANGE_WANADOO] mode=enforce tiers={"safe":8191,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:21 +02:00: 2026-09-08T07:33:21.383Z [INFO] [CAMPAIGN 897450fb-5ff6-4397-8089-af64b9ee303a job:2199e376] [ORANGE_WANADOO] mode=enforce tiers={"safe":8640,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:21 +02:00: 2026-09-08T07:33:21.431Z [INFO] [CAMPAIGN 59147a75-8504-4760-a916-66e1a896eb09 job:cd5601ba] [ORANGE_WANADOO] mode=enforce tiers={"safe":8207,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:21 +02:00: 2026-09-08T07:33:21.434Z [INFO] [CAMPAIGN 30391017-4786-4fc3-992b-06364f4c8697 job:913c1979] [ORANGE_WANADOO] mode=enforce tiers={"safe":8264,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:22 +02:00: 2026-09-08T07:33:22.199Z [INFO] [CAMPAIGN fc508f20-9f91-45f5-ae29-2c48a3aa8828 job:4041a700] [ORANGE_WANADOO] mode=enforce tiers={"safe":8352,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:22 +02:00: 2026-09-08T07:33:22.372Z [INFO] [CAMPAIGN acbd0164-c3ba-47bc-99bb-5f977e0d4e10 job:9a76c1e7] [ORANGE_WANADOO] mode=enforce tiers={"safe":8573,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:22 +02:00: 2026-09-08T07:33:22.562Z [INFO] [CAMPAIGN 0387ce0f-ddae-4b24-b66d-3be9b6334f4d job:207f8b53] [ORANGE_WANADOO] mode=enforce tiers={"safe":5666,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:22 +02:00: 2026-09-08T07:33:22.742Z [INFO] [CAMPAIGN 8e2e7ac9-2252-433a-8452-9aecb6619bd6 job:a9dd7884] [ORANGE_WANADOO] mode=enforce tiers={"safe":8366,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.159Z [INFO] [CAMPAIGN 3f4c24dd-c108-4ee2-ac14-1f64ac317178 job:53128b2c] [ORANGE_WANADOO] mode=enforce tiers={"safe":8544,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.354Z [INFO] [CAMPAIGN 14697b10-2785-42ad-92d2-cee2545c886b job:b17ffc2e] [ORANGE_WANADOO] mode=enforce tiers={"safe":8626,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.384Z [INFO] [CAMPAIGN 0cea55d6-b7b8-473f-b600-ca5acc78fd2d job:4ff77429] [ORANGE_WANADOO] mode=enforce tiers={"safe":8784,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.403Z [INFO] [CAMPAIGN 5661159b-c00f-4965-b536-f85aa06a0944 job:986ff9d2] [ORANGE_WANADOO] mode=enforce tiers={"safe":8625,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.417Z [INFO] [CAMPAIGN 8c084f48-6b2f-43bf-9ae2-1adc481fdc2b job:82e9b76d] [ORANGE_WANADOO] mode=enforce tiers={"safe":8755,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.482Z [INFO] [CAMPAIGN 85a75fe7-bfb7-48c0-b3af-b31cb4bd0725 job:77a201e4] [ORANGE_WANADOO] mode=enforce tiers={"safe":8544,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.487Z [INFO] [CAMPAIGN acf90228-876b-4ae6-96b5-2e68344f17b4 job:27439517] [ORANGE_WANADOO] mode=enforce tiers={"safe":8720,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.634Z [INFO] [CAMPAIGN 739d6e60-cccc-46b0-b3eb-1d5bc19836e6 job:fecd7484] [ORANGE_WANADOO] mode=enforce tiers={"safe":8770,"cooling":0,"probation":1,"blocked":0} skipped=1 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.729Z [INFO] [CAMPAIGN be8cf2dc-655b-4931-bbbf-1f61e8e61269 job:844b3c71] [ORANGE_WANADOO] mode=enforce tiers={"safe":8173,"cooling":0,"probation":1,"blocked":0} skipped=1 warnings=none
+16|critsen | 2026-09-08 09:33:23 +02:00: 2026-09-08T07:33:23.813Z [INFO] [CAMPAIGN 30391017-4786-4fc3-992b-06364f4c8697 job:913c1979] [ORANGE_WANADOO] mode=enforce tiers={"safe":8226,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:24 +02:00: 2026-09-08T07:33:24.071Z [INFO] [CAMPAIGN 8e2e7ac9-2252-433a-8452-9aecb6619bd6 job:a9dd7884] [ORANGE_WANADOO] mode=enforce tiers={"safe":8312,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:24 +02:00: 2026-09-08T07:33:24.074Z [INFO] [CAMPAIGN 897450fb-5ff6-4397-8089-af64b9ee303a job:2199e376] [ORANGE_WANADOO] mode=enforce tiers={"safe":8626,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:24 +02:00: 2026-09-08T07:33:24.127Z [INFO] [CAMPAIGN acbd0164-c3ba-47bc-99bb-5f977e0d4e10 job:9a76c1e7] [ORANGE_WANADOO] mode=enforce tiers={"safe":8591,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:25 +02:00: 2026-09-08T07:33:25.948Z [INFO] [CAMPAIGN 8c084f48-6b2f-43bf-9ae2-1adc481fdc2b job:82e9b76d] [ORANGE_WANADOO] mode=enforce tiers={"safe":3348,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:25 +02:00: 2026-09-08T07:33:25.952Z [INFO] [CAMPAIGN 3f4c24dd-c108-4ee2-ac14-1f64ac317178 job:53128b2c] [ORANGE_WANADOO] mode=enforce tiers={"safe":8543,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:25 +02:00: 2026-09-08T07:33:25.961Z [INFO] [CAMPAIGN 14697b10-2785-42ad-92d2-cee2545c886b job:b17ffc2e] [ORANGE_WANADOO] mode=enforce tiers={"safe":8675,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:26 +02:00: 2026-09-08T07:33:26.002Z [INFO] [CAMPAIGN 59147a75-8504-4760-a916-66e1a896eb09 job:cd5601ba] [ORANGE_WANADOO] mode=enforce tiers={"safe":8242,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:26 +02:00: 2026-09-08T07:33:26.018Z [INFO] [CAMPAIGN 5661159b-c00f-4965-b536-f85aa06a0944 job:986ff9d2] [ORANGE_WANADOO] mode=enforce tiers={"safe":8577,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:26 +02:00: 2026-09-08T07:33:26.034Z [INFO] [CAMPAIGN 0cea55d6-b7b8-473f-b600-ca5acc78fd2d job:4ff77429] [ORANGE_WANADOO] mode=enforce tiers={"safe":8755,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:26 +02:00: 2026-09-08T07:33:26.105Z [INFO] [CAMPAIGN acf90228-876b-4ae6-96b5-2e68344f17b4 job:27439517] [ORANGE_WANADOO] mode=enforce tiers={"safe":8709,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:26 +02:00: 2026-09-08T07:33:26.107Z [INFO] [CAMPAIGN 30391017-4786-4fc3-992b-06364f4c8697 job:913c1979] [ORANGE_WANADOO] mode=enforce tiers={"safe":7711,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:26 +02:00: 2026-09-08T07:33:26.150Z [INFO] [CAMPAIGN 85a75fe7-bfb7-48c0-b3af-b31cb4bd0725 job:77a201e4] [ORANGE_WANADOO] mode=enforce tiers={"safe":8543,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+16|critsen | 2026-09-08 09:33:26 +02:00: 2026-09-08T07:33:26.152Z [INFO] [CAMPAIGN be8cf2dc-655b-4931-bbbf-1f61e8e61269 job:844b3c71] [ORANGE_WANADOO] mode=enforce tiers={"safe":8264,"cooling":0,"probation":0,"blocked":0} skipped=0 warnings=none
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
