@@ -55,11 +55,11 @@ export interface IStorage {
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string, excludeSegmentId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string, excludeSegmentId?: string): Promise<number>;
-  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string): Promise<Subscriber[]>;
+  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string, includeTemporarilySuppressed?: boolean): Promise<Subscriber[]>;
   countSubscribersForSegments(segmentIds: string[], excludeSegmentId?: string): Promise<number>;
   // Auto-resend (Task #56) audience iteration — same contract shape as the
   // segment-cursor pair so the sender can swap iterators with one branch.
-  getOpenersForParentCampaignCursor(parentCampaignId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
+  getOpenersForParentCampaignCursor(parentCampaignId: string, limit: number, afterId?: string, includeTemporarilySuppressed?: boolean): Promise<Subscriber[]>;
   countOpenersForParentCampaign(parentCampaignId: string): Promise<number>;
   countSubscribersForRules(rules: any[]): Promise<number>;
   getSegments(): Promise<Segment[]>;
@@ -219,7 +219,7 @@ export interface IStorage {
   cleanupStaleJobs(maxAgeMinutes?: number): Promise<number>;
   getFailedSendsForRetry(campaignId: string, limit: number): Promise<Array<{subscriberId: string, email: string, retryCount: number}>>;
   markSendForRetry(campaignId: string, subscriberId: string): Promise<void>;
-  bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number>;
+  bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<string[]>;
   bulkInsertCampaignSendAttempts(campaignId: string, subscriberIds: string[]): Promise<void>;
   getCampaignSendCounts(campaignId: string): Promise<{total: number, sent: number, failed: number, pending: number, attempting: number}>;
 

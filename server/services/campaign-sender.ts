@@ -26,6 +26,7 @@ import { sql } from "drizzle-orm";
 import { prioritizeFinalizationDurabilityError } from "./campaign-job-error-policy";
 import { runAfterDurableFinalization } from "./step-durability";
 import { evaluateBrandUnsubscribeGuard } from "./brand-unsubscribe-guard";
+import { classifyAudienceBatch } from "./orange-wanadoo-risk";
 
 const MAX_AUTO_RETRIES = 3;
 const SENDER_MAX_ATTEMPTS = 3;
@@ -874,7 +875,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       //     before the limit check fires, leaking sends into the background.
       //   - cursorId would advance past the uncapped tail, permanently
       //     skipping those recipients.
-      const batchCapped = (stepSendLimit !== null && !stepLimitReached)
+      let batchCapped = (stepSendLimit !== null && !stepLimitReached)
         ? batch.slice(0, Math.max(1, stepSendLimit - stepProcessedCount))
         : batch;
 
@@ -887,6 +888,32 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       //   (b) prefetch for the NEXT outer batch can start immediately.
       // In-memory only — NOT yet written to the DB.
       cursorId = batchCapped[batchCapped.length - 1].id;
+
+      // Task #282: classify every path (including urgent campaigns) before
+      // pressure reservation. Observe mode persists would-block telemetry and
+      // returns the byte-for-byte audience; enforce mode applies deterministic
+      // cooling/probation eligibility.
+      const riskInputCount = batchCapped.length;
+      const riskClassified = await retryDbOp(
+        () => classifyAudienceBatch(
+          campaignId,
+          cursorId!,
+          batchCapped,
+          { decrementPendingForBlocked: true },
+        ),
+        `${logPrefix} orangeWanadooRisk`,
+      );
+      batchCapped = riskClassified.subscribers;
+      const riskSkippedCount = riskInputCount - batchCapped.length;
+      logger.info(
+        `${logPrefix} [ORANGE_WANADOO] mode=${riskClassified.summary.mode} `
+        + `tiers=${JSON.stringify(riskClassified.summary.countsByTier)} skipped=${riskSkippedCount} `
+        + `warnings=${riskClassified.summary.warnings.join(",") || "none"}`,
+      );
+      if (batchCapped.length === 0) {
+        startPrefetch(cursorId);
+        continue;
+      }
 
       // Serialize prefetch with the previous batch's background finalize so a
       // single campaign never holds two main-pool connections at the same time.
@@ -1226,6 +1253,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     logger.info(`${logPrefix} Starting retry phase for ${totalFailed} failed emails (deadline: ${new Date(retryDeadline).toISOString()})`);
 
     let retryPass = 0;
+    const retrySubscriberIsEligible = (subscriber: Subscriber): boolean => {
+      const tags = Array.isArray(subscriber.tags) ? subscriber.tags : [];
+      const suppressed = subscriber.suppressedUntil
+        ? new Date(subscriber.suppressedUntil).getTime() > Date.now()
+        : false;
+      const unsubscribeTag = campaign.unsubscribeTag;
+      return !suppressed
+        && !tags.includes("BCK")
+        && !(unsubscribeTag && tags.includes(unsubscribeTag));
+    };
 
     while (!shouldStop && Date.now() < retryDeadline) {
       const failedSends = await retryDbOp(
@@ -1241,26 +1278,113 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       retryPass++;
       logger.info(`${logPrefix} Retry pass ${retryPass}: ${failedSends.length} failed sends to retry`);
 
-      const retrySubIds = failedSends.map(s => s.subscriberId);
-      const markedCount = await retryDbOp(
+      // Apply the same Orange/Wanadoo policy before changing a failed row
+      // back to pending. Policy-blocked rows were already failed, so marking
+      // their terminal class deliberately leaves campaign counters unchanged.
+      const retryRisk = await retryDbOp(
+        () => classifyAudienceBatch(
+          campaignId,
+          `retry:${failedSends[0].subscriberId}:${failedSends[failedSends.length - 1].subscriberId}:${failedSends.length}`,
+          failedSends.map((s) => ({ id: s.subscriberId, email: s.email })),
+        ),
+        `${logPrefix} orangeWanadooRetryRisk`,
+      );
+      const retryRiskAllowed = new Set(retryRisk.subscribers.map((subscriber) => subscriber.id));
+      const policyBlockedIds = failedSends
+        .map((send) => send.subscriberId)
+        .filter((id) => !retryRiskAllowed.has(id));
+      if (policyBlockedIds.length > 0) {
+        await db.execute(sql`
+          UPDATE campaign_sends SET smtp_outcome_class='policy_blocked'
+          WHERE campaign_id=${campaignId} AND status='failed'
+            AND subscriber_id = ANY(${`{${policyBlockedIds.map((id) => `"${id}"`).join(",")}}`}::text[])
+        `);
+        logger.info(`${logPrefix} Retry pass ${retryPass}: terminalized ${policyBlockedIds.length} Orange/Wanadoo policy-blocked sends`);
+      }
+      const retrySubIds = failedSends
+        .map((send) => send.subscriberId)
+        .filter((id) => retryRiskAllowed.has(id));
+      if (retrySubIds.length === 0) {
+        logger.info(`${logPrefix} Retry pass ${retryPass}: no failed sends remained eligible after risk policy`);
+        break;
+      }
+      const markedIds = await retryDbOp(
         () => storage.bulkMarkSendsForRetry(campaignId, retrySubIds),
         `${logPrefix} bulkMarkSendsForRetry`
       );
-      logger.info(`${logPrefix} Retry pass ${retryPass}: Marked ${markedCount} sends for retry`);
+      const markedSet = new Set(markedIds);
+      const retryableSends = failedSends.filter((send) => markedSet.has(send.subscriberId));
+      // A live unsubscribe/suppression can win the race between retry
+      // selection and transition to pending. Do not send rows that lost the
+      // guarded transition; leaving them failed avoids a hot retry loop and
+      // preserves the terminal failed counter.
+      if (retryableSends.length === 0) {
+        logger.info(`${logPrefix} Retry pass ${retryPass}: no sends remained eligible after guarded retry transition`);
+        break;
+      }
+      logger.info(`${logPrefix} Retry pass ${retryPass}: Marked ${retryableSends.length} sends for retry`);
 
-      for (let i = 0; i < failedSends.length; i += concurrency) {
+      for (let i = 0; i < retryableSends.length; i += concurrency) {
         if (shouldStop) break;
 
-        const chunk = failedSends.slice(i, i + concurrency);
+        const chunk = retryableSends.slice(i, i + concurrency);
+        // Last line of defense for state that changed after retry selection:
+        // do not put a newly suppressed, bounced, or campaign-unsubscribed
+        // recipient on the SMTP wire. These rows are pending at this point,
+        // so terminalizing them also keeps campaign counters truthful.
+        const chunkIds = chunk.map((send) => send.subscriberId);
+        const liveEligible = await db.execute(sql`
+          SELECT s.id
+          FROM subscribers s
+          WHERE s.id=ANY(${`{${chunkIds.map((id) => `"${id}"`).join(",")}}`}::text[])
+            AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW())
+            AND NOT ('BCK'=ANY(COALESCE(s.tags,ARRAY[]::text[])))
+            AND (${campaign.unsubscribeTag}::text IS NULL
+              OR NOT (${campaign.unsubscribeTag}::text=ANY(COALESCE(s.tags,ARRAY[]::text[]))))
+            AND NOT EXISTS (
+              SELECT 1 FROM campaign_stats unsub
+              WHERE unsub.campaign_id=${campaignId}
+                AND unsub.subscriber_id=s.id
+                AND unsub.type='unsubscribe'
+            )
+        `);
+        const liveEligibleIds = new Set(liveEligible.rows.map((row: any) => String(row.id)));
+        const rejectedRetryIds = chunkIds.filter((id) => !liveEligibleIds.has(id));
+        if (rejectedRetryIds.length > 0) {
+          const rejectedArray = `{${rejectedRetryIds.map((id) => `"${id}"`).join(",")}}`;
+          const terminalized = await db.execute(sql`
+            UPDATE campaign_sends SET status='failed', smtp_outcome_class='policy_blocked'
+            WHERE campaign_id=${campaignId} AND status='pending'
+              AND subscriber_id=ANY(${rejectedArray}::text[])
+            RETURNING subscriber_id
+          `);
+          if (terminalized.rows.length > 0) {
+            await db.execute(sql`
+              UPDATE campaigns SET pending_count=GREATEST(pending_count-${terminalized.rows.length},0),
+                failed_count=failed_count+${terminalized.rows.length}
+              WHERE id=${campaignId}
+            `);
+          }
+        }
+        const rejectedSet = new Set(rejectedRetryIds);
+        const dispatchChunk = chunk.filter((send) => !rejectedSet.has(send.subscriberId));
+        if (dispatchChunk.length === 0) continue;
 
         if (isNullsink && mta) {
           const subscriberObjects = await Promise.all(
-            chunk.map(async (s) => {
+            dispatchChunk.map(async (s) => {
               const sub = await storage.getSubscriber(s.subscriberId);
               return sub;
             })
           );
-          const validSubs = subscriberObjects.filter((s): s is NonNullable<typeof s> => s != null);
+          const validSubs: Subscriber[] = [];
+          subscriberObjects.forEach((subscriber, index) => {
+            if (subscriber && retrySubscriberIsEligible(subscriber)) {
+              validSubs.push(subscriber);
+            } else {
+              pendingFailedIds.push(dispatchChunk[index].subscriberId);
+            }
+          });
 
           if (validSubs.length > 0) {
             const results = sendEmailBatchNullsink(mta, validSubs, campaign, trackingOpts, customHeadersMap, precomputedHtml);
@@ -1277,14 +1401,23 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
           }
         } else if (mta) {
           await retryDbOp(
-            () => storage.bulkInsertCampaignSendAttempts(campaignId, chunk.map(s => s.subscriberId)),
+            () => storage.bulkInsertCampaignSendAttempts(campaignId, dispatchChunk.map(s => s.subscriberId)),
             `${logPrefix} retryMarkAttempting`
           );
 
           const results = await Promise.allSettled(
-            chunk.map(async (s) => {
+            dispatchChunk.map(async (s) => {
               const sub = await storage.getSubscriber(s.subscriberId);
               if (!sub) return { success: false, subscriberId: s.subscriberId, email: s.email, error: 'Subscriber not found', outcomeClass: undefined };
+              if (!retrySubscriberIsEligible(sub)) {
+                return {
+                  success: false,
+                  subscriberId: sub.id,
+                  email: sub.email,
+                  error: "Subscriber became suppressed or unsubscribed before retry dispatch",
+                  outcomeClass: undefined,
+                };
+              }
               try {
                 const result = await sendEmailWithNullsink(mta, sub, campaign, trackingOpts, customHeadersMap);
                 return { success: result.success, subscriberId: sub.id, email: sub.email, error: result.error, outcomeClass: result.outcomeClass };

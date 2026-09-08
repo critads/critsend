@@ -220,6 +220,15 @@ export async function getFailedSendsForRetry(campaignId: string, limit: number):
     FROM campaign_sends cs
     JOIN subscribers s ON cs.subscriber_id = s.id
     WHERE cs.campaign_id = ${campaignId} AND cs.status = 'failed'${klassPredicate}
+      AND cs.smtp_outcome_class IS DISTINCT FROM 'policy_blocked'
+      AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW())
+      AND NOT ('BCK' = ANY(COALESCE(s.tags, ARRAY[]::text[])))
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_stats unsub
+        WHERE unsub.campaign_id = cs.campaign_id
+          AND unsub.subscriber_id = cs.subscriber_id
+          AND unsub.type = 'unsubscribe'
+      )
     ORDER BY cs.retry_count ASC, cs.sent_at ASC
     LIMIT ${limit}
   `);
@@ -234,7 +243,9 @@ export async function markSendForRetry(campaignId: string, subscriberId: string)
   const guardOn = zeroDupSendGuardEnabled();
   const result = await db.execute(sql`
     UPDATE campaign_sends SET status = 'pending', retry_count = retry_count + 1, last_retry_at = NOW()
-    WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'failed'${guardOn ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``}
+    WHERE campaign_id = ${campaignId} AND subscriber_id = ${subscriberId} AND status = 'failed'
+      ${guardOn ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``}
+      AND smtp_outcome_class IS DISTINCT FROM 'policy_blocked'
     RETURNING id
   `);
   // Flag OFF: decrement unconditionally (byte-identical to legacy). Flag ON:
@@ -247,8 +258,8 @@ export async function markSendForRetry(campaignId: string, subscriberId: string)
   }
 }
 
-export async function bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<number> {
-  if (subscriberIds.length === 0) return 0;
+export async function bulkMarkSendsForRetry(campaignId: string, subscriberIds: string[]): Promise<string[]> {
+  if (subscriberIds.length === 0) return [];
   const arrayStr = `{${subscriberIds.map(id => `"${id}"`).join(',')}}`;
   const result = await db.execute(sql`
     UPDATE campaign_sends
@@ -256,7 +267,20 @@ export async function bulkMarkSendsForRetry(campaignId: string, subscriberIds: s
     WHERE campaign_id = ${campaignId}
       AND subscriber_id = ANY(${arrayStr}::text[])
       AND status = 'failed'${zeroDupSendGuardEnabled() ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``}
-    RETURNING id
+      AND smtp_outcome_class IS DISTINCT FROM 'policy_blocked'
+      AND EXISTS (
+        SELECT 1 FROM subscribers s
+        WHERE s.id = campaign_sends.subscriber_id
+          AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW())
+          AND NOT ('BCK' = ANY(COALESCE(s.tags, ARRAY[]::text[])))
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM campaign_stats unsub
+        WHERE unsub.campaign_id = campaign_sends.campaign_id
+          AND unsub.subscriber_id = campaign_sends.subscriber_id
+          AND unsub.type = 'unsubscribe'
+      )
+    RETURNING subscriber_id
   `);
   const matchCount = result.rows.length;
   if (matchCount > 0) {
@@ -265,7 +289,7 @@ export async function bulkMarkSendsForRetry(campaignId: string, subscriberIds: s
       WHERE id = ${campaignId}
     `);
   }
-  return matchCount;
+  return result.rows.map((row: any) => row.subscriber_id);
 }
 
 // ═══════════════════════════════════════════════════════════════

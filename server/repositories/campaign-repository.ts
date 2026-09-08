@@ -40,6 +40,7 @@ import {
   noteLegacyTokensTableGone,
   LEGACY_TOKENS_TABLE,
 } from "../tracking-partitions";
+import { complaintStatus } from "../services/orange-wanadoo-risk";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -319,7 +320,7 @@ export async function getCampaignsPaginated(opts: {
   originalsOnly?: boolean;
   scheduledFrom?: Date;
   scheduledTo?: Date;
-}): Promise<{ campaigns: (Campaign & { mtaName: string | null })[]; total: number }> {
+}): Promise<{ campaigns: CampaignListItem[]; total: number }> {
   const { page, limit, search, originalsOnly, scheduledFrom, scheduledTo } = opts;
   const offset = (page - 1) * limit;
 
@@ -400,6 +401,8 @@ export async function getCampaignsPaginated(opts: {
       totalClicksCount: campaigns.totalClicksCount,
       unsubscribesCount: campaigns.unsubscribesCount,
       complaintsCount: campaigns.complaintsCount,
+      orangeWanadooSentCount: campaigns.orangeWanadooSentCount,
+      orangeWanadooComplaintsCount: campaigns.orangeWanadooComplaintsCount,
       parentCampaignId: campaigns.parentCampaignId,
       followUpEnabled: campaigns.followUpEnabled,
       followUpDelayHours: campaigns.followUpDelayHours,
@@ -468,6 +471,13 @@ export async function getCampaignsPaginated(opts: {
       segmentIds: segmentIdsMap.get(row.id) ?? (row.segmentId ? [row.segmentId] : []),
       pressureHeldCount: live?.pressureHeld ?? 0,
       realPendingCount: live?.realPending ?? 0,
+      orangeWanadooComplaintRate: row.orangeWanadooSentCount > 0
+        ? row.orangeWanadooComplaintsCount / row.orangeWanadooSentCount
+        : null,
+      orangeWanadooComplaintStatus: complaintStatus(
+        row.orangeWanadooSentCount,
+        row.orangeWanadooComplaintsCount,
+      ),
     };
   });
 
@@ -1403,11 +1413,16 @@ export async function finalizeSend(campaignId: string, subscriberId: string, suc
       WHERE campaign_id = ${campaignId}
         AND subscriber_id = ${subscriberId}
         AND status IN ('pending', 'attempting')
-      RETURNING id
+      RETURNING id, subscriber_id
     ),
     counter_update AS (
       UPDATE campaigns SET
         sent_count = CASE WHEN ${success} THEN sent_count + 1 ELSE sent_count END,
+        orange_wanadoo_sent_count = CASE WHEN ${success} AND EXISTS (
+          SELECT 1 FROM updated_send u
+          JOIN subscribers s ON s.id = u.subscriber_id
+          WHERE lower(split_part(s.email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+        ) THEN orange_wanadoo_sent_count + 1 ELSE orange_wanadoo_sent_count END,
         failed_count = CASE WHEN NOT ${success} THEN failed_count + 1 ELSE failed_count END,
         pending_count = GREATEST(pending_count - 1, 0),
         first_send_at = CASE WHEN ${success} THEN COALESCE(first_send_at, NOW()) ELSE first_send_at END,
@@ -1630,49 +1645,68 @@ export async function bulkFinalizeSends(
   ambiguousIds: string[] = [],
 ): Promise<void> {
   const guardOn = zeroDupSendGuardEnabled();
-  const sentCount = successIds.length;
-  // Ambiguous rows are status='failed' too, so they count toward failed_count.
-  const failCount = failedIds.length + (guardOn ? ambiguousIds.length : 0);
-  const totalProcessed = sentCount + failCount;
+  const requestedTotal = successIds.length + failedIds.length + (guardOn ? ambiguousIds.length : 0);
+  const totalProcessed = requestedTotal;
   if (totalProcessed === 0) return;
 
   const CHUNK_SIZE = 1000;
   await db.transaction(async (tx) => {
+    let sentCount = 0;
+    let failCount = 0;
+    const actuallySentIds: string[] = [];
     if (successIds.length > 0) {
       for (let i = 0; i < successIds.length; i += CHUNK_SIZE) {
         const chunk = successIds.slice(i, i + CHUNK_SIZE);
         const arr = `{${chunk.map(id => `"${id}"`).join(',')}}`;
-        await tx.execute(sql`
+        const updated = await tx.execute(sql`
           UPDATE campaign_sends SET status = 'sent'${guardOn ? sql`, smtp_outcome_class = 'delivered'` : sql``}
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arr}::text[]) AND status IN ('pending', 'attempting')
+          RETURNING subscriber_id
         `);
+        sentCount += updated.rows.length;
+        actuallySentIds.push(...updated.rows.map((row: any) => String(row.subscriber_id)));
       }
     }
     if (failedIds.length > 0) {
       for (let i = 0; i < failedIds.length; i += CHUNK_SIZE) {
         const chunk = failedIds.slice(i, i + CHUNK_SIZE);
         const arr = `{${chunk.map(id => `"${id}"`).join(',')}}`;
-        await tx.execute(sql`
+        const updated = await tx.execute(sql`
           UPDATE campaign_sends SET status = 'failed'${guardOn ? sql`, smtp_outcome_class = 'pre_data_retryable'` : sql``}
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arr}::text[]) AND status IN ('pending', 'attempting')
         `);
+        failCount += updated.rowCount ?? updated.rows.length;
       }
     }
     if (guardOn && ambiguousIds.length > 0) {
       for (let i = 0; i < ambiguousIds.length; i += CHUNK_SIZE) {
         const chunk = ambiguousIds.slice(i, i + CHUNK_SIZE);
         const arr = `{${chunk.map(id => `"${id}"`).join(',')}}`;
-        await tx.execute(sql`
+        const updated = await tx.execute(sql`
           UPDATE campaign_sends SET status = 'failed', smtp_outcome_class = 'ambiguous'
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${arr}::text[]) AND status IN ('pending', 'attempting')
         `);
+        failCount += updated.rowCount ?? updated.rows.length;
       }
+    }
+    const actualTotal = sentCount + failCount;
+    if (actualTotal === 0) return;
+    let orangeWanadooSentCount = 0;
+    if (actuallySentIds.length > 0) {
+      const targetSent = await tx.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM subscribers
+        WHERE id = ANY(${toPgTextArray(actuallySentIds)}::text[])
+          AND lower(split_part(email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+      `);
+      orangeWanadooSentCount = Number(targetSent.rows[0]?.count ?? 0);
     }
     await tx.execute(sql`
       UPDATE campaigns SET
         sent_count = sent_count + ${sentCount},
+        orange_wanadoo_sent_count = orange_wanadoo_sent_count + ${orangeWanadooSentCount},
         failed_count = failed_count + ${failCount},
-        pending_count = GREATEST(pending_count - ${totalProcessed}, 0),
+        pending_count = GREATEST(pending_count - ${actualTotal}, 0),
         first_send_at = CASE WHEN ${sentCount} > 0 THEN COALESCE(first_send_at, NOW()) ELSE first_send_at END,
         last_send_at = CASE WHEN ${sentCount} > 0 THEN NOW() ELSE last_send_at END
       WHERE id = ${campaignId}

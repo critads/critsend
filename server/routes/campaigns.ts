@@ -39,6 +39,7 @@ import {
 import { parseStrictIsoInstant } from "../services/campaign-calendar";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 import { parseCampaignCalendarRange } from "../services/campaign-calendar";
+import { campaignRiskPreflight } from "../services/orange-wanadoo-risk";
 
 function envInt(name: string, fallback: number, min: number): number {
   const raw = process.env[name];
@@ -114,6 +115,8 @@ async function ensureCampaignExcludeSegmentForeignKey(): Promise<void> {
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS total_clicks_count  integer NOT NULL DEFAULT 0`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS unsubscribes_count  integer NOT NULL DEFAULT 0`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS complaints_count    integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS orange_wanadoo_sent_count integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS orange_wanadoo_complaints_count integer NOT NULL DEFAULT 0`);
     // Auto-resend to openers (Task #56). All five columns are nullable / have
     // safe defaults so existing campaigns become "no follow-up" rows without
     // any data backfill required. See shared/schema.ts campaigns block for the
@@ -527,6 +530,37 @@ export function registerCampaignRoutes(app: Express, helpers: {
         error: "internal_error",
         message: "Failed to fetch low-open campaign alerts",
       });
+    }
+  });
+
+  app.get("/api/campaigns/:id/orange-wanadoo-preflight", async (req: Request, res: Response) => {
+    if (!validateId(req.params.id)) return res.status(400).json({ error: "Invalid campaign ID" });
+    try {
+      const summary = await campaignRiskPreflight({ campaignId: req.params.id });
+      if (!summary) return res.status(404).json({ error: "Campaign not found" });
+      res.json(summary);
+    } catch (error) {
+      logger.error("Orange/Wanadoo preflight failed:", error);
+      res.status(500).json({ error: "Orange/Wanadoo preflight failed" });
+    }
+  });
+
+  app.post("/api/campaigns/orange-wanadoo-preflight", async (req: Request, res: Response) => {
+    const segmentIds = Array.isArray(req.body?.segmentIds)
+      ? req.body.segmentIds.filter((id: unknown): id is string => typeof id === "string")
+      : typeof req.body?.segmentId === "string" ? [req.body.segmentId] : [];
+    if (segmentIds.length === 0 || segmentIds.some((id: string) => !validateId(id))) {
+      return res.status(400).json({ error: "At least one valid segment ID is required" });
+    }
+    const excludeSegmentId = typeof req.body?.excludeSegmentId === "string" ? req.body.excludeSegmentId : undefined;
+    if (excludeSegmentId && !validateId(excludeSegmentId)) {
+      return res.status(400).json({ error: "Invalid exclusion segment ID" });
+    }
+    try {
+      res.json(await campaignRiskPreflight({ segmentIds, excludeSegmentId }));
+    } catch (error) {
+      logger.error("Orange/Wanadoo segment preflight failed:", error);
+      res.status(500).json({ error: "Orange/Wanadoo preflight failed" });
     }
   });
 

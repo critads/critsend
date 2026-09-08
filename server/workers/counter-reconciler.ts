@@ -307,17 +307,23 @@ export async function reconcileCounters(
   currentStage = "sent_count";
   const sentRes = await client.query(
     `${truthLead} (
-       SELECT campaign_id, COUNT(*)::bigint AS cnt
-         FROM campaign_sends
-        WHERE status = 'sent'
-          ${inRecentRow}
-        GROUP BY campaign_id
+       SELECT cs.campaign_id, COUNT(*)::bigint AS cnt,
+              COUNT(*) FILTER (
+                WHERE lower(split_part(s.email,'@',2)) IN ('orange.fr','wanadoo.fr')
+              )::bigint AS ow_sent
+          FROM campaign_sends cs
+          JOIN subscribers s ON s.id=cs.subscriber_id
+         WHERE cs.status = 'sent'
+           ${scope === "all" ? "" : "AND cs.campaign_id IN (SELECT campaign_id FROM recent_campaigns)"}
+         GROUP BY cs.campaign_id
      )
      UPDATE campaigns c
-        SET sent_count = truth.cnt
+         SET sent_count = truth.cnt,
+             orange_wanadoo_sent_count = truth.ow_sent
        FROM truth
       WHERE c.id = truth.campaign_id
-        AND c.sent_count < truth.cnt`,
+         AND (c.sent_count < truth.cnt
+           OR c.orange_wanadoo_sent_count IS DISTINCT FROM truth.ow_sent)`,
   );
   sentCountFixed = sentRes.rowCount ?? 0;
   checkBudget();
@@ -378,7 +384,14 @@ export async function reconcileCounters(
               COUNT(*) FILTER (WHERE type = 'click')::bigint                         AS total_clicks,
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click')::bigint    AS unique_clicks,
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')::bigint AS unsubscribes,
-              COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints
+               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints,
+               COUNT(DISTINCT subscriber_id) FILTER (
+                 WHERE type='complaint' AND ip_address='195.154.17.225'
+                   AND subscriber_id IN (
+                     SELECT id FROM subscribers
+                     WHERE lower(split_part(email,'@',2)) IN ('orange.fr','wanadoo.fr')
+                   )
+               )::bigint AS ow_complaints
          FROM campaign_stats
         WHERE TRUE
           ${inRecentRow}
@@ -390,7 +403,8 @@ export async function reconcileCounters(
             total_clicks_count  = truth.total_clicks,
             unique_clicks_count = truth.unique_clicks,
             unsubscribes_count  = truth.unsubscribes,
-            complaints_count    = truth.complaints
+             complaints_count    = truth.complaints,
+             orange_wanadoo_complaints_count = truth.ow_complaints
        FROM truth
       WHERE c.id = truth.campaign_id
         AND ( c.total_opens_count   IS DISTINCT FROM truth.total_opens
@@ -398,7 +412,8 @@ export async function reconcileCounters(
            OR c.total_clicks_count  IS DISTINCT FROM truth.total_clicks
            OR c.unique_clicks_count IS DISTINCT FROM truth.unique_clicks
            OR c.unsubscribes_count  IS DISTINCT FROM truth.unsubscribes
-           OR c.complaints_count    IS DISTINCT FROM truth.complaints )`,
+            OR c.complaints_count    IS DISTINCT FROM truth.complaints
+            OR c.orange_wanadoo_complaints_count IS DISTINCT FROM truth.ow_complaints )`,
   );
   engagementCountersFixed = engagementRes.rowCount ?? 0;
   currentStage = "idle";

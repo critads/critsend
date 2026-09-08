@@ -728,6 +728,14 @@ export async function pressureGuardReserveSendSlots(
           SELECT subscriber_id FROM campaign_sends
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunkLiteral}::text[])
         ),
+        -- Audience enumeration is necessarily a snapshot. Re-check temporary
+        -- suppression while holding the per-subscriber transaction lock so an
+        -- unsubscribe/complaint suppression committed after fetch cannot pass
+        -- the reserve (urgent mode bypasses pressure only, never suppression).
+        sendable AS (
+          SELECT s.id FROM subscribers s JOIN input i ON i.id = s.id
+          WHERE s.suppressed_until IS NULL OR s.suppressed_until <= NOW()
+        ),
         cas AS (
           -- Only stamp last_sent_at for genuinely new dispatches; rows that
           -- already exist for (campaign, subscriber) — re-runs, retries,
@@ -743,6 +751,7 @@ export async function pressureGuardReserveSendSlots(
           UPDATE subscribers s SET last_sent_at = NOW()
           FROM input i
           WHERE s.id = i.id
+            AND i.id IN (SELECT id FROM sendable)
             AND i.id NOT IN (SELECT subscriber_id FROM blocked_by_older)
             AND i.id NOT IN (SELECT subscriber_id FROM already_in_campaign)
             AND (
@@ -763,6 +772,7 @@ export async function pressureGuardReserveSendSlots(
           -- across retries/resumes that race the same chunk.
           SELECT subscriber_id FROM campaign_sends
           WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${chunkLiteral}::text[])
+            AND subscriber_id IN (SELECT id FROM sendable)
             AND status IN ('pending','attempting') AND eligible_at IS NULL
           FOR UPDATE SKIP LOCKED
         ),

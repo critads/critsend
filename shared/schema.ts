@@ -184,6 +184,8 @@ export const campaigns = pgTable("campaigns", {
   totalClicksCount: integer("total_clicks_count").notNull().default(0),
   unsubscribesCount: integer("unsubscribes_count").notNull().default(0),
   complaintsCount: integer("complaints_count").notNull().default(0),
+  orangeWanadooSentCount: integer("orange_wanadoo_sent_count").notNull().default(0),
+  orangeWanadooComplaintsCount: integer("orange_wanadoo_complaints_count").notNull().default(0),
   // Marketing Pressure Guard (Task #144). Cumulative count of send attempts
   // that were *deferred* (rescheduled to a later time) because the recipient
   // had received an email from another campaign within the 6h pressure
@@ -383,6 +385,33 @@ export const campaignStatsRelations = relations(campaignStats, ({ one }) => ({
     fields: [campaignStats.subscriberId],
     references: [subscribers.id],
   }),
+}));
+
+// Precomputed, explainable Orange/Wanadoo risk aggregates. Raw campaign_stats
+// remains authoritative; audience enumeration only joins this compact table.
+export const subscriberRiskProfiles = pgTable("subscriber_risk_profiles", {
+  subscriberId: varchar("subscriber_id").primaryKey().references(() => subscribers.id, { onDelete: "cascade" }),
+  lastDetectionAt: timestamp("last_detection_at"),
+  firstDetectionAt: timestamp("first_detection_at"),
+  detections7d: integer("detections_7d").notNull().default(0),
+  detections15d: integer("detections_15d").notNull().default(0),
+  detections30d: integer("detections_30d").notNull().default(0),
+  distinctClickedCampaigns30d: integer("distinct_clicked_campaigns_30d").notNull().default(0),
+  distinctClickedCampaigns90d: integer("distinct_clicked_campaigns_90d").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  lastDetectionIdx: index("subscriber_risk_profiles_last_detection_idx").on(table.lastDetectionAt),
+}));
+
+export const orangeWanadooRiskAudit = pgTable("orange_wanadoo_risk_audit", {
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  batchCursor: varchar("batch_cursor").notNull(),
+  mode: text("mode").notNull(),
+  countsByTier: jsonb("counts_by_tier").notNull(),
+  wouldBlockCount: integer("would_block_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.campaignId, table.batchCursor] }),
 }));
 
 // Campaign sends - tracks which subscribers received which campaigns to prevent duplicates
@@ -996,6 +1025,10 @@ export type CampaignListItem = Campaign & {
   // Optional so older/external API consumers and any cached/stale payload
   // shapes remain valid; callers fall back to `pendingCount` when missing.
   realPendingCount?: number;
+  orangeWanadooSentCount: number;
+  orangeWanadooComplaintsCount: number;
+  orangeWanadooComplaintRate: number | null;
+  orangeWanadooComplaintStatus: "green" | "orange" | "red" | "unknown";
 };
 export type CampaignCalendarItem = Pick<
   Campaign,

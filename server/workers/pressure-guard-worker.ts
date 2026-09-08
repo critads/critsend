@@ -48,6 +48,7 @@ import { publishJobProgress } from "../job-events";
 import { safeInterval, getLastTickAt, setSafeIntervalErrorListener } from "../lib/safe-interval";
 import type { Campaign, Mta, Subscriber } from "@shared/schema";
 import crypto from "crypto";
+import { classifyAudienceBatch } from "../services/orange-wanadoo-risk";
 
 // Task #149: stable per-process holder ID for lease-based leader election.
 // Used to recognise our own lease rows when reclaiming an expired lease
@@ -1291,7 +1292,7 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     SELECT id, email, tags, refs, ip_address, import_date, suppressed_until, last_engaged_at, last_sent_at
     FROM subscribers WHERE id = ANY(${toPgTextArray(Array.from(winnerIds))}::text[])
   `);
-  const eligibleSubs: Subscriber[] = [];
+  let eligibleSubs: Subscriber[] = [];
   const dropIds: string[] = [];
   const unsubTag = (campaign as any).unsubscribeTag as string | null;
   for (const r of subs.rows) {
@@ -1336,6 +1337,35 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     emitProgress("sending");
   }
 
+  if (eligibleSubs.length === 0) return;
+
+  // Final shared deferred-dispatch guard. This deliberately runs after the
+  // existing unsubscribe/suppression recheck, and urgent/aged pressure modes
+  // cannot bypass it.
+  const beforeRiskIds = new Set(eligibleSubs.map((subscriber) => subscriber.id));
+  const riskResult = await classifyAudienceBatch(
+    campaignId,
+    `deferred:${[...beforeRiskIds].sort().at(-1) || "empty"}`,
+    eligibleSubs,
+  );
+  eligibleSubs = riskResult.subscribers;
+  const riskDropIds = [...beforeRiskIds].filter(
+    (id) => !eligibleSubs.some((subscriber) => subscriber.id === id),
+  );
+  if (riskDropIds.length > 0) {
+    await db.execute(sql`
+      UPDATE campaign_sends SET status='failed', eligible_at=NULL
+      WHERE campaign_id=${campaignId}
+        AND subscriber_id=ANY(${toPgTextArray(riskDropIds)}::text[])
+        AND status='attempting'
+    `);
+    await db.execute(sql`
+      UPDATE campaigns SET failed_count=failed_count+${riskDropIds.length},
+        pending_count=GREATEST(pending_count-${riskDropIds.length},0)
+      WHERE id=${campaignId}
+    `);
+    logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: Orange/Wanadoo enforce guard dropped ${riskDropIds.length}`);
+  }
   if (eligibleSubs.length === 0) return;
 
   // Task #161: full tracking parity with the bulk sender hot-path.

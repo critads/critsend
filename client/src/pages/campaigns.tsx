@@ -18,6 +18,7 @@ import {
 } from "@/lib/bulk-delete-campaigns";
 import { getCampaignListSegmentIds } from "@/lib/campaign-list-segments";
 import { campaignActionErrorMessage } from "@/lib/campaign-wizard";
+import { OrangeWanadooStatusDot } from "@/components/orange-wanadoo-status-dot";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -244,6 +245,13 @@ interface CampaignProviderQuickViews {
     complaints: number;
     complaintRate: number;
   }>;
+  orangeWanadoo: {
+    recipients: number;
+    uniqueOpeners: number;
+    openRate: number;
+    complaints: number;
+    complaintRate: number;
+  };
 }
 
 type ProviderQuickViewSelection = {
@@ -1059,7 +1067,10 @@ export default function Campaigns() {
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium">{campaign.name}</span>
+                            <span className="flex min-w-0 items-center gap-1.5 font-medium">
+                              <span className="truncate">{campaign.name}</span>
+                              <OrangeWanadooStatusDot campaign={campaign} />
+                            </span>
                             {campaign.parentCampaignId && (() => {
                               // Look up the parent in the same campaigns list
                               // so we can render a contextual label.
@@ -1478,22 +1489,50 @@ export default function Campaigns() {
             const rows = providerQuickView?.metric === "complaints"
               ? providerQuickViewData?.complaints ?? []
               : providerQuickViewData?.openers ?? [];
+            const combined = providerQuickViewData?.orangeWanadoo;
 
-            if (rows.length === 0) {
+            if (rows.length === 0 && providerQuickView?.metric !== "complaints") {
               return (
                 <div
                   className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground"
                   data-testid="provider-quick-view-empty"
                 >
-                  {providerQuickView?.metric === "complaints"
-                    ? "No complaint detections for this campaign."
-                    : "No opener data for this campaign."}
+                  No opener data for this campaign.
                 </div>
               );
             }
 
             return (
-              <div className="space-y-2" data-testid="provider-quick-view-results">
+              <div className="space-y-3" data-testid="provider-quick-view-results">
+                {providerQuickView?.metric === "complaints" && combined && (
+                  <div
+                    className="flex items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3"
+                    data-testid="provider-quick-view-orange-wanadoo"
+                  >
+                    <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium">Orange + Wanadoo combined</p>
+                      <p className="text-xs text-muted-foreground">
+                        {combined.recipients.toLocaleString()} delivered emails
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold tabular-nums">{combined.complaints.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">complaints</p>
+                    </div>
+                    <Badge variant={combined.complaintRate > 0.6 ? "destructive" : "outline"}>
+                      {combined.complaintRate.toFixed(2)}%
+                    </Badge>
+                  </div>
+                )}
+                {rows.length === 0 && providerQuickView?.metric === "complaints" && (
+                  <div
+                    className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground"
+                    data-testid="provider-quick-view-empty"
+                  >
+                    No complaint detections for this campaign.
+                  </div>
+                )}
                 {rows.map((row, index) => {
                   const isComplaints = providerQuickView?.metric === "complaints";
                   const count = isComplaints

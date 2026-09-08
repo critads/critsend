@@ -18,6 +18,13 @@ export interface CampaignProviderQuickViews {
     complaints: number;
     complaintRate: number;
   }>;
+  orangeWanadoo: {
+    recipients: number;
+    uniqueOpeners: number;
+    openRate: number;
+    complaints: number;
+    complaintRate: number;
+  };
 }
 
 function compareProviders(left: string, right: string): number {
@@ -62,5 +69,23 @@ export function buildCampaignProviderQuickViews(
       complaintRate: percentage(complaintCount, recipients),
     }));
 
-  return { openers, complaints };
+  const combined = providerStats
+    .filter((row) => row.provider.toLowerCase() === "orange.fr" || row.provider.toLowerCase() === "wanadoo.fr")
+    .reduce(
+      (acc, row) => ({
+        recipients: acc.recipients + row.recipients,
+        uniqueOpeners: acc.uniqueOpeners + row.uniqueOpeners,
+        complaints: acc.complaints + row.complaints,
+      }),
+      { recipients: 0, uniqueOpeners: 0, complaints: 0 },
+    );
+  return {
+    openers,
+    complaints,
+    orangeWanadoo: {
+      ...combined,
+      openRate: percentage(combined.uniqueOpeners, combined.recipients),
+      complaintRate: percentage(combined.complaints, combined.recipients),
+    },
+  };
 }

@@ -373,6 +373,7 @@ export async function getSubscribersForSegmentsCursor(
   limit: number,
   afterId?: string,
   excludeSegmentId?: string,
+  includeTemporarilySuppressed = false,
 ): Promise<Subscriber[]> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
   if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return [];
@@ -381,9 +382,21 @@ export async function getSubscribersForSegmentsCursor(
   if (!includes.length) return [];
   const conditions: any[] = [
     not(sql`'BCK' = ANY(${subscribers.tags})`),
-    sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
     or(...includes),
   ];
+  if (!includeTemporarilySuppressed) {
+    conditions.push(sql`(suppressed_until IS NULL OR suppressed_until < NOW())`);
+  } else {
+    // Preflight may include only complaint-IP cooling profiles so operators can
+    // see that stratum. Unsubscribe cooling remains excluded.
+    conditions.push(sql`(
+      suppressed_until IS NULL OR suppressed_until < NOW() OR EXISTS (
+        SELECT 1 FROM subscriber_risk_profiles srp
+        WHERE srp.subscriber_id = ${subscribers.id}
+          AND srp.last_detection_at >= NOW() - INTERVAL '15 days'
+      )
+    )`);
+  }
   if (excludeSegmentId) {
     const exclude = compiled.get(excludeSegmentId);
     if (exclude) conditions.push(not(exclude));
@@ -406,6 +419,7 @@ export async function getOpenersForParentCampaignCursor(
   parentCampaignId: string,
   limit: number,
   afterId?: string,
+  includeTemporarilySuppressed = false,
 ): Promise<Subscriber[]> {
   // Subscribers table has no `unsubscribed` boolean — suppression is encoded
   // via `suppressed_until` (cooling-off period) and the BCK tag for
@@ -416,7 +430,13 @@ export async function getOpenersForParentCampaignCursor(
     JOIN subscribers s ON s.id = cs.subscriber_id
     WHERE cs.campaign_id = $1
       AND cs.first_open_at IS NOT NULL
-      AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW())
+      ${includeTemporarilySuppressed
+        ? `AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW() OR EXISTS (
+             SELECT 1 FROM subscriber_risk_profiles srp
+             WHERE srp.subscriber_id=s.id
+               AND srp.last_detection_at >= NOW()-INTERVAL '15 days'
+           ))`
+        : "AND (s.suppressed_until IS NULL OR s.suppressed_until <= NOW())"}
       AND NOT ('BCK' = ANY(s.tags))
   `;
   if (afterId) {

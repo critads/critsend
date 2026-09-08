@@ -43,6 +43,7 @@ import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
 import { TagSuggestionsButton } from "@/components/campaign-wizard/tag-suggestions";
 import { SegmentSuggestions } from "@/components/campaign-wizard/segment-suggestions";
 import { ExternalImagesAlert } from "@/components/campaign-wizard/external-images-alert";
+import { OrangeWanadooRiskSummary } from "@/components/orange-wanadoo-risk-summary";
 import {
   withBaseHref,
   steps,
@@ -1236,7 +1237,10 @@ export default function CampaignNew() {
             Step {currentStep} of {steps.length}
           </CardDescription>
         </CardHeader>
-        <CardContent>{renderStepContent()}</CardContent>
+        <CardContent className="space-y-6">
+          {campaignId && <OrangeWanadooRiskSummary campaignId={campaignId} />}
+          {renderStepContent()}
+        </CardContent>
       </Card>
 
       {brandBlock && (

@@ -563,6 +563,7 @@ async function insertBatchAndMarkFirsts(
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '0'");
     await insertBatchOnClient(client, type, events);
+    if (type === "click") await reconcileRiskProfilesBestEffortOnClient(client, events);
     await client.query("COMMIT");
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch { /* swallow */ }
@@ -609,7 +610,8 @@ async function insertBatchAndBumpCounters(
 ): Promise<void> {
   if (events.length === 0) return;
   const client = await flushPool.connect();
-  let newPairsByCampaign = new Map<string, number>();
+    let newPairsByCampaign = new Map<string, number>();
+    let orangeWanadooPairsByCampaign = new Map<string, number>();
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL lock_timeout = '0'");
@@ -676,6 +678,7 @@ async function insertBatchAndBumpCounters(
     await insertBatchOnClient(client, type, events);
     if (type === "complaint") {
       await applyComplaintIpSuppressionsOnClient(client, events);
+      await reconcileRiskProfilesBestEffortOnClient(client, events);
     }
 
     // Build the per-campaign unique delta from ONLY first-time pairs. The
@@ -686,6 +689,30 @@ async function insertBatchAndBumpCounters(
       if (alreadyCounted.has(pair.key)) continue;
       newPairsByCampaign.set(pair.cid, (newPairsByCampaign.get(pair.cid) ?? 0) + 1);
     }
+    if (type === "complaint") {
+      const complaintIpKeys = new Set(
+        events
+          .filter((event) => COMPLAINT_IPS.has(event.ctx?.ipAddress || ""))
+          .map((event) => `${event.campaignId}|${event.subscriberId}`),
+      );
+      const candidateIds = batchPairs
+        .filter((pair) => !alreadyCounted.has(pair.key) && complaintIpKeys.has(pair.key))
+        .map((pair) => pair.sid);
+      if (candidateIds.length > 0) {
+        const target = await client.query<{ id: string }>(
+          `SELECT id FROM subscribers
+           WHERE id = ANY($1::varchar[])
+             AND lower(split_part(email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')`,
+          [candidateIds],
+        );
+        const targetIds = new Set(target.rows.map((row) => row.id));
+        for (const pair of batchPairs) {
+          if (!alreadyCounted.has(pair.key) && complaintIpKeys.has(pair.key) && targetIds.has(pair.sid)) {
+            orangeWanadooPairsByCampaign.set(pair.cid, (orangeWanadooPairsByCampaign.get(pair.cid) ?? 0) + 1);
+          }
+        }
+      }
+    }
 
     await client.query("COMMIT");
   } catch (err) {
@@ -695,9 +722,71 @@ async function insertBatchAndBumpCounters(
   }
 
   if (newPairsByCampaign.size > 0) {
-    accumulateUnsubComplaintDeltas(type, newPairsByCampaign);
+    accumulateUnsubComplaintDeltas(type, newPairsByCampaign, orangeWanadooPairsByCampaign);
   }
   client.release();
+}
+
+/** Recompute only subscribers touched by this flush; never runs during audience enumeration. */
+async function reconcileRiskProfilesOnClient(
+  client: import("pg").PoolClient,
+  events: BaseEvent[],
+): Promise<void> {
+  const ids = [...new Set(events.map((event) => event.subscriberId))];
+  if (ids.length === 0) return;
+  await client.query(
+    `WITH target AS (
+       SELECT id FROM subscribers
+       WHERE id = ANY($1::varchar[])
+         AND lower(split_part(email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+     ), agg AS (
+       SELECT t.id AS subscriber_id,
+         MIN(cs.timestamp) FILTER (WHERE cs.ip_address = $2 AND cs.type IN ('open','complaint')) AS first_detection_at,
+         MAX(cs.timestamp) FILTER (WHERE cs.ip_address = $2 AND cs.type IN ('open','complaint')) AS last_detection_at,
+         COUNT(*) FILTER (WHERE cs.ip_address = $2 AND cs.type IN ('open','complaint') AND cs.timestamp >= NOW()-INTERVAL '7 days')::int AS d7,
+         COUNT(*) FILTER (WHERE cs.ip_address = $2 AND cs.type IN ('open','complaint') AND cs.timestamp >= NOW()-INTERVAL '15 days')::int AS d15,
+         COUNT(*) FILTER (WHERE cs.ip_address = $2 AND cs.type IN ('open','complaint') AND cs.timestamp >= NOW()-INTERVAL '30 days')::int AS d30,
+         COUNT(DISTINCT cs.campaign_id) FILTER (WHERE cs.type='click' AND cs.timestamp >= NOW()-INTERVAL '30 days')::int AS c30,
+         COUNT(DISTINCT cs.campaign_id) FILTER (WHERE cs.type='click' AND cs.timestamp >= NOW()-INTERVAL '90 days')::int AS c90
+       FROM target t LEFT JOIN campaign_stats cs ON cs.subscriber_id=t.id
+         AND cs.timestamp >= NOW()-INTERVAL '90 days'
+       GROUP BY t.id
+     )
+     INSERT INTO subscriber_risk_profiles (
+       subscriber_id, first_detection_at, last_detection_at, detections_7d,
+       detections_15d, detections_30d, distinct_clicked_campaigns_30d,
+       distinct_clicked_campaigns_90d, updated_at
+     )
+     SELECT subscriber_id, first_detection_at, last_detection_at, d7, d15, d30, c30, c90, NOW() FROM agg
+     ON CONFLICT (subscriber_id) DO UPDATE SET
+       first_detection_at=EXCLUDED.first_detection_at,
+       last_detection_at=EXCLUDED.last_detection_at,
+       detections_7d=EXCLUDED.detections_7d,
+       detections_15d=EXCLUDED.detections_15d,
+       detections_30d=EXCLUDED.detections_30d,
+       distinct_clicked_campaigns_30d=EXCLUDED.distinct_clicked_campaigns_30d,
+       distinct_clicked_campaigns_90d=EXCLUDED.distinct_clicked_campaigns_90d,
+       updated_at=NOW()`,
+    [ids, [...COMPLAINT_IPS][0]],
+  );
+}
+
+// Profile data is derived convenience state. Never let a missing table during
+// asynchronous bootstrap, or a profile-query timeout, roll back the raw click
+// / complaint event (nor the complaint suppression in the enclosing txn).
+async function reconcileRiskProfilesBestEffortOnClient(
+  client: import("pg").PoolClient,
+  events: BaseEvent[],
+): Promise<void> {
+  await client.query("SAVEPOINT risk_profile_update");
+  try {
+    await reconcileRiskProfilesOnClient(client, events);
+    await client.query("RELEASE SAVEPOINT risk_profile_update");
+  } catch (err: any) {
+    await client.query("ROLLBACK TO SAVEPOINT risk_profile_update");
+    await client.query("RELEASE SAVEPOINT risk_profile_update");
+    logger.warn(`[TRACKING BUFFER] risk profile update skipped; raw tracking event retained: ${err?.message || err}`);
+  }
 }
 
 /**
@@ -1135,6 +1224,7 @@ interface CampaignCounterDeltas {
 }
 
 const pendingCounterDeltas = new Map<string, CampaignCounterDeltas>();
+const pendingOrangeWanadooComplaintDeltas = new Map<string, number>();
 let counterCoalesceTimer: NodeJS.Timeout | null = null;
 
 function ensureDelta(campaignId: string): CampaignCounterDeltas {
@@ -1181,12 +1271,23 @@ function accumulateCounterDeltas(
 function accumulateUnsubComplaintDeltas(
   type: "unsubscribe" | "complaint",
   deltaByCampaign: Map<string, number>,
+  orangeWanadooByCampaign: Map<string, number> = new Map(),
 ): void {
   for (const [cid, delta] of deltaByCampaign) {
     if (delta <= 0) continue;
     const d = ensureDelta(cid);
     if (type === "unsubscribe") d.unsubscribes += delta;
-    else d.complaints += delta;
+    else {
+      d.complaints += delta;
+    }
+  }
+  if (type === "complaint") {
+    for (const [cid, delta] of orangeWanadooByCampaign) {
+      pendingOrangeWanadooComplaintDeltas.set(
+        cid,
+        (pendingOrangeWanadooComplaintDeltas.get(cid) ?? 0) + delta,
+      );
+    }
   }
 }
 
@@ -1213,13 +1314,22 @@ async function flushCoalescedCounters(): Promise<void> {
            total_clicks_count  = c.total_clicks_count  + v.d_total_clicks,
            unique_clicks_count = c.unique_clicks_count + v.d_unique_clicks,
            unsubscribes_count  = c.unsubscribes_count  + v.d_unsubs,
-           complaints_count    = c.complaints_count    + v.d_complaints
+            complaints_count    = c.complaints_count    + v.d_complaints
       FROM (VALUES ${placeholders.join(", ")})
         AS v(campaign_id, d_total_opens, d_unique_opens, d_total_clicks, d_unique_clicks, d_unsubs, d_complaints)
      WHERE c.id = v.campaign_id
   `;
   try {
     await flushPool.query(sql, values);
+    const orangeSnapshot = new Map(pendingOrangeWanadooComplaintDeltas);
+    pendingOrangeWanadooComplaintDeltas.clear();
+    for (const [campaignId, delta] of orangeSnapshot) {
+      await flushPool.query(
+        `UPDATE campaigns SET orange_wanadoo_complaints_count =
+           orange_wanadoo_complaints_count + $2 WHERE id=$1`,
+        [campaignId, delta],
+      );
+    }
   } catch (err: any) {
     logger.warn(
       `[TRACKING BUFFER] coalesced counter flush failed (reconciler will fill): ${err?.message || err}`,

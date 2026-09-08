@@ -24,6 +24,176 @@ import {
   COMPLAINT_IP_SUPPRESSION_DAYS,
 } from "../config/suppression";
 
+// Task #282: rolling windows must age out even when no new click/complaint
+// arrives. This intentionally runs off the request/startup path. A
+// transaction-scoped advisory lock elects one refresher across processes;
+// unlike session locks it is safe with transaction-pooling proxies.
+const RISK_PROFILE_REFRESH_LOCK = 900027;
+const RISK_PROFILE_REFRESH_MS = 15 * 60 * 1000;
+const RISK_SCHEMA_RETRY_DELAYS_MS = [2_000, 10_000, 30_000, 120_000, 300_000];
+
+async function ensureOrangeWanadooRiskSchema(): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const lock = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_xact_lock($1) AS acquired",
+      [RISK_PROFILE_REFRESH_LOCK],
+    );
+    if (!lock.rows[0]?.acquired) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS subscriber_risk_profiles (
+        subscriber_id varchar PRIMARY KEY REFERENCES subscribers(id) ON DELETE CASCADE,
+        last_detection_at timestamp,
+        first_detection_at timestamp,
+        detections_7d integer NOT NULL DEFAULT 0,
+        detections_15d integer NOT NULL DEFAULT 0,
+        detections_30d integer NOT NULL DEFAULT 0,
+        distinct_clicked_campaigns_30d integer NOT NULL DEFAULT 0,
+        distinct_clicked_campaigns_90d integer NOT NULL DEFAULT 0,
+        updated_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS subscriber_risk_profiles_last_detection_idx
+      ON subscriber_risk_profiles(last_detection_at)
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS orange_wanadoo_risk_audit (
+        campaign_id varchar NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        batch_cursor varchar NOT NULL,
+        mode text NOT NULL,
+        counts_by_tier jsonb NOT NULL,
+        would_block_count integer NOT NULL DEFAULT 0,
+        created_at timestamp NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (campaign_id, batch_cursor)
+      )
+    `);
+    await client.query("COMMIT");
+    logger.info("[TRACKING] Orange/Wanadoo risk profile schema ready; rolling reconciliation is scheduled");
+    return true;
+  } catch (error: any) {
+    try { await client.query("ROLLBACK"); } catch { /* no active transaction */ }
+    logger.warn(`[TRACKING] Orange/Wanadoo schema bootstrap deferred: ${error?.message || error}`);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+function scheduleOrangeWanadooRiskSchemaBootstrap(attempt = 0): void {
+  const delay = RISK_SCHEMA_RETRY_DELAYS_MS[Math.min(attempt, RISK_SCHEMA_RETRY_DELAYS_MS.length - 1)];
+  const timer = setTimeout(async () => {
+    const ready = await ensureOrangeWanadooRiskSchema().catch((error) => {
+      logger.warn(`[TRACKING] Orange/Wanadoo schema bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    });
+    if (!ready) scheduleOrangeWanadooRiskSchemaBootstrap(attempt + 1);
+  }, delay);
+  timer.unref();
+}
+
+scheduleOrangeWanadooRiskSchemaBootstrap();
+
+export async function refreshOrangeWanadooRiskProfiles(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const lock = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_xact_lock($1) AS acquired",
+      [RISK_PROFILE_REFRESH_LOCK],
+    );
+    if (!lock.rows[0]?.acquired) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    await client.query(`
+      WITH candidates AS (
+        SELECT id FROM (
+          (SELECT s.id, 0 AS priority
+             FROM subscribers s
+             JOIN campaign_stats cs ON cs.subscriber_id=s.id
+             LEFT JOIN subscriber_risk_profiles p ON p.subscriber_id=s.id
+            WHERE p.subscriber_id IS NULL
+              AND lower(split_part(s.email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+              AND cs.timestamp >= NOW()-INTERVAL '30 days'
+              AND cs.ip_address=$1 AND cs.type IN ('open','complaint')
+            GROUP BY s.id LIMIT 1000)
+          UNION ALL
+          (SELECT subscriber_id AS id, 1 AS priority
+             FROM subscriber_risk_profiles
+            ORDER BY updated_at ASC NULLS FIRST LIMIT 1000)
+        ) chosen
+        GROUP BY id ORDER BY MIN(priority), id LIMIT 2000
+      ),
+      detections AS (
+        SELECT cs.subscriber_id,
+          MIN(cs.timestamp) AS first_detection_at, MAX(cs.timestamp) AS last_detection_at,
+          COUNT(*) FILTER (WHERE cs.timestamp >= NOW() - INTERVAL '7 days')::int AS d7,
+          COUNT(*) FILTER (WHERE cs.timestamp >= NOW() - INTERVAL '15 days')::int AS d15,
+          COUNT(*) FILTER (WHERE cs.timestamp >= NOW() - INTERVAL '30 days')::int AS d30
+        FROM campaign_stats cs JOIN candidates t ON t.id = cs.subscriber_id
+        WHERE cs.timestamp >= NOW() - INTERVAL '90 days'
+          AND cs.ip_address = $1 AND cs.type IN ('open', 'complaint')
+        GROUP BY cs.subscriber_id
+      ),
+      clicks AS (
+        SELECT cs.subscriber_id,
+          COUNT(DISTINCT cs.campaign_id) FILTER (WHERE cs.timestamp >= NOW() - INTERVAL '30 days')::int AS c30,
+          COUNT(DISTINCT cs.campaign_id)::int AS c90
+        FROM campaign_stats cs JOIN candidates t ON t.id = cs.subscriber_id
+        WHERE cs.timestamp >= NOW() - INTERVAL '90 days' AND cs.type = 'click'
+        GROUP BY cs.subscriber_id
+      )
+      , upserted AS (
+        INSERT INTO subscriber_risk_profiles (
+          subscriber_id, first_detection_at, last_detection_at, detections_7d,
+          detections_15d, detections_30d, distinct_clicked_campaigns_30d,
+          distinct_clicked_campaigns_90d, updated_at
+        )
+        SELECT t.id, d.first_detection_at, d.last_detection_at,
+          COALESCE(d.d7,0), COALESCE(d.d15,0), COALESCE(d.d30,0),
+          COALESCE(c.c30,0), COALESCE(c.c90,0), NOW()
+        FROM candidates t
+        LEFT JOIN detections d ON d.subscriber_id=t.id
+        LEFT JOIN clicks c ON c.subscriber_id=t.id
+        WHERE d.subscriber_id IS NOT NULL OR c.subscriber_id IS NOT NULL
+        ON CONFLICT (subscriber_id) DO UPDATE SET
+          first_detection_at=EXCLUDED.first_detection_at, last_detection_at=EXCLUDED.last_detection_at,
+          detections_7d=EXCLUDED.detections_7d, detections_15d=EXCLUDED.detections_15d,
+          detections_30d=EXCLUDED.detections_30d,
+          distinct_clicked_campaigns_30d=EXCLUDED.distinct_clicked_campaigns_30d,
+          distinct_clicked_campaigns_90d=EXCLUDED.distinct_clicked_campaigns_90d, updated_at=NOW()
+        RETURNING subscriber_id
+      )
+      DELETE FROM subscriber_risk_profiles p
+      USING candidates t
+      WHERE p.subscriber_id=t.id
+        AND NOT EXISTS (
+          SELECT 1 FROM detections d WHERE d.subscriber_id=t.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM clicks c WHERE c.subscriber_id=t.id
+        )
+    `, [COMPLAINT_IP]);
+    await client.query("COMMIT");
+    logger.info("[TRACKING] Orange/Wanadoo risk profiles reconciled");
+  } catch (err: any) {
+    try { await client.query("ROLLBACK"); } catch { /* no active transaction */ }
+    logger.error(`[TRACKING] Orange/Wanadoo scheduled profile reconciliation failed: ${err?.message || err}`);
+  } finally {
+    client.release();
+  }
+}
+setTimeout(() => {
+  void refreshOrangeWanadooRiskProfiles();
+  const timer = setInterval(() => void refreshOrangeWanadooRiskProfiles(), RISK_PROFILE_REFRESH_MS);
+  timer.unref();
+}, 15 * 60 * 1000).unref();
+
 (async () => {
   await withAdvisoryLock(
     LOCK_KEYS.TRACKING_BOOTSTRAP,

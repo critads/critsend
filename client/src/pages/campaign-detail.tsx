@@ -35,6 +35,7 @@ import type { Campaign, CampaignWithSendState, Mta, Segment } from "@shared/sche
 import { CampaignProgress, computeProgressBreakdown } from "@/components/campaign-progress";
 import { formatParisDateTime } from "@/lib/paris-time";
 import { campaignActionErrorMessage } from "@/lib/campaign-wizard";
+import { OrangeWanadooRiskSummary } from "@/components/orange-wanadoo-risk-summary";
 
 interface SnowballStatus {
   deferred: number;
@@ -490,6 +491,8 @@ export default function CampaignDetail() {
           />
         </CardContent>
       </Card>
+
+      <OrangeWanadooRiskSummary campaignId={campaignId} />
 
       <StepPauseResults campaign={campaign} />
 
