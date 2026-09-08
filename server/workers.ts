@@ -744,7 +744,17 @@ async function handleJobCompletion(job: CampaignJob) {
       if (Date.now() < retryDeadline.getTime()) {
         const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
         await storage.completeJob(job.id, "failed", `Campaign failed - scheduling retry #${jobRetryCount + 1}`);
-        await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
+        const stillFailed = await storage.updateCampaignStatusAtomic(
+          job.campaignId,
+          "sending",
+          "failed",
+        );
+        if (!stillFailed) {
+          logger.info(
+            `[JOB_POLL] Campaign ${job.campaignId} changed state during completion handling; skipping replay`,
+          );
+          return;
+        }
         await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
         logger.info(`[JOB_POLL] Campaign ${job.campaignId} failed - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s (deadline: ${retryDeadline.toISOString()})`);
       } else {
@@ -840,7 +850,17 @@ async function handleJobError(job: CampaignJob, error: any) {
       const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
       try {
         await storage.completeJob(job.id, "failed", `Transient DB error [${errMeta}]: ${errMsg} - requeuing in ${backoffSeconds}s`);
-        await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
+        const stillSending = await storage.updateCampaignStatusAtomic(
+          job.campaignId,
+          "sending",
+          "sending",
+        );
+        if (!stillSending) {
+          logger.info(
+            `[JOB_POLL] Campaign ${job.campaignId} changed state during transient error handling; skipping replay`,
+          );
+          return;
+        }
         await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
         logger.warn(`[JOB_POLL] Campaign ${job.campaignId} hit transient DB error - requeued in ${backoffSeconds}s (retry #${jobRetryCount + 1}) [${errMeta}]: ${errMsg}`);
         return;
@@ -853,7 +873,17 @@ async function handleJobError(job: CampaignJob, error: any) {
       const backoffSeconds = Math.min(30 * Math.pow(2, jobRetryCount), 15 * 60);
       try {
         await storage.completeJob(job.id, "failed", `Error [${errMeta}]: ${errMsg} - scheduling retry #${jobRetryCount + 1}`);
-        await storage.updateCampaign(job.campaignId, { status: "sending", pauseReason: null });
+        const stillSending = await storage.updateCampaignStatusAtomic(
+          job.campaignId,
+          "sending",
+          "sending",
+        );
+        if (!stillSending) {
+          logger.info(
+            `[JOB_POLL] Campaign ${job.campaignId} changed state during error handling; skipping replay`,
+          );
+          return;
+        }
         await storage.enqueueCampaignJobWithRetry(job.campaignId, jobRetryCount + 1, backoffSeconds);
         logger.info(`[JOB_POLL] Campaign ${job.campaignId} error - retry #${jobRetryCount + 1} scheduled in ${backoffSeconds}s [${errMeta}]`);
       } catch (retryErr) {

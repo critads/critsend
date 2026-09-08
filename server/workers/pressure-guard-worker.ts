@@ -53,6 +53,7 @@ import type { Campaign, Mta, Subscriber } from "@shared/schema";
 import crypto from "crypto";
 import { classifyAudienceBatch } from "../services/orange-wanadoo-risk";
 import { completePressureHeldCampaignsPastDeadline } from "../repositories/campaign-repository";
+import { FALSE_FAILED_RECOVERY_PAUSE_REASON } from "@shared/campaign-remediation";
 
 // Task #149: stable per-process holder ID for lease-based leader election.
 // Used to recognise our own lease rows when reclaiming an expired lease
@@ -1205,7 +1206,11 @@ export async function drainCampaign(campaignId: string): Promise<void> {
        WHERE id = $1
          AND (
            status = 'sending'
-           OR (status = 'paused' AND pause_reason IS DISTINCT FROM 'step_limit')
+            OR (
+              status = 'paused'
+              AND pause_reason IS DISTINCT FROM 'step_limit'
+              AND pause_reason IS DISTINCT FROM $4
+            )
          )
          AND (
            NOT $2::boolean
@@ -1216,7 +1221,12 @@ export async function drainCampaign(campaignId: string): Promise<void> {
            )
          )
        FOR UPDATE`,
-      [campaignId, campaignDeadlineForce, CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS],
+       [
+         campaignId,
+         campaignDeadlineForce,
+         CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS,
+         FALSE_FAILED_RECOVERY_PAUSE_REASON,
+       ],
     );
     if ((campaignGate.rowCount ?? 0) === 0) {
       await client.query("ROLLBACK");

@@ -146,7 +146,9 @@ export async function claimNextJob(workerId: string): Promise<CampaignJob | null
     WHERE id = (
       SELECT cj.id FROM campaign_jobs cj
       LEFT JOIN campaigns c ON c.id = cj.campaign_id
-      WHERE cj.status = 'pending' AND (cj.next_retry_at IS NULL OR cj.next_retry_at <= NOW())
+      WHERE cj.status = 'pending'
+        AND c.status = 'sending'
+        AND (cj.next_retry_at IS NULL OR cj.next_retry_at <= NOW())
       ORDER BY
         -- 1) aged (starved) jobs ahead of the created_at FIFO
         (cj.created_at <= NOW() - (INTERVAL '1 minute' * ${JOB_FAIRNESS_PROMOTE_MIN})) DESC,
