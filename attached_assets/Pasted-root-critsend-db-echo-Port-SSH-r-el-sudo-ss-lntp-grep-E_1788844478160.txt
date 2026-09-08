@@ -1,0 +1,134 @@
+root@critsend-db ~ # echo "=== Port SSH réel ==="
+sudo ss -lntp | grep -E 'sshd|ssh' || true
+
+echo "=== Configuration SSH ==="
+sudo sshd -T | grep -E '^(port|listenaddress|passwordauthentication|pubkeyauthentication) '
+
+echo "=== UFW ==="
+sudo ufw status verbose 2>/dev/null || true
+
+echo "=== Pare-feu nftables ==="
+sudo nft list ruleset 2>/dev/null \
+  | grep -Ei 'tcp dport|drop|reject|accept' \
+  | head -n 100
+=== Port SSH réel ===
+=== Configuration SSH ===
+Missing privilege separation directory: /run/sshd
+=== UFW ===
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+5432/tcp                   ALLOW IN    37.27.117.222              # App->Postgres
+6432/tcp                   ALLOW IN    37.27.117.222              # App->PgBouncer
+Anywhere on tailscale0     ALLOW IN    Anywhere                   # Tailscale
+41641/udp                  ALLOW IN    Anywhere                   # Tailscale direct
+5432/tcp on wg0            ALLOW IN    10.66.0.1                  # AI Gateway -> PostgreSQL
+Anywhere (v6) on tailscale0 ALLOW IN    Anywhere (v6)              # Tailscale
+41641/udp (v6)             ALLOW IN    Anywhere (v6)              # Tailscale direct
+
+=== Pare-feu nftables ===
+		iifname "lo" counter packets 4716 bytes 604752 accept
+		ct state related,established counter packets 12664060095 bytes 62025340075000 accept
+		ct state invalid counter packets 6656 bytes 341565 drop
+		ip protocol icmp icmp type destination-unreachable counter packets 0 bytes 0 accept
+		ip protocol icmp icmp type time-exceeded counter packets 0 bytes 0 accept
+		ip protocol icmp icmp type parameter-problem counter packets 0 bytes 0 accept
+		ip protocol icmp icmp type echo-request counter packets 72678 bytes 4442761 accept
+		udp sport 67 udp dport 68 counter packets 0 bytes 0 accept
+		ip daddr 224.0.0.251 udp dport 5353 counter packets 0 bytes 0 accept
+		ip daddr 239.255.255.250 udp dport 1900 counter packets 0 bytes 0 accept
+		oifname "lo" counter packets 4716 bytes 604752 accept
+		ct state related,established counter packets 13632099544 bytes 95804710408168 accept
+		ct state related,established counter packets 0 bytes 0 accept
+		ip protocol icmp icmp type destination-unreachable counter packets 0 bytes 0 accept
+		ip protocol icmp icmp type time-exceeded counter packets 0 bytes 0 accept
+		ip protocol icmp icmp type parameter-problem counter packets 0 bytes 0 accept
+		ip protocol icmp icmp type echo-request counter packets 0 bytes 0 accept
+		tcp dport 139 counter packets 1088 bytes 53188 jump ufw-skip-to-policy-input
+		tcp dport 445 counter packets 10951 bytes 557820 jump ufw-skip-to-policy-input
+	chain ufw-reject-input {
+	chain ufw-reject-output {
+	chain ufw-reject-forward {
+		ip protocol tcp ct state new counter packets 61 bytes 3660 accept
+		ip protocol udp ct state new counter packets 37927 bytes 2998858 accept
+		type filter hook input priority filter; policy drop;
+		counter packets 2470308 bytes 128752012 jump ufw-reject-input
+		type filter hook output priority filter; policy accept;
+		counter packets 56690 bytes 4464729 jump ufw-reject-output
+		type filter hook forward priority filter; policy drop;
+		counter packets 0 bytes 0 jump ufw-reject-forward
+		counter packets 617299 bytes 188129615 drop
+		counter packets 0 bytes 0 accept
+		counter packets 0 bytes 0 drop
+		counter packets 0 bytes 0 drop
+		ip saddr 37.27.117.222 tcp dport 5432 counter packets 1899988 bytes 113999280 accept
+		ip saddr 37.27.117.222 tcp dport 6432 counter packets 0 bytes 0 accept
+		iifname "tailscale0" counter packets 0 bytes 0 accept
+		udp dport 41641 counter packets 0 bytes 0 accept
+		ip saddr 10.66.0.1 iifname "wg0" tcp dport 5432 counter packets 31 bytes 1860 accept
+		counter packets 0 bytes 0 reject
+	chain ufw-user-limit-accept {
+		counter packets 0 bytes 0 accept
+		ip saddr 100.127.120.53 iifname "lo" counter packets 0 bytes 0 accept
+		iifname "tailscale0" counter packets 0 bytes 0 accept
+		udp dport 41641 counter packets 35697 bytes 5015526 accept
+		ip saddr 100.64.0.0/10 iifname != "tailscale0" counter packets 695 bytes 239522 drop
+		meta mark & 0x00ff0000 == 0x00040000 counter packets 0 bytes 0 accept
+		ip saddr 100.64.0.0/10 oifname "tailscale0" counter packets 0 bytes 0 drop
+		oifname "tailscale0" counter packets 0 bytes 0 accept
+		iifname "lo" counter packets 1205 bytes 145748 accept
+		rt type 0 counter packets 0 bytes 0 drop
+		ct state related,established counter packets 4757078 bytes 2187535676 accept
+		meta l4proto ipv6-icmp icmpv6 type echo-reply counter packets 0 bytes 0 accept
+		ct state invalid counter packets 0 bytes 0 drop
+		meta l4proto ipv6-icmp icmpv6 type destination-unreachable counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type packet-too-big counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type time-exceeded counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type parameter-problem counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type echo-request counter packets 1073 bytes 57896 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-router-solicit ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-router-advert ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 counter packets 31 bytes 2232 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-neighbor-advert ip6 hoplimit 255 counter packets 141400 bytes 9049600 accept
+		meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp icmpv6 type mld-listener-query counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp icmpv6 type mld-listener-report counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp icmpv6 type mld-listener-done counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp xt match "icmp6" counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 1 counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 1 counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 1 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 ip6 daddr fe80::/10 udp sport 547 udp dport 546 counter packets 0 bytes 0 accept
+		ip6 daddr ff02::fb udp dport 5353 counter packets 0 bytes 0 accept
+		ip6 daddr ff02::f udp dport 1900 counter packets 0 bytes 0 accept
+		oifname "lo" counter packets 1205 bytes 145748 accept
+		rt type 0 counter packets 0 bytes 0 drop
+		ct state related,established counter packets 2920322 bytes 15540587769 accept
+		meta l4proto ipv6-icmp icmpv6 type destination-unreachable counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type packet-too-big counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type time-exceeded counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type parameter-problem counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type echo-request counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type echo-reply counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-router-solicit ip6 hoplimit 255 counter packets 1656 bytes 92736 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-neighbor-advert ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-neighbor-solicit ip6 hoplimit 255 counter packets 141400 bytes 10180800 accept
+		meta l4proto ipv6-icmp icmpv6 type nd-router-advert ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp xt match "icmp6" ip6 hoplimit 255 counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp icmpv6 type mld-listener-query counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp icmpv6 type mld-listener-report counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp icmpv6 type mld-listener-done counter packets 0 bytes 0 accept
+		ip6 saddr fe80::/10 meta l4proto ipv6-icmp xt match "icmp6" counter packets 2 bytes 192 accept
+root@critsend-db ~ # 
