@@ -32,6 +32,7 @@ import { registerPmtaRoutes } from "./routes/pmta";
 import { registerApiKeyRoutes } from "./routes/api-keys";
 import { ensureCampaignSegmentsSchema } from "./campaign-segments-bootstrap";
 import { ensureSegmentExclusionsSchema } from "./segment-exclusions-bootstrap";
+import { ensureCampaignWarmStartSchema } from "./campaign-warm-start-bootstrap";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -39,6 +40,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   await ensureCampaignSegmentsSchema();
   await ensureSegmentExclusionsSchema();
+  await ensureCampaignWarmStartSchema();
 
   const generalLimiter = rateLimit({
     windowMs: 60 * 1000,

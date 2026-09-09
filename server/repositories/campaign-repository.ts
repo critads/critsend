@@ -412,6 +412,7 @@ export async function getCampaignsPaginated(opts: {
       stepSendLimit: campaigns.stepSendLimit,
       stepProcessedCount: campaigns.stepProcessedCount,
       stepCursorId: campaigns.stepCursorId,
+      prioritizeActiveClickers: campaigns.prioritizeActiveClickers,
       createdAt: campaigns.createdAt,
       startedAt: campaigns.startedAt,
       completedAt: campaigns.completedAt,
@@ -981,17 +982,28 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     startedAt,
     completedAt,
     firstSendAt: _fsa,
-    lastSendAt: _lsa,
-    sentCount,
-    pendingCount,
-    failedCount,
-    autoRetryCount: _arc,
+    lastSendAt: _lastSend,
+    sentCount: _sent,
+    pendingCount: _pending,
+    failedCount: _failed,
+    autoRetryCount: _autoRetry,
     totalOpensCount: _toc,
     uniqueOpensCount: _uoc,
     totalClicksCount: _tcc,
     uniqueClicksCount: _ucc,
     unsubscribesCount: _uc,
     complaintsCount: _cc,
+    orangeWanadooSentCount: _owSent,
+    orangeWanadooComplaintsCount: _owComplaints,
+    deferredCount: _dc,
+    skippedPressureCount: _spc,
+    snowballThrottledCount: _stc,
+    agedForcedCount: _afc,
+    pauseReason: _pause,
+    retryUntil: _retry,
+    stepProcessedCount: _stepCount,
+    stepCursorId: _stepCursor,
+    stepExecutionVersion: _stepExecutionVersion,
     parentCampaignId: _p,
     followUpCampaignId: _fc,
     followUpScheduledAt: _fs,
@@ -1000,6 +1012,14 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     // pressure-guard mode and the operator can re-enable urgent on the
     // new campaign explicitly if needed.
     urgentMode: _um,
+    urgentFlushJobId: _ufj,
+    warmEngagementCutoff: _wec,
+    warmEligibleCount: _we,
+    warmClickerCount: _wc,
+    warmCap: _wcap,
+    warmPhase: _wp,
+    warmCursorId: _wcursor,
+    warmAudienceExhaustedAt: _warmAudienceExhaustedAt,
     // A copy must not inherit the original's schedule — default it to the
     // moment of the copy (operator request 2026-08-09).
     scheduledAt: _sched,
@@ -1332,19 +1352,25 @@ export async function decrementCampaignPendingCount(campaignId: string, decremen
 }
 
 export async function updateCampaignStatusAtomic(campaignId: string, newStatus: string, expectedStatus?: string): Promise<boolean> {
-  let result;
-  if (expectedStatus) {
-    result = await db.execute(sql`
+  const changed = await db.transaction(async (tx) => {
+    let result;
+    if (expectedStatus) {
+      result = await tx.execute(sql`
       UPDATE campaigns SET status = ${newStatus}
       WHERE id = ${campaignId} AND status = ${expectedStatus}
       RETURNING id
-    `);
-  } else {
-    result = await db.execute(sql`
+      `);
+    } else {
+      result = await tx.execute(sql`
       UPDATE campaigns SET status = ${newStatus} WHERE id = ${campaignId} RETURNING id
-    `);
-  }
-  const changed = result.rows.length > 0;
+      `);
+    }
+    const didChange = result.rows.length > 0;
+    if (didChange && ["completed", "sent", "cancelled"].includes(newStatus)) {
+      await tx.execute(sql`DELETE FROM campaign_warm_recipients WHERE campaign_id=${campaignId}`);
+    }
+    return didChange;
+  });
   // Only fan out when a status actually flipped — keeps the cache alive when
   // a CAS loses (no-op) but drops it on every real transition.
   if (changed) publishCampaignsListInvalidation();
@@ -1386,6 +1412,7 @@ export async function completePressureHeldCampaignsPastDeadline(
       SELECT c.id
       FROM campaigns c
       WHERE c.status = 'sending'
+        AND (NOT c.prioritize_active_clickers OR c.warm_audience_exhausted_at IS NOT NULL)
         AND c.first_send_at IS NOT NULL
         AND c.first_send_at <= NOW() - (${maxSendingHours}::numeric || ' hours')::interval
         AND EXISTS (
@@ -1478,6 +1505,7 @@ export async function completePressureHeldCampaignsPastDeadline(
             urgent_flush_job_id = NULL
         WHERE id = ${row.id}
           AND status = 'sending'
+          AND (NOT prioritize_active_clickers OR warm_audience_exhausted_at IS NOT NULL)
           AND NOT EXISTS (
             SELECT 1
             FROM campaign_sends
@@ -1493,6 +1521,9 @@ export async function completePressureHeldCampaignsPastDeadline(
         RETURNING id
       `);
       if (campaignUpdate.rows.length > 0) {
+        await tx.execute(sql`
+          DELETE FROM campaign_warm_recipients WHERE campaign_id=${row.id}
+        `);
         results.push({ campaignId: row.id, terminalizedCount });
         await tx.execute(sql`RELEASE SAVEPOINT campaign_deadline_candidate`);
       } else {
@@ -1515,7 +1546,8 @@ export async function completeCampaignIfDrained(campaignId: string, maxAutoRetri
   // never retried, so they must NOT block completion — otherwise the campaign
   // stays stranded in 'sending' forever. No-op when the flag is OFF.
   const klassPredicate = zeroDupSendGuardEnabled() ? sql` AND cs.smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``;
-  const result = await db.execute(sql`
+  const changed = await db.transaction(async (tx) => {
+    const result = await tx.execute(sql`
     WITH c AS (
       SELECT auto_retry_count FROM campaigns WHERE id = ${campaignId} AND status = 'sending'
     )
@@ -1528,6 +1560,7 @@ export async function completeCampaignIfDrained(campaignId: string, maxAutoRetri
         urgent_flush_job_id = NULL
     WHERE id = ${campaignId}
       AND status = 'sending'
+      AND (NOT prioritize_active_clickers OR warm_audience_exhausted_at IS NOT NULL)
       AND NOT EXISTS (
         SELECT 1 FROM campaign_sends
         WHERE campaign_id = ${campaignId} AND status IN ('pending', 'attempting')
@@ -1539,7 +1572,10 @@ export async function completeCampaignIfDrained(campaignId: string, maxAutoRetri
       )
     RETURNING id
   `);
-  const changed = result.rows.length > 0;
+    const didChange = result.rows.length > 0;
+    if (didChange) await tx.execute(sql`DELETE FROM campaign_warm_recipients WHERE campaign_id=${campaignId}`);
+    return didChange;
+  });
   if (changed) publishCampaignsListInvalidation();
   return changed;
 }
@@ -1697,31 +1733,6 @@ export async function autoRequeueCampaignFailed(campaignId: string, newAutoRetry
   // failed → sending transition: refresh the list so the status is current.
   if (resetCount > 0) publishCampaignsListInvalidation();
   return resetCount > 0;
-}
-
-export async function resetOrphanedFailedSends(campaignId: string): Promise<number> {
-  // Zero-Duplicate Send Guard: never DELETE an ambiguous (possibly delivered)
-  // row — removing it would make the subscriber eligible for a fresh send and
-  // risk a duplicate. No-op when the flag is OFF.
-  const klassPredicate = zeroDupSendGuardEnabled() ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'` : sql``;
-  const result = await db.execute(sql`
-    WITH orphaned AS (
-      DELETE FROM campaign_sends
-      WHERE campaign_id = ${campaignId} AND status = 'failed'${klassPredicate}
-        AND retry_count = 0 AND first_open_at IS NULL AND first_click_at IS NULL
-      RETURNING id
-    ),
-    counter_update AS (
-      UPDATE campaigns
-      SET failed_count = GREATEST(failed_count - (SELECT COUNT(*) FROM orphaned), 0)
-      WHERE id = ${campaignId} AND (SELECT COUNT(*) FROM orphaned) > 0
-      RETURNING id
-    )
-    SELECT (SELECT COUNT(*) FROM orphaned) as reset_count
-  `);
-  const resetCount = Number(result.rows[0]?.reset_count ?? 0);
-  if (resetCount > 0) logger.info(`[RESUME] Deleted ${resetCount} orphaned failed sends for campaign ${campaignId}`);
-  return resetCount;
 }
 
 export async function forceFailPendingSend(campaignId: string, subscriberId: string, outcomeClass?: SmtpOutcomeClass): Promise<boolean> {

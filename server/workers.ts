@@ -217,7 +217,8 @@ async function sweepGhostCampaigns(): Promise<void> {
       reset_counters AS (
         UPDATE campaigns
         SET deferred_count = 0, pending_count = 0, sent_count = 0, failed_count = 0,
-            started_at = NULL
+            started_at = NULL,
+            step_execution_version = step_execution_version + 1
         WHERE id IN (SELECT campaign_id FROM kill_jobs)
         RETURNING id
       )
@@ -263,16 +264,22 @@ async function sweepGhostCampaigns(): Promise<void> {
               < NOW() - (INTERVAL '1 minute' * ${GHOST_SWEEP_MIN_AGE_MIN})
         FOR UPDATE OF c SKIP LOCKED
       ),
+      fence_stuck AS (
+        UPDATE campaigns
+        SET step_execution_version = step_execution_version + 1
+        WHERE id IN (SELECT id FROM stuck)
+        RETURNING id
+      ),
       kill_stale AS (
         UPDATE campaign_jobs
         SET status = 'failed', completed_at = NOW(),
             error_message = 'Ghost sweep mid-flight: stale processing job (heartbeat expired)'
-        WHERE campaign_id IN (SELECT id FROM stuck)
+        WHERE campaign_id IN (SELECT id FROM fence_stuck)
           AND status = 'processing'
         RETURNING campaign_id
       )
       INSERT INTO campaign_jobs (campaign_id, status, retry_count)
-      SELECT id, 'pending', 0 FROM stuck
+      SELECT id, 'pending', 0 FROM fence_stuck
       ON CONFLICT DO NOTHING
       RETURNING campaign_id
     `);
@@ -958,7 +965,24 @@ async function runCampaignJob(job: CampaignJob, entry: ActiveCampaignEntry) {
  * poll can claim the guardian's re-enqueued successor. The wedged DB job is
  * failed + re-enqueued separately by the stale-heartbeat campaign guardian.
  */
-function sweepWedgedActiveCampaigns(): void {
+async function fenceCampaignForReplacement(campaignId: string, promoteScheduled = false): Promise<boolean> {
+  const fenced = await db.execute(sql`
+    UPDATE campaigns
+    SET status = CASE WHEN status = 'scheduled' THEN 'sending' ELSE status END,
+        pause_reason = CASE WHEN status = 'scheduled' THEN NULL ELSE pause_reason END,
+        step_execution_version = step_execution_version + 1
+    WHERE id = ${campaignId}
+      AND (
+        status = 'sending'
+        OR (${promoteScheduled} AND status = 'scheduled')
+      )
+    RETURNING id
+  `);
+  if (fenced.rows.length > 0) publishCampaignsListInvalidation();
+  return fenced.rows.length > 0;
+}
+
+async function sweepWedgedActiveCampaigns(): Promise<void> {
   const now = Date.now();
   for (const [campaignId, entry] of activeCampaigns) {
     const stalledMs = now - entry.lastProgressAt;
@@ -968,6 +992,10 @@ function sweepWedgedActiveCampaigns(): void {
         `(job ${job_id_short(entry.jobId)}, no progress for ${Math.round(stalledMs / 1000)}s) — ` +
         `aborting and freeing slot so a successor can resume`,
       );
+      // Fence the old sender before freeing the slot. If its blocked await
+      // later resolves, every checkpoint and next-batch ownership probe uses
+      // the prior generation and must stop before publishing new progress.
+      await fenceCampaignForReplacement(campaignId);
       try { entry.abort.abort(); } catch { /* AbortController.abort never throws, defensive */ }
       activeCampaigns.delete(campaignId);
     }
@@ -1003,7 +1031,7 @@ async function pollForJobs() {
 
     // Task #199: reclaim any wedged in-memory entries before counting slots,
     // so a hung predecessor cannot permanently consume a concurrency slot.
-    sweepWedgedActiveCampaigns();
+    await sweepWedgedActiveCampaigns();
 
     while (activeCampaigns.size < MAX_CONCURRENT_CAMPAIGNS) {
       const job = await storage.claimNextJob(WORKER_ID);
@@ -1027,6 +1055,11 @@ async function pollForJobs() {
           `[JOB_POLL] Releasing wedged campaign ${job.campaignId} (prior job ${job_id_short(existing.jobId)}, ` +
           `no progress for ${Math.round(stalledMs / 1000)}s) — successor job ${job.id} taking over`,
         );
+        const fenced = await fenceCampaignForReplacement(job.campaignId);
+        if (!fenced) {
+          await storage.completeJob(job.id, "failed", "Campaign changed state before wedged-job takeover");
+          continue;
+        }
         try { existing.abort.abort(); } catch { /* never throws */ }
         activeCampaigns.delete(job.campaignId);
       }
@@ -1063,7 +1096,8 @@ async function pollForJobs() {
 async function resumeCampaignAtomic(campaignId: string, fromReason: string): Promise<boolean> {
   const flipped = await db.execute(sql`
     UPDATE campaigns
-    SET status = 'sending', pause_reason = NULL
+    SET status = 'sending', pause_reason = NULL,
+        step_execution_version = step_execution_version + 1
     WHERE id = ${campaignId} AND status = 'paused' AND pause_reason = ${fromReason}
     RETURNING id
   `);
@@ -1207,8 +1241,32 @@ async function resumeInterruptedCampaigns() {
     if (stuckCampaigns.length > 0) {
       logger.info(`[RECOVERY] Found ${stuckCampaigns.length} interrupted campaign(s) to resume`);
       for (const campaign of stuckCampaigns) {
-        logger.info(`[RECOVERY] Re-enqueuing campaign ${campaign.id} (${campaign.name})`);
-        await storage.enqueueCampaignJob(campaign.id);
+        const fenced = await db.transaction(async (tx) => {
+          const claimed = await tx.execute(sql`
+            UPDATE campaigns
+            SET step_execution_version = step_execution_version + 1
+            WHERE id = ${campaign.id}
+              AND status = 'sending'
+              AND NOT EXISTS (
+                SELECT 1 FROM campaign_jobs cj
+                WHERE cj.campaign_id = ${campaign.id}
+                  AND (
+                    cj.status IN ('pending', 'processing')
+                    OR (cj.status = 'failed' AND cj.completed_at > NOW() - INTERVAL '2 minutes')
+                  )
+              )
+            RETURNING id
+          `);
+          if (claimed.rows.length === 0) return false;
+          await tx.execute(sql`
+            INSERT INTO campaign_jobs (id, campaign_id, status)
+            VALUES (gen_random_uuid(), ${campaign.id}, 'pending')
+          `);
+          return true;
+        });
+        if (fenced) {
+          logger.info(`[RECOVERY] Fenced and re-enqueued campaign ${campaign.id} (${campaign.name})`);
+        }
       }
     }
 
@@ -1245,11 +1303,14 @@ async function resumeInterruptedCampaigns() {
           ? existingDeadline
           : new Date(nowMs + 12 * 60 * 60 * 1000);
         await storage.clearStuckJobsForCampaign(campaign.id);
-        await storage.updateCampaign(campaign.id, {
-          status: "sending",
-          pauseReason: null,
-          retryUntil: retryDeadline,
-        });
+        await db.execute(sql`
+          UPDATE campaigns
+          SET status='sending',
+              step_execution_version=step_execution_version + 1,
+              pause_reason=NULL,
+              retry_until=${retryDeadline}
+          WHERE id=${campaign.id} AND status='failed'
+        `);
         await storage.enqueueCampaignJob(campaign.id);
         logger.info(`[RECOVERY] Resumed crash-failed campaign ${campaign.id} (${campaign.name}) — retry deadline: ${retryDeadline.toISOString()}`);
       }
@@ -2054,9 +2115,7 @@ async function runCampaignGuardianPoll(): Promise<void> {
             // Covers: scheduled_past_due_no_job, sending_no_active_job,
             // mid_flight_crash. Promote scheduled→sending if needed so
             // the worker actually picks the job up.
-            if (c.status === "scheduled") {
-              await storage.updateCampaign(c.id, { status: "sending", pauseReason: null });
-            }
+            if (!await fenceCampaignForReplacement(c.id, true)) break;
             await storage.enqueueCampaignJob(c.id);
             await messageQueue.notify("campaign_jobs", { campaignId: c.id });
             logger.info(`[CAMPAIGN_GUARDIAN] Re-enqueued ${c.id} (${c.name}) [reason=${c.reason}]`);
@@ -2073,6 +2132,7 @@ async function runCampaignGuardianPoll(): Promise<void> {
                   logger.warn(`[CAMPAIGN_GUARDIAN] completeJob(${c.jobId}) failed: ${e?.message}`);
                 });
             }
+            if (!await fenceCampaignForReplacement(c.id)) break;
             const nextRetry = (c.retryCount ?? 0) + 1;
             await storage.enqueueCampaignJobWithRetry(c.id, nextRetry, 5);
             await messageQueue.notify("campaign_jobs", { campaignId: c.id });
@@ -2120,6 +2180,7 @@ async function runCampaignGuardianPoll(): Promise<void> {
                 await storage.completeJob(c.jobId, "failed",
                   `Guardian extended transient retry budget (${c.detail})`).catch(() => {});
               }
+              if (!await fenceCampaignForReplacement(c.id)) break;
               await storage.enqueueCampaignJobWithRetry(c.id, newRetryCount, MAX_BACKOFF_S);
               await messageQueue.notify("campaign_jobs", { campaignId: c.id });
               logger.warn(`[CAMPAIGN_GUARDIAN] Extended retry budget for ${c.id} (${c.name}) — last ${(c.retryCount ?? 0) + 1} failures all transient (infra), rewound retry_count to ${newRetryCount}, next attempt in ${MAX_BACKOFF_S}s`);

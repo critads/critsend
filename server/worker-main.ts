@@ -176,6 +176,8 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   const { ensureCampaignSegmentsSchema } = await import("./campaign-segments-bootstrap");
   await ensureCampaignSegmentsSchema();
+  const { ensureCampaignWarmStartSchema } = await import("./campaign-warm-start-bootstrap");
+  await ensureCampaignWarmStartSchema();
 
   // Initialize BullMQ queues for job enqueueing and processing
   initQueues();

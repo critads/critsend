@@ -291,10 +291,25 @@ export const campaigns = pgTable("campaigns", {
   //     stepSendLimit, re-pauses at next X).
   stepSendLimit: integer("step_send_limit"),
   stepProcessedCount: integer("step_processed_count").notNull().default(0),
+  // Fencing token for sender ownership. Deliberate reopen transitions bump it;
+  // crash retries that remain in `sending` retain it.
+  stepExecutionVersion: integer("step_execution_version").notNull().default(0),
   // Cursor position (last subscriber id processed) saved at auto-pause so
   // the next step resumes from where it left off rather than re-scanning from
   // the beginning.  Null means start from the beginning.
   stepCursorId: varchar("step_cursor_id", { length: 36 }),
+  // Optional two-phase audience order. Planning freezes both the click window
+  // and the selected warm-recipient IDs before any SMTP dispatch.
+  prioritizeActiveClickers: boolean("prioritize_active_clickers").notNull().default(false),
+  warmEngagementCutoff: timestamp("warm_engagement_cutoff"),
+  warmEligibleCount: integer("warm_eligible_count"),
+  warmClickerCount: integer("warm_clicker_count"),
+  warmCap: integer("warm_cap"),
+  warmPhase: text("warm_phase"),
+  warmCursorId: varchar("warm_cursor_id", { length: 36 }),
+  // Durable proof that this execution generation reached EOF in the normal
+  // audience iterator. Completion workers gate warm campaigns on this marker.
+  warmAudienceExhaustedAt: timestamp("warm_audience_exhausted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -377,6 +392,17 @@ export const campaignSegments = pgTable("campaign_segments", {
 export const campaignSegmentsRelations = relations(campaignSegments, ({ one }) => ({
   campaign: one(campaigns, { fields: [campaignSegments.campaignId], references: [campaigns.id] }),
   segment: one(segments, { fields: [campaignSegments.segmentId], references: [segments.id] }),
+}));
+
+// Frozen warm-start membership. Only the capped set is materialized, keeping
+// storage bounded at 50k rows per enabled campaign while making later clicks
+// and audience edits unable to alter the first-pass membership.
+export const campaignWarmRecipients = pgTable("campaign_warm_recipients", {
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  subscriberId: varchar("subscriber_id").notNull().references(() => subscribers.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.campaignId, table.subscriberId] }),
+  subscriberIdx: index("campaign_warm_recipients_subscriber_idx").on(table.subscriberId),
 }));
 
 // Campaign statistics (opens, clicks)
@@ -872,6 +898,14 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   autoRetryCount: true,
   stepProcessedCount: true,
   stepCursorId: true,
+  stepExecutionVersion: true,
+  warmEngagementCutoff: true,
+  warmEligibleCount: true,
+  warmClickerCount: true,
+  warmCap: true,
+  warmPhase: true,
+  warmCursorId: true,
+  warmAudienceExhaustedAt: true,
   createdAt: true,
   startedAt: true,
   completedAt: true,
@@ -896,6 +930,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
     (v) => (v === "" || v === null || v === undefined ? null : v),
     z.coerce.number().int().min(1, "Step send limit must be at least 1").nullable().optional()
   ),
+  prioritizeActiveClickers: z.boolean().optional(),
 });
 
 export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
@@ -909,6 +944,14 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   autoRetryCount: true,
   stepProcessedCount: true,
   stepCursorId: true,
+  stepExecutionVersion: true,
+  warmEngagementCutoff: true,
+  warmEligibleCount: true,
+  warmClickerCount: true,
+  warmCap: true,
+  warmPhase: true,
+  warmCursorId: true,
+  warmAudienceExhaustedAt: true,
   createdAt: true,
   startedAt: true,
   completedAt: true,
@@ -939,6 +982,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
     (v) => (v === "" || v === null || v === undefined ? null : v),
     z.coerce.number().int().min(1, "Step send limit must be at least 1").nullable().optional()
   ),
+  prioritizeActiveClickers: z.boolean().optional(),
 });
 
 export const updateCampaignDraftSchema = z.object({
@@ -975,6 +1019,7 @@ export const updateCampaignDraftSchema = z.object({
   openTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   clickTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
   unsubscribeTag: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  prioritizeActiveClickers: z.boolean().optional(),
   // Auto-resend to openers — set on the parent in the wizard.
   // Delay range is 1h-168h (= 7 days) per product spec.
   followUpEnabled: z.boolean().optional(),

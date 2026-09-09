@@ -23,3 +23,4 @@
 - [Production DB exploration](production-db-exploration.md) — query live critsend through the dedicated read-only explorer settings; never use app credentials or the stale Neon database.
 - [Orange/Wanadoo risk rollout](orange-wanadoo-risk-rollout.md) — production enforcement uses 10% deterministic probation after historical calibration; baseline 15-day cooling remains active.
 - [Campaign badge counter backfills](campaign-badge-counter-backfills.md) — never reconstruct Orange/Wanadoo counters in list/search requests; zero is valid, not an initialization marker.
+- [Campaign warm-start invariants](campaign-warm-start.md) — freeze the clicker snapshot/order; fence resumes by generation; never complete before durable audience exhaustion.

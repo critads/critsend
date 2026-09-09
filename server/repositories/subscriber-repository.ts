@@ -16,6 +16,7 @@ import { compileSegmentRules } from "../services/segment-compiler";
 import { UNSUBSCRIBE_COOLING_OFF_DAYS } from "../config/suppression";
 import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
 import { redisConnection, isRedisConfigured } from "../redis";
+import { calculateWarmStartCap } from "../services/campaign-warm-start";
 
 // ─── Segment count cache ────────────────────────────────────────────────────
 // Primary: Redis (shared across instances). Fallback: in-memory Map when
@@ -374,6 +375,7 @@ export async function getSubscribersForSegmentsCursor(
   afterId?: string,
   excludeSegmentId?: string,
   includeTemporarilySuppressed = false,
+  excludeWarmCampaignId?: string,
 ): Promise<Subscriber[]> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
   if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return [];
@@ -400,6 +402,13 @@ export async function getSubscribersForSegmentsCursor(
   if (excludeSegmentId) {
     const exclude = compiled.get(excludeSegmentId);
     if (exclude) conditions.push(not(exclude));
+  }
+  if (excludeWarmCampaignId) {
+    conditions.push(sql`NOT EXISTS (
+      SELECT 1 FROM campaign_warm_recipients cwr
+      WHERE cwr.campaign_id = ${excludeWarmCampaignId}
+        AND cwr.subscriber_id = ${subscribers.id}
+    )`);
   }
   const base = and(...conditions);
   return db.select().from(subscribers)
@@ -515,6 +524,222 @@ export async function countSubscribersForSegments(
   }
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(subscribers).where(and(...conditions));
   return Number(count);
+}
+
+export type CampaignWarmStartPlan = {
+  cutoff: Date;
+  eligibleCount: number;
+  clickerCount: number;
+  cap: number;
+  phase: "warm" | "normal";
+  cursorId: string | null;
+};
+
+/**
+ * One-time warm plan. A non-blocking transaction advisory lock ensures only
+ * one sender plans a campaign. The repeatable-read snapshot freezes audience
+ * membership for the count and capped recipient selection without holding the
+ * campaign row lock during either scan.
+ */
+export async function planCampaignWarmStart(
+  campaignId: string,
+  segmentIds: string[],
+  excludeSegmentId: string | undefined,
+  expectedStepExecutionVersion: number,
+): Promise<CampaignWarmStartPlan> {
+  const ids = [...new Set(segmentIds.filter(Boolean))];
+  const compiled = await compileSegmentWheres([...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
+  const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
+  if (!includes.length || (excludeSegmentId && ids.includes(excludeSegmentId))) {
+    throw new Error("Warm-start audience cannot be compiled");
+  }
+  const conditions: any[] = [
+    not(sql`'BCK' = ANY(${subscribers.tags})`),
+    sql`(${subscribers.suppressedUntil} IS NULL OR ${subscribers.suppressedUntil} < NOW())`,
+    or(...includes),
+  ];
+  if (excludeSegmentId) {
+    const exclude = compiled.get(excludeSegmentId);
+    if (exclude) conditions.push(not(exclude));
+  }
+  const audience = and(...conditions)!;
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql.raw("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"));
+    await tx.execute(sql.raw("SET LOCAL statement_timeout = '30s'"));
+    const locked = await tx.execute(sql`
+      SELECT pg_try_advisory_xact_lock(hashtextextended('campaign_warm_plan:' || ${campaignId}, 0)) AS acquired,
+             status, step_execution_version,
+             warm_engagement_cutoff, warm_eligible_count, warm_clicker_count,
+             warm_cap, warm_phase, warm_cursor_id
+      FROM campaigns WHERE id=${campaignId}
+    `);
+    const prior = locked.rows[0] as any;
+    if (!prior?.acquired) throw new Error("Warm-start planning is already in progress");
+    if (prior.status !== "sending") {
+      throw new Error(`Warm-start planning aborted because campaign status is '${prior.status ?? "missing"}'`);
+    }
+    if (Number(prior.step_execution_version) !== expectedStepExecutionVersion) {
+      throw new Error("Warm-start planning lost campaign execution ownership");
+    }
+    if (prior?.warm_phase === "warm" || prior?.warm_phase === "normal") {
+      return {
+        cutoff: new Date(prior.warm_engagement_cutoff),
+        eligibleCount: Number(prior.warm_eligible_count ?? 0),
+        clickerCount: Number(prior.warm_clicker_count ?? 0),
+        cap: Number(prior.warm_cap ?? 0),
+        phase: prior.warm_phase,
+        cursorId: prior.warm_cursor_id ?? null,
+      };
+    }
+
+    const cutoff = new Date();
+    const clickedInWindow = sql`EXISTS (
+      SELECT 1 FROM campaign_stats click_event
+      WHERE click_event.subscriber_id = ${subscribers.id}
+        AND click_event.type = 'click'
+        AND click_event.timestamp >= ${cutoff}::timestamp - INTERVAL '30 days'
+        AND click_event.timestamp < ${cutoff}
+    )`;
+    const [eligibleRow] = await tx.select({ count: sql<number>`count(*)::int` })
+      .from(subscribers).where(audience);
+    const eligibleCount = Number(eligibleRow?.count ?? 0);
+    const maxWarm = calculateWarmStartCap(eligibleCount, Number.MAX_SAFE_INTEGER);
+    const selected = maxWarm > 0 ? await tx.execute(sql`
+        INSERT INTO campaign_warm_recipients (campaign_id, subscriber_id)
+        SELECT ${campaignId}, ${subscribers.id}
+        FROM ${subscribers}
+        WHERE ${audience} AND ${clickedInWindow}
+        ORDER BY ${subscribers.id}
+        LIMIT ${maxWarm}
+        ON CONFLICT DO NOTHING
+        RETURNING subscriber_id
+      `) : { rows: [] as any[] };
+    const cap = selected.rows.length;
+    // We intentionally do not count every matching clicker after reaching the
+    // audience/absolute limit. The selected row count is exactly the approved
+    // min(clickers, floor(eligible * 30%), 50_000) cap.
+    const clickerCount = cap;
+    const phase = cap > 0 ? "warm" as const : "normal" as const;
+    const published = await tx.execute(sql`
+      UPDATE campaigns SET
+        warm_engagement_cutoff=${cutoff},
+        warm_eligible_count=${eligibleCount},
+        warm_clicker_count=${clickerCount},
+        warm_cap=${cap},
+        warm_phase=${phase},
+        warm_cursor_id=NULL
+      WHERE id=${campaignId}
+        AND status='sending'
+        AND step_execution_version=${expectedStepExecutionVersion}
+        AND warm_phase IS NULL
+      RETURNING warm_engagement_cutoff, warm_eligible_count, warm_clicker_count,
+                warm_cap, warm_phase, warm_cursor_id
+    `);
+    if (published.rows.length === 0) {
+      const current = await tx.execute(sql`
+        SELECT warm_engagement_cutoff, warm_eligible_count, warm_clicker_count,
+               warm_cap, warm_phase, warm_cursor_id, step_execution_version
+        FROM campaigns WHERE id=${campaignId}
+      `);
+      const row = current.rows[0] as any;
+      if (
+        (row?.warm_phase !== "warm" && row?.warm_phase !== "normal")
+        || Number(row?.step_execution_version) !== expectedStepExecutionVersion
+      ) {
+        throw new Error("Warm-start planning lost campaign execution ownership");
+      }
+      return {
+        cutoff: new Date(row.warm_engagement_cutoff),
+        eligibleCount: Number(row.warm_eligible_count ?? 0),
+        clickerCount: Number(row.warm_clicker_count ?? 0),
+        cap: Number(row.warm_cap ?? 0),
+        phase: row.warm_phase === "warm" ? "warm" : "normal",
+        cursorId: row.warm_cursor_id ?? null,
+      };
+    }
+    return { cutoff, eligibleCount, clickerCount, cap, phase, cursorId: null };
+  });
+}
+
+export async function getCampaignWarmRecipientsCursor(
+  campaignId: string,
+  limit: number,
+  afterId?: string,
+): Promise<Subscriber[]> {
+  const result = await db.execute(sql`
+    SELECT s.*
+    FROM campaign_warm_recipients wr
+    JOIN subscribers s ON s.id=wr.subscriber_id
+    WHERE wr.campaign_id=${campaignId}
+      AND (${afterId ?? null}::text IS NULL OR s.id > ${afterId ?? null})
+      AND NOT ('BCK'=ANY(s.tags))
+      AND (s.suppressed_until IS NULL OR s.suppressed_until < NOW())
+    ORDER BY s.id
+    LIMIT ${limit}
+  `);
+  return result.rows as Subscriber[];
+}
+
+export async function checkpointCampaignWarmStart(
+  campaignId: string,
+  cursorId: string | null,
+  phase: "warm" | "normal",
+  expectedStepExecutionVersion: number,
+  stepProcessedCount?: number,
+): Promise<boolean> {
+  if (phase === "warm") {
+    if (!cursorId) return false;
+    const result = await db.execute(sql`
+      UPDATE campaigns SET
+        warm_cursor_id=${cursorId}
+        ${stepProcessedCount !== undefined ? sql`,
+          step_processed_count = CASE
+            WHEN warm_cursor_id IS NULL OR warm_cursor_id < ${cursorId}
+              THEN ${stepProcessedCount}
+            ELSE GREATEST(step_processed_count, ${stepProcessedCount})
+          END
+        ` : sql``}
+      WHERE id=${campaignId}
+        AND status='sending' AND warm_phase='warm'
+        AND step_execution_version=${expectedStepExecutionVersion}
+        AND (warm_cursor_id IS NULL OR warm_cursor_id <= ${cursorId})
+      RETURNING id
+    `);
+    return result.rows.length > 0;
+  } else {
+    const result = await db.execute(sql`
+      UPDATE campaigns SET warm_phase='normal'
+        ${stepProcessedCount !== undefined ? sql`, step_processed_count=${stepProcessedCount}` : sql``}
+      WHERE id=${campaignId}
+        AND status='sending' AND warm_phase='warm'
+        AND step_execution_version=${expectedStepExecutionVersion}
+        AND warm_cursor_id IS NOT DISTINCT FROM ${cursorId}
+      RETURNING id
+    `);
+    return result.rows.length > 0;
+  }
+}
+
+export async function markCampaignWarmAudienceExhausted(
+  campaignId: string,
+  expectedStepExecutionVersion: number,
+  stepProcessedCount: number,
+  stepCursorId: string | null,
+): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE campaigns
+    SET warm_audience_exhausted_at=COALESCE(warm_audience_exhausted_at, NOW()),
+        step_processed_count=${stepProcessedCount},
+        step_cursor_id=${stepCursorId}
+    WHERE id=${campaignId}
+      AND status='sending'
+      AND warm_phase='normal'
+      AND step_execution_version=${expectedStepExecutionVersion}
+      AND step_cursor_id IS NOT DISTINCT FROM ${stepCursorId}
+    RETURNING id
+  `);
+  return result.rows.length > 0;
 }
 
 export async function countSubscribersForRules(rules: any[]): Promise<number> {

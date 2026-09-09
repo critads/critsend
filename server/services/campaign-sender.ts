@@ -305,6 +305,10 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     logger.warn(`${logPrefix} Campaign status is '${campaign.status}', expected 'sending' - aborting`);
     return;
   }
+  const stepExecutionVersion = (campaign as any).stepExecutionVersion ?? 0;
+  const audienceAlreadyExhausted = !!(
+    campaign.prioritizeActiveClickers && (campaign as any).warmAudienceExhaustedAt
+  );
   const brandGuard = await evaluateBrandUnsubscribeGuard(campaign.name);
   if (brandGuard.status === "blocked") {
     logger.warn(
@@ -396,11 +400,40 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // and per-subscriber serialization is sufficient. Global serialization
   // would needlessly stall newer campaigns whose audiences don't overlap
   // with older ones.
-  // Audience size: openers-of-parent for follow-up children, segment count
-  // for everything else.
-  const total = isFollowUp
-    ? await storage.countOpenersForParentCampaign(campaign.parentCampaignId!)
-    : await storage.countSubscribersForSegments((campaign as any).segmentIds ?? [campaign.segmentId!], campaign.excludeSegmentId ?? undefined);
+  // Audience size and optional warm plan are frozen before the hot loop.
+  // Enabled original campaigns use the plan's repeatable-read audience count,
+  // avoiding a second full count and keeping the 30% cap aligned with total.
+  let total: number;
+  let audiencePhase: "warm" | "normal" = "normal";
+  let warmCursorId: string | undefined;
+  if (isFollowUp) {
+    total = await storage.countOpenersForParentCampaign(campaign.parentCampaignId!);
+  } else if (campaign.prioritizeActiveClickers) {
+    if (audienceAlreadyExhausted) {
+      total = (campaign as any).warmEligibleCount ?? 0;
+      audiencePhase = "normal";
+      logger.info(`${logPrefix} Audience exhaustion marker present; bypassing warm planning and audience enumeration`);
+    } else try {
+      const plan = await storage.planCampaignWarmStart(
+        campaignId,
+        (campaign as any).segmentIds ?? [campaign.segmentId!],
+        campaign.excludeSegmentId ?? undefined,
+        stepExecutionVersion,
+      );
+      total = plan.eligibleCount;
+      audiencePhase = plan.phase;
+      warmCursorId = plan.cursorId ?? undefined;
+      logger.info(`${logPrefix} Warm-start plan: phase=${plan.phase}, eligible=${plan.eligibleCount}, selected=${plan.cap}, cutoff=${plan.cutoff.toISOString()}`);
+    } catch (err: any) {
+      logger.warn(`${logPrefix} Warm-start planning failed; requeueing without changing the opted-in send order: ${err?.message || err}`);
+      throw err;
+    }
+  } else {
+    total = await storage.countSubscribersForSegments(
+      (campaign as any).segmentIds ?? [campaign.segmentId!],
+      campaign.excludeSegmentId ?? undefined,
+    );
+  }
   if (isFollowUp) {
     logger.info(`${logPrefix} Follow-up of parent '${campaign.parentCampaignId}' — ${total} openers eligible`);
   } else if (campaign.excludeSegmentId) {
@@ -411,6 +444,15 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
   if (total === 0) {
     logger.warn(`${logPrefix} Segment has 0 subscribers - marking as completed`);
+    if (campaign.prioritizeActiveClickers) {
+      const exhausted = await storage.markCampaignWarmAudienceExhausted(
+        campaignId, stepExecutionVersion, (campaign as any).stepProcessedCount ?? 0, (campaign as any).stepCursorId ?? null,
+      );
+      if (!exhausted) {
+        logger.warn(`${logPrefix} Lost execution ownership while marking empty audience exhausted`);
+        return;
+      }
+    }
     await storage.updateCampaignStatusAtomic(campaignId, "completed", "sending");
     await storage.updateCampaign(campaignId, { completedAt: new Date(), pendingCount: 0, urgentMode: false, urgentFlushJobId: null });
     return;
@@ -427,10 +469,12 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // server/services/pressure-guard.ts) order by campaigns.created_at
   // instead. If you add another FIFO consumer, key it on created_at too —
   // never on started_at.
-  await storage.updateCampaign(campaignId, {
-    pendingCount: total,
-    startedAt: new Date(),
-  });
+  if (!audienceAlreadyExhausted) {
+    await storage.updateCampaign(campaignId, {
+      pendingCount: total,
+      startedAt: new Date(),
+    });
+  }
 
   const speedKey = campaign.sendingSpeed || "medium";
   const speedConfig = SPEED_CONFIG[speedKey] || SPEED_CONFIG.medium;
@@ -463,8 +507,10 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   //                         finalized in the DB. If the process crashes mid-batch,
   //                         cursorId (the batch start) is the safe restart point,
   //                         so we never permanently skip un-sent recipients.
-  let cursorId: string | undefined = (campaign as any).stepCursorId ?? undefined;
-  let stepDurableCursorId: string | undefined = cursorId; // starts equal; advances one batch behind
+  let cursorId: string | undefined = audiencePhase === "warm"
+    ? warmCursorId
+    : ((campaign as any).stepCursorId ?? undefined);
+  let stepDurableCursorId: string | undefined = (campaign as any).stepCursorId ?? undefined;
   let processedCount = 0;
   let totalSent = 0;
   let totalFailed = 0;
@@ -483,8 +529,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   //   beginning (which would exhaust the new step budget before any new sends).
   const stepSendLimit: number | null = (campaign as any).stepSendLimit ?? null;
   let stepProcessedCount: number = (campaign as any).stepProcessedCount ?? 0;
-  let lastStepCountPersist = Date.now();
-  const STEP_PERSIST_INTERVAL_MS = 5000;
+  let durableStepProcessedCount = stepProcessedCount;
   let stepLimitReached = false;
 
   /**
@@ -496,18 +541,28 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
    * the restart reloads a cursor that points BEFORE the in-flight batch, so
    * those contacts are re-fetched rather than permanently skipped.
    */
-  async function persistStepCount(): Promise<void> {
+  async function persistStepCount(): Promise<boolean> {
     try {
       const saveCursor = stepDurableCursorId ?? null;
-      await db.execute(sql`
+      const result = await db.execute(sql`
         UPDATE campaigns
-           SET step_processed_count = ${stepProcessedCount},
+           SET step_processed_count = ${durableStepProcessedCount},
                step_cursor_id = ${saveCursor}
          WHERE id = ${campaignId}
+           AND status = 'sending'
+           AND (NOT prioritize_active_clickers OR warm_phase = 'normal')
+           AND step_execution_version = ${stepExecutionVersion}
+           AND (
+             (step_cursor_id IS NULL AND ${saveCursor}::text IS NULL)
+             OR (${saveCursor}::text IS NOT NULL AND (step_cursor_id IS NULL OR step_cursor_id <= ${saveCursor}))
+           )
+         RETURNING id
       `);
-      lastStepCountPersist = Date.now();
+      if (result.rows.length === 0) shouldStop = true;
+      return result.rows.length > 0;
     } catch (err: any) {
-      logger.warn(`${logPrefix} [STEP] stepProcessedCount/cursor persist failed (non-fatal): ${err?.message || err}`);
+      logger.warn(`${logPrefix} [STEP] stepProcessedCount/cursor persist failed: ${err?.message || err}`);
+      throw err;
     }
   }
 
@@ -520,14 +575,23 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   async function persistStepPause(): Promise<void> {
     const saveCursor = stepDurableCursorId ?? null;
     logger.info(`${logPrefix} [STEP] Step limit reached (${stepProcessedCount}/${stepSendLimit}), cursor=${saveCursor} — pausing campaign`);
-    await db.execute(sql`
+    const paused = await db.execute(sql`
       UPDATE campaigns
          SET status = 'paused',
              pause_reason = 'step_limit',
-             step_processed_count = ${stepProcessedCount},
+             step_processed_count = ${durableStepProcessedCount},
              step_cursor_id = ${saveCursor}
        WHERE id = ${campaignId} AND status = 'sending'
+         AND step_execution_version = ${stepExecutionVersion}
+         AND (
+           (${audiencePhase} = 'warm' AND warm_phase = 'warm')
+           OR (${audiencePhase} = 'normal' AND (NOT prioritize_active_clickers OR warm_phase = 'normal'))
+         )
+       RETURNING id
     `);
+    if (paused.rows.length === 0) {
+      logger.warn(`${logPrefix} [STEP] Lost execution ownership while pausing`);
+    }
     shouldStop = true;
   }
 
@@ -538,9 +602,6 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   async function accountStepProcessed(n: number): Promise<void> {
     if (stepSendLimit === null || stepLimitReached) return;
     stepProcessedCount += n;
-    if (Date.now() - lastStepCountPersist >= STEP_PERSIST_INTERVAL_MS) {
-      await persistStepCount();
-    }
     if (stepProcessedCount >= stepSendLimit && !stepLimitReached) {
       stepLimitReached = true;
       // The current capped batch has now been fully attempted, but its SMTP
@@ -550,7 +611,24 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       // cursor past rows that are still only pending/attempting.
       if (flushPromise) await flushPromise;
       await flushBuffer();
-      stepDurableCursorId = cursorId;
+      if (audiencePhase === "warm") {
+        durableStepProcessedCount = stepProcessedCount;
+        const checkpointed = await storage.checkpointCampaignWarmStart(
+          campaignId,
+          cursorId ?? null,
+          "warm",
+          stepExecutionVersion,
+          durableStepProcessedCount,
+        );
+        if (!checkpointed) {
+          logger.warn(`${logPrefix} [STEP] Lost warm checkpoint ownership; stopping stale worker`);
+          shouldStop = true;
+          return;
+        }
+      } else {
+        stepDurableCursorId = cursorId;
+        durableStepProcessedCount = stepProcessedCount;
+      }
       await persistStepPause();
     }
   }
@@ -688,7 +766,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   let lastStatusCheck = Date.now();
   let lastHeartbeat = Date.now();
 
-  async function checkStatusAndHeartbeat(): Promise<void> {
+  async function checkStatusAndHeartbeat(forceExecutionCheck = false): Promise<void> {
     // Task #199: report liveness to the worker watchdog on every checkpoint
     // (this function is called frequently inside the send loop) so a wedged
     // entry is only flagged when the loop truly stops advancing.
@@ -704,11 +782,26 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       await retryDbOp(() => storage.heartbeatJob(jobId!), `${logPrefix} heartbeat`);
       lastHeartbeat = now;
     }
-    if (now - lastStatusCheck >= STATUS_CHECK_INTERVAL) {
-      cachedStatus = (await retryDbOp(() => storage.getCampaignStatus(campaignId), `${logPrefix} statusCheck`)) || "cancelled";
+    if (forceExecutionCheck || now - lastStatusCheck >= STATUS_CHECK_INTERVAL) {
+      const state = await retryDbOp(
+        () => db.execute(sql`
+          SELECT status, step_execution_version
+          FROM campaigns
+          WHERE id=${campaignId}
+        `),
+        `${logPrefix} executionCheck`,
+      );
+      const row = state.rows[0] as { status?: string; step_execution_version?: number | string } | undefined;
+      cachedStatus = row?.status || "cancelled";
       lastStatusCheck = now;
       if (cachedStatus !== "sending") {
         logger.info(`${logPrefix} Status changed to '${cachedStatus}' - stopping send loop`);
+        shouldStop = true;
+      } else if (Number(row?.step_execution_version) !== stepExecutionVersion) {
+        logger.info(
+          `${logPrefix} Execution generation changed from ${stepExecutionVersion} to `
+          + `${row?.step_execution_version ?? "missing"} - stopping stale worker`,
+        );
         shouldStop = true;
       }
     }
@@ -720,10 +813,20 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // otherwise. Both share the (subscriber.id ASC, afterId cursor) contract so
   // the rest of the loop is unchanged.
   function fetchAudienceBatch(cursor: string | undefined): Promise<Subscriber[]> {
+    if (audiencePhase === "warm") {
+      return storage.getCampaignWarmRecipientsCursor(campaignId, BATCH_SIZE, cursor);
+    }
     if (isFollowUp) {
       return storage.getOpenersForParentCampaignCursor(campaign!.parentCampaignId!, BATCH_SIZE, cursor);
     }
-    return storage.getSubscribersForSegmentsCursor((campaign as any).segmentIds ?? [campaign!.segmentId!], BATCH_SIZE, cursor, campaign!.excludeSegmentId ?? undefined);
+    return storage.getSubscribersForSegmentsCursor(
+      (campaign as any).segmentIds ?? [campaign!.segmentId!],
+      BATCH_SIZE,
+      cursor,
+      campaign!.excludeSegmentId ?? undefined,
+      false,
+      campaign!.prioritizeActiveClickers && audiencePhase === "normal" ? campaignId : undefined,
+    );
   }
 
   function startPrefetch(cursor: string | undefined): void {
@@ -748,7 +851,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
   try {
     while (!shouldStop) {
-      await checkStatusAndHeartbeat();
+      await checkStatusAndHeartbeat(true);
       if (shouldStop) break;
 
       // Snowball auto-throttle (Task #154): if this campaign's currently-
@@ -857,8 +960,39 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         break;
       }
 
+      if (audienceAlreadyExhausted) {
+        logger.info(`${logPrefix} Normal audience was already durably exhausted; skipping enumeration`);
+        break;
+      }
       const batch = await retryDbOp(() => getNextBatch(cursorId), `${logPrefix} getNextBatch`);
       if (batch.length === 0) {
+        if (audiencePhase === "warm") {
+          const transitioned = await storage.checkpointCampaignWarmStart(
+            campaignId, cursorId ?? null, "normal", stepExecutionVersion, durableStepProcessedCount,
+          );
+          if (!transitioned) {
+            logger.warn(`${logPrefix} Warm phase transition lost monotonic checkpoint race; stopping stale worker`);
+            shouldStop = true;
+            break;
+          }
+          audiencePhase = "normal";
+          cursorId = (campaign as any).stepCursorId ?? undefined;
+          prefetchPromise = null;
+          logger.info(`${logPrefix} Warm-start phase exhausted; switching durably to normal audience order`);
+          continue;
+        }
+        if (campaign.prioritizeActiveClickers) {
+          const exhausted = await storage.markCampaignWarmAudienceExhausted(
+            campaignId,
+            stepExecutionVersion,
+            durableStepProcessedCount,
+            stepDurableCursorId ?? null,
+          );
+          if (!exhausted) {
+            logger.warn(`${logPrefix} Lost execution ownership while marking audience exhaustion`);
+            shouldStop = true;
+          }
+        }
         logger.info(`${logPrefix} No more subscribers to process (batchNumber: ${batchNumber})`);
         break;
       }
@@ -896,7 +1030,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const riskClassified = await retryDbOp(
         () => classifyAudienceBatch(
           campaignId,
-          cursorId!,
+          audiencePhase === "warm" ? `warm:${cursorId!}` : cursorId!,
           batchCapped,
           { decrementPendingForBlocked: true },
         ),
@@ -909,7 +1043,27 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         + `tiers=${JSON.stringify(riskClassified.summary.countsByTier)} skipped=${riskSkippedCount} `
         + `warnings=${riskClassified.summary.warnings.join(",") || "none"}`,
       );
+      if (riskSkippedCount > 0) {
+        processedCount += riskSkippedCount;
+        await accountStepProcessed(riskSkippedCount);
+        if (shouldStop) break;
+      }
       if (batchCapped.length === 0) {
+        if (audiencePhase === "warm") {
+          durableStepProcessedCount = stepProcessedCount;
+          const checkpointed = await storage.checkpointCampaignWarmStart(
+            campaignId, cursorId ?? null, "warm", stepExecutionVersion, durableStepProcessedCount,
+          );
+          if (!checkpointed) {
+            logger.warn(`${logPrefix} Lost warm checkpoint ownership after risk filtering; stopping stale worker`);
+            shouldStop = true;
+            break;
+          }
+        } else {
+          stepDurableCursorId = cursorId;
+          durableStepProcessedCount = stepProcessedCount;
+          if (!await persistStepCount()) break;
+        }
         startPrefetch(cursorId);
         continue;
       }
@@ -930,7 +1084,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       //   • If persistStepCount() fires mid-batch (via accountStepProcessed),
       //     it writes (count, prevCursorId), which is conservative but safe.
       await runAfterDurableFinalization(flushPromise, async () => {
-        if (stepSendLimit !== null && !stepLimitReached) {
+        if (audiencePhase === "normal" && stepSendLimit !== null && !stepLimitReached) {
           stepDurableCursorId = prevCursorId;
           await persistStepCount();
         }
@@ -961,6 +1115,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       // be counted as processed.
       const subscribersToSend = batchCapped.filter(s => reservedSet.has(s.id));
       const skippedCount = batchCapped.length - subscribersToSend.length;
+      // The persisted step count and cursor always describe the same durable
+      // boundary. If this batch is replayed after a crash, these rows were not
+      // included in the restored count and must be counted exactly once now.
       processedCount += skippedCount;
       // Step accounting: pressure-guard-deferred contacts count toward raw
       // processed so the step limit reflects true throughput.
@@ -969,6 +1126,20 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
 
       if (subscribersToSend.length === 0) {
         logger.info(`${logPrefix} Batch ${batchNumber}: All ${batchCapped.length} subscribers already processed, skipping`);
+        if (!stepLimitReached) {
+          durableStepProcessedCount = stepProcessedCount;
+          if (audiencePhase === "warm") {
+            if (!await storage.checkpointCampaignWarmStart(
+              campaignId, cursorId ?? null, "warm", stepExecutionVersion, durableStepProcessedCount,
+            )) {
+              shouldStop = true;
+              break;
+            }
+          } else {
+            stepDurableCursorId = cursorId;
+            if (!await persistStepCount()) break;
+          }
+        }
         continue;
       }
 
@@ -1122,9 +1293,31 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
         await flushPromise;
       }
       await flushBuffer();
+      if (shouldStop) break;
+      if (audiencePhase === "warm") {
+        warmCursorId = cursorId;
+        durableStepProcessedCount = stepProcessedCount;
+        const checkpointed = await storage.checkpointCampaignWarmStart(
+          campaignId,
+          warmCursorId ?? null,
+          "warm",
+          stepExecutionVersion,
+          durableStepProcessedCount,
+        );
+        if (!checkpointed) {
+          logger.warn(`${logPrefix} Lost warm checkpoint ownership after finalization; stopping stale worker`);
+          shouldStop = true;
+          break;
+        }
+      } else {
+        stepDurableCursorId = cursorId;
+        durableStepProcessedCount = stepProcessedCount;
+      }
       // Persist step counter at the end of each outer batch (belt-and-
       // suspenders alongside the periodic persist in accountStepProcessed).
-      if (stepSendLimit !== null && !stepLimitReached) await persistStepCount();
+      if (audiencePhase === "normal" && !stepLimitReached) {
+        await persistStepCount();
+      }
 
       const elapsed = (Date.now() - startTime) / 1000;
       const rate = processedCount / elapsed * 60;

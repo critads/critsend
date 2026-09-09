@@ -11,13 +11,6 @@ export class InvalidStepResumeLimitError extends Error {
   }
 }
 
-export function shouldResetOrphanedFailedSends(isStepLimitPause: boolean): boolean {
-  // Step resumes retain their audience cursor. Keep failed rows too, so the
-  // sender's retry phase can revisit them even though audience enumeration
-  // resumes after the completed step.
-  return !isStepLimitPause;
-}
-
 /**
  * Build only the fields that must change for a step-limit resume.
  *

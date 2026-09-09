@@ -28,7 +28,6 @@ import { isCampaignNameUnaccentIndexReady } from "../repositories/campaign-repos
 import {
   buildStepResumeOverrides,
   InvalidStepResumeLimitError,
-  shouldResetOrphanedFailedSends,
   type StepResumeOverrides,
 } from "../services/step-resume";
 import {
@@ -199,6 +198,12 @@ class FollowUpPendingError extends Error {
  *     poll if appropriate.
  */
 const PENDING_CHILD_STATUSES = new Set(["draft", "scheduled", "sending", "paused"]);
+const WARM_EXECUTION_STATUSES = new Set(["sending", "paused", "failed", "completed", "sent", "cancelled"]);
+class WarmCampaignImmutableError extends Error {}
+class CampaignLaunchConflictError extends Error {}
+function sameIds(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
 
 // Cap on simultaneous delete transactions in the bulk route so a large
 // selection can't open dozens of concurrent cascades and starve the
@@ -1135,6 +1140,18 @@ export function registerCampaignRoutes(app: Express, helpers: {
         // of the terminal transaction).
         delete normalizedBody.urgentMode;
         delete normalizedBody.urgent_mode;
+        // Sender-owned warm-start snapshot/checkpoint fields are never writable
+        // through the generic campaign endpoint.
+        delete normalizedBody.warmEngagementCutoff;
+        delete normalizedBody.warmEligibleCount;
+        delete normalizedBody.warmClickerCount;
+        delete normalizedBody.warmCap;
+        delete normalizedBody.warmPhase;
+        delete normalizedBody.warmCursorId;
+        delete normalizedBody.warmAudienceExhaustedAt;
+        delete normalizedBody.stepExecutionVersion;
+        delete normalizedBody.warm_audience_exhausted_at;
+        delete normalizedBody.step_execution_version;
         if ('mtaId' in normalizedBody && !normalizedBody.mtaId) {
           normalizedBody.mtaId = null;
         }
@@ -1164,17 +1181,28 @@ export function registerCampaignRoutes(app: Express, helpers: {
             (v) => (v === "" || v === null || v === undefined ? null : v),
             z.coerce.number().int().min(1, "Step send limit must be at least 1").nullable().optional()
           ),
+          prioritizeActiveClickers: z.boolean().optional(),
         });
         const fu = nonDraftPatchSchema.parse({
           followUpEnabled: normalizedBody.followUpEnabled,
           followUpDelayHours: normalizedBody.followUpDelayHours,
           followUpSubject: normalizedBody.followUpSubject,
           stepSendLimit: 'stepSendLimit' in normalizedBody ? normalizedBody.stepSendLimit : undefined,
+          prioritizeActiveClickers: normalizedBody.prioritizeActiveClickers,
         });
         if (fu.followUpEnabled !== undefined) normalizedBody.followUpEnabled = fu.followUpEnabled;
         if (fu.followUpDelayHours !== undefined) normalizedBody.followUpDelayHours = fu.followUpDelayHours;
         if (fu.followUpSubject !== undefined) normalizedBody.followUpSubject = fu.followUpSubject;
         if ('stepSendLimit' in normalizedBody) normalizedBody.stepSendLimit = fu.stepSendLimit ?? null;
+        if (fu.prioritizeActiveClickers !== undefined) normalizedBody.prioritizeActiveClickers = fu.prioritizeActiveClickers;
+      }
+
+      if (
+        "prioritizeActiveClickers" in normalizedBody
+        && normalizedBody.prioritizeActiveClickers !== existingCampaign.prioritizeActiveClickers
+        && (existingCampaign.startedAt || existingCampaign.warmPhase)
+      ) {
+        return res.status(409).json({ error: "Active-clicker priority cannot be changed after campaign launch" });
       }
 
       if (normalizedBody.scheduledAt && typeof normalizedBody.scheduledAt === 'string') {
@@ -1221,6 +1249,13 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: "At least one audience segment is required" });
       }
       const effectiveExcludeId = ('excludeSegmentId' in normalizedBody ? normalizedBody.excludeSegmentId : existingCampaign.excludeSegmentId) ?? null;
+      if (
+        existingCampaign.prioritizeActiveClickers
+        && (existingCampaign.startedAt || existingCampaign.warmPhase)
+        && (requestedSegmentIds !== undefined || 'segmentId' in normalizedBody || 'excludeSegmentId' in normalizedBody)
+      ) {
+        return res.status(409).json({ error: "Warm-start audience cannot be changed after campaign launch" });
+      }
        if (effectiveExcludeId && effectiveSegmentIds.includes(effectiveExcludeId)) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
@@ -1240,6 +1275,29 @@ export function registerCampaignRoutes(app: Express, helpers: {
       }
 
       const campaign = await db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(campaigns)
+          .where(eq(campaigns.id, req.params.id)).for("update");
+        if (!locked) return null;
+        const lockedAudienceRows = await tx.select({ segmentId: campaignSegments.segmentId })
+          .from(campaignSegments).where(eq(campaignSegments.campaignId, locked.id))
+          .orderBy(campaignSegments.position);
+        const lockedIds = lockedAudienceRows.map((row) => row.segmentId);
+        const executionBegun = !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status);
+        const launchedWarm = locked.prioritizeActiveClickers && (
+          !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status)
+        );
+        const toggleChanged = "prioritizeActiveClickers" in normalizedBody
+          && normalizedBody.prioritizeActiveClickers !== locked.prioritizeActiveClickers;
+        const audienceChanged = requestedSegmentIds !== undefined
+          && !sameIds(requestedSegmentIds, lockedIds.length ? lockedIds : (locked.segmentId ? [locked.segmentId] : []));
+        const exclusionChanged = "excludeSegmentId" in normalizedBody
+          && (normalizedBody.excludeSegmentId ?? null) !== (locked.excludeSegmentId ?? null);
+        if ((executionBegun && toggleChanged) || (launchedWarm && (audienceChanged || exclusionChanged))) {
+          throw new WarmCampaignImmutableError("Warm-start audience and toggle are frozen after launch");
+        }
+        if (locked.status !== "sending" && normalizedBody.status === "sending" && executionBegun) {
+          normalizedBody.stepExecutionVersion = sql`${campaigns.stepExecutionVersion} + 1`;
+        }
          delete normalizedBody.segmentIds;
         const [updated] = await tx.update(campaigns).set(normalizedBody).where(sql`${campaigns.id} = ${req.params.id}`).returning();
         if (!updated) return null;
@@ -1251,7 +1309,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
               })));
             }
          }
-        if (existingCampaign.status !== "sending" && updated.status === "sending") {
+        if (locked.status !== "sending" && updated.status === "sending") {
           logger.info(`Starting campaign ${updated.id} via PATCH - queueing for processing`);
           await tx.insert(campaignJobs).values({
             campaignId: updated.id,
@@ -1274,6 +1332,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
        res.json({ ...campaign, segmentIds: requestedSegmentIds ?? (existingCampaign as any).segmentIds ?? (campaign.segmentId ? [campaign.segmentId] : []) });
     } catch (error) {
+      if (error instanceof WarmCampaignImmutableError) {
+        return res.status(409).json({ error: error.message });
+      }
       if (error instanceof z.ZodError) {
         logger.error("Campaign PATCH validation error:", error.errors);
         return res.status(400).json({ error: error.errors });
@@ -1462,22 +1523,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
             sql`${campaignJobs.status} IN ('pending', 'processing')`,
           ));
 
-        let resetCount = 0;
-        if (shouldResetOrphanedFailedSends(isStepLimitPause)) {
-          const klassPredicate = zeroDupSendGuardEnabled()
-            ? sql` AND smtp_outcome_class IS DISTINCT FROM 'ambiguous'`
-            : sql``;
-          const resetResult = await tx.execute(sql`
-            DELETE FROM campaign_sends
-            WHERE campaign_id = ${req.params.id}
-              AND status = 'failed'${klassPredicate}
-              AND retry_count = 0
-              AND first_open_at IS NULL
-              AND first_click_at IS NULL
-            RETURNING id
-          `);
-          resetCount = resetResult.rows.length;
-        }
+        // Preserve every failed row on every kind of resume. Audience cursors
+        // now survive manual/MTA pauses as well as step pauses, so deleting a
+        // failure behind the durable cursor would make that recipient
+        // unreachable. The sender's existing retry phase owns these rows.
+        const resetCount = 0;
 
         // If the campaign was paused before its scheduledAt fired, resume it
         // back to scheduled (no job insert). Otherwise resume immediately.
@@ -1488,10 +1538,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
         const targetStatus = futureScheduled ? "scheduled" : "sending";
         const [updated] = await tx.update(campaigns).set({
           status: targetStatus,
+          stepExecutionVersion: sql`${campaigns.stepExecutionVersion} + 1`,
           pauseReason: null,
-          ...(resetCount > 0
-            ? { failedCount: sql`GREATEST(${campaigns.failedCount} - ${resetCount}, 0)` as any }
-            : {}),
           ...(stepOverrides as any),
         }).where(and(
           eq(campaigns.id, req.params.id),
@@ -1522,10 +1570,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return res.status(400).json({ error: resumeResult.message });
       }
 
-      const { campaign, futureScheduled, resetCount } = resumeResult;
-      if (resetCount > 0) {
-        logger.info(`[CAMPAIGN_RESUME] Reset ${resetCount} orphaned failed sends for campaign ${req.params.id}`);
-      }
+      const { campaign, futureScheduled } = resumeResult;
       // Task #199: status transition done via raw tx — invalidate the list cache.
       publishCampaignsListInvalidation();
 
@@ -1612,6 +1657,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
           urgentMode: false,
           urgentFlushJobId: null,
         }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
+        await tx.execute(sql`
+          DELETE FROM campaign_warm_recipients
+          WHERE campaign_id = ${req.params.id}
+        `);
 
         return { deletedDeferred: deleted, campaign: updated };
       });
@@ -1931,7 +1980,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           // re-click /urgent if they actually want that.
           // Zero-Duplicate Send Guard: ambiguous rows stay 'failed' (excluded from
           // the reset above), so failed_count must reflect them, not reset to 0.
-          .set({ status: "sending", failedCount: zeroDupSendGuardEnabled() ? sql`(SELECT COUNT(*) FROM campaign_sends WHERE campaign_id = ${req.params.id} AND status = 'failed' AND smtp_outcome_class = 'ambiguous')` : 0, pauseReason: null, retryUntil: null, autoRetryCount: 0, urgentMode: false, urgentFlushJobId: null })
+          .set({ status: "sending", stepExecutionVersion: sql`${campaigns.stepExecutionVersion} + 1`, failedCount: zeroDupSendGuardEnabled() ? sql`(SELECT COUNT(*) FROM campaign_sends WHERE campaign_id = ${req.params.id} AND status = 'failed' AND smtp_outcome_class = 'ambiguous')` : 0, pauseReason: null, retryUntil: null, autoRetryCount: 0, urgentMode: false, urgentFlushJobId: null })
           .where(sql`${campaigns.id} = ${req.params.id}`)
           .returning();
         if (!updated) return { campaign: null, resetCount };
@@ -1987,6 +2036,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const campaign = await db.transaction(async (tx) => {
         const [updated] = await tx.update(campaigns).set({
           status: "sending",
+          stepExecutionVersion: sql`${campaigns.stepExecutionVersion} + 1`,
           pauseReason: null,
           sentCount: 0,
           failedCount: 0,
@@ -1994,7 +2044,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           // not survive a requeue of a failed campaign.
           urgentMode: false,
           urgentFlushJobId: null,
-        }).where(sql`${campaigns.id} = ${req.params.id}`).returning();
+        }).where(and(eq(campaigns.id, req.params.id), eq(campaigns.status, "failed"))).returning();
         if (!updated) return null;
         await tx.insert(campaignJobs).values({
           campaignId: updated.id,
@@ -2055,6 +2105,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       
       const updateData = { ...req.body };
       delete updateData.status;
+      delete updateData.prioritize_active_clickers;
+      delete updateData.step_send_limit;
       const hasCanonicalSegments = Object.prototype.hasOwnProperty.call(updateData, "segmentIds");
       const hasLegacySegment = Object.prototype.hasOwnProperty.call(updateData, "segmentId");
       const selectedSegmentIds = hasCanonicalSegments
@@ -2070,6 +2122,34 @@ export function registerCampaignRoutes(app: Express, helpers: {
       // count check, and audit-row insert). Strip both casings.
       delete updateData.urgentMode;
       delete updateData.urgent_mode;
+      for (const field of [
+        "warmEngagementCutoff", "warmEligibleCount", "warmClickerCount", "warmCap", "warmPhase", "warmCursorId", "warmAudienceExhaustedAt",
+        "startedAt", "completedAt", "firstSendAt", "lastSendAt", "sentCount", "pendingCount", "failedCount",
+        "deferredCount", "skippedPressureCount", "snowballThrottledCount", "agedForcedCount",
+        "stepProcessedCount", "stepCursorId", "stepExecutionVersion", "pauseReason", "retryUntil", "autoRetryCount",
+        "warm_engagement_cutoff", "warm_eligible_count", "warm_clicker_count", "warm_cap", "warm_phase", "warm_cursor_id", "warm_audience_exhausted_at",
+        "started_at", "completed_at", "first_send_at", "last_send_at", "sent_count", "pending_count", "failed_count",
+        "deferred_count", "skipped_pressure_count", "snowball_throttled_count", "aged_forced_count",
+        "step_processed_count", "step_cursor_id", "step_execution_version", "pause_reason", "retry_until", "auto_retry_count",
+      ]) delete updateData[field];
+      const sendOptionsSchema = z.object({
+        prioritizeActiveClickers: z.boolean().optional(),
+        stepSendLimit: z.preprocess(
+          (v) => (v === "" || v === null || v === undefined ? null : v),
+          z.coerce.number().int().min(1, "Step send limit must be at least 1").nullable().optional(),
+        ),
+      });
+      const sendOptions = sendOptionsSchema.safeParse({
+        prioritizeActiveClickers: updateData.prioritizeActiveClickers,
+        stepSendLimit: Object.prototype.hasOwnProperty.call(updateData, "stepSendLimit") ? updateData.stepSendLimit : undefined,
+      });
+      if (!sendOptions.success) return res.status(400).json({ error: sendOptions.error.errors });
+      if (sendOptions.data.prioritizeActiveClickers !== undefined) {
+        updateData.prioritizeActiveClickers = sendOptions.data.prioritizeActiveClickers;
+      }
+      if (Object.prototype.hasOwnProperty.call(updateData, "stepSendLimit")) {
+        updateData.stepSendLimit = sendOptions.data.stepSendLimit ?? null;
+      }
       if (updateData.scheduledAt && typeof updateData.scheduledAt === 'string') {
         updateData.scheduledAt = new Date(updateData.scheduledAt);
       }
@@ -2137,11 +2217,35 @@ export function registerCampaignRoutes(app: Express, helpers: {
       const targetStatus = isScheduled ? "scheduled" : "sending";
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - Atomically saving audience and setting status '${targetStatus}'`);
       const updatedCampaign = await db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(campaigns)
+          .where(eq(campaigns.id, campaignId)).for("update");
+        if (!locked) return null;
+        if (locked.status !== existingCampaign.status) {
+          throw new CampaignLaunchConflictError("Campaign state changed while launch was being prepared; please retry");
+        }
+        const lockedAudienceRows = await tx.select({ segmentId: campaignSegments.segmentId })
+          .from(campaignSegments).where(eq(campaignSegments.campaignId, campaignId))
+          .orderBy(campaignSegments.position);
+        const lockedIds = lockedAudienceRows.map((row) => row.segmentId);
+        const executionBegun = !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status);
+        const launchedWarm = locked.prioritizeActiveClickers && (
+          !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status)
+        );
+        const audienceChanged = !sameIds(selectedSegmentIds, lockedIds.length ? lockedIds : (locked.segmentId ? [locked.segmentId] : []));
+        const exclusionChanged = (effectiveExcludeId ?? null) !== (locked.excludeSegmentId ?? null);
+        const toggleChanged = Object.prototype.hasOwnProperty.call(updateData, "prioritizeActiveClickers")
+          && updateData.prioritizeActiveClickers !== locked.prioritizeActiveClickers;
+        if ((executionBegun && toggleChanged) || (launchedWarm && (audienceChanged || exclusionChanged))) {
+          throw new WarmCampaignImmutableError("Warm-start audience and toggle are frozen after launch");
+        }
         const [updated] = await tx.update(campaigns).set({
           ...updateData,
           segmentId: selectedSegmentIds[0],
           excludeSegmentId: effectiveExcludeId,
           status: targetStatus,
+          ...(locked.status !== "sending" && executionBegun
+            ? { stepExecutionVersion: sql`${campaigns.stepExecutionVersion} + 1` }
+            : {}),
           ...(isScheduled ? { scheduledAt: new Date(req.body.scheduledAt) } : {}),
         }).where(sql`${campaigns.id} = ${campaignId}`).returning();
         if (!updated || updated.status !== targetStatus) return null;
@@ -2177,6 +2281,12 @@ export function registerCampaignRoutes(app: Express, helpers: {
       });
       
     } catch (error: any) {
+      if (error instanceof WarmCampaignImmutableError) {
+        return res.status(409).json({ error: error.message });
+      }
+      if (error instanceof CampaignLaunchConflictError) {
+        return res.status(409).json({ error: error.message });
+      }
       logger.error(`[CAMPAIGN_SEND] ${timestamp} - Unexpected error:`, error);
       res.status(500).json({ error: error.message || "Failed to start campaign" });
     }

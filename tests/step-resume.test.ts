@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildStepResumeOverrides,
   InvalidStepResumeLimitError,
-  shouldResetOrphanedFailedSends,
 } from "../server/services/step-resume";
 
 describe("step-limit resume transitions", () => {
@@ -32,13 +31,5 @@ describe("step-limit resume transitions", () => {
       stepAction: "continue",
       stepLimit: "1abc",
     })).toThrow(InvalidStepResumeLimitError);
-  });
-
-  it("keeps failed rows for step resumes so finish can retry them after the cursor", () => {
-    expect(shouldResetOrphanedFailedSends(true)).toBe(false);
-  });
-
-  it("preserves legacy orphan cleanup for non-step resumes", () => {
-    expect(shouldResetOrphanedFailedSends(false)).toBe(true);
   });
 });

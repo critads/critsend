@@ -72,6 +72,10 @@ const sendingSpeeds = [
   { value: "godzilla", label: "Godzilla", description: "60,000 emails/min" },
 ];
 
+type CampaignFormData = Partial<InsertCampaign> & {
+  prioritizeActiveClickers: boolean;
+};
+
 export default function CampaignNew() {
   const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
@@ -79,7 +83,7 @@ export default function CampaignNew() {
   // Independent of `excludeSegmentId` so the "+ Add" button only opens
   // an empty selector instead of silently picking the first option.
   const [showExclusion, setShowExclusion] = useState(false);
-  const [formData, setFormData] = useState<Partial<InsertCampaign>>({
+  const [formData, setFormData] = useState<CampaignFormData>({
     name: "",
     mtaId: "",
     segmentId: "",
@@ -106,6 +110,8 @@ export default function CampaignNew() {
     followUpDelayHours: 36,
     // Step-by-step sending (Task #242). null = no limit.
     stepSendLimit: null,
+    // Prioritize recent clickers at the start of a send. Opt-in by default.
+    prioritizeActiveClickers: false,
   });
   const segmentIds: string[] = (formData as any).segmentIds ?? (formData.segmentId ? [formData.segmentId] : []);
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
@@ -374,7 +380,7 @@ export default function CampaignNew() {
     }
   };
 
-  const updateField = (field: keyof InsertCampaign, value: unknown) => {
+  const updateField = (field: keyof CampaignFormData, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -1058,6 +1064,25 @@ export default function CampaignNew() {
               <p className="text-xs text-muted-foreground">
                 Leave empty to send immediately, or pick a date and time (Paris timezone)
               </p>
+            </div>
+
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="prioritize-active-clickers" className="text-base">
+                    Envoi prioritaire aux actifs
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Envoie d&apos;abord aux abonnés ayant cliqué ces 30 derniers jours, dans la limite de 30 % de l&apos;audience et de 50&nbsp;000 destinataires, puis continue normalement. Les exclusions et la pression marketing restent appliquées.
+                  </p>
+                </div>
+                <Switch
+                  id="prioritize-active-clickers"
+                  checked={!!formData.prioritizeActiveClickers}
+                  onCheckedChange={(value) => updateField("prioritizeActiveClickers", value)}
+                  data-testid="switch-prioritize-active-clickers"
+                />
+              </div>
             </div>
 
             {/* Step-by-step sending (Task #242): optional per-campaign limit.

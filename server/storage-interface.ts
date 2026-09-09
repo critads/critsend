@@ -55,8 +55,12 @@ export interface IStorage {
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string, excludeSegmentId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string, excludeSegmentId?: string): Promise<number>;
-  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string, includeTemporarilySuppressed?: boolean): Promise<Subscriber[]>;
+  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string, includeTemporarilySuppressed?: boolean, excludeWarmCampaignId?: string): Promise<Subscriber[]>;
   countSubscribersForSegments(segmentIds: string[], excludeSegmentId?: string): Promise<number>;
+  planCampaignWarmStart(campaignId: string, segmentIds: string[], excludeSegmentId: string | undefined, expectedStepExecutionVersion: number): Promise<import("./repositories/subscriber-repository").CampaignWarmStartPlan>;
+  getCampaignWarmRecipientsCursor(campaignId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
+  checkpointCampaignWarmStart(campaignId: string, cursorId: string | null, phase: "warm" | "normal", expectedStepExecutionVersion: number, stepProcessedCount?: number): Promise<boolean>;
+  markCampaignWarmAudienceExhausted(campaignId: string, expectedStepExecutionVersion: number, stepProcessedCount: number, stepCursorId: string | null): Promise<boolean>;
   // Auto-resend (Task #56) audience iteration — same contract shape as the
   // segment-cursor pair so the sender can swap iterators with one branch.
   getOpenersForParentCampaignCursor(parentCampaignId: string, limit: number, afterId?: string, includeTemporarilySuppressed?: boolean): Promise<Subscriber[]>;
@@ -179,7 +183,6 @@ export interface IStorage {
   finalizeSend(campaignId: string, subscriberId: string, success: boolean, outcomeClass?: SmtpOutcomeClass): Promise<void>;
   recordSendAndUpdateCounters(campaignId: string, subscriberId: string, success: boolean): Promise<boolean>;
   recoverRetryCarryoverPendingSends(campaignId: string): Promise<number>;
-  resetOrphanedFailedSends(campaignId: string): Promise<number>;
   autoRequeueCampaignFailed(campaignId: string, newAutoRetryCount: number): Promise<boolean>;
   forceFailPendingSend(campaignId: string, subscriberId: string, outcomeClass?: SmtpOutcomeClass): Promise<boolean>;
   bulkReserveSendSlots(campaignId: string, subscriberIds: string[]): Promise<string[]>;
