@@ -429,66 +429,6 @@ export async function getCampaignsPaginated(opts: {
   // returns only as many groups as there are sending campaigns in the
   // page (typically 0-5).
   const pageIds = rows.map((r) => r.id);
-  const orangeWanadooCountsMap = new Map<string, { sent: number; complaints: number }>();
-  const orangeWanadooBackfillIds = rows
-    .filter((row) => row.sentCount > 0 && row.orangeWanadooSentCount === 0)
-    .map((row) => row.id);
-  if (orangeWanadooBackfillIds.length > 0) {
-    try {
-      const backfillRes = await db.execute<{
-        campaign_id: string;
-        sent: string | number;
-        complaints: string | number;
-      }>(sql`
-        WITH target_campaigns AS MATERIALIZED (
-          SELECT unnest(${toPgTextArray(orangeWanadooBackfillIds)}::text[]) AS campaign_id
-        ), sent_truth AS (
-          SELECT cs.campaign_id, COUNT(*)::int AS sent
-          FROM ${campaignSends} cs
-          JOIN subscribers subscriber ON subscriber.id=cs.subscriber_id
-          WHERE cs.campaign_id=ANY(${toPgTextArray(orangeWanadooBackfillIds)}::text[])
-            AND cs.status='sent'
-            AND lower(split_part(subscriber.email,'@',2)) IN ('orange.fr','wanadoo.fr')
-          GROUP BY cs.campaign_id
-        ), complaint_truth AS (
-          SELECT stat.campaign_id, COUNT(DISTINCT stat.subscriber_id)::int AS complaints
-          FROM ${campaignStats} stat
-          JOIN subscribers subscriber ON subscriber.id=stat.subscriber_id
-          WHERE stat.campaign_id=ANY(${toPgTextArray(orangeWanadooBackfillIds)}::text[])
-            AND stat.type='complaint'
-            AND stat.ip_address='195.154.17.225'
-            AND lower(split_part(subscriber.email,'@',2)) IN ('orange.fr','wanadoo.fr')
-          GROUP BY stat.campaign_id
-        ), truth AS (
-          SELECT target.campaign_id,
-            COALESCE(sent.sent,0)::int AS sent,
-            COALESCE(complaint.complaints,0)::int AS complaints
-          FROM target_campaigns target
-          LEFT JOIN sent_truth sent ON sent.campaign_id=target.campaign_id
-          LEFT JOIN complaint_truth complaint ON complaint.campaign_id=target.campaign_id
-        )
-        UPDATE campaigns campaign
-        SET orange_wanadoo_sent_count=GREATEST(campaign.orange_wanadoo_sent_count, truth.sent),
-            orange_wanadoo_complaints_count=GREATEST(campaign.orange_wanadoo_complaints_count, truth.complaints)
-        FROM truth
-        WHERE campaign.id=truth.campaign_id
-        RETURNING campaign.id AS campaign_id,
-          campaign.orange_wanadoo_sent_count AS sent,
-          campaign.orange_wanadoo_complaints_count AS complaints
-      `);
-      for (const result of backfillRes.rows) {
-        orangeWanadooCountsMap.set(result.campaign_id, {
-          sent: Number(result.sent) || 0,
-          complaints: Number(result.complaints) || 0,
-        });
-      }
-    } catch (error) {
-      logger.warn("[ORANGE_WANADOO] Lazy campaign counter backfill failed", {
-        campaignCount: orangeWanadooBackfillIds.length,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
   const liveCountsMap = new Map<string, { pressureHeld: number; realPending: number }>();
   if (pageIds.length > 0) {
     const liveCountsRes = await db.execute<{
@@ -526,9 +466,8 @@ export async function getCampaignsPaginated(opts: {
 
   const enriched = rows.map((row) => {
     const live = liveCountsMap.get(row.id);
-    const orangeWanadooBackfill = orangeWanadooCountsMap.get(row.id);
-    const orangeWanadooSentCount = orangeWanadooBackfill?.sent ?? row.orangeWanadooSentCount;
-    const orangeWanadooComplaintsCount = orangeWanadooBackfill?.complaints ?? row.orangeWanadooComplaintsCount;
+    const orangeWanadooSentCount = row.orangeWanadooSentCount;
+    const orangeWanadooComplaintsCount = row.orangeWanadooComplaintsCount;
     return {
       ...row,
       segmentIds: segmentIdsMap.get(row.id) ?? (row.segmentId ? [row.segmentId] : []),
