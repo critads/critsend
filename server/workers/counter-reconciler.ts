@@ -386,7 +386,8 @@ export async function reconcileCounters(
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')::bigint AS unsubscribes,
                COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints,
                COUNT(DISTINCT subscriber_id) FILTER (
-                 WHERE type='complaint' AND ip_address='195.154.17.225'
+                 WHERE type IN ('open', 'complaint')
+                   AND ip_address='195.154.17.225'
                    AND subscriber_id IN (
                      SELECT id FROM subscribers
                      WHERE lower(split_part(email,'@',2)) IN ('orange.fr','wanadoo.fr')
