@@ -243,6 +243,29 @@ setTimeout(() => {
         logger.info("[TRACKING] Bootstrap migration: complaint-IP timestamp backfill index already exists — skipping");
       }
 
+      // Historical Orange/Wanadoo counter reconciliation walks one distinct
+      // complaint-IP subscriber at a time for each campaign. Leading with
+      // campaign_id lets each recursive seek skip an arbitrary number of
+      // duplicate events without scanning them into an unbounded DISTINCT.
+      if (!(await indexExistsAndValid("campaign_stats_ow_campaign_subscriber_idx"))) {
+        try {
+          await runIndexDdlNoTimeout(
+            `CREATE INDEX CONCURRENTLY IF NOT EXISTS campaign_stats_ow_campaign_subscriber_idx
+               ON campaign_stats (campaign_id, subscriber_id)
+               WHERE ip_address = '195.154.17.225'
+                 AND type IN ('open', 'complaint')`,
+            "CREATE campaign_stats_ow_campaign_subscriber_idx",
+          );
+          logger.info("[TRACKING] Bootstrap migration: Orange/Wanadoo campaign-subscriber index ready");
+        } catch (err: any) {
+          logger.error(
+            `[TRACKING] Bootstrap migration FAILED (Orange/Wanadoo campaign-subscriber index): ${err?.message || err}`,
+          );
+        }
+      } else {
+        logger.info("[TRACKING] Bootstrap migration: Orange/Wanadoo campaign-subscriber index already exists — skipping");
+      }
+
       // Apply the complaint-IP cooling-off rule retroactively on every deploy.
       // Current detections are stored as complaint rows; historical rows may
       // still be opens, so both event types are included. MAX(timestamp) keeps

@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex, date, bigserial, check, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, index, uniqueIndex, date, bigint, bigserial, check, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -314,6 +314,39 @@ export const campaigns = pgTable("campaigns", {
   firstSendAtIdx: index("campaigns_first_send_at_idx")
     .on(table.firstSendAt)
     .where(sql`first_send_at IS NOT NULL AND sent_count > 0`),
+  orangeWanadooReconcileCursorIdx: index("campaigns_ow_reconcile_cursor_idx")
+    .on(table.createdAt, table.id)
+    .where(sql`status IN ('failed', 'completed', 'sent', 'cancelled')`),
+}));
+
+export const orangeWanadooCounterReconcileState = pgTable("orange_wanadoo_counter_reconcile_state", {
+  singleton: boolean("singleton").primaryKey().notNull().default(true),
+  // Existing state rows must enter as v1 so bootstrap can reset incompatible
+  // checkpoints before tagging them as v2. Fresh rows are promoted immediately.
+  algorithmVersion: integer("algorithm_version").notNull().default(1),
+  cursorCreatedAt: timestamp("cursor_created_at"),
+  cursorId: text("cursor_id"),
+  activeCampaignId: text("active_campaign_id"),
+  activeCampaignCreatedAt: timestamp("active_campaign_created_at"),
+  sendCursorSubscriberId: text("send_cursor_subscriber_id"),
+  statsCursorSubscriberId: text("stats_cursor_subscriber_id"),
+  phase: text("phase").notNull().default("sends"),
+  baselineSent: integer("baseline_sent").notNull().default(0),
+  baselineComplaints: integer("baseline_complaints").notNull().default(0),
+  accumulatedSent: bigint("accumulated_sent", { mode: "number" }).notNull().default(0),
+  accumulatedTotalSent: bigint("accumulated_total_sent", { mode: "number" }).notNull().default(0),
+  accumulatedComplaints: bigint("accumulated_complaints", { mode: "number" }).notNull().default(0),
+  totalRowsExamined: bigint("total_rows_examined", { mode: "number" }).notNull().default(0),
+  totalCampaignsCompleted: bigint("total_campaigns_completed", { mode: "number" }).notNull().default(0),
+  totalCampaignsFixed: bigint("total_campaigns_fixed", { mode: "number" }).notNull().default(0),
+  totalRetentionPreserved: bigint("total_retention_preserved", { mode: "number" }).notNull().default(0),
+  totalErrors: bigint("total_errors", { mode: "number" }).notNull().default(0),
+  lastSuccessAt: timestamp("last_success_at"),
+  lastErrorAt: timestamp("last_error_at"),
+  completedAt: timestamp("completed_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  singletonCheck: check("orange_wanadoo_counter_reconcile_singleton_check", sql`${table.singleton}`),
 }));
 
 export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
@@ -370,6 +403,9 @@ export const campaignStats = pgTable("campaign_stats", {
     .where(sql`ip_address = '195.154.17.225' AND type IN ('open', 'complaint')`),
   complaintIpTimestampSubscriberIdx: index("campaign_stats_complaint_ip_timestamp_subscriber_idx")
     .on(table.timestamp, table.subscriberId)
+    .where(sql`ip_address = '195.154.17.225' AND type IN ('open', 'complaint')`),
+  orangeWanadooCampaignSubscriberIdx: index("campaign_stats_ow_campaign_subscriber_idx")
+    .on(table.campaignId, table.subscriberId)
     .where(sql`ip_address = '195.154.17.225' AND type IN ('open', 'complaint')`),
   unsubscribeSubscriberCampaignIdx: index("campaign_stats_unsubscribe_subscriber_campaign_idx")
     .on(table.subscriberId, table.campaignId)

@@ -480,6 +480,32 @@ export const counterDriftLastRunAt = new client.Gauge({
   registers: [register],
 });
 
+export const orangeWanadooHistoricalReconcileTotal = new client.Counter({
+  name: 'critsend_orange_wanadoo_historical_reconcile_total',
+  help: 'Historical Orange/Wanadoo campaign counter reconciliation outcomes',
+  labelNames: ['outcome'] as const,
+  registers: [register],
+});
+
+export const orangeWanadooHistoricalReconcileBatchSize = new client.Gauge({
+  name: 'critsend_orange_wanadoo_historical_reconcile_batch_size',
+  help: 'Campaigns examined by the latest historical Orange/Wanadoo reconciliation batch',
+  registers: [register],
+});
+
+export const orangeWanadooHistoricalReconcileRemaining = new client.Gauge({
+  name: 'critsend_orange_wanadoo_historical_reconcile_remaining',
+  help: 'Whether the historical Orange/Wanadoo reconciliation still has campaigns to examine',
+  registers: [register],
+});
+
+export const orangeWanadooHistoricalReconcileProgress = new client.Gauge({
+  name: 'critsend_orange_wanadoo_historical_reconcile_progress',
+  help: 'Durable historical Orange/Wanadoo reconciliation progress, visible from the web metrics process',
+  labelNames: ['measure'] as const,
+  registers: [register],
+});
+
 export const trackingLinkCacheHits = new client.Counter({
   name: 'critsend_tracking_link_cache_hits_total',
   help: 'getCampaignLinkDestination LRU cache outcomes',
@@ -682,6 +708,65 @@ export function startMetricsCollector(): void {
 
       jobOldestAgeSeconds.set({ queue_name: 'campaign' }, parseFloat(row.campaign_oldest_age) || 0);
       jobOldestAgeSeconds.set({ queue_name: 'import' }, parseFloat(row.import_oldest_age) || 0);
+
+      const owStateTable = await pool.query<{ state_table: string | null }>(
+        `SELECT to_regclass('public.orange_wanadoo_counter_reconcile_state')::text AS state_table`,
+      );
+      if (owStateTable.rows[0]?.state_table) {
+        const owState = await pool.query<{
+          total_rows_examined: string | number;
+          total_campaigns_completed: string | number;
+          total_campaigns_fixed: string | number;
+          total_retention_preserved: string | number;
+          total_errors: string | number;
+          remaining: string | number;
+          last_success_at: string | number | null;
+          last_error_at: string | number | null;
+        }>(`
+          SELECT total_rows_examined,
+                 total_campaigns_completed,
+                 total_campaigns_fixed,
+                 total_retention_preserved,
+                 total_errors,
+                 CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END AS remaining,
+                 EXTRACT(EPOCH FROM last_success_at) AS last_success_at,
+                 EXTRACT(EPOCH FROM last_error_at) AS last_error_at
+            FROM orange_wanadoo_counter_reconcile_state
+           WHERE singleton = TRUE
+        `);
+        const ow = owState.rows[0];
+        if (ow) {
+          orangeWanadooHistoricalReconcileRemaining.set(Number(ow.remaining) || 0);
+          orangeWanadooHistoricalReconcileProgress.set(
+            { measure: 'rows_examined' },
+            Number(ow.total_rows_examined) || 0,
+          );
+          orangeWanadooHistoricalReconcileProgress.set(
+            { measure: 'campaigns_completed' },
+            Number(ow.total_campaigns_completed) || 0,
+          );
+          orangeWanadooHistoricalReconcileProgress.set(
+            { measure: 'campaigns_fixed' },
+            Number(ow.total_campaigns_fixed) || 0,
+          );
+          orangeWanadooHistoricalReconcileProgress.set(
+            { measure: 'retention_preserved' },
+            Number(ow.total_retention_preserved) || 0,
+          );
+          orangeWanadooHistoricalReconcileProgress.set(
+            { measure: 'errors' },
+            Number(ow.total_errors) || 0,
+          );
+          orangeWanadooHistoricalReconcileProgress.set(
+            { measure: 'last_success_timestamp_seconds' },
+            Number(ow.last_success_at) || 0,
+          );
+          orangeWanadooHistoricalReconcileProgress.set(
+            { measure: 'last_error_timestamp_seconds' },
+            Number(ow.last_error_at) || 0,
+          );
+        }
+      }
 
       if (pool.waitingCount > 0) {
         dbPoolSaturationTotal.inc();

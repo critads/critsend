@@ -42,12 +42,557 @@ import {
   counterDriftFixedTotal,
   counterDriftRunDurationMs,
   counterDriftLastRunAt,
+  orangeWanadooHistoricalReconcileTotal,
+  orangeWanadooHistoricalReconcileBatchSize,
+  orangeWanadooHistoricalReconcileRemaining,
 } from "../metrics";
 
 const effectivePool = mainPool;
 
 const RECONCILE_INTERVAL_MS = Number(process.env.COUNTER_RECONCILE_INTERVAL_MS || 15 * 60 * 1000);
 const RECONCILE_WINDOW_HOURS = Number(process.env.COUNTER_RECONCILE_WINDOW_HOURS || 24);
+const OW_HISTORICAL_BATCH_SIZE = Math.max(
+  100,
+  Math.min(10_000, Number(process.env.OW_HISTORICAL_RECONCILE_BATCH_SIZE || 2_000)),
+);
+const OW_HISTORICAL_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.OW_HISTORICAL_RECONCILE_INTERVAL_MS || 5 * 60 * 1000),
+);
+const OW_HISTORICAL_STATEMENT_TIMEOUT_MS = Math.max(
+  1_000,
+  Math.min(30_000, Number(process.env.OW_HISTORICAL_RECONCILE_STATEMENT_TIMEOUT_MS || 5_000)),
+);
+const OW_HISTORICAL_LOCK_ID = 1_947_231_225;
+
+export interface OrangeWanadooHistoricalReconcileResult {
+  examined: number;
+  fixed: number;
+  hasMore: boolean;
+  skipped: boolean;
+}
+
+async function ensureOrangeWanadooHistoricalState(): Promise<void> {
+  const client = await effectivePool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL statement_timeout = ${OW_HISTORICAL_STATEMENT_TIMEOUT_MS}`);
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query("SELECT pg_advisory_xact_lock($1)", [OW_HISTORICAL_LOCK_ID]);
+    const exists = await client.query<{ table_name: string | null }>(
+      `SELECT to_regclass('public.orange_wanadoo_counter_reconcile_state')::text AS table_name`,
+    );
+    if (!exists.rows[0]?.table_name) {
+      await client.query(`
+        CREATE TABLE orange_wanadoo_counter_reconcile_state (
+          singleton boolean PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+          algorithm_version integer NOT NULL DEFAULT 2,
+          cursor_created_at timestamp,
+          cursor_id text,
+          active_campaign_id text,
+          active_campaign_created_at timestamp,
+          send_cursor_subscriber_id text,
+          stats_cursor_subscriber_id text,
+          phase text NOT NULL DEFAULT 'sends',
+          baseline_sent integer NOT NULL DEFAULT 0,
+          baseline_complaints integer NOT NULL DEFAULT 0,
+          accumulated_sent bigint NOT NULL DEFAULT 0,
+          accumulated_total_sent bigint NOT NULL DEFAULT 0,
+          accumulated_complaints bigint NOT NULL DEFAULT 0,
+          total_rows_examined bigint NOT NULL DEFAULT 0,
+          total_campaigns_completed bigint NOT NULL DEFAULT 0,
+          total_campaigns_fixed bigint NOT NULL DEFAULT 0,
+          total_retention_preserved bigint NOT NULL DEFAULT 0,
+          total_errors bigint NOT NULL DEFAULT 0,
+          last_success_at timestamp,
+          last_error_at timestamp,
+          completed_at timestamp,
+          updated_at timestamp NOT NULL DEFAULT NOW()
+        )
+      `);
+    }
+    await client.query(`
+      ALTER TABLE orange_wanadoo_counter_reconcile_state
+        ADD COLUMN IF NOT EXISTS algorithm_version integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS stats_cursor_subscriber_id text,
+        ADD COLUMN IF NOT EXISTS phase text NOT NULL DEFAULT 'sends',
+        ADD COLUMN IF NOT EXISTS accumulated_total_sent bigint NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS total_retention_preserved bigint NOT NULL DEFAULT 0
+    `);
+    await client.query(`
+      INSERT INTO orange_wanadoo_counter_reconcile_state (singleton)
+      VALUES (TRUE)
+      ON CONFLICT (singleton) DO NOTHING
+    `);
+    await client.query(`
+      UPDATE orange_wanadoo_counter_reconcile_state
+         SET algorithm_version = 2,
+             cursor_created_at = NULL,
+             cursor_id = NULL,
+             active_campaign_id = NULL,
+             active_campaign_created_at = NULL,
+             send_cursor_subscriber_id = NULL,
+             stats_cursor_subscriber_id = NULL,
+             phase = 'sends',
+             baseline_sent = 0,
+             baseline_complaints = 0,
+             accumulated_sent = 0,
+             accumulated_total_sent = 0,
+             accumulated_complaints = 0,
+             total_rows_examined = 0,
+             total_campaigns_completed = 0,
+             total_campaigns_fixed = 0,
+             total_retention_preserved = 0,
+             total_errors = 0,
+             completed_at = NULL,
+             last_error_at = NULL,
+             updated_at = NOW()
+       WHERE algorithm_version < 2
+    `);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+const OW_HISTORICAL_TERMINAL_STATUSES = new Set([
+  "failed",
+  "completed",
+  "sent",
+  "cancelled",
+]);
+
+interface OrangeWanadooCampaignCounterState {
+  status: string;
+  sent: string | number;
+  complaints: string | number;
+  total_sent: string | number;
+}
+
+async function readLockedOrangeWanadooCounterState(
+  client: import("pg").PoolClient,
+  campaignId: string,
+): Promise<OrangeWanadooCampaignCounterState | null> {
+  const current = await client.query<OrangeWanadooCampaignCounterState>(
+    `SELECT status,
+            orange_wanadoo_sent_count AS sent,
+            orange_wanadoo_complaints_count AS complaints,
+            sent_count AS total_sent
+       FROM campaigns
+      WHERE id = $1
+      FOR UPDATE`,
+    [campaignId],
+  );
+  return current.rows[0] ?? null;
+}
+
+async function resetOrangeWanadooCampaignRetry(
+  client: import("pg").PoolClient,
+  current: OrangeWanadooCampaignCounterState,
+  examined: number,
+): Promise<void> {
+  await client.query(
+    `UPDATE orange_wanadoo_counter_reconcile_state
+        SET send_cursor_subscriber_id = NULL,
+            stats_cursor_subscriber_id = NULL,
+            phase = 'sends',
+            baseline_sent = $1,
+            baseline_complaints = $2,
+            accumulated_sent = 0,
+            accumulated_total_sent = 0,
+            accumulated_complaints = 0,
+            total_rows_examined = total_rows_examined + $3,
+            last_success_at = NOW(),
+            updated_at = NOW()
+      WHERE singleton = TRUE`,
+    [Number(current.sent) || 0, Number(current.complaints) || 0, examined],
+  );
+}
+
+let orangeWanadooHistoricalStateReady: Promise<void> | null = null;
+
+function prepareOrangeWanadooHistoricalState(): Promise<void> {
+  if (!orangeWanadooHistoricalStateReady) {
+    orangeWanadooHistoricalStateReady = ensureOrangeWanadooHistoricalState().catch((error) => {
+      orangeWanadooHistoricalStateReady = null;
+      throw error;
+    });
+  }
+  return orangeWanadooHistoricalStateReady;
+}
+
+/**
+ * Walk historical campaigns in bounded, durable batches. Zero is a valid
+ * counter value, so "never initialized" cannot be inferred from the cached
+ * columns: every historical campaign is examined once. The persisted
+ * campaign and subscriber cursors advance only in the same transaction as
+ * each bounded accumulation step. This prevents one very large campaign from
+ * monopolising a query or blocking all later campaigns. An advisory
+ * transaction lock prevents web and worker processes from duplicating work.
+ */
+export async function reconcileOrangeWanadooHistoricalBatch(
+  batchSize = OW_HISTORICAL_BATCH_SIZE,
+): Promise<OrangeWanadooHistoricalReconcileResult> {
+  await prepareOrangeWanadooHistoricalState();
+  const client = await effectivePool.connect();
+  const boundedBatchSize = Math.max(100, Math.min(10_000, Math.floor(batchSize)));
+  try {
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL statement_timeout = ${OW_HISTORICAL_STATEMENT_TIMEOUT_MS}`);
+    const lock = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_xact_lock($1) AS acquired",
+      [OW_HISTORICAL_LOCK_ID],
+    );
+    if (!lock.rows[0]?.acquired) {
+      await client.query("ROLLBACK");
+      orangeWanadooHistoricalReconcileTotal.inc({ outcome: "skipped_locked" });
+      return { examined: 0, fixed: 0, hasMore: true, skipped: true };
+    }
+
+    const state = await client.query<{
+      cursor_created_at: Date | null;
+      cursor_id: string | null;
+      active_campaign_id: string | null;
+      send_cursor_subscriber_id: string | null;
+      stats_cursor_subscriber_id: string | null;
+      phase: "sends" | "stats";
+      baseline_sent: string | number;
+      baseline_complaints: string | number;
+      accumulated_sent: string | number;
+      accumulated_total_sent: string | number;
+      accumulated_complaints: string | number;
+      completed_at: Date | null;
+    }>(`
+      SELECT cursor_created_at, cursor_id, active_campaign_id,
+             send_cursor_subscriber_id, stats_cursor_subscriber_id, phase,
+             baseline_sent, baseline_complaints,
+             accumulated_sent, accumulated_total_sent, accumulated_complaints,
+             completed_at
+      FROM orange_wanadoo_counter_reconcile_state
+      WHERE singleton = TRUE
+      FOR UPDATE
+    `);
+    const checkpoint = state.rows[0];
+    if (checkpoint?.completed_at) {
+      await client.query("COMMIT");
+      orangeWanadooHistoricalReconcileRemaining.set(0);
+      return { examined: 0, fixed: 0, hasMore: false, skipped: false };
+    }
+
+    let activeCampaignId = checkpoint?.active_campaign_id ?? null;
+    let sendCursor = checkpoint?.send_cursor_subscriber_id ?? null;
+    let statsCursor = checkpoint?.stats_cursor_subscriber_id ?? null;
+    let phase = checkpoint?.phase ?? "sends";
+    let accumulatedSent = Number(checkpoint?.accumulated_sent ?? 0);
+    let accumulatedTotalSent = Number(checkpoint?.accumulated_total_sent ?? 0);
+    let accumulatedComplaints = Number(checkpoint?.accumulated_complaints ?? 0);
+
+    if (!activeCampaignId) {
+      const selected = await client.query<{ active_campaign_id: string }>(
+        `WITH next_campaign AS (
+           SELECT c.id, c.created_at,
+                  c.orange_wanadoo_sent_count,
+                  c.orange_wanadoo_complaints_count
+             FROM campaigns c
+             CROSS JOIN orange_wanadoo_counter_reconcile_state rs
+            WHERE rs.singleton = TRUE
+              AND c.status IN ('failed', 'completed', 'sent', 'cancelled')
+              AND (
+                (rs.cursor_created_at IS NULL AND rs.cursor_id IS NULL)
+                OR (c.created_at, c.id) > (rs.cursor_created_at, rs.cursor_id)
+              )
+            ORDER BY c.created_at, c.id
+            LIMIT 1
+         ),
+         chosen AS (
+           UPDATE orange_wanadoo_counter_reconcile_state rs
+            SET active_campaign_id = next_campaign.id,
+                active_campaign_created_at = next_campaign.created_at,
+                send_cursor_subscriber_id = NULL,
+                stats_cursor_subscriber_id = NULL,
+                phase = 'sends',
+                baseline_sent = next_campaign.orange_wanadoo_sent_count,
+                baseline_complaints = next_campaign.orange_wanadoo_complaints_count,
+                accumulated_sent = 0,
+                accumulated_total_sent = 0,
+                accumulated_complaints = 0,
+                updated_at = NOW()
+           FROM next_campaign
+          WHERE rs.singleton = TRUE
+          RETURNING rs.active_campaign_id
+         )
+         SELECT active_campaign_id FROM chosen`,
+      );
+      activeCampaignId = selected.rows[0]?.active_campaign_id ?? null;
+      if (!activeCampaignId) {
+        await client.query(`
+          UPDATE orange_wanadoo_counter_reconcile_state
+             SET completed_at = NOW(), updated_at = NOW()
+           WHERE singleton = TRUE
+        `);
+        await client.query("COMMIT");
+        orangeWanadooHistoricalReconcileBatchSize.set(0);
+        orangeWanadooHistoricalReconcileRemaining.set(0);
+        orangeWanadooHistoricalReconcileTotal.inc({ outcome: "completed" });
+        logger.info("[OW HISTORICAL RECONCILER] historical scan completed");
+        return { examined: 0, fixed: 0, hasMore: false, skipped: false };
+      }
+      sendCursor = null;
+      statsCursor = null;
+      phase = "sends";
+      accumulatedSent = 0;
+      accumulatedTotalSent = 0;
+      accumulatedComplaints = 0;
+    }
+
+    let examinedThisBatch = 0;
+
+    if (phase === "sends") {
+      // Paginate every raw send before filtering. The existing unique
+      // (campaign_id, subscriber_id) index guarantees bounded progress even
+      // when sent or Orange/Wanadoo rows are sparse.
+      const sends = await client.query<{
+        subscriber_id: string;
+        status: string;
+        is_orange_wanadoo: boolean;
+      }>(
+        `WITH send_chunk AS MATERIALIZED (
+           SELECT cs.subscriber_id, cs.status
+             FROM campaign_sends cs
+            WHERE cs.campaign_id = $1
+              AND cs.subscriber_id > COALESCE($2::text, '')
+            ORDER BY cs.subscriber_id
+            LIMIT $3
+         )
+         SELECT sc.subscriber_id,
+                sc.status,
+                lower(split_part(s.email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+                  AS is_orange_wanadoo
+           FROM send_chunk sc
+           JOIN subscribers s ON s.id = sc.subscriber_id
+          ORDER BY sc.subscriber_id`,
+        [activeCampaignId, sendCursor, boundedBatchSize],
+      );
+      examinedThisBatch = sends.rows.length;
+      for (const row of sends.rows) {
+        if (row.status !== "sent") continue;
+        accumulatedTotalSent += 1;
+        if (row.is_orange_wanadoo) accumulatedSent += 1;
+      }
+
+      if (sends.rows.length === boundedBatchSize) {
+        const lastSubscriberId = sends.rows[sends.rows.length - 1].subscriber_id;
+        await client.query(
+          `UPDATE orange_wanadoo_counter_reconcile_state
+              SET send_cursor_subscriber_id = $1,
+                  accumulated_sent = $2,
+                  accumulated_total_sent = $3,
+                  total_rows_examined = total_rows_examined + $4,
+                  last_success_at = NOW(),
+                  updated_at = NOW()
+            WHERE singleton = TRUE`,
+          [lastSubscriberId, accumulatedSent, accumulatedTotalSent, examinedThisBatch],
+        );
+        await client.query("COMMIT");
+        orangeWanadooHistoricalReconcileBatchSize.set(examinedThisBatch);
+        orangeWanadooHistoricalReconcileRemaining.set(1);
+        orangeWanadooHistoricalReconcileTotal.inc({ outcome: "rows_examined" }, examinedThisBatch);
+        return { examined: examinedThisBatch, fixed: 0, hasMore: true, skipped: false };
+      }
+
+      // The send-derived denominator is only a lower bound because retention
+      // may have removed old rows. Complaint detections have an independent
+      // source of truth and are walked in their own bounded phase.
+      await client.query(
+        `UPDATE orange_wanadoo_counter_reconcile_state
+            SET phase = 'stats',
+                send_cursor_subscriber_id = NULL,
+                stats_cursor_subscriber_id = NULL,
+                accumulated_sent = $1,
+                accumulated_total_sent = $2,
+                total_rows_examined = total_rows_examined + $3,
+                last_success_at = NOW(),
+                updated_at = NOW()
+          WHERE singleton = TRUE`,
+        [accumulatedSent, accumulatedTotalSent, examinedThisBatch],
+      );
+      await client.query("COMMIT");
+      orangeWanadooHistoricalReconcileBatchSize.set(examinedThisBatch);
+      orangeWanadooHistoricalReconcileRemaining.set(1);
+      orangeWanadooHistoricalReconcileTotal.inc({ outcome: "rows_examined" }, examinedThisBatch);
+      return { examined: examinedThisBatch, fixed: 0, hasMore: true, skipped: false };
+    }
+
+    const stats = await client.query<{
+      subscriber_id: string;
+      is_orange_wanadoo: boolean;
+    }>(
+      `WITH RECURSIVE stat_chunk(subscriber_id, row_number) AS (
+         (
+           SELECT st.subscriber_id, 1
+             FROM campaign_stats st
+            WHERE st.campaign_id = $1
+              AND st.subscriber_id > COALESCE($2::text, '')
+              AND st.ip_address = '195.154.17.225'
+              AND st.type IN ('open', 'complaint')
+            ORDER BY st.subscriber_id
+            LIMIT 1
+         )
+         UNION ALL
+         SELECT next_stat.subscriber_id, stat_chunk.row_number + 1
+           FROM stat_chunk
+           CROSS JOIN LATERAL (
+             SELECT st.subscriber_id
+               FROM campaign_stats st
+              WHERE st.campaign_id = $1
+                AND st.subscriber_id > stat_chunk.subscriber_id
+                AND st.ip_address = '195.154.17.225'
+                AND st.type IN ('open', 'complaint')
+              ORDER BY st.subscriber_id
+              LIMIT 1
+           ) next_stat
+          WHERE stat_chunk.row_number < $3
+       )
+       SELECT sc.subscriber_id,
+              lower(split_part(s.email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+                AS is_orange_wanadoo
+         FROM stat_chunk sc
+         JOIN subscribers s ON s.id = sc.subscriber_id
+        ORDER BY sc.subscriber_id`,
+      [activeCampaignId, statsCursor, boundedBatchSize],
+    );
+    examinedThisBatch = stats.rows.length;
+    for (const row of stats.rows) {
+      if (row.is_orange_wanadoo) accumulatedComplaints += 1;
+    }
+
+    if (stats.rows.length === boundedBatchSize) {
+      const lastSubscriberId = stats.rows[stats.rows.length - 1].subscriber_id;
+      await client.query(
+        `UPDATE orange_wanadoo_counter_reconcile_state
+            SET stats_cursor_subscriber_id = $1,
+                accumulated_complaints = $2,
+                total_rows_examined = total_rows_examined + $3,
+                last_success_at = NOW(),
+                updated_at = NOW()
+          WHERE singleton = TRUE`,
+        [lastSubscriberId, accumulatedComplaints, examinedThisBatch],
+      );
+      await client.query("COMMIT");
+      orangeWanadooHistoricalReconcileBatchSize.set(examinedThisBatch);
+      orangeWanadooHistoricalReconcileRemaining.set(1);
+      orangeWanadooHistoricalReconcileTotal.inc({ outcome: "rows_examined" }, examinedThisBatch);
+      return { examined: examinedThisBatch, fixed: 0, hasMore: true, skipped: false };
+    }
+
+    const fixed = await client.query(
+      `UPDATE campaigns c
+          SET orange_wanadoo_sent_count = GREATEST(c.orange_wanadoo_sent_count, $1),
+              orange_wanadoo_complaints_count = $2
+         FROM orange_wanadoo_counter_reconcile_state rs
+        WHERE rs.singleton = TRUE
+          AND c.id = rs.active_campaign_id
+          AND c.status IN ('failed', 'completed', 'sent', 'cancelled')
+          AND c.orange_wanadoo_sent_count IS NOT DISTINCT FROM rs.baseline_sent
+          AND c.orange_wanadoo_complaints_count IS NOT DISTINCT FROM rs.baseline_complaints
+          AND (c.orange_wanadoo_sent_count IS DISTINCT FROM GREATEST(c.orange_wanadoo_sent_count, $1)
+            OR c.orange_wanadoo_complaints_count IS DISTINCT FROM $2)`,
+      [accumulatedSent, accumulatedComplaints],
+    );
+    const fixedCount = fixed.rowCount ?? 0;
+    const current = await readLockedOrangeWanadooCounterState(client, activeCampaignId);
+    const isTerminal = current
+      ? OW_HISTORICAL_TERMINAL_STATUSES.has(current.status)
+      : true;
+    const retentionPreserved = current
+      && accumulatedTotalSent < Number(current.total_sent)
+      ? 1
+      : 0;
+    const expectedSent = current
+      ? Math.max(Number(current.sent), accumulatedSent)
+      : accumulatedSent;
+    const matchesTruth = current
+      ? Number(current.sent) === expectedSent
+        && Number(current.complaints) === accumulatedComplaints
+      : true;
+
+    if (current && isTerminal && !matchesTruth) {
+      await resetOrangeWanadooCampaignRetry(client, current, examinedThisBatch);
+      await client.query("COMMIT");
+      orangeWanadooHistoricalReconcileBatchSize.set(examinedThisBatch);
+      orangeWanadooHistoricalReconcileRemaining.set(1);
+      orangeWanadooHistoricalReconcileTotal.inc({ outcome: "rows_examined" }, examinedThisBatch);
+      orangeWanadooHistoricalReconcileTotal.inc({ outcome: "baseline_conflict_retry" });
+      logger.warn(
+        `[OW HISTORICAL RECONCILER] campaign=${activeCampaignId} changed during scan; restarting its bounded accumulation`,
+      );
+      return { examined: examinedThisBatch, fixed: 0, hasMore: true, skipped: false };
+    }
+
+    const historicalCampaignCompleted = isTerminal ? 1 : 0;
+    await client.query(
+      `UPDATE orange_wanadoo_counter_reconcile_state
+          SET cursor_created_at = active_campaign_created_at,
+              cursor_id = active_campaign_id,
+              active_campaign_id = NULL,
+              active_campaign_created_at = NULL,
+              send_cursor_subscriber_id = NULL,
+              stats_cursor_subscriber_id = NULL,
+              phase = 'sends',
+              baseline_sent = 0,
+              baseline_complaints = 0,
+              accumulated_sent = 0,
+              accumulated_total_sent = 0,
+              accumulated_complaints = 0,
+              total_rows_examined = total_rows_examined + $1,
+              total_campaigns_completed = total_campaigns_completed + $3,
+              total_campaigns_fixed = total_campaigns_fixed + $2,
+              total_retention_preserved = total_retention_preserved + $4,
+              last_success_at = NOW(),
+              updated_at = NOW()
+        WHERE singleton = TRUE`,
+      [
+        examinedThisBatch,
+        fixedCount,
+        historicalCampaignCompleted,
+        retentionPreserved,
+      ],
+    );
+    await client.query("COMMIT");
+
+    orangeWanadooHistoricalReconcileBatchSize.set(examinedThisBatch);
+    orangeWanadooHistoricalReconcileRemaining.set(1);
+    orangeWanadooHistoricalReconcileTotal.inc({ outcome: "rows_examined" }, examinedThisBatch);
+    orangeWanadooHistoricalReconcileTotal.inc({
+      outcome: retentionPreserved
+        ? "retention_preserved"
+        : historicalCampaignCompleted
+          ? "campaigns_completed"
+          : "delegated_active",
+    });
+    if (fixedCount > 0) orangeWanadooHistoricalReconcileTotal.inc({ outcome: "fixed" });
+    logger.info(
+      `[OW HISTORICAL RECONCILER] campaign=${activeCampaignId} sentLowerBound=${accumulatedSent} complaints=${accumulatedComplaints} fixed=${fixedCount} retentionPreserved=${retentionPreserved}`,
+    );
+    return { examined: examinedThisBatch, fixed: fixedCount, hasMore: true, skipped: false };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    orangeWanadooHistoricalReconcileTotal.inc({ outcome: "error" });
+    await effectivePool.query(`
+      UPDATE orange_wanadoo_counter_reconcile_state
+         SET total_errors = total_errors + 1,
+             last_error_at = NOW(),
+             updated_at = NOW()
+       WHERE singleton = TRUE
+    `).catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 export interface ReconcileResult {
   sentCountFixed: number;
@@ -318,12 +863,15 @@ export async function reconcileCounters(
          GROUP BY cs.campaign_id
      )
      UPDATE campaigns c
-         SET sent_count = truth.cnt,
-             orange_wanadoo_sent_count = truth.ow_sent
+         SET sent_count = GREATEST(c.sent_count, truth.cnt),
+              orange_wanadoo_sent_count = GREATEST(
+                c.orange_wanadoo_sent_count,
+                truth.ow_sent
+              )
        FROM truth
       WHERE c.id = truth.campaign_id
          AND (c.sent_count < truth.cnt
-           OR c.orange_wanadoo_sent_count IS DISTINCT FROM truth.ow_sent)`,
+            OR c.orange_wanadoo_sent_count < truth.ow_sent)`,
   );
   sentCountFixed = sentRes.rowCount ?? 0;
   checkBudget();
@@ -385,13 +933,13 @@ export async function reconcileCounters(
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'click')::bigint    AS unique_clicks,
               COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'unsubscribe')::bigint AS unsubscribes,
                COUNT(DISTINCT subscriber_id) FILTER (WHERE type = 'complaint')::bigint  AS complaints,
-               COUNT(DISTINCT subscriber_id) FILTER (
-                 WHERE type IN ('open', 'complaint')
-                   AND ip_address='195.154.17.225'
-                   AND subscriber_id IN (
-                     SELECT id FROM subscribers
-                     WHERE lower(split_part(email,'@',2)) IN ('orange.fr','wanadoo.fr')
-                   )
+                COUNT(DISTINCT subscriber_id) FILTER (
+                  WHERE type IN ('open', 'complaint')
+                    AND ip_address='195.154.17.225'
+                    AND subscriber_id IN (
+                      SELECT id FROM subscribers
+                      WHERE lower(split_part(email,'@',2)) IN ('orange.fr','wanadoo.fr')
+                    )
                )::bigint AS ow_complaints
          FROM campaign_stats
         WHERE TRUE
@@ -448,6 +996,7 @@ export async function reconcileCounters(
 }
 
 let timer: NodeJS.Timeout | null = null;
+let orangeWanadooHistoricalTimer: NodeJS.Timeout | null = null;
 
 const RECONCILER_INITIAL_DELAY_MS = Number(process.env.COUNTER_RECONCILE_INITIAL_DELAY_MS || 5 * 60 * 1000);
 
@@ -472,11 +1021,27 @@ export function startCounterReconciler(): void {
     );
   }, RECONCILE_INTERVAL_MS);
   timer.unref();
+
+  const runHistoricalBatch = () => {
+    if (isInStartupGrace()) return;
+    reconcileOrangeWanadooHistoricalBatch().catch((err) =>
+      logger.error(
+        `[OW HISTORICAL RECONCILER] batch failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+  };
+  runHistoricalBatch();
+  orangeWanadooHistoricalTimer = setInterval(runHistoricalBatch, OW_HISTORICAL_INTERVAL_MS);
+  orangeWanadooHistoricalTimer.unref();
 }
 
 export function stopCounterReconciler(): void {
   if (timer) {
     clearInterval(timer);
     timer = null;
+  }
+  if (orangeWanadooHistoricalTimer) {
+    clearInterval(orangeWanadooHistoricalTimer);
+    orangeWanadooHistoricalTimer = null;
   }
 }

@@ -72,6 +72,10 @@ else
             export NEON_DATABASE_URL="$_db_url"
         fi
     fi
+    # Precreate the partial index without blocking campaign_stats writes.
+    # drizzle-kit then observes the valid index instead of issuing ordinary
+    # CREATE INDEX against this hot table.
+    npx tsx scripts/ensure-orange-wanadoo-stats-index.ts
     npx drizzle-kit push --force
     ok "Database schema up to date"
 fi

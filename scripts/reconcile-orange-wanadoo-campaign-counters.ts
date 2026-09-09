@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * Reconcile one campaign's cached Orange/Wanadoo complaint badge counters.
+ * Reconcile one campaign's cached Orange/Wanadoo complaint badge counters,
+ * or advance the durable historical scan by one bounded batch.
  *
  * This deliberately runs outside the /campaigns request path: deriving the
  * counters requires scanning the campaign's send and tracking history.
@@ -11,6 +12,9 @@
  * Apply:
  *   tsx scripts/reconcile-orange-wanadoo-campaign-counters.ts \
  *     --campaign=<id> --yes --confirm=orange-wanadoo-counter-reconcile
+ *
+ * Historical batch (always applies; bounded and transactionally resumable):
+ *   tsx scripts/reconcile-orange-wanadoo-campaign-counters.ts --historical-batch=2000
  */
 
 import { pool } from "../server/db";
@@ -23,6 +27,20 @@ function readArg(name: string): string | null {
 }
 
 async function main(): Promise<void> {
+  const historicalBatchArg = readArg("historical-batch");
+  if (historicalBatchArg !== null) {
+    const batchSize = Number(historicalBatchArg);
+    if (!Number.isInteger(batchSize) || batchSize < 100 || batchSize > 10_000) {
+      throw new Error("--historical-batch must be an integer from 100 to 10000");
+    }
+    const { reconcileOrangeWanadooHistoricalBatch } = await import(
+      "../server/workers/counter-reconciler"
+    );
+    const result = await reconcileOrangeWanadooHistoricalBatch(batchSize);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   const campaignId = readArg("campaign")?.trim() ?? "";
   if (!campaignId || campaignId.length > 128) {
     throw new Error("Pass one bounded campaign id with --campaign=<id>");
@@ -39,28 +57,38 @@ async function main(): Promise<void> {
     stored_complaints: string | number;
     true_sent: string | number;
     true_complaints: string | number;
+    total_sent: string | number;
+    surviving_total_sent: string | number;
   }>(
     `SELECT c.name,
             c.orange_wanadoo_sent_count AS stored_sent,
             c.orange_wanadoo_complaints_count AS stored_complaints,
-            COUNT(DISTINCT cs.subscriber_id)::int AS true_sent,
-            COUNT(DISTINCT st.subscriber_id)::int AS true_complaints
-       FROM campaigns c
-       LEFT JOIN campaign_sends cs
-         ON cs.campaign_id = c.id
-        AND cs.status = 'sent'
-       LEFT JOIN subscribers s
-         ON s.id = cs.subscriber_id
-        AND lower(split_part(s.email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
-       LEFT JOIN campaign_stats st
-         ON st.campaign_id = cs.campaign_id
-        AND st.subscriber_id = cs.subscriber_id
-        AND st.ip_address = '195.154.17.225'
-        AND st.type IN ('open', 'complaint')
-      WHERE c.id = $1
-        AND (cs.subscriber_id IS NULL OR s.id IS NOT NULL)
-      GROUP BY c.id, c.name, c.orange_wanadoo_sent_count,
-               c.orange_wanadoo_complaints_count`,
+             c.sent_count AS total_sent,
+             (
+               SELECT COUNT(*)::int
+                 FROM campaign_sends cs
+                WHERE cs.campaign_id = c.id
+                  AND cs.status = 'sent'
+             ) AS surviving_total_sent,
+             (
+               SELECT COUNT(DISTINCT cs.subscriber_id)::int
+                 FROM campaign_sends cs
+                 JOIN subscribers s ON s.id = cs.subscriber_id
+                WHERE cs.campaign_id = c.id
+                  AND cs.status = 'sent'
+                  AND lower(split_part(s.email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+             ) AS true_sent,
+             (
+               SELECT COUNT(DISTINCT st.subscriber_id)::int
+                 FROM campaign_stats st
+                 JOIN subscribers s ON s.id = st.subscriber_id
+                WHERE st.campaign_id = c.id
+                  AND st.ip_address = '195.154.17.225'
+                  AND st.type IN ('open', 'complaint')
+                  AND lower(split_part(s.email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+             ) AS true_complaints
+        FROM campaigns c
+       WHERE c.id = $1`,
     [campaignId],
   );
 
@@ -71,14 +99,23 @@ async function main(): Promise<void> {
   const storedComplaints = Number(row.stored_complaints) || 0;
   const trueSent = Number(row.true_sent) || 0;
   const trueComplaints = Number(row.true_complaints) || 0;
-  const rate = trueSent > 0 ? (100 * trueComplaints) / trueSent : null;
+  const appliedSent = Math.max(storedSent, trueSent);
+  const sendHistoryPossiblyPruned =
+    Number(row.surviving_total_sent) < Number(row.total_sent);
+  const rate = appliedSent > 0 ? (100 * trueComplaints) / appliedSent : null;
 
   console.log(JSON.stringify({
     campaignId,
     name: row.name,
     stored: { sent: storedSent, complaints: storedComplaints },
-    truth: { sent: trueSent, complaints: trueComplaints, ratePercent: rate },
-    changed: storedSent !== trueSent || storedComplaints !== trueComplaints,
+    reconstruction: {
+      sentLowerBound: trueSent,
+      complaints: trueComplaints,
+      sendHistoryPossiblyPruned,
+      ratePercent: rate,
+    },
+    applied: { sent: appliedSent, complaints: trueComplaints },
+    changed: storedSent !== appliedSent || storedComplaints !== trueComplaints,
     mode: apply ? "apply" : "dry-run",
   }, null, 2));
 
@@ -86,11 +123,11 @@ async function main(): Promise<void> {
 
   const updated = await pool.query(
     `UPDATE campaigns
-        SET orange_wanadoo_sent_count = $2,
+        SET orange_wanadoo_sent_count = GREATEST(orange_wanadoo_sent_count, $2),
             orange_wanadoo_complaints_count = $3
       WHERE id = $1
         AND (
-          orange_wanadoo_sent_count IS DISTINCT FROM $2
+          orange_wanadoo_sent_count < $2
           OR orange_wanadoo_complaints_count IS DISTINCT FROM $3
         )
       RETURNING id`,
