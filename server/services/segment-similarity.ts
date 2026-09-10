@@ -88,6 +88,36 @@ export function parseCampaignSimilaritySnapshot(value: unknown): Record<string, 
   return parsed.data;
 }
 
+export function canonicalizeSimilaritySelection(
+  supplied: SegmentSimilarity,
+  result: SimilarityAnalysisResult,
+): SegmentSimilarity {
+  if (result.status !== "ready" || result.resolvedRefs.length < 1) {
+    throw new Error("Similarity analysis is not ready");
+  }
+  if (
+    supplied.resolvedRefs.length < 1
+    || supplied.resolvedRefs.some((ref) => !result.resolvedRefs.includes(ref))
+  ) {
+    throw new Error("Selected similarity refs do not belong to the saved analysis");
+  }
+  const candidatesByRef = new Map(result.candidates.map((candidate) => [candidate.ref, candidate]));
+  const trustedCandidates = supplied.resolvedRefs.map((ref) => candidatesByRef.get(ref));
+  if (trustedCandidates.some((candidate) => !candidate)) {
+    throw new Error("Selected similarity ref metrics are missing from the saved analysis");
+  }
+  return {
+    type: "similarity",
+    ruleId: supplied.ruleId,
+    sourceRef: result.sourceRef,
+    analysisId: result.analysisId,
+    resolvedRefs: supplied.resolvedRefs,
+    analyzedAt: result.analyzedAt,
+    candidates: trustedCandidates as SimilarityCandidate[],
+    calibration: result.calibration,
+  };
+}
+
 type Cached = { expiresAt: number; result: SimilarityAnalysisResult };
 const cache = new Map<string, Cached>();
 const inflight = new Map<string, Promise<SimilarityAnalysisResult>>();
@@ -346,19 +376,7 @@ export async function canonicalizeTrustedSimilarityRules(rules: SegmentRulesV2):
         if (result.analysisId !== record.id || result.sourceRef !== record.source_ref) {
           throw new Error("Similarity analysis record identity is invalid");
         }
-        if (result.status !== "ready" || result.resolvedRefs.length < 1) {
-          throw new Error("Similarity analysis is not ready");
-        }
-        return {
-          type: "similarity" as const,
-          ruleId: child.ruleId,
-          sourceRef: result.sourceRef,
-          analysisId: result.analysisId,
-          resolvedRefs: result.resolvedRefs,
-          analyzedAt: result.analyzedAt,
-          candidates: result.candidates,
-          calibration: result.calibration,
-        };
+        return canonicalizeSimilaritySelection(child, result);
       }),
     };
   }

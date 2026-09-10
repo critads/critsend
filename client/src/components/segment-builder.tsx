@@ -254,13 +254,32 @@ function SimilarityRow({
       {rule.candidates.length > 0 && (
         <div className="space-y-1">
           {rule.candidates.map((candidate) => (
-            <div key={candidate.ref} className="grid grid-cols-2 gap-1 rounded bg-background px-2 py-1 text-xs sm:grid-cols-6">
+            <div key={candidate.ref} className="grid grid-cols-2 items-center gap-1 rounded bg-background px-2 py-1 text-xs sm:grid-cols-[1fr_1fr_1fr_1fr_1fr_0.8fr_auto]">
               <strong>{candidate.ref}</strong>
               <span>common {candidate.commonCount.toLocaleString()}</span>
               <span>additional {candidate.additionalCount.toLocaleString()}</span>
               <span>source {(candidate.sourceFrequency * 100).toFixed(2)}%</span>
               <span>outside source {(candidate.referenceFrequency * 100).toFixed(2)}%</span>
               <span>lift {candidate.lift.toFixed(2)}×</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 justify-self-end"
+                disabled={rule.candidates.length === 1}
+                title={rule.candidates.length === 1 ? "Remove the whole Similar to block instead" : `Remove ${candidate.ref}`}
+                aria-label={`Remove ${candidate.ref}`}
+                onClick={() => {
+                  const current = latestRule.current;
+                  latestOnChange.current({
+                    ...current,
+                    resolvedRefs: current.resolvedRefs.filter((ref) => ref !== candidate.ref),
+                    candidates: current.candidates.filter((item) => item.ref !== candidate.ref),
+                  });
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
             </div>
           ))}
           <p className="text-xs text-muted-foreground">

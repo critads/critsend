@@ -11,6 +11,7 @@ import {
 } from "../server/services/segment-compiler";
 import {
   rankSimilarityCandidates,
+  canonicalizeSimilaritySelection,
   parseCampaignSimilaritySnapshot,
   SIMILARITY_CALIBRATION,
   similaritySnapshotsForSegments,
@@ -100,6 +101,34 @@ describe("similar audience segment rules", () => {
       { id: "segment-a", rules: rules() },
       { id: "segment-b", rules: { version: 2, root: { type: "group", combinator: "AND", children: [] } } },
     ])).toEqual({ "segment-a": [affinity] });
+  });
+
+  it("keeps a user-selected subset while restoring trusted candidate metrics", () => {
+    const result = {
+      analysisId: affinity.analysisId,
+      sourceRef: affinity.sourceRef,
+      sourceCount: 200,
+      referenceCount: 10_000,
+      analyzedAt: affinity.analyzedAt,
+      resolvedRefs: affinity.resolvedRefs,
+      candidates: affinity.candidates,
+      status: "ready" as const,
+      calibration: "production-v1" as const,
+      provisional: false as const,
+      methodology: "test",
+    };
+    const selected = canonicalizeSimilaritySelection({
+      ...affinity,
+      resolvedRefs: ["Click-B"],
+      candidates: [{ ...affinity.candidates[1], commonCount: 999_999 }],
+    }, result);
+    expect(selected.resolvedRefs).toEqual(["Click-B"]);
+    expect(selected.candidates).toEqual([affinity.candidates[1]]);
+    expect(() => canonicalizeSimilaritySelection({
+      ...affinity,
+      resolvedRefs: ["Injected"],
+      candidates: [{ ...affinity.candidates[0], ref: "Injected" }],
+    }, result)).toThrow("do not belong");
   });
 
   it("treats explicit empty and missing-rule frozen snapshots as authoritative", () => {
