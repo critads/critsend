@@ -165,7 +165,38 @@ async function ensureCampaignExcludeSegmentForeignKey(): Promise<void> {
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS step_send_limit      integer`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS step_processed_count integer NOT NULL DEFAULT 0`);
     await db.execute(sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS step_cursor_id       varchar(36)`);
-    logger.info("[CAMPAIGNS] Bootstrap migration: auto_retry_count + cached engagement counters + auto-resend + step-send ready");
+    // Ref-based similarity snapshots. Keep this bootstrap in addition to
+    // drizzle-kit push because self-hosted deployments can leave an
+    // interactive schema push unfinished. Without the column, every full
+    // campaign SELECT (including copy) fails with PostgreSQL 42703.
+    await db.execute(sql`
+      ALTER TABLE campaigns
+      ADD COLUMN IF NOT EXISTS similarity_snapshot jsonb DEFAULT '{}'::jsonb
+    `);
+    await db.execute(sql`
+      UPDATE campaigns
+         SET similarity_snapshot = '{}'::jsonb
+       WHERE similarity_snapshot IS NULL
+         AND (status <> 'draft' OR started_at IS NOT NULL)
+    `);
+    await db.execute(sql`
+      ALTER TABLE campaigns
+      ALTER COLUMN similarity_snapshot SET DEFAULT '{}'::jsonb
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS segment_ref_similarity_analyses (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        source_ref text NOT NULL,
+        result jsonb NOT NULL,
+        created_at timestamp NOT NULL DEFAULT now(),
+        expires_at timestamp NOT NULL
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS segment_ref_similarity_source_created_idx
+      ON segment_ref_similarity_analyses (source_ref, created_at)
+    `);
+    logger.info("[CAMPAIGNS] Bootstrap migration: campaign fields + ref similarity schema ready");
   } catch (err: any) {
     logger.error(`[CAMPAIGNS] Bootstrap migration FAILED: ${err?.message || err}`);
   }

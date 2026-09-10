@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 const original = {
   id: "campaign-original",
@@ -85,6 +86,12 @@ beforeEach(() => {
 });
 
 describe("copyCampaign", () => {
+  it("bootstraps the similarity snapshot column required by full campaign reads", () => {
+    const routes = readFileSync("server/routes/campaigns.ts", "utf8");
+    expect(routes).toContain("ADD COLUMN IF NOT EXISTS similarity_snapshot jsonb");
+    expect(routes).toContain("CREATE TABLE IF NOT EXISTS segment_ref_similarity_analyses");
+  });
+
   it("atomically copies every canonical segment in its original order", async () => {
     const result = await copyCampaign(original.id);
 
