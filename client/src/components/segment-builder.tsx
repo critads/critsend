@@ -23,7 +23,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2, SegmentSimilarity } from "@shared/schema";
 import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/schema";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export const fieldLabels: Record<string, string> = {
   tags: "Tags",
@@ -92,11 +92,11 @@ export function isConditionValid(c: SegmentCondition): boolean {
 
 export function isSimilarityValid(rule: SegmentSimilarity): boolean {
   return Boolean(
-    rule.sourceTag.trim()
+    rule.sourceRef.trim()
     && rule.analysisId
     && rule.analyzedAt
-    && rule.resolvedTags.length > 0
-    && rule.resolvedTags.length <= 3,
+    && rule.resolvedRefs.length > 0
+    && rule.resolvedRefs.length <= 3,
   );
 }
 
@@ -122,14 +122,14 @@ export function hasInvalidSimilarity(group: SegmentGroup): boolean {
 
 type SimilarityAnalysisResponse = {
   analysisId: string;
-  sourceTag: string;
+  sourceRef: string;
   analyzedAt: string;
-  resolvedTags: string[];
+  resolvedRefs: string[];
   candidates: SegmentSimilarity["candidates"];
   sourceCount: number;
   referenceCount: number;
   status: "ready" | "insufficient_source" | "no_reliable_affinity";
-  calibration: "provisional-v1";
+  calibration: "production-v1";
   methodology: string;
   cached: boolean;
 };
@@ -147,48 +147,64 @@ function SimilarityRow({
 }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
+  const mounted = useRef(true);
+  const latestRule = useRef(rule);
+  const latestOnChange = useRef(onChange);
+  latestRule.current = rule;
+  latestOnChange.current = onChange;
+  useEffect(() => () => {
+    mounted.current = false;
+    requestGeneration.current += 1;
+  }, []);
 
   const analyze = async (refresh: boolean) => {
-    const sourceTag = rule.sourceTag.trim();
-    if (!sourceTag) {
-      setMessage("Enter the exact-case source tag first.");
+    const sourceRef = rule.sourceRef.trim();
+    if (!sourceRef) {
+      setMessage("Enter the exact-case source ref first.");
       return;
     }
+    const generation = ++requestGeneration.current;
+    const ruleId = rule.ruleId;
     setLoading(true);
     setMessage(null);
     try {
-      const response = await apiRequest("POST", "/api/segments/similarity-analysis", { sourceTag, refresh });
+      const response = await apiRequest("POST", "/api/segments/ref-similarity-analysis", { sourceRef, refresh });
       const result = await response.json() as SimilarityAnalysisResponse;
+      if (!mounted.current || requestGeneration.current !== generation || latestRule.current.ruleId !== ruleId
+          || latestRule.current.sourceRef.trim() !== sourceRef) return;
       if (result.status !== "ready") {
         setMessage(result.status === "insufficient_source"
-          ? `Insufficient data: ${result.sourceCount.toLocaleString()} source subscribers (provisional minimum: 100).`
-          : "No statistically reliable affinity met the provisional thresholds.");
-        onChange({
-          ...rule,
-          sourceTag,
+          ? `Insufficient data: ${result.sourceCount.toLocaleString()} source subscribers (minimum: 100).`
+          : "No statistically reliable affinity met the calibrated thresholds.");
+        latestOnChange.current({
+          ...latestRule.current,
+          sourceRef,
           analysisId: "",
-          resolvedTags: [],
+          resolvedRefs: [],
           analyzedAt: "",
           candidates: [],
-          calibration: "provisional-v1",
+          calibration: "production-v1",
         } as SegmentSimilarity);
         return;
       }
-      onChange({
+      latestOnChange.current({
         type: "similarity",
-        ruleId: rule.ruleId,
-        sourceTag: result.sourceTag,
+        ruleId,
+        sourceRef: result.sourceRef,
         analysisId: result.analysisId,
-        resolvedTags: result.resolvedTags,
+        resolvedRefs: result.resolvedRefs,
         analyzedAt: result.analyzedAt,
         candidates: result.candidates,
         calibration: result.calibration,
       });
       setMessage(result.cached ? "Cached bounded analysis reused." : "Fresh bounded analysis saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Similarity analysis failed.");
+      if (mounted.current && requestGeneration.current === generation) {
+        setMessage(error instanceof Error ? error.message : "Similarity analysis failed.");
+      }
     } finally {
-      setLoading(false);
+      if (mounted.current && requestGeneration.current === generation) setLoading(false);
     }
   };
 
@@ -198,41 +214,57 @@ function SimilarityRow({
         <Sparkles className="h-4 w-4 text-primary" />
         <span className="font-medium text-sm">Similar to</span>
         <Input
-          value={rule.sourceTag}
-          placeholder="Exact-case source tag"
+          value={rule.sourceRef}
+          placeholder="Exact-case source ref"
           className="min-w-[180px] flex-1 bg-background"
-          onChange={(event) => onChange({
-            ...rule,
-            sourceTag: event.target.value,
+          onChange={(event) => {
+            requestGeneration.current += 1;
+            setLoading(false);
+            onChange({
+            ...latestRule.current,
+            sourceRef: event.target.value,
             analysisId: "",
-            resolvedTags: [],
+            resolvedRefs: [],
             analyzedAt: "",
             candidates: [],
-          } as SegmentSimilarity)}
-          data-testid={`${testIdPrefix}-source-tag`}
+          } as SegmentSimilarity);
+          }}
+          data-testid={`${testIdPrefix}-source-ref`}
         />
         <Button type="button" variant="outline" size="sm" onClick={() => analyze(Boolean(rule.analysisId))} disabled={loading}>
           {loading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : rule.analysisId ? <RefreshCw className="mr-1 h-4 w-4" /> : <Sparkles className="mr-1 h-4 w-4" />}
           {rule.analysisId ? "Recalculate" : "Analyze"}
         </Button>
-        <Button type="button" variant="ghost" size="icon" onClick={onRemove}><X className="h-4 w-4" /></Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            mounted.current = false;
+            requestGeneration.current += 1;
+            onRemove();
+          }}
+        >
+          <X className="h-4 w-4" />
+        </Button>
       </div>
-      <p className="text-xs text-amber-700 dark:text-amber-300">
-        Provisional, not production-calibrated: support ≥ max(20, 0.5% of source), lift ≥ 1.25, and non-overlapping 95% Wilson bounds.
+      <p className="text-xs text-muted-foreground">
+        Production-calibrated: common and additional support ≥ max(20, 0.5% of source), lift ≥ 1.25, with non-overlapping 95% confidence bounds.
       </p>
       {rule.candidates.length > 0 && (
         <div className="space-y-1">
           {rule.candidates.map((candidate) => (
-            <div key={candidate.tag} className="grid grid-cols-2 gap-1 rounded bg-background px-2 py-1 text-xs sm:grid-cols-5">
-              <strong>{candidate.tag}</strong>
+            <div key={candidate.ref} className="grid grid-cols-2 gap-1 rounded bg-background px-2 py-1 text-xs sm:grid-cols-6">
+              <strong>{candidate.ref}</strong>
               <span>common {candidate.commonCount.toLocaleString()}</span>
+              <span>additional {candidate.additionalCount.toLocaleString()}</span>
               <span>source {(candidate.sourceFrequency * 100).toFixed(2)}%</span>
-              <span>reference {(candidate.referenceFrequency * 100).toFixed(2)}%</span>
+              <span>outside source {(candidate.referenceFrequency * 100).toFixed(2)}%</span>
               <span>lift {candidate.lift.toFixed(2)}×</span>
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            Matches any resolved tag and always excludes subscribers carrying “{rule.sourceTag}”. Another OR branch can still widen the complete segment.
+            Matches any resolved ref and always excludes subscribers carrying “{rule.sourceRef}”. DEL is ignored by analysis. Another OR branch can still widen the complete segment.
           </p>
           <p className="text-xs text-muted-foreground">Analyzed {new Date(rule.analyzedAt).toLocaleString()}</p>
         </div>
@@ -581,12 +613,12 @@ export function GroupBuilder({
       children: [...group.children, {
         type: "similarity",
         ruleId: crypto.randomUUID(),
-        sourceTag: "",
+        sourceRef: "",
         analysisId: "",
-        resolvedTags: [],
+        resolvedRefs: [],
         analyzedAt: "",
         candidates: [],
-        calibration: "provisional-v1",
+        calibration: "production-v1",
       } as SegmentSimilarity],
     });
   };
@@ -656,7 +688,7 @@ export function GroupBuilder({
       </div>
 
       {group.children.map((child, index) => (
-        <div key={index} className="space-y-2">
+        <div key={child.type === "similarity" ? child.ruleId : index} className="space-y-2">
           {index > 0 && (
             <Badge
               variant="outline"

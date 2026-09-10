@@ -174,7 +174,7 @@ export default function SegmentNew() {
     if (hasInvalidSimilarity(rootGroup)) {
       toast({
         title: "Similarity analysis required",
-        description: "Analyze every Similar to block and keep at least one reliable proposed tag.",
+        description: "Analyze every Similar to block and keep at least one reliable proposed ref.",
         variant: "destructive",
       });
       return;
@@ -273,7 +273,7 @@ export default function SegmentNew() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Create Segment</h1>
           <p className="text-muted-foreground">
-            Define rules to group subscribers based on tags, email, date, or IP
+            Define rules to group subscribers based on refs, tags, email, date, or IP
           </p>
         </div>
       </div>

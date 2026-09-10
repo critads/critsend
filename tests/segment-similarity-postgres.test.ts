@@ -1,4 +1,5 @@
 import pg from "pg";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { compileSegmentRules } from "../server/services/segment-compiler";
@@ -14,15 +15,15 @@ integrationDescribe("similar segment compiler (isolated PostgreSQL)", () => {
   const rule: SegmentSimilarity = {
     type: "similarity",
     ruleId: "08345316-2af7-44a9-8b00-58dfc8f38eb0",
-    sourceTag: "Source",
+    sourceRef: "Source",
     analysisId: "8ee55e4b-26f9-43b4-986e-a8e8ab6d9b8c",
-    resolvedTags: ["Affinity-A", "affinity-a"],
+    resolvedRefs: ["Affinity-A", "affinity-a"],
     analyzedAt: "2026-09-10T10:00:00.000Z",
     candidates: [
-      { tag: "Affinity-A", commonCount: 30, sourceFrequency: 0.3, referenceFrequency: 0.1, lift: 3 },
-      { tag: "affinity-a", commonCount: 25, sourceFrequency: 0.25, referenceFrequency: 0.1, lift: 2.5 },
+      { ref: "Affinity-A", commonCount: 30, additionalCount: 10, sourceFrequency: 0.3, referenceFrequency: 0.1, lift: 3, score: 0.3296 },
+      { ref: "affinity-a", commonCount: 25, additionalCount: 10, sourceFrequency: 0.25, referenceFrequency: 0.1, lift: 2.5, score: 0.2291 },
     ],
-    calibration: "provisional-v1",
+    calibration: "production-v1",
   };
 
   beforeAll(async () => {
@@ -39,11 +40,11 @@ integrationDescribe("similar segment compiler (isolated PostgreSQL)", () => {
       last_sent_at timestamp
     )`);
     await pool.query(
-      `INSERT INTO ${schema}.subscribers (id,email,tags) VALUES
-       ('source','source@test',ARRAY['Source','Affinity-A']),
-       ('upper','upper@test',ARRAY['Affinity-A']),
-       ('lower','lower@test',ARRAY['affinity-a']),
-       ('none','none@test',ARRAY['Other'])`,
+      `INSERT INTO ${schema}.subscribers (id,email,tags,refs) VALUES
+       ('source','source@test',ARRAY[]::text[],ARRAY['Source','Affinity-A']),
+       ('upper','upper@test',ARRAY[]::text[],ARRAY['Affinity-A','DEL']),
+       ('lower','lower@test',ARRAY[]::text[],ARRAY['affinity-a']),
+       ('none','none@test',ARRAY[]::text[],ARRAY['Other'])`,
     );
   });
 
@@ -52,7 +53,7 @@ integrationDescribe("similar segment compiler (isolated PostgreSQL)", () => {
     await pool.end();
   });
 
-  it("deduplicates any-tag matches, respects case, and cannot include source holders", async () => {
+  it("deduplicates any-ref matches, respects case, permits DEL companions, and excludes source holders", async () => {
     const rules: SegmentRulesV2 = {
       version: 2,
       root: { type: "group", combinator: "AND", children: [rule] },
@@ -72,8 +73,8 @@ integrationDescribe("similar segment compiler (isolated PostgreSQL)", () => {
   });
 
   it("uses the immutable frozen resolution after the live rule changes", async () => {
-    const changed = { ...rule, resolvedTags: ["Other"], candidates: [
-      { tag: "Other", commonCount: 40, sourceFrequency: 0.4, referenceFrequency: 0.1, lift: 4 },
+    const changed = { ...rule, resolvedRefs: ["Other"], candidates: [
+      { ref: "Other", commonCount: 40, additionalCount: 10, sourceFrequency: 0.4, referenceFrequency: 0.1, lift: 4, score: 0.5545 },
     ] };
     const rules: SegmentRulesV2 = {
       version: 2,
@@ -88,6 +89,49 @@ integrationDescribe("similar segment compiler (isolated PostgreSQL)", () => {
         compiled.params,
       );
       expect(result.rows.map((row) => row.id)).toEqual(["lower", "upper"]);
+    } finally {
+      client.release();
+    }
+  });
+
+  it("backfills launched campaigns but leaves unlaunched drafts rebuildable", async () => {
+    const migrationSchema = `${schema}_migration`;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`CREATE SCHEMA ${migrationSchema}`);
+      await client.query(`SET LOCAL search_path TO ${migrationSchema}`);
+      await client.query(`CREATE TABLE campaigns (
+        id varchar PRIMARY KEY,
+        status text NOT NULL,
+        started_at timestamp
+      )`);
+      await client.query(`INSERT INTO campaigns (id, status, started_at) VALUES
+        ('paused', 'paused', now()),
+        ('scheduled', 'scheduled', null),
+        ('draft', 'draft', null)`);
+      await client.query(readFileSync("migrations/0003_segment_ref_similarity.sql", "utf8"));
+      const rows = await client.query(
+        `SELECT id, similarity_snapshot FROM campaigns ORDER BY id`,
+      );
+      expect(rows.rows).toEqual([
+        { id: "draft", similarity_snapshot: null },
+        { id: "paused", similarity_snapshot: {} },
+        { id: "scheduled", similarity_snapshot: {} },
+      ]);
+      const defaultValue = await client.query<{ column_default: string }>(
+        `SELECT column_default
+           FROM information_schema.columns
+          WHERE table_schema = $1
+            AND table_name = 'campaigns'
+            AND column_name = 'similarity_snapshot'`,
+        [migrationSchema],
+      );
+      expect(defaultValue.rows[0]?.column_default).toContain("'{}'::jsonb");
+      await client.query("ROLLBACK");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
     } finally {
       client.release();
     }

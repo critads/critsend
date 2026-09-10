@@ -41,7 +41,7 @@ import {
   LEGACY_TOKENS_TABLE,
 } from "../tracking-partitions";
 import { complaintStatus } from "../services/orange-wanadoo-risk";
-import { similaritySnapshotsForSegments } from "../services/segment-similarity";
+import { parseCampaignSimilaritySnapshot, similaritySnapshotsForSegments } from "../services/segment-similarity";
 import type { SegmentSimilarity } from "@shared/schema";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
@@ -937,15 +937,14 @@ export async function updateCampaign(id: string, data: Partial<Campaign>): Promi
   return campaign;
 }
 
-/** Freezes only resolved similarity tags. Other segment conditions and current
+/** Freezes only resolved similarity refs. Other segment conditions and current
  * subscriber memberships remain live, preserving the existing audience model. */
 export async function freezeCampaignSimilaritySnapshot(
   campaignId: string,
-  segmentIds: string[],
 ): Promise<Record<string, SegmentSimilarity[]>> {
   return db.transaction(async (tx) => {
     const locked = await tx.execute(sql`
-      SELECT similarity_snapshot
+      SELECT similarity_snapshot, segment_id, exclude_segment_id
       FROM campaigns
       WHERE id=${campaignId}
       FOR UPDATE
@@ -953,9 +952,23 @@ export async function freezeCampaignSimilaritySnapshot(
     if (!locked.rows.length) throw new Error("Campaign not found while freezing similarity rules");
     const existing = (locked.rows[0] as any).similarity_snapshot;
     if (existing !== null && existing !== undefined) {
-      return existing as Record<string, SegmentSimilarity[]>;
+      return parseCampaignSimilaritySnapshot(existing);
     }
-    const uniqueIds = [...new Set(segmentIds.filter(Boolean))];
+    const campaignRow = locked.rows[0] as {
+      segment_id: string | null;
+      exclude_segment_id: string | null;
+    };
+    const audienceRows = await tx.select({ segmentId: campaignSegments.segmentId })
+      .from(campaignSegments)
+      .where(eq(campaignSegments.campaignId, campaignId))
+      .orderBy(campaignSegments.position);
+    const canonicalAudienceIds = audienceRows.length
+      ? audienceRows.map((row) => row.segmentId)
+      : campaignRow.segment_id ? [campaignRow.segment_id] : [];
+    const uniqueIds = [...new Set([
+      ...canonicalAudienceIds,
+      ...(campaignRow.exclude_segment_id ? [campaignRow.exclude_segment_id] : []),
+    ])];
     const segmentRows = uniqueIds.length
       ? await tx.select({ id: segments.id, rules: segments.rules })
         .from(segments).where(inArray(segments.id, uniqueIds))

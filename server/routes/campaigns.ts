@@ -3,8 +3,8 @@ import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { zeroDupSendGuardEnabled } from "../config/send-guard";
-import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignSegments, campaignJobs, errorLogs, campaignReferenceIdSchema } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { insertCampaignSchema, insertCampaignDraftSchema, updateCampaignDraftSchema, campaigns, campaignSegments, campaignJobs, errorLogs, campaignReferenceIdSchema, segments } from "@shared/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { isMemoryPressure } from "../workers";
 import { SNOWBALL_THROTTLE_CONFIG } from "../services/campaign-sender";
@@ -39,6 +39,7 @@ import { parseStrictIsoInstant } from "../services/campaign-calendar";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 import { parseCampaignCalendarRange } from "../services/campaign-calendar";
 import { campaignRiskPreflight } from "../services/orange-wanadoo-risk";
+import { parseCampaignSimilaritySnapshot, similaritySnapshotsForSegments } from "../services/segment-similarity";
 
 function envInt(name: string, fallback: number, min: number): number {
   const raw = process.env[name];
@@ -1087,13 +1088,24 @@ export function registerCampaignRoutes(app: Express, helpers: {
              campaignId: created.id, segmentId, position,
            })));
          }
-        if (created.status === "sending") {
+         let launched = created;
+         if (created.status === "sending" || created.status === "scheduled") {
+           const segmentRows = segIds.length
+             ? await tx.select({ id: segments.id, rules: segments.rules })
+               .from(segments).where(inArray(segments.id, segIds))
+             : [];
+           [launched] = await tx.update(campaigns)
+             .set({ similaritySnapshot: similaritySnapshotsForSegments(segmentRows) })
+             .where(eq(campaigns.id, created.id))
+             .returning();
+         }
+         if (launched.status === "sending") {
           await tx.insert(campaignJobs).values({
-            campaignId: created.id,
+             campaignId: launched.id,
             status: "pending",
           });
         }
-        return created;
+         return launched;
       });
 
       logger.info("Campaign created successfully:", campaign.id);
@@ -1299,6 +1311,29 @@ export function registerCampaignRoutes(app: Express, helpers: {
         }
         if (locked.status !== "sending" && normalizedBody.status === "sending" && executionBegun) {
           normalizedBody.stepExecutionVersion = sql`${campaigns.stepExecutionVersion} + 1`;
+        }
+        const targetStatus = normalizedBody.status ?? locked.status;
+        if (targetStatus === "sending" || targetStatus === "scheduled") {
+          const effectiveLockedIds = requestedSegmentIds
+            ?? (lockedIds.length ? lockedIds : (locked.segmentId ? [locked.segmentId] : []));
+          const snapshotSegmentIds = [...new Set([
+            ...effectiveLockedIds,
+            ...(effectiveExcludeId ? [effectiveExcludeId] : []),
+          ])];
+          const shouldBuildSnapshot = locked.similaritySnapshot === null
+            || locked.similaritySnapshot === undefined
+            || (!executionBegun && locked.status === "draft")
+            || (!executionBegun && (audienceChanged || exclusionChanged));
+          normalizedBody.similaritySnapshot = shouldBuildSnapshot
+            ? similaritySnapshotsForSegments(
+                snapshotSegmentIds.length
+                  ? await tx.select({ id: segments.id, rules: segments.rules })
+                    .from(segments).where(inArray(segments.id, snapshotSegmentIds))
+                  : [],
+              )
+            : parseCampaignSimilaritySnapshot(locked.similaritySnapshot);
+        } else if (targetStatus === "draft" && !executionBegun) {
+          normalizedBody.similaritySnapshot = null;
         }
          delete normalizedBody.segmentIds;
         const [updated] = await tx.update(campaigns).set(normalizedBody).where(sql`${campaigns.id} = ${req.params.id}`).returning();
@@ -2109,6 +2144,8 @@ export function registerCampaignRoutes(app: Express, helpers: {
       delete updateData.status;
       delete updateData.prioritize_active_clickers;
       delete updateData.step_send_limit;
+      delete updateData.similaritySnapshot;
+      delete updateData.similarity_snapshot;
       const hasCanonicalSegments = Object.prototype.hasOwnProperty.call(updateData, "segmentIds");
       const hasLegacySegment = Object.prototype.hasOwnProperty.call(updateData, "segmentId");
       const selectedSegmentIds = hasCanonicalSegments
@@ -2240,11 +2277,24 @@ export function registerCampaignRoutes(app: Express, helpers: {
         if ((executionBegun && toggleChanged) || (launchedWarm && (audienceChanged || exclusionChanged))) {
           throw new WarmCampaignImmutableError("Warm-start audience and toggle are frozen after launch");
         }
+        // Freeze canonical ref resolutions under the same campaign row lock and
+        // transaction that publishes either an immediate or scheduled launch.
+        // A prior snapshot (including {}) is authoritative across retries and
+        // resumes; it is never rebuilt from subsequently edited segment rules.
+        const shouldBuildSimilaritySnapshot = locked.similaritySnapshot === null
+          || locked.similaritySnapshot === undefined
+          || (!executionBegun && locked.status === "draft")
+          || (!executionBegun && (audienceChanged || exclusionChanged));
+        const frozenSimilarity = shouldBuildSimilaritySnapshot
+          ? similaritySnapshotsForSegments(await tx.select({ id: segments.id, rules: segments.rules })
+              .from(segments).where(inArray(segments.id, segmentRefs)))
+          : parseCampaignSimilaritySnapshot(locked.similaritySnapshot);
         const [updated] = await tx.update(campaigns).set({
           ...updateData,
           segmentId: selectedSegmentIds[0],
           excludeSegmentId: effectiveExcludeId,
           status: targetStatus,
+          similaritySnapshot: frozenSimilarity,
           ...(locked.status !== "sending" && executionBegun
             ? { stepExecutionVersion: sql`${campaigns.stepExecutionVersion} + 1` }
             : {}),

@@ -17,7 +17,7 @@ import {
 } from "../services/segment-exclusion-csv";
 import rateLimit from "express-rate-limit";
 import {
-  analyzeSimilarTags,
+  analyzeSimilarRefs,
   canonicalizeTrustedSimilarityRules,
   SIMILARITY_CALIBRATION,
 } from "../services/segment-similarity";
@@ -271,23 +271,23 @@ export function registerSegmentRoutes(app: Express, helpers: {
     }
   });
 
-  app.post("/api/segments/similarity-analysis", similarityAnalysisLimiter, async (req: Request, res: Response) => {
+  app.post("/api/segments/ref-similarity-analysis", similarityAnalysisLimiter, async (req: Request, res: Response) => {
     try {
-      const sourceTag = typeof req.body?.sourceTag === "string" ? req.body.sourceTag.trim() : "";
-      if (!sourceTag || sourceTag.length > 255 || /[\u0000-\u001f]/.test(sourceTag)) {
-        return res.status(400).json({ error: "An exact-case source tag between 1 and 255 characters is required" });
+      const sourceRef = typeof req.body?.sourceRef === "string" ? req.body.sourceRef.trim() : "";
+      if (!sourceRef || sourceRef === "DEL" || sourceRef.length > 255 || /[\u0000-\u001f]/.test(sourceRef)) {
+        return res.status(400).json({ error: "An exact-case source ref other than DEL, between 1 and 255 characters, is required" });
       }
-      const result = await analyzeSimilarTags(sourceTag, req.body?.refresh === true);
+      const result = await analyzeSimilarRefs(sourceRef, req.body?.refresh === true);
       res.json({ ...result, thresholds: SIMILARITY_CALIBRATION });
     } catch (error: any) {
-      logger.error("Error analyzing similar tags:", error);
+      logger.error("Error analyzing similar refs:", error);
       if (error?.code === "57014") {
-        return res.status(503).json({ error: "Similarity analysis exceeded its 15-second safety limit. Try again later." });
+        return res.status(503).json({ error: "Similarity analysis exceeded its 10-second per-query safety limit. Try again later." });
       }
       if (error?.code === "SIMILARITY_BUSY") {
         return res.status(429).json({ error: "Two similarity analyses are already running. Try again shortly." });
       }
-      res.status(500).json({ error: "Failed to analyze similar tags" });
+      res.status(500).json({ error: "Failed to analyze similar refs" });
     }
   });
 

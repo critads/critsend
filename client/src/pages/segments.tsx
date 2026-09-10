@@ -92,7 +92,7 @@ function summarizeRules(rules: unknown): Array<{ text: string; depth: number }> 
         results.push({ text: `${fieldLabels[child.field] || child.field} ${label}${val}`, depth });
       } else if (child.type === "similarity") {
         results.push({
-          text: `Similar to "${child.sourceTag}" via ${child.resolvedTags.join(" OR ")} (source excluded)`,
+          text: `Similar to ref "${child.sourceRef}" via ${child.resolvedRefs.join(" OR ")} (source excluded)`,
           depth,
         });
       } else {

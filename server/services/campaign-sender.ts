@@ -406,14 +406,11 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   let total: number;
   const campaignSegmentIds = (campaign as any).segmentIds ?? [campaign.segmentId!];
   // This durable snapshot is created once, including when there are no
-  // similarity rules ({}). Resumes therefore never silently adopt tags from a
+  // similarity rules ({}). Resumes therefore never silently adopt refs from a
   // later explicit segment re-analysis.
   const similaritySnapshot = isFollowUp
     ? {}
-    : await storage.freezeCampaignSimilaritySnapshot(
-        campaignId,
-        [...campaignSegmentIds, ...(campaign.excludeSegmentId ? [campaign.excludeSegmentId] : [])],
-      );
+    : await storage.freezeCampaignSimilaritySnapshot(campaignId);
   let audiencePhase: "warm" | "normal" = "normal";
   let warmCursorId: string | undefined;
   if (isFollowUp) {

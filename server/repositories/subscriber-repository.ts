@@ -330,7 +330,10 @@ async function compileSegmentWheres(
     if (normalized) {
       compiled.set(
         segment.id,
-        and(compileSegmentRules(normalized, similaritySnapshot?.[segment.id]), notInUploadedExclusions(segment.id))!,
+        and(compileSegmentRules(
+          normalized,
+          similaritySnapshot === undefined ? undefined : (similaritySnapshot[segment.id] ?? []),
+        ), notInUploadedExclusions(segment.id))!,
       );
     }
   }
@@ -1007,7 +1010,15 @@ export async function replaceSegmentExclusions(
 
 export async function updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined> {
   const [segment] = await db.update(segments)
-    .set({ ...data, ...(data.rules !== undefined ? { cachedCount: null } : {}) })
+    .set({
+      ...data,
+      ...(data.rules !== undefined
+        ? {
+            cachedCount: null,
+            exclusionVersion: sql`${segments.exclusionVersion} + 1`,
+          }
+        : {}),
+    })
     .where(eq(segments.id, id)).returning();
   if (segment && data.rules !== undefined) {
     for (const key of segmentCountCache.keys()) {

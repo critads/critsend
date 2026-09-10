@@ -3,6 +3,13 @@ import { subscribers } from "@shared/schema";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2, SegmentSimilarity } from "@shared/schema";
 import { logger } from "../logger";
 
+export class SimilaritySnapshotMismatchError extends Error {
+  constructor(message = "Campaign similarity snapshot no longer matches the segment structure") {
+    super(message);
+    this.name = "SimilaritySnapshotMismatchError";
+  }
+}
+
 function escapeLikeValue(value: string): string {
   return value.replace(/[%_\\]/g, "\\$&");
 }
@@ -245,13 +252,19 @@ function compileCondition(cond: SegmentCondition): SQL {
 }
 
 function compileSimilarity(rule: SegmentSimilarity, frozen?: SegmentSimilarity[]): SQL {
-  const resolved = frozen?.find((item) => item.ruleId === rule.ruleId) ?? rule;
-  if (!resolved.resolvedTags.length) return sql`FALSE`;
-  // Array operators are exact-case, matching existing has_tag behavior and the
+  // Once a campaign supplies a snapshot, that snapshot is authoritative. An
+  // explicit empty snapshot or a missing/replaced ruleId must never fall back
+  // to the current segment rule.
+  const resolved = frozen === undefined
+    ? rule
+    : frozen.find((item) => item.ruleId === rule.ruleId);
+  if (!resolved && frozen !== undefined) throw new SimilaritySnapshotMismatchError();
+  if (!resolved || !resolved.resolvedRefs.length) return sql`FALSE`;
+  // Array operators are exact-case, matching existing has_ref behavior and the
   // analysis query. The source exclusion is inseparable from this block.
   return sql`(
-    ${subscribers.tags} && ${sql.param(resolved.resolvedTags)}::text[]
-    AND NOT (${subscribers.tags} @> ARRAY[${resolved.sourceTag}]::text[])
+    ${subscribers.refs} && ${sql.param(resolved.resolvedRefs)}::text[]
+    AND NOT (${resolved.sourceRef} = ANY(${subscribers.refs}))
   )`;
 }
 
@@ -292,7 +305,27 @@ function compileGroup(group: SegmentGroup, frozen?: SegmentSimilarity[]): SQL {
   return sql`(${result})`;
 }
 
+function collectSimilarityRuleIds(group: SegmentGroup, output: string[]): void {
+  for (const child of group.children) {
+    if (child.type === "group") collectSimilarityRuleIds(child, output);
+    else if (child.type === "similarity") output.push(child.ruleId);
+  }
+}
+
 export function compileSegmentRules(rules: SegmentRulesV2, frozenSimilarity?: SegmentSimilarity[]): SQL {
+  if (frozenSimilarity !== undefined) {
+    const liveRuleIds: string[] = [];
+    collectSimilarityRuleIds(rules.root, liveRuleIds);
+    const frozenRuleIds = frozenSimilarity.map((rule) => rule.ruleId);
+    if (
+      liveRuleIds.length !== frozenRuleIds.length
+      || new Set(liveRuleIds).size !== liveRuleIds.length
+      || new Set(frozenRuleIds).size !== frozenRuleIds.length
+      || liveRuleIds.some((ruleId) => !frozenRuleIds.includes(ruleId))
+    ) {
+      throw new SimilaritySnapshotMismatchError();
+    }
+  }
   return compileGroup(rules.root, frozenSimilarity);
 }
 

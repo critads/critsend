@@ -45,6 +45,19 @@ export const segments = pgTable("segments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Persisted, server-authoritative ref-affinity analyses. Declared here (rather
+// than only in a hand-written migration) so drizzle-kit push creates it on new
+// deployments.
+export const segmentRefSimilarityAnalyses = pgTable("segment_ref_similarity_analyses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceRef: text("source_ref").notNull(),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  sourceCreatedIdx: index("segment_ref_similarity_analyses_source_created_idx")
+    .on(table.sourceRef, table.createdAt.desc()),
+}));
+
 // Task #257: externally supplied SHA-256 suppression values. Only hashes from
 // the uploaded CSV are stored here; subscriber email hashes are computed in
 // SQL while evaluating an audience and are never persisted.
@@ -310,10 +323,10 @@ export const campaigns = pgTable("campaigns", {
   // Durable proof that this execution generation reached EOF in the normal
   // audience iterator. Completion workers gate warm campaigns on this marker.
   warmAudienceExhaustedAt: timestamp("warm_audience_exhausted_at"),
-  // Immutable copy of every resolved "similar to" block used by this
+  // Immutable copy of every resolved-ref "similar to" block used by this
   // campaign. Subscriber membership remains dynamic, but a segment refresh
-  // cannot change the selected affinity tags during a resume.
-  similaritySnapshot: jsonb("similarity_snapshot"),
+  // cannot change the selected affinity refs during a resume.
+  similaritySnapshot: jsonb("similarity_snapshot").default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -1204,39 +1217,41 @@ export const segmentConditionSchema = z.object({
 export type SegmentCondition = z.output<typeof segmentConditionSchema>;
 
 export const similarityCandidateSchema = z.object({
-  tag: z.string().min(1).max(255),
+  ref: z.string().min(1).max(255).refine((ref) => ref !== "DEL", "DEL cannot be a similarity ref"),
   commonCount: z.number().int().nonnegative(),
+  additionalCount: z.number().int().nonnegative(),
   sourceFrequency: z.number().min(0).max(1),
   referenceFrequency: z.number().min(0).max(1),
   lift: z.number().nonnegative(),
+  score: z.number().nonnegative(),
 });
 
 export const segmentSimilaritySchema = z.object({
   type: z.literal("similarity"),
   ruleId: z.string().uuid(),
-  sourceTag: z.string().min(1).max(255),
+  sourceRef: z.string().min(1).max(255).refine((ref) => ref !== "DEL", "DEL cannot be a similarity source"),
   analysisId: z.string().uuid(),
-  resolvedTags: z.array(z.string().min(1).max(255)).max(3)
-    .refine((tags) => new Set(tags).size === tags.length, "Resolved tags must be unique"),
+  resolvedRefs: z.array(z.string().min(1).max(255).refine((ref) => ref !== "DEL", "DEL cannot be a similarity ref")).min(1).max(3)
+    .refine((refs) => new Set(refs).size === refs.length, "Resolved refs must be unique"),
   analyzedAt: z.string().datetime(),
-  candidates: z.array(similarityCandidateSchema).max(3),
-  calibration: z.literal("provisional-v1"),
+  candidates: z.array(similarityCandidateSchema).min(1).max(3),
+  calibration: z.literal("production-v1"),
 }).superRefine((rule, ctx) => {
-  if (rule.resolvedTags.includes(rule.sourceTag)) {
+  if (rule.resolvedRefs.includes(rule.sourceRef)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ["resolvedTags"],
-      message: "The source tag cannot be a resolved similar tag",
+      path: ["resolvedRefs"],
+      message: "The source ref cannot be a resolved similar ref",
     });
   }
   if (
-    rule.resolvedTags.length !== rule.candidates.length
-    || rule.candidates.some((candidate, index) => candidate.tag !== rule.resolvedTags[index])
+    rule.resolvedRefs.length !== rule.candidates.length
+    || rule.candidates.some((candidate, index) => candidate.ref !== rule.resolvedRefs[index])
   ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["candidates"],
-      message: "Candidate metrics must match resolved tags in order",
+      message: "Candidate metrics must match resolved refs in order",
     });
   }
 });

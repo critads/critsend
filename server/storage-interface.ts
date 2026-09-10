@@ -156,7 +156,7 @@ export interface IStorage {
   getCampaignStatus(id: string): Promise<string | null>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign | undefined>;
-  freezeCampaignSimilaritySnapshot(campaignId: string, segmentIds: string[]): Promise<Record<string, import("@shared/schema").SegmentSimilarity[]>>;
+  freezeCampaignSimilaritySnapshot(campaignId: string): Promise<Record<string, import("@shared/schema").SegmentSimilarity[]>>;
   deleteCampaign(id: string): Promise<void>;
   copyCampaign(id: string): Promise<Campaign | undefined>;
   // Auto-resend (Task #56) helpers
