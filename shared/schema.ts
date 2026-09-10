@@ -310,6 +310,10 @@ export const campaigns = pgTable("campaigns", {
   // Durable proof that this execution generation reached EOF in the normal
   // audience iterator. Completion workers gate warm campaigns on this marker.
   warmAudienceExhaustedAt: timestamp("warm_audience_exhausted_at"),
+  // Immutable copy of every resolved "similar to" block used by this
+  // campaign. Subscriber membership remains dynamic, but a segment refresh
+  // cannot change the selected affinity tags during a resume.
+  similaritySnapshot: jsonb("similarity_snapshot"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -906,6 +910,7 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   warmPhase: true,
   warmCursorId: true,
   warmAudienceExhaustedAt: true,
+  similaritySnapshot: true,
   createdAt: true,
   startedAt: true,
   completedAt: true,
@@ -952,6 +957,7 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
   warmPhase: true,
   warmCursorId: true,
   warmAudienceExhaustedAt: true,
+  similaritySnapshot: true,
   createdAt: true,
   startedAt: true,
   completedAt: true,
@@ -1197,16 +1203,56 @@ export const segmentConditionSchema = z.object({
 
 export type SegmentCondition = z.output<typeof segmentConditionSchema>;
 
+export const similarityCandidateSchema = z.object({
+  tag: z.string().min(1).max(255),
+  commonCount: z.number().int().nonnegative(),
+  sourceFrequency: z.number().min(0).max(1),
+  referenceFrequency: z.number().min(0).max(1),
+  lift: z.number().nonnegative(),
+});
+
+export const segmentSimilaritySchema = z.object({
+  type: z.literal("similarity"),
+  ruleId: z.string().uuid(),
+  sourceTag: z.string().min(1).max(255),
+  analysisId: z.string().uuid(),
+  resolvedTags: z.array(z.string().min(1).max(255)).max(3)
+    .refine((tags) => new Set(tags).size === tags.length, "Resolved tags must be unique"),
+  analyzedAt: z.string().datetime(),
+  candidates: z.array(similarityCandidateSchema).max(3),
+  calibration: z.literal("provisional-v1"),
+}).superRefine((rule, ctx) => {
+  if (rule.resolvedTags.includes(rule.sourceTag)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["resolvedTags"],
+      message: "The source tag cannot be a resolved similar tag",
+    });
+  }
+  if (
+    rule.resolvedTags.length !== rule.candidates.length
+    || rule.candidates.some((candidate, index) => candidate.tag !== rule.resolvedTags[index])
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["candidates"],
+      message: "Candidate metrics must match resolved tags in order",
+    });
+  }
+});
+
+export type SegmentSimilarity = z.infer<typeof segmentSimilaritySchema>;
+
 type SegmentGroupInput = {
   type: "group";
   combinator: "AND" | "OR";
-  children: Array<z.input<typeof segmentConditionSchema> | SegmentGroupInput>;
+  children: Array<z.input<typeof segmentConditionSchema> | z.input<typeof segmentSimilaritySchema> | SegmentGroupInput>;
 };
 
 export const segmentGroupSchema: z.ZodType<SegmentGroupInput> = z.object({
   type: z.literal("group"),
   combinator: z.enum(["AND", "OR"]),
-  children: z.lazy(() => z.array(z.union([segmentConditionSchema, segmentGroupSchema]))),
+  children: z.lazy(() => z.array(z.union([segmentConditionSchema, segmentSimilaritySchema, segmentGroupSchema]))),
 });
 
 export type SegmentGroup = z.infer<typeof segmentGroupSchema>;

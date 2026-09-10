@@ -404,6 +404,16 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // Enabled original campaigns use the plan's repeatable-read audience count,
   // avoiding a second full count and keeping the 30% cap aligned with total.
   let total: number;
+  const campaignSegmentIds = (campaign as any).segmentIds ?? [campaign.segmentId!];
+  // This durable snapshot is created once, including when there are no
+  // similarity rules ({}). Resumes therefore never silently adopt tags from a
+  // later explicit segment re-analysis.
+  const similaritySnapshot = isFollowUp
+    ? {}
+    : await storage.freezeCampaignSimilaritySnapshot(
+        campaignId,
+        [...campaignSegmentIds, ...(campaign.excludeSegmentId ? [campaign.excludeSegmentId] : [])],
+      );
   let audiencePhase: "warm" | "normal" = "normal";
   let warmCursorId: string | undefined;
   if (isFollowUp) {
@@ -416,9 +426,10 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     } else try {
       const plan = await storage.planCampaignWarmStart(
         campaignId,
-        (campaign as any).segmentIds ?? [campaign.segmentId!],
+        campaignSegmentIds,
         campaign.excludeSegmentId ?? undefined,
         stepExecutionVersion,
+        similaritySnapshot,
       );
       total = plan.eligibleCount;
       audiencePhase = plan.phase;
@@ -430,8 +441,9 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
     }
   } else {
     total = await storage.countSubscribersForSegments(
-      (campaign as any).segmentIds ?? [campaign.segmentId!],
+      campaignSegmentIds,
       campaign.excludeSegmentId ?? undefined,
+      similaritySnapshot,
     );
   }
   if (isFollowUp) {
@@ -820,12 +832,13 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       return storage.getOpenersForParentCampaignCursor(campaign!.parentCampaignId!, BATCH_SIZE, cursor);
     }
     return storage.getSubscribersForSegmentsCursor(
-      (campaign as any).segmentIds ?? [campaign!.segmentId!],
+      campaignSegmentIds,
       BATCH_SIZE,
       cursor,
       campaign!.excludeSegmentId ?? undefined,
       false,
       campaign!.prioritizeActiveClickers && audiencePhase === "normal" ? campaignId : undefined,
+      similaritySnapshot,
     );
   }
 

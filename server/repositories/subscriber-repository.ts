@@ -14,7 +14,7 @@ import { logger } from "../logger";
 import { withAdvisoryLock, indexExistsAndValid, LOCK_KEYS, type LockResult } from "../bootstrap-lock";
 import { compileSegmentRules } from "../services/segment-compiler";
 import { UNSUBSCRIBE_COOLING_OFF_DAYS } from "../config/suppression";
-import { type SegmentRulesV2, migrateRulesV1toV2 } from "@shared/schema";
+import { type SegmentRulesV2, type SegmentSimilarity, migrateRulesV1toV2 } from "@shared/schema";
 import { redisConnection, isRedisConfigured } from "../redis";
 import { calculateWarmStartCap } from "../services/campaign-warm-start";
 
@@ -317,7 +317,10 @@ async function compileSegmentWhere(segmentId: string) {
   return and(compileSegmentRules(normalized), notInUploadedExclusions(segmentId));
 }
 
-async function compileSegmentWheres(segmentIds: string[]) {
+async function compileSegmentWheres(
+  segmentIds: string[],
+  similaritySnapshot?: Record<string, SegmentSimilarity[]>,
+) {
   const uniqueIds = [...new Set(segmentIds.filter(Boolean))];
   if (!uniqueIds.length) return new Map<string, ReturnType<typeof compileSegmentRules>>();
   const found = await getSegmentsByIds(uniqueIds);
@@ -327,7 +330,7 @@ async function compileSegmentWheres(segmentIds: string[]) {
     if (normalized) {
       compiled.set(
         segment.id,
-        and(compileSegmentRules(normalized), notInUploadedExclusions(segment.id))!,
+        and(compileSegmentRules(normalized, similaritySnapshot?.[segment.id]), notInUploadedExclusions(segment.id))!,
       );
     }
   }
@@ -376,10 +379,14 @@ export async function getSubscribersForSegmentsCursor(
   excludeSegmentId?: string,
   includeTemporarilySuppressed = false,
   excludeWarmCampaignId?: string,
+  similaritySnapshot?: Record<string, SegmentSimilarity[]>,
 ): Promise<Subscriber[]> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
   if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return [];
-  const compiled = await compileSegmentWheres([...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
+  const compiled = await compileSegmentWheres(
+    [...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])],
+    similaritySnapshot,
+  );
   const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
   if (!includes.length) return [];
   const conditions: any[] = [
@@ -507,10 +514,14 @@ export async function countSubscribersForSegment(
 export async function countSubscribersForSegments(
   segmentIds: string[],
   excludeSegmentId?: string,
+  similaritySnapshot?: Record<string, SegmentSimilarity[]>,
 ): Promise<number> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
   if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return 0;
-  const compiled = await compileSegmentWheres([...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
+  const compiled = await compileSegmentWheres(
+    [...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])],
+    similaritySnapshot,
+  );
   const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
   if (!includes.length) return 0;
   const conditions: any[] = [
@@ -546,9 +557,13 @@ export async function planCampaignWarmStart(
   segmentIds: string[],
   excludeSegmentId: string | undefined,
   expectedStepExecutionVersion: number,
+  similaritySnapshot?: Record<string, SegmentSimilarity[]>,
 ): Promise<CampaignWarmStartPlan> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
-  const compiled = await compileSegmentWheres([...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
+  const compiled = await compileSegmentWheres(
+    [...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])],
+    similaritySnapshot,
+  );
   const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
   if (!includes.length || (excludeSegmentId && ids.includes(excludeSegmentId))) {
     throw new Error("Warm-start audience cannot be compiled");
@@ -991,7 +1006,15 @@ export async function replaceSegmentExclusions(
 }
 
 export async function updateSegment(id: string, data: Partial<InsertSegment>): Promise<Segment | undefined> {
-  const [segment] = await db.update(segments).set(data).where(eq(segments.id, id)).returning();
+  const [segment] = await db.update(segments)
+    .set({ ...data, ...(data.rules !== undefined ? { cachedCount: null } : {}) })
+    .where(eq(segments.id, id)).returning();
+  if (segment && data.rules !== undefined) {
+    for (const key of segmentCountCache.keys()) {
+      if (key.startsWith(`${id}:v`)) segmentCountCache.delete(key);
+    }
+    await redisDeleteSegmentCount(id);
+  }
   return segment;
 }
 

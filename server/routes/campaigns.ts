@@ -1149,8 +1149,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
         delete normalizedBody.warmPhase;
         delete normalizedBody.warmCursorId;
         delete normalizedBody.warmAudienceExhaustedAt;
+        delete normalizedBody.similaritySnapshot;
         delete normalizedBody.stepExecutionVersion;
         delete normalizedBody.warm_audience_exhausted_at;
+        delete normalizedBody.similarity_snapshot;
         delete normalizedBody.step_execution_version;
         if ('mtaId' in normalizedBody && !normalizedBody.mtaId) {
           normalizedBody.mtaId = null;

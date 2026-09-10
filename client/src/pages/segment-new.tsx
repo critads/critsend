@@ -23,6 +23,7 @@ import {
   GroupBuilder,
   defaultRootGroup,
   hasValidCondition,
+  hasInvalidSimilarity,
 } from "@/components/segment-builder";
 
 interface PreviewResult {
@@ -170,6 +171,14 @@ export default function SegmentNew() {
       });
       return;
     }
+    if (hasInvalidSimilarity(rootGroup)) {
+      toast({
+        title: "Similarity analysis required",
+        description: "Analyze every Similar to block and keep at least one reliable proposed tag.",
+        variant: "destructive",
+      });
+      return;
+    }
     setUploadProgress(exclusionFile ? 0 : null);
     createMutation.mutate({
       data: {
@@ -188,6 +197,10 @@ export default function SegmentNew() {
         description: "Please add at least one condition with a value to preview.",
         variant: "destructive",
       });
+      return;
+    }
+    if (hasInvalidSimilarity(rootGroup)) {
+      toast({ title: "Similarity analysis required", description: "Analyze every Similar to block before previewing.", variant: "destructive" });
       return;
     }
     setIsCountLoading(true);

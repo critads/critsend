@@ -60,6 +60,7 @@ import {
   hasValidCondition,
   fieldLabels,
   unaryOperators,
+  hasInvalidSimilarity,
 } from "@/components/segment-builder";
 
 interface SegmentSubscribersResponse {
@@ -89,6 +90,11 @@ function summarizeRules(rules: unknown): Array<{ text: string; depth: number }> 
         const label = operatorLabelsV2[child.operator] || child.operator;
         const val = unaryOperators.includes(child.operator) ? "" : ` "${child.value || ""}"`;
         results.push({ text: `${fieldLabels[child.field] || child.field} ${label}${val}`, depth });
+      } else if (child.type === "similarity") {
+        results.push({
+          text: `Similar to "${child.sourceTag}" via ${child.resolvedTags.join(" OR ")} (source excluded)`,
+          depth,
+        });
       } else {
         results.push({ text: `Group (${child.combinator})`, depth });
         walk(child, depth + 1);
@@ -441,6 +447,10 @@ export default function Segments() {
       });
       return;
     }
+    if (hasInvalidSimilarity(rootGroup)) {
+      toast({ title: "Similarity analysis required", description: "Analyze every Similar to block before saving.", variant: "destructive" });
+      return;
+    }
     updateMutation.mutate({
       id: editingSegment.id,
       data: {
@@ -458,6 +468,10 @@ export default function Segments() {
         description: "Please add at least one condition with a value to preview.",
         variant: "destructive",
       });
+      return;
+    }
+    if (hasInvalidSimilarity(rootGroup)) {
+      toast({ title: "Similarity analysis required", description: "Analyze every Similar to block before previewing.", variant: "destructive" });
       return;
     }
     setIsCountLoading(true);

@@ -41,6 +41,8 @@ import {
   LEGACY_TOKENS_TABLE,
 } from "../tracking-partitions";
 import { complaintStatus } from "../services/orange-wanadoo-risk";
+import { similaritySnapshotsForSegments } from "../services/segment-similarity";
+import type { SegmentSimilarity } from "@shared/schema";
 
 const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 
@@ -935,6 +937,37 @@ export async function updateCampaign(id: string, data: Partial<Campaign>): Promi
   return campaign;
 }
 
+/** Freezes only resolved similarity tags. Other segment conditions and current
+ * subscriber memberships remain live, preserving the existing audience model. */
+export async function freezeCampaignSimilaritySnapshot(
+  campaignId: string,
+  segmentIds: string[],
+): Promise<Record<string, SegmentSimilarity[]>> {
+  return db.transaction(async (tx) => {
+    const locked = await tx.execute(sql`
+      SELECT similarity_snapshot
+      FROM campaigns
+      WHERE id=${campaignId}
+      FOR UPDATE
+    `);
+    if (!locked.rows.length) throw new Error("Campaign not found while freezing similarity rules");
+    const existing = (locked.rows[0] as any).similarity_snapshot;
+    if (existing !== null && existing !== undefined) {
+      return existing as Record<string, SegmentSimilarity[]>;
+    }
+    const uniqueIds = [...new Set(segmentIds.filter(Boolean))];
+    const segmentRows = uniqueIds.length
+      ? await tx.select({ id: segments.id, rules: segments.rules })
+        .from(segments).where(inArray(segments.id, uniqueIds))
+      : [];
+    const snapshot = similaritySnapshotsForSegments(segmentRows);
+    await tx.update(campaigns)
+      .set({ similaritySnapshot: snapshot })
+      .where(eq(campaigns.id, campaignId));
+    return snapshot;
+  });
+}
+
 // Bounded timeouts for the campaign delete cascade. Without these a genuinely
 // large cascade or a hot row-lock (e.g. the live sender holding `campaigns`)
 // can make the DELETE hang indefinitely, turning the UI into an infinite
@@ -1020,6 +1053,7 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     warmPhase: _wp,
     warmCursorId: _wcursor,
     warmAudienceExhaustedAt: _warmAudienceExhaustedAt,
+    similaritySnapshot: _similaritySnapshot,
     // A copy must not inherit the original's schedule — default it to the
     // moment of the copy (operator request 2026-08-09).
     scheduledAt: _sched,

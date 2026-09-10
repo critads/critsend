@@ -1,6 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import { subscribers } from "@shared/schema";
-import type { SegmentCondition, SegmentGroup, SegmentRulesV2 } from "@shared/schema";
+import type { SegmentCondition, SegmentGroup, SegmentRulesV2, SegmentSimilarity } from "@shared/schema";
 import { logger } from "../logger";
 
 function escapeLikeValue(value: string): string {
@@ -244,7 +244,18 @@ function compileCondition(cond: SegmentCondition): SQL {
   return sql`FALSE`;
 }
 
-function compileGroup(group: SegmentGroup): SQL {
+function compileSimilarity(rule: SegmentSimilarity, frozen?: SegmentSimilarity[]): SQL {
+  const resolved = frozen?.find((item) => item.ruleId === rule.ruleId) ?? rule;
+  if (!resolved.resolvedTags.length) return sql`FALSE`;
+  // Array operators are exact-case, matching existing has_tag behavior and the
+  // analysis query. The source exclusion is inseparable from this block.
+  return sql`(
+    ${subscribers.tags} && ${sql.param(resolved.resolvedTags)}::text[]
+    AND NOT (${subscribers.tags} @> ARRAY[${resolved.sourceTag}]::text[])
+  )`;
+}
+
+function compileGroup(group: SegmentGroup, frozen?: SegmentSimilarity[]): SQL {
   if (!group.children || group.children.length === 0) {
     return sql`TRUE`;
   }
@@ -253,7 +264,9 @@ function compileGroup(group: SegmentGroup): SQL {
 
   for (const child of group.children) {
     if (child.type === "group") {
-      compiled.push(compileGroup(child as SegmentGroup));
+      compiled.push(compileGroup(child as SegmentGroup, frozen));
+    } else if (child.type === "similarity") {
+      compiled.push(compileSimilarity(child as SegmentSimilarity, frozen));
     } else {
       compiled.push(compileCondition(child as SegmentCondition));
     }
@@ -279,8 +292,8 @@ function compileGroup(group: SegmentGroup): SQL {
   return sql`(${result})`;
 }
 
-export function compileSegmentRules(rules: SegmentRulesV2): SQL {
-  return compileGroup(rules.root);
+export function compileSegmentRules(rules: SegmentRulesV2, frozenSimilarity?: SegmentSimilarity[]): SQL {
+  return compileGroup(rules.root, frozenSimilarity);
 }
 
 // Suppression guard: excludes subscribers within their cooling-off window

@@ -55,9 +55,9 @@ export interface IStorage {
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string, excludeSegmentId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string, excludeSegmentId?: string): Promise<number>;
-  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string, includeTemporarilySuppressed?: boolean, excludeWarmCampaignId?: string): Promise<Subscriber[]>;
-  countSubscribersForSegments(segmentIds: string[], excludeSegmentId?: string): Promise<number>;
-  planCampaignWarmStart(campaignId: string, segmentIds: string[], excludeSegmentId: string | undefined, expectedStepExecutionVersion: number): Promise<import("./repositories/subscriber-repository").CampaignWarmStartPlan>;
+  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string, includeTemporarilySuppressed?: boolean, excludeWarmCampaignId?: string, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<Subscriber[]>;
+  countSubscribersForSegments(segmentIds: string[], excludeSegmentId?: string, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<number>;
+  planCampaignWarmStart(campaignId: string, segmentIds: string[], excludeSegmentId: string | undefined, expectedStepExecutionVersion: number, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<import("./repositories/subscriber-repository").CampaignWarmStartPlan>;
   getCampaignWarmRecipientsCursor(campaignId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
   checkpointCampaignWarmStart(campaignId: string, cursorId: string | null, phase: "warm" | "normal", expectedStepExecutionVersion: number, stepProcessedCount?: number): Promise<boolean>;
   markCampaignWarmAudienceExhausted(campaignId: string, expectedStepExecutionVersion: number, stepProcessedCount: number, stepCursorId: string | null): Promise<boolean>;
@@ -156,6 +156,7 @@ export interface IStorage {
   getCampaignStatus(id: string): Promise<string | null>;
   createCampaign(data: InsertCampaign): Promise<Campaign>;
   updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign | undefined>;
+  freezeCampaignSimilaritySnapshot(campaignId: string, segmentIds: string[]): Promise<Record<string, import("@shared/schema").SegmentSimilarity[]>>;
   deleteCampaign(id: string): Promise<void>;
   copyCampaign(id: string): Promise<Campaign | undefined>;
   // Auto-resend (Task #56) helpers

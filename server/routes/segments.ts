@@ -16,6 +16,11 @@ import {
   parseSegmentExclusionCsvFile,
 } from "../services/segment-exclusion-csv";
 import rateLimit from "express-rate-limit";
+import {
+  analyzeSimilarTags,
+  canonicalizeTrustedSimilarityRules,
+  SIMILARITY_CALIBRATION,
+} from "../services/segment-similarity";
 
 const exclusionOperationLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -23,6 +28,14 @@ const exclusionOperationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many exclusion CSV operations. Please try again in a minute." },
+});
+
+const similarityAnalysisLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many similarity analyses. Please try again in a minute." },
 });
 
 let activeExclusionOperations = 0;
@@ -231,20 +244,23 @@ export function registerSegmentRoutes(app: Express, helpers: {
         return res.json({ count: 0, sample: [] });
       }
       
-      segmentRulesInputSchema.parse(rules);
+      const parsedRules = segmentRulesInputSchema.parse(rules);
+      const trustedRules = !Array.isArray(parsedRules) && parsedRules.version === 2
+        ? await canonicalizeTrustedSimilarityRules(parsedRules)
+        : normalized;
       
       const sampleLimit = Math.min(parseInt(req.query.sampleLimit as string) || 10, 25);
       const hashes = files[0] ? await parseSegmentExclusionCsvFile(files[0].path) : [];
       if (files[0] && hashes.length === 0) {
         return res.status(400).json({ error: "Exclusion CSV does not contain any SHA-256 hashes" });
       }
-      const result = await storage.previewSegmentRules(normalized, sampleLimit, hashes);
+      const result = await storage.previewSegmentRules(trustedRules, sampleLimit, hashes);
       res.json({ ...result, exclusionHashCount: hashes.length });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      if (error instanceof Error && /Exclusion CSV|SHA-256|hexadecimal|unique hashes|valid JSON/.test(error.message)) {
+      if (error instanceof Error && /Exclusion CSV|SHA-256|hexadecimal|unique hashes|valid JSON|Similarity analysis/.test(error.message)) {
         return res.status(400).json({ error: error.message });
       }
       logger.error("Error counting segment preview:", error);
@@ -252,6 +268,26 @@ export function registerSegmentRoutes(app: Express, helpers: {
     } finally {
       await cleanupExclusionFiles(files);
       releaseExclusionOperationForRequest(req);
+    }
+  });
+
+  app.post("/api/segments/similarity-analysis", similarityAnalysisLimiter, async (req: Request, res: Response) => {
+    try {
+      const sourceTag = typeof req.body?.sourceTag === "string" ? req.body.sourceTag.trim() : "";
+      if (!sourceTag || sourceTag.length > 255 || /[\u0000-\u001f]/.test(sourceTag)) {
+        return res.status(400).json({ error: "An exact-case source tag between 1 and 255 characters is required" });
+      }
+      const result = await analyzeSimilarTags(sourceTag, req.body?.refresh === true);
+      res.json({ ...result, thresholds: SIMILARITY_CALIBRATION });
+    } catch (error: any) {
+      logger.error("Error analyzing similar tags:", error);
+      if (error?.code === "57014") {
+        return res.status(503).json({ error: "Similarity analysis exceeded its 15-second safety limit. Try again later." });
+      }
+      if (error?.code === "SIMILARITY_BUSY") {
+        return res.status(429).json({ error: "Two similarity analyses are already running. Try again shortly." });
+      }
+      res.status(500).json({ error: "Failed to analyze similar tags" });
     }
   });
 
@@ -350,9 +386,12 @@ export function registerSegmentRoutes(app: Express, helpers: {
         ...multipartData,
         rules: parseJsonMultipartField((multipartData as any).rules, "rules"),
       };
-      const data = insertSegmentSchema.parse(body);
+      let data = insertSegmentSchema.parse(body);
       if (data.rules) {
-        segmentRulesInputSchema.parse(data.rules);
+        const parsed = segmentRulesInputSchema.parse(data.rules);
+        if (!Array.isArray(parsed) && parsed.version === 2) {
+          data = { ...data, rules: await canonicalizeTrustedSimilarityRules(parsed) };
+        }
       }
       const parsedRules = data.rules as any;
       if (parsedRules && parsedRules.version === 2) {
@@ -386,7 +425,7 @@ export function registerSegmentRoutes(app: Express, helpers: {
         return res.status(400).json({ error: error.errors });
       }
       if (error instanceof Error && (
-        /Exclusion CSV|SHA-256|hexadecimal|unique hashes|valid JSON/.test(error.message)
+         /Exclusion CSV|SHA-256|hexadecimal|unique hashes|valid JSON|Similarity analysis/.test(error.message)
       )) {
         return res.status(400).json({ error: error.message });
       }
@@ -403,15 +442,19 @@ export function registerSegmentRoutes(app: Express, helpers: {
       if (!validateId(req.params.id)) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
+      let update = req.body;
       if (req.body.rules) {
-        segmentRulesInputSchema.parse(req.body.rules);
+        const parsed = segmentRulesInputSchema.parse(req.body.rules);
+        if (!Array.isArray(parsed) && parsed.version === 2) {
+          update = { ...req.body, rules: await canonicalizeTrustedSimilarityRules(parsed) };
+        }
       }
       if (req.body.rules && req.body.rules.version === 2) {
         if (!req.body.rules.root?.children?.length) {
           return res.status(400).json({ error: "Segment must have at least one rule" });
         }
       }
-      const segment = await storage.updateSegment(req.params.id, req.body);
+      const segment = await storage.updateSegment(req.params.id, update);
       if (!segment) {
         return res.status(404).json({ error: "Segment not found" });
       }
@@ -419,6 +462,9 @@ export function registerSegmentRoutes(app: Express, helpers: {
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
+      }
+      if (error instanceof Error && /Similarity analysis/.test(error.message)) {
+        return res.status(400).json({ error: error.message });
       }
       logger.error("Error updating segment:", error);
       res.status(500).json({ error: "Failed to update segment" });
