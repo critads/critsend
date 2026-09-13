@@ -24,14 +24,16 @@ describe("brand unsubscribe guard", () => {
     [1_500, "ok"],
     [1_501, "warn"],
     [2_000, "warn"],
-    [2_001, "blocked"],
+    [2_001, "warn"],
+    [2_500, "warn"],
+    [2_501, "blocked"],
   ] as const)("classifies %s unsubscribers as %s", (count, expected) => {
-    expect(classifyBrandUnsubscribeCount(count, 1_500, 2_000)).toBe(expected);
+    expect(classifyBrandUnsubscribeCount(count)).toBe(expected);
   });
 
   it("uses the canonical historical brand resolved from the campaign name", async () => {
     findCampaignBrandAnchor.mockResolvedValue("#3086 Air France - old-code - mta");
-    countBrandUnsubscribes.mockResolvedValue(2_134);
+    countBrandUnsubscribes.mockResolvedValue(2_634);
 
     const result = await evaluateBrandUnsubscribeGuard(
       "#4000 Air France Holiday Push - fresh-code - mta",
@@ -48,9 +50,9 @@ describe("brand unsubscribe guard", () => {
     expect(result).toEqual(expect.objectContaining({
       brand: "Air France",
       brandKey: "air\u001ffrance",
-      count: 2_134,
+      count: 2_634,
       status: "blocked",
-      limit: 2_000,
+      limit: 2_500,
       windowDays: 10,
     }));
   });
@@ -81,16 +83,16 @@ describe("brand unsubscribe guard", () => {
     const payload = brandUnsubscribeBlockPayload({
       brand: "Air France",
       brandKey: "air\u001ffrance",
-      count: 2_001,
+      count: 2_501,
       warnThreshold: 1_500,
-      limit: 2_000,
+      limit: 2_500,
       windowDays: 10,
       status: "blocked",
     });
 
     expect(payload).toEqual(expect.objectContaining({
       code: "BRAND_UNSUB_LIMIT_EXCEEDED",
-      brandGuard: expect.objectContaining({ status: "blocked", count: 2_001 }),
+      brandGuard: expect.objectContaining({ status: "blocked", count: 2_501 }),
     }));
   });
 

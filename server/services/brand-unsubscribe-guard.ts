@@ -12,7 +12,7 @@ function envInt(name: string, fallback: number, min: number): number {
   return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
 }
 
-export const BRAND_UNSUB_LIMIT = envInt("BRAND_UNSUB_LIMIT", 2_000, 0);
+export const BRAND_UNSUB_LIMIT = envInt("BRAND_UNSUB_LIMIT", 2_500, 0);
 export const BRAND_UNSUB_WARN_THRESHOLD = Math.min(
   envInt("BRAND_UNSUB_WARN_THRESHOLD", 1_500, 0),
   BRAND_UNSUB_LIMIT,
