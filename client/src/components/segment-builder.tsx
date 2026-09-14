@@ -21,6 +21,7 @@ import { Check, ChevronsUpDown, Plus, Tag, Mail, Calendar, Globe, Layers, X, Act
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { RefBrandInput } from "@/components/ref-brand-input";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2, SegmentSimilarity } from "@shared/schema";
 import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/schema";
 import { useEffect, useRef, useState } from "react";
@@ -555,14 +556,11 @@ export function ConditionRow({
               data-testid={`${testIdPrefix}-value`}
             />
           ) : isRefText ? (
-            <Input
-              placeholder={condition.operator === "ref_contains" ? "Search in refs..." : "Ref value..."}
+            <RefBrandInput
               value={typeof condition.value === "string" ? condition.value : ""}
-              onChange={(e) =>
-                onChange({ ...condition, value: e.target.value.toUpperCase() })
-              }
-              className="flex-1 min-w-[150px]"
-              data-testid={`${testIdPrefix}-value`}
+              placeholder={condition.operator === "ref_contains" ? "Search in refs..." : "Ref value..."}
+              onChange={(value) => onChange({ ...condition, value })}
+              testId={`${testIdPrefix}-value`}
             />
           ) : (
             <Input
