@@ -28,6 +28,8 @@ import type {
   CampaignListItem,
   CampaignCalendarItem,
   CampaignSendStateTotals,
+  Brand,
+  InsertBrand,
 } from "@shared/schema";
 import type { SegmentRulesV2 } from "@shared/schema";
 import type { LockResult } from "./bootstrap-lock";
@@ -101,6 +103,13 @@ export interface IStorage {
   createMta(data: InsertMta): Promise<Mta>;
   updateMta(id: string, data: Partial<InsertMta>): Promise<Mta | undefined>;
   deleteMta(id: string): Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════
+  // BRANDS DIRECTORY
+  // ═══════════════════════════════════════════════════════════════
+  getBrandsPaginated(opts: { page: number; limit: number; search?: string }): Promise<{ brands: Brand[]; total: number }>;
+  createBrand(data: InsertBrand): Promise<Brand>;
+  importBrands(rows: InsertBrand[]): Promise<{ created: number; skipped: number; total: number }>;
 
   // ═══════════════════════════════════════════════════════════════
   // EMAIL HEADERS

@@ -30,9 +30,11 @@ import { registerAdminPressureGuardLocksRoutes } from "./routes/admin-pressure-g
 import { registerAdminStuckCampaignsRoutes } from "./routes/admin-stuck-campaigns";
 import { registerPmtaRoutes } from "./routes/pmta";
 import { registerApiKeyRoutes } from "./routes/api-keys";
+import { registerBrandRoutes } from "./routes/brands";
 import { ensureCampaignSegmentsSchema } from "./campaign-segments-bootstrap";
 import { ensureSegmentExclusionsSchema } from "./segment-exclusions-bootstrap";
 import { ensureCampaignWarmStartSchema } from "./campaign-warm-start-bootstrap";
+import { ensureBrandsSchema } from "./brands-bootstrap";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -41,6 +43,7 @@ export async function registerRoutes(
   await ensureCampaignSegmentsSchema();
   await ensureSegmentExclusionsSchema();
   await ensureCampaignWarmStartSchema();
+  await ensureBrandsSchema();
 
   const generalLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -130,6 +133,7 @@ export async function registerRoutes(
   registerSubscriberRoutes(app, helpers);
   registerSegmentRoutes(app, helpers);
   registerMtaRoutes(app, helpers);
+  registerBrandRoutes(app);
   registerTrackingRoutes(app);
   registerWebhookRoutes(app);
   registerAnalyticsRoutes(app, helpers);

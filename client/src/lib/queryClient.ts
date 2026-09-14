@@ -10,6 +10,10 @@ export async function fetchCsrfToken(): Promise<string> {
   return csrfToken!;
 }
 
+export function invalidateCsrfToken(): void {
+  csrfToken = null;
+}
+
 /**
  * Custom error type carrying the parsed HTTP status + JSON body so callers
  * (e.g. the campaigns list page) can branch on `error.status === 503` and
@@ -64,7 +68,7 @@ export async function apiRequest(
   if (res.status === 403) {
     const text = await res.text();
     if (text.includes('CSRF') || text.includes('csrf')) {
-      csrfToken = null;
+      invalidateCsrfToken();
       headers["x-csrf-token"] = await fetchCsrfToken();
       const retryRes = await fetch(url, {
         method,

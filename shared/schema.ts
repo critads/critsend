@@ -45,6 +45,35 @@ export const segments = pgTable("segments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// The Brands directory is intentionally independent from campaign subjects and
+// segment rules.  A brand may have many refs, and a ref may be shared by many
+// brands, so the only uniqueness rule is the exact (name, ref) pair.
+export const brands = pgTable("brands", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 255 }).notNull(),
+  ref: varchar("ref", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  nameRefUnique: uniqueIndex("brands_name_ref_unique").on(table.name, table.ref),
+  createdAtIdx: index("brands_created_at_idx").on(table.createdAt),
+  nameLowerIdx: index("brands_name_lower_idx").on(sql`lower(${table.name})`),
+  refLowerIdx: index("brands_ref_lower_idx").on(sql`lower(${table.ref})`),
+}));
+
+const brandFieldSchema = z.string()
+  .trim()
+  .min(1, "must not be empty")
+  .max(255, "must be 255 characters or fewer")
+  .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "must not contain control characters");
+
+export const insertBrandSchema = z.object({
+  name: brandFieldSchema,
+  ref: brandFieldSchema,
+});
+
+export type Brand = typeof brands.$inferSelect;
+export type InsertBrand = z.infer<typeof insertBrandSchema>;
+
 // Persisted, server-authoritative ref-affinity analyses. Declared here (rather
 // than only in a hand-written migration) so drizzle-kit push creates it on new
 // deployments.

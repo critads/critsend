@@ -9,6 +9,7 @@ import * as subscriberRepo from "./repositories/subscriber-repository";
 import * as campaignRepo from "./repositories/campaign-repository";
 import * as importRepo from "./repositories/import-repository";
 import * as mtaRepo from "./repositories/mta-repository";
+import * as brandRepo from "./repositories/brand-repository";
 import * as jobRepo from "./repositories/job-repository";
 import * as systemRepo from "./repositories/system-repository";
 import { pressureGuardReserveSendSlots } from "./services/pressure-guard";
@@ -27,6 +28,9 @@ export const storage: IStorage = {
 
   // ── MTAs + email headers ──────────────────────────────────────
   ...mtaRepo,
+
+  // ── Brands directory ──────────────────────────────────────────
+  ...brandRepo,
 
   // ── Campaign jobs + flush + error logs ────────────────────────
   ...jobRepo,

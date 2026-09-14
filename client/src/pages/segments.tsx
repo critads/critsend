@@ -32,6 +32,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { BrandsPanel } from "@/components/brands-panel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Filter,
   Plus,
@@ -659,6 +661,12 @@ export default function Segments() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
+      <Tabs defaultValue="segments">
+        <TabsList>
+          <TabsTrigger value="segments">Segments</TabsTrigger>
+          <TabsTrigger value="brands">Brands</TabsTrigger>
+        </TabsList>
+        <TabsContent value="segments" className="mt-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Segments</h1>
@@ -1052,6 +1060,11 @@ export default function Segments() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </TabsContent>
+        <TabsContent value="brands" className="mt-6">
+          <BrandsPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
