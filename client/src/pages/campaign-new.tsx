@@ -110,8 +110,8 @@ export default function CampaignNew() {
     followUpDelayHours: 36,
     // Step-by-step sending (Task #242). null = no limit.
     stepSendLimit: null,
-    // Prioritize recent clickers at the start of a send. Opt-in by default.
-    prioritizeActiveClickers: false,
+    // Enabled for new campaigns; the user can still disable it.
+    prioritizeActiveClickers: true,
   });
   const segmentIds: string[] = (formData as any).segmentIds ?? (formData.segmentId ? [formData.segmentId] : []);
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);

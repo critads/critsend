@@ -7,6 +7,13 @@ import {
 import { calculateWarmStartCap } from "../server/services/campaign-warm-start";
 
 describe("campaign active-clicker warm start", () => {
+  it("enables priority by default in campaign creation while keeping the toggle editable", () => {
+    const source = readFileSync("client/src/pages/campaign-new.tsx", "utf8");
+    expect(source).toContain("prioritizeActiveClickers: true,");
+    expect(source).not.toContain("prioritizeActiveClickers: false,");
+    expect(source).toContain('onCheckedChange={(value) => updateField("prioritizeActiveClickers", value)}');
+  });
+
   it("applies clicker, 30 percent, and absolute caps", () => {
     expect(calculateWarmStartCap(100, 90)).toBe(30);
     expect(calculateWarmStartCap(100, 12)).toBe(12);
