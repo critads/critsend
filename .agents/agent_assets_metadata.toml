@@ -91,3 +91,17 @@ mtime_ms = 1789534345839
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/f192f900-becc-45f2-8761-e290ec48a6b6/90414545-7e30-4f61-9a4d-9cd670bc5c38"
 storage_version_token = "1789534353666327"
 content_type = "text/csv"
+
+[[outputs]]
+id = "c8rwbI5QC51pInvD2AQD6"
+uri = "file://exports/campagne-61cf4452-9b1e-4ef1-8333-7c365ebf2cad-ouvreurs-emails.csv"
+type = "table"
+title = "Merinos — 56 009 ouvreurs, emails uniquement"
+description = "Campagne #2917 merinos - LIST DECO - kamma. CSV avec une seule colonne email, hors désabonnements et complaints sur cette campagne, sans tags ni autres données."
+logical_id = "da55983e-5619-4b8f-aa41-caba1b4da804"
+content_hash = "sha256:3578b6ff2ea184f92d6b851ef46226c177a3d8f0ff5b4708fc93cc9b07e3d324"
+size = 1417303
+mtime_ms = 1789535119802
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/da55983e-5619-4b8f-aa41-caba1b4da804/c9dd3b5c-7fbe-4af2-982e-81f5e6f1765d"
+storage_version_token = "1789535133014149"
+content_type = "text/csv"
