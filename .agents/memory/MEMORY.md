@@ -26,3 +26,4 @@
 - [Campaign warm-start invariants](campaign-warm-start.md) — freeze the clicker snapshot/order; fence resumes by generation; never complete before durable audience exhaustion.
 - [Ref-similarity semantics](ref-similarity-semantics.md) — similarity is exact-case ref affinity; DEL is excluded from analysis, not a subscriber-wide exclusion.
 - [Unsubscribe presentation](unsubscribe-presentation.md) — optional button persistence must never block unsubscribe processing or application startup.
+- [Maintenance safety](maintenance-safety.md) — long idle lock transactions conflict with zombie cleanup; historical processing tags cannot safely be replayed.

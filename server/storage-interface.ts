@@ -344,12 +344,14 @@ export interface IStorage {
   // DATABASE MAINTENANCE
   // ═══════════════════════════════════════════════════════════════
   getMaintenanceRules(): Promise<DbMaintenanceRule[]>;
+  getMaintenanceRulesForScheduling(): Promise<DbMaintenanceRule[]>;
   getMaintenanceRule(id: string): Promise<DbMaintenanceRule | undefined>;
   upsertMaintenanceRule(data: InsertDbMaintenanceRule): Promise<DbMaintenanceRule>;
   updateMaintenanceRule(id: string, data: Partial<InsertDbMaintenanceRule>): Promise<DbMaintenanceRule | undefined>;
   deleteMaintenanceRule(id: string): Promise<void>;
   getMaintenanceLogs(limit?: number): Promise<DbMaintenanceLog[]>;
   createMaintenanceLog(data: Omit<DbMaintenanceLog, 'id' | 'executedAt'>): Promise<DbMaintenanceLog>;
+  recordMaintenanceRun(data: Omit<DbMaintenanceLog, 'id' | 'executedAt'>): Promise<DbMaintenanceLog>;
   getTableStats(): Promise<Array<{tableName: string; rowCount: number; sizeBytes: number; sizePretty: string}>>;
   getTrackingTokenBloat(): Promise<import("./repositories/system-repository").TrackingTokenBloatStatus>;
   getImportStagingBloat(): Promise<import("./repositories/system-repository").ImportStagingBloatStatus>;

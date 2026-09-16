@@ -25,6 +25,11 @@ const ADVISORY_LOCK_KEY_CAMPAIGN_NAME_UNACCENT_TRGM = 900020;
 const ADVISORY_LOCK_KEY_CAMPAIGNS_FIRST_SEND_AT = 900021;
 const ADVISORY_LOCK_KEY_CAMPAIGN_CALENDAR_INDEXES = 900022;
 const ADVISORY_LOCK_KEY_CAMPAIGN_SENDING_DEADLINE = 900023;
+// Generic retention cleanup is also started by every worker incarnation.  The
+// worker takes this key only for one bounded DELETE batch, so a monolith +
+// worker overlap cannot execute the same batch concurrently without holding
+// an idle lock for the whole multi-table run.
+const ADVISORY_LOCK_KEY_MAINTENANCE = 900024;
 
 export const LOCK_KEYS = {
   TRACKING_TOKENS: ADVISORY_LOCK_KEY_TRACKING_TOKENS,
@@ -50,6 +55,7 @@ export const LOCK_KEYS = {
   CAMPAIGNS_FIRST_SEND_AT: ADVISORY_LOCK_KEY_CAMPAIGNS_FIRST_SEND_AT,
   CAMPAIGN_CALENDAR_INDEXES: ADVISORY_LOCK_KEY_CAMPAIGN_CALENDAR_INDEXES,
   CAMPAIGN_SENDING_DEADLINE: ADVISORY_LOCK_KEY_CAMPAIGN_SENDING_DEADLINE,
+  MAINTENANCE: ADVISORY_LOCK_KEY_MAINTENANCE,
 } as const;
 
 export type LockResult = "ran" | "skipped" | "error";

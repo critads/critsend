@@ -25,6 +25,14 @@ import {
   dropExpiredTrackingTokenPartitions,
 } from "./tracking-partitions";
 import { msUntilNextHourInTz } from "./lib/daily-schedule";
+import {
+  MAINTENANCE_INTERVAL_MS,
+  isMaintenanceStartupGrace,
+  MAINTENANCE_WATCHDOG_INTERVAL_MS,
+  hasDueMaintenanceRule,
+  isMaintenanceRunDue,
+} from "./lib/maintenance-schedule";
+import { LOCK_KEYS } from "./bootstrap-lock";
 import { truncateIfSafe } from "./services/import-staging-purge";
 import { stopAutomaticReplayForFinalizationFailure } from "./services/campaign-job-error-policy";
 
@@ -2213,9 +2221,12 @@ export function stopCampaignGuardian(): void {
   }
 }
 
-const MAINTENANCE_INTERVAL = 21600000; // 6 hours
 const MAINTENANCE_BATCH_SIZE = 1000;
 const MAINTENANCE_MAX_ROWS = 50000;
+const MAINTENANCE_BATCH_TIMEOUT_MS = (() => {
+  const value = Number(process.env.MAINTENANCE_BATCH_TIMEOUT_MS || 10_000);
+  return Number.isFinite(value) ? Math.max(1_000, Math.min(Math.trunc(value), 60_000)) : 10_000;
+})();
 
 // tracking_tokens is a high-volume table (~310M rows on prod ≈ 65 GB). The
 // initial purge needs a much larger per-run budget than the default 50k cap so
@@ -2246,7 +2257,11 @@ function getTrackingTokenMaxRowsPerRun(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : TRACKING_TOKEN_DEFAULT_MAX_ROWS;
 }
 
-async function runMaintenanceForRule(rule: any, triggeredBy: string): Promise<{ rowsDeleted: number; durationMs: number; status: string; errorMessage?: string }> {
+async function runMaintenanceForRule(
+  rule: any,
+  triggeredBy: string,
+  options: { coordinateBatches?: boolean } = {},
+): Promise<{ rowsDeleted: number; durationMs: number; status: string; errorMessage?: string }> {
   const startTime = Date.now();
   let totalDeleted = 0;
   const config = TABLE_CLEANUP_QUERIES[rule.tableName];
@@ -2262,6 +2277,9 @@ async function runMaintenanceForRule(rule: any, triggeredBy: string): Promise<{ 
     retentionDays = getTrackingTokenRetentionDays();
     maxRowsPerRun = getTrackingTokenMaxRowsPerRun();
   }
+  // Keep the established daily tracking-token path unchanged.  Generic and
+  // manually-triggered rules use the short per-batch coordination fence.
+  const coordinateBatches = options.coordinateBatches ?? triggeredBy !== "daily_1am_paris";
 
   try {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
@@ -2281,8 +2299,22 @@ async function runMaintenanceForRule(rule: any, triggeredBy: string): Promise<{ 
         params = [cutoff, MAINTENANCE_BATCH_SIZE];
       }
 
-      const result = await pool.query(query, params);
-      const deletedCount = result.rowCount || 0;
+      let deletedCount: number;
+      if (coordinateBatches) {
+        const result = await runMaintenanceBatch(query, params);
+        if (result.deferred) {
+          return {
+            rowsDeleted: totalDeleted,
+            durationMs: Date.now() - startTime,
+            status: "deferred",
+            errorMessage: result.reason,
+          };
+        }
+        deletedCount = result.rowCount;
+      } else {
+        const result = await pool.query(query, params);
+        deletedCount = result.rowCount || 0;
+      }
       totalDeleted += deletedCount;
 
       if (deletedCount < MAINTENANCE_BATCH_SIZE) {
@@ -2300,7 +2332,59 @@ async function runMaintenanceForRule(rule: any, triggeredBy: string): Promise<{ 
   }
 }
 
+/**
+ * Coordinate one bounded DELETE batch only.  The transaction-scoped lock is
+ * released at COMMIT/ROLLBACK; unlike a run-level idle lock it cannot leave a
+ * PgBouncer backend occupied while other tables are being processed.
+ */
+async function runMaintenanceBatch(
+  query: string,
+  params: any[],
+): Promise<{ rowCount: number; deferred: boolean; reason?: string }> {
+  if (!isPoolHealthy() || pool.waitingCount > 0) {
+    return { rowCount: 0, deferred: true, reason: "database pool is busy" };
+  }
+
+  let client: any;
+  try {
+    client = await pool.connect();
+  } catch {
+    return { rowCount: 0, deferred: true, reason: "database pool connection unavailable" };
+  }
+  let transactionOpen = false;
+  try {
+    // Do not call isPoolHealthy after acquiring this client: this client is
+    // intentionally the final active connection in a small pool.  A waiter
+    // appearing while we connected is still a real pressure signal.
+    if (pool.waitingCount > 0) {
+      return { rowCount: 0, deferred: true, reason: "database pool became busy" };
+    }
+    await client.query("BEGIN");
+    transactionOpen = true;
+    await client.query(`SET LOCAL statement_timeout = '${MAINTENANCE_BATCH_TIMEOUT_MS}ms'`);
+    await client.query(`SET LOCAL lock_timeout = '${Math.min(MAINTENANCE_BATCH_TIMEOUT_MS, 1000)}ms'`);
+    const lockResult = await client.query(
+      `SELECT pg_try_advisory_xact_lock($1) AS acquired`,
+      [LOCK_KEYS.MAINTENANCE],
+    );
+    if (lockResult.rows[0]?.acquired !== true) {
+      await client.query("ROLLBACK");
+      transactionOpen = false;
+      return { rowCount: 0, deferred: true, reason: "another maintenance batch is running" };
+    }
+    const result = await client.query(query, params);
+    await client.query("COMMIT");
+    transactionOpen = false;
+    return { rowCount: result.rowCount || 0, deferred: false };
+  } finally {
+    if (transactionOpen) await client.query("ROLLBACK").catch(() => {});
+    client.release();
+  }
+}
+
 let maintenanceRunning = false;
+let maintenanceAuxiliaryLastRunAt = 0;
+const maintenanceTablesRunning = new Set<string>();
 
 export async function runMaintenanceNow(triggeredBy: string = "auto"): Promise<Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }>> {
   if (maintenanceRunning) {
@@ -2309,14 +2393,24 @@ export async function runMaintenanceNow(triggeredBy: string = "auto"): Promise<A
   }
   maintenanceRunning = true;
   try {
-    return await _runMaintenance(triggeredBy);
+    if (triggeredBy === "auto" && (!isPoolHealthy() || pool.waitingCount > 0)) {
+      logger.info(`[MAINTENANCE] Deferring ${triggeredBy} run while database pool is busy`);
+      return [];
+    }
+    const rules = triggeredBy === "auto"
+      ? await storage.getMaintenanceRulesForScheduling()
+      : await storage.getMaintenanceRules();
+    if (triggeredBy === "auto" && !hasDueMaintenanceRule(rules)) return [];
+    return await _runMaintenance(triggeredBy, rules);
   } finally {
     maintenanceRunning = false;
   }
 }
 
-async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }>> {
-  const rules = await storage.getMaintenanceRules();
+async function _runMaintenance(
+  triggeredBy: string,
+  rules: Awaited<ReturnType<typeof storage.getMaintenanceRules>>,
+): Promise<Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }>> {
   // tracking_tokens is handled by a dedicated daily 1 AM Paris job
   // (scheduleDailyTrackingTokenPurge). Excluded from the 6h cycle so a
   // 100M+ row purge never starts in the middle of business hours.
@@ -2326,17 +2420,36 @@ async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: 
   // import_staging: handled by runDailyImportStagingPurge (advisory-locked TRUNCATE);
   //   has no TABLE_CLEANUP_QUERIES entry and must never enter the generic loop.
   const enabledRules = rules.filter(
-    r => r.enabled && r.tableName !== "tracking_tokens" && r.tableName !== "import_staging"
+    r =>
+      r.enabled &&
+      r.tableName !== "tracking_tokens" &&
+      r.tableName !== "import_staging" &&
+      (triggeredBy !== "auto" || isMaintenanceRunDue(r.lastRunAt))
   );
   const results: Array<{ tableName: string; rowsDeleted: number; durationMs: number; status: string }> = [];
 
   logger.info(`[MAINTENANCE] Starting cleanup run (${triggeredBy}), ${enabledRules.length} rules enabled`);
 
   for (const rule of enabledRules) {
+    if (maintenanceTablesRunning.has(rule.tableName)) {
+      results.push({
+        tableName: rule.tableName,
+        rowsDeleted: 0,
+        durationMs: 0,
+        status: "deferred",
+      });
+      continue;
+    }
+    maintenanceTablesRunning.add(rule.tableName);
     try {
       const result = await runMaintenanceForRule(rule, triggeredBy);
 
-      await storage.createMaintenanceLog({
+      if (result.status === "deferred") {
+        results.push({ tableName: rule.tableName, ...result });
+        continue;
+      }
+
+      await storage.recordMaintenanceRun({
         ruleId: rule.id,
         tableName: rule.tableName,
         rowsDeleted: result.rowsDeleted,
@@ -2346,12 +2459,6 @@ async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: 
         triggeredBy,
       });
 
-      await storage.updateMaintenanceRule(rule.id, {});
-      await pool.query(
-        `UPDATE db_maintenance_rules SET last_run_at = NOW(), last_rows_deleted = $1 WHERE id = $2`,
-        [result.rowsDeleted, rule.id]
-      );
-
       results.push({ tableName: rule.tableName, ...result });
 
       if (result.rowsDeleted > 0) {
@@ -2360,6 +2467,8 @@ async function _runMaintenance(triggeredBy: string): Promise<Array<{ tableName: 
     } catch (error: any) {
       logger.error(`[MAINTENANCE] Error processing rule for ${rule.tableName}:`, error);
       results.push({ tableName: rule.tableName, rowsDeleted: 0, durationMs: 0, status: "failed" });
+    } finally {
+      maintenanceTablesRunning.delete(rule.tableName);
     }
   }
 
@@ -2529,7 +2638,7 @@ async function runDailyImportStagingPurge(): Promise<void> {
     const durationMs = Date.now() - startTime;
 
     // Log to db_maintenance_logs so the Database Health UI shows the run.
-    await storage.createMaintenanceLog({
+    await storage.recordMaintenanceRun({
       ruleId: rule.id,
       tableName: "import_staging",
       rowsDeleted: 0,
@@ -2538,11 +2647,6 @@ async function runDailyImportStagingPurge(): Promise<void> {
       errorMessage: logMessage,
       triggeredBy: "daily_1am_paris",
     });
-
-    await pool.query(
-      `UPDATE db_maintenance_rules SET last_run_at = NOW(), last_rows_deleted = 0 WHERE id = $1`,
-      [rule.id]
-    );
   } catch (err: any) {
     logger.error("[IMPORT_STAGING_PURGE] import_staging nightly purge failed:", err);
   }
@@ -2572,23 +2676,59 @@ async function checkTrackingTokenBloat(): Promise<void> {
 
 function startMaintenanceWorker() {
   if (maintenanceInterval) return;
-  logger.info("[MAINTENANCE] Starting maintenance worker (6h interval)");
-  maintenanceInterval = setInterval(async () => {
+  logger.info(
+    `[MAINTENANCE] Starting maintenance worker (durable ${MAINTENANCE_INTERVAL_MS / 3600000}h cadence, ` +
+    `watchdog ${MAINTENANCE_WATCHDOG_INTERVAL_MS / 1000}s)`
+  );
+
+  // The six-hour cadence lives in db_maintenance_rules.last_run_at.  Run a
+  // watchdog tick immediately and then periodically; unlike a process-local
+  // six-hour interval, this catches up after a restart even when the worker
+  // keeps restarting before its old timer fires.
+  const maintenanceStartedAt = Date.now();
+  let maintenanceTickRunning = false;
+  const runMaintenanceTick = async () => {
+    if (maintenanceTickRunning) return;
+    maintenanceTickRunning = true;
     try {
-      await runMaintenanceNow("auto");
-    } catch (err) {
-      logger.error("[MAINTENANCE] Auto maintenance run failed:", err);
-    }
-    try {
-      const expired = await storage.expireAbandonedImports();
-      if (expired > 0) {
-        logger.info(`[MAINTENANCE] Expired ${expired} abandoned import(s) stuck in awaiting_confirmation`);
+      if (isMaintenanceStartupGrace(maintenanceStartedAt)) return;
+      if (!isPoolHealthy() || pool.waitingCount > 0) {
+        logger.info("[MAINTENANCE] Deferring automatic tick while database pool is busy");
+        return;
       }
-    } catch (err) {
-      logger.error("[MAINTENANCE] Failed to expire abandoned imports:", err);
+      try {
+        const rules = await storage.getMaintenanceRulesForScheduling();
+        if (hasDueMaintenanceRule(rules)) {
+          await runMaintenanceNow("auto");
+        }
+      } catch (err) {
+        logger.error("[MAINTENANCE] Auto maintenance run failed:", err);
+      }
+
+      // These two checks used to be coupled to the six-hour setInterval.  Keep
+      // their cadence separate from the durable cleanup cursor so a recent
+      // generic run does not accidentally disable abandoned-import expiry.
+      if (Date.now() - maintenanceAuxiliaryLastRunAt < MAINTENANCE_INTERVAL_MS) return;
+      maintenanceAuxiliaryLastRunAt = Date.now();
+      try {
+        const expired = await storage.expireAbandonedImports();
+        if (expired > 0) {
+          logger.info(`[MAINTENANCE] Expired ${expired} abandoned import(s) stuck in awaiting_confirmation`);
+        }
+      } catch (err) {
+        logger.error("[MAINTENANCE] Failed to expire abandoned imports:", err);
+      }
+      await checkTrackingTokenBloat();
+    } finally {
+      maintenanceTickRunning = false;
     }
-    await checkTrackingTokenBloat();
-  }, MAINTENANCE_INTERVAL);
+  };
+
+  void runMaintenanceTick();
+  maintenanceInterval = setInterval(() => {
+    void runMaintenanceTick();
+  }, MAINTENANCE_WATCHDOG_INTERVAL_MS);
+  maintenanceInterval.unref?.();
   scheduleDailyTrackingTokenPurge();
 }
 
@@ -2663,7 +2803,7 @@ async function runDailyTrackingTokenPurge(): Promise<void> {
       result = await runMaintenanceForRule(rule, "daily_1am_paris");
     }
 
-    await storage.createMaintenanceLog({
+    await storage.recordMaintenanceRun({
       ruleId: rule.id,
       tableName: rule.tableName,
       rowsDeleted: result.rowsDeleted,
@@ -2672,11 +2812,6 @@ async function runDailyTrackingTokenPurge(): Promise<void> {
       errorMessage: result.errorMessage || null,
       triggeredBy: "daily_1am_paris",
     });
-
-    await pool.query(
-      `UPDATE db_maintenance_rules SET last_run_at = NOW(), last_rows_deleted = $1 WHERE id = $2`,
-      [result.rowsDeleted, rule.id],
-    );
 
     logger.info(
       `[MAINTENANCE_DAILY] tracking_tokens maintenance done: deleted=${result.rowsDeleted} ` +
@@ -2817,6 +2952,9 @@ export async function startAllWorkers() {
     startOrphanedSendsReconciler();
   }).catch((err: any) => logger.error(`[ORPHANED_SENDS_RECONCILER] failed to start: ${err?.message || err}`));
   startWorkerHeartbeat();
+  // Do not delay campaign/import processors on this metadata-only seed.  The
+  // maintenance watchdog has a startup grace period and retries the read on
+  // its next tick if this asynchronous seed has not completed yet.
   storage.seedDefaultMaintenanceRules().catch(err => {
     logger.error("[MAINTENANCE] Failed to seed default rules:", err);
   });

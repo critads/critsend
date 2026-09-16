@@ -22,6 +22,7 @@ import {
   buildCampaignProviderQuickViews,
   type CampaignProviderQuickViews,
 } from "../lib/campaign-provider-quick-views";
+import { effectiveMaintenanceLastRunAt } from "../lib/maintenance-schedule";
 
 // ═══════════════════════════════════════════════════════════════
 // HEALTH CHECK
@@ -73,6 +74,37 @@ export async function getMaintenanceRules(): Promise<DbMaintenanceRule[]> {
   return db.select().from(dbMaintenanceRules).orderBy(dbMaintenanceRules.tableName);
 }
 
+/**
+ * Return maintenance rules with a read-only compatibility cursor for legacy
+ * rows whose last_run_at was never populated.  Older workers wrote a log and
+ * then failed on an empty Drizzle update; the latest log is still evidence
+ * that the rule ran and must prevent an immediate restart storm.  The real
+ * cursor remains NULL until the next atomic recordMaintenanceRun.
+ */
+export async function getMaintenanceRulesForScheduling(): Promise<DbMaintenanceRule[]> {
+  const rules = await getMaintenanceRules();
+  const legacyRuleIds = rules.filter(rule => rule.lastRunAt == null).map(rule => rule.id);
+  if (legacyRuleIds.length === 0) return rules;
+
+  const latestLogs = await pool.query<{ rule_id: string; latest_executed_at: Date | string | null }>(
+    `SELECT rule_id, MAX(executed_at) AS latest_executed_at
+       FROM db_maintenance_logs
+      WHERE rule_id = ANY($1::text[])
+      GROUP BY rule_id`,
+    [legacyRuleIds],
+  );
+  const latestByRuleId = new Map(
+    latestLogs.rows.map(row => [row.rule_id, row.latest_executed_at]),
+  );
+
+  return rules.map(rule => {
+    if (rule.lastRunAt != null) return rule;
+    const latestLogAt = latestByRuleId.get(rule.id);
+    const effectiveLastRunAt = effectiveMaintenanceLastRunAt(rule.lastRunAt, latestLogAt);
+    return effectiveLastRunAt == null ? rule : { ...rule, lastRunAt: new Date(effectiveLastRunAt) };
+  });
+}
+
 export async function getMaintenanceRule(id: string): Promise<DbMaintenanceRule | undefined> {
   const [rule] = await db.select().from(dbMaintenanceRules).where(eq(dbMaintenanceRules.id, id));
   return rule;
@@ -103,8 +135,38 @@ export async function getMaintenanceLogs(limit: number = 50): Promise<DbMaintena
 }
 
 export async function createMaintenanceLog(data: Omit<DbMaintenanceLog, 'id' | 'executedAt'>): Promise<DbMaintenanceLog> {
-  const [log] = await db.insert(dbMaintenanceLogs).values(data).returning();
-  return log;
+  // Keep the legacy API safe for any callers outside the worker.  A log is
+  // also the durable cursor advance; never expose a split write path.
+  return recordMaintenanceRun(data);
+}
+
+/**
+ * Persist a maintenance result and advance the rule cursor atomically.
+ *
+ * Do not split these into "insert log" followed by "update rule": a process
+ * restart or a Drizzle error between the two leaves an apparently successful
+ * log while last_run_at remains NULL.  That stale cursor is especially harmful
+ * once scheduling is based on last_run_at, because it makes every boot look
+ * overdue.
+ */
+export async function recordMaintenanceRun(
+  data: Omit<DbMaintenanceLog, "id" | "executedAt">,
+): Promise<DbMaintenanceLog> {
+  return db.transaction(async (tx) => {
+    const [log] = await tx.insert(dbMaintenanceLogs).values(data).returning();
+    const [rule] = await tx.update(dbMaintenanceRules)
+      .set({
+        lastRunAt: new Date(),
+        lastRowsDeleted: data.rowsDeleted,
+      })
+      .where(eq(dbMaintenanceRules.id, data.ruleId))
+      .returning({ id: dbMaintenanceRules.id });
+
+    if (!rule) {
+      throw new Error(`Maintenance rule ${data.ruleId} disappeared while recording a run`);
+    }
+    return log;
+  });
 }
 
 export async function getTableStats(): Promise<Array<{tableName: string; rowCount: number; sizeBytes: number; sizePretty: string}>> {
