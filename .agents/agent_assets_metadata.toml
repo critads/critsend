@@ -6,51 +6,74 @@ id = "KCAEsyQLxbFdgOOia4Jn2"
 uri = "file://docs/pressure-guard-audit.md"
 type = "text"
 title = "Audit Pressure Guard"
+logical_id = "d41a91ae-125c-403c-820a-19dd5b2f613a"
 
 [[outputs]]
 id = "p-b3ztWvF7l1zPUickqTz"
 uri = "file://exports/clickers-283ebdfa-d0ca-486d-8621-bd9ea6492e91.csv"
 type = "table"
 title = "Unique clicker emails — campaign 283ebdfa (676 emails)"
+logical_id = "c14d0213-c7e0-4029-9c6d-181850f7fac2"
 
 [[outputs]]
 id = "iCVshKph5LCFU_k1-cn_Z"
 uri = "file://exports/clickers-with-ips-283ebdfa.csv"
 type = "table"
 title = "Clicker emails + IPs — campaign 283ebdfa (726 rows)"
+logical_id = "9ac10e46-b996-4a57-bcc0-662fc482d63d"
 
 [[outputs]]
 id = "ichWyQjIWPR0oXyoohVtG"
 uri = "file://exports/all-click-ips-2026-06-14.csv"
 type = "table"
 title = "All click IPs — all campaigns, June 14 2026 (18,063 events / 8,913 IPs)"
+logical_id = "4cfe4b4a-41e9-4bf0-8f08-4bfcfbea87a4"
 
 [[outputs]]
 id = "Lx-MxgPTVfTPgqqB3QhEu"
 uri = "file://exports/ovh-clickers-since-2026-06-01.csv"
 type = "table"
 title = "Subscribers clic OVH depuis le 1er juin (+ flag non-OVH + liste IP OVH)"
+logical_id = "7b3f5b89-ac36-475c-b83f-56b573408424"
 
 [[outputs]]
 id = "6MQiFiW6__nM1RCjmivu9"
 uri = "file://exports/small-image-clickers-30px.csv"
 type = "table"
 title = "Cliqueurs >3 petites images (≤30×30) — 2 derniers mois (259 emails + IP)"
+logical_id = "adf4247a-e696-4d9f-8c21-7096e3f25beb"
 
 [[outputs]]
 id = "pA-wndWwmsqe4ClRJAq0O"
 uri = "file://exports/clickers-90147797-jun18-19-paris.csv"
 type = "table"
 title = "Cliqueurs uniques — campagne 90147797 (18-19 juin, Paris)"
+logical_id = "4810e6ce-d549-42c1-abde-73c3ff4d4100"
 
 [[outputs]]
 id = "SitEpeVa9GVuRnE3xLnLS"
 uri = "file://exports/clicking-ips-90147797-jun18-19-paris.csv"
 type = "table"
 title = "IPs uniques cliqueuses — campagne 90147797 (18-19 juin, Paris)"
+logical_id = "d496b0b4-0295-4bf5-8c0c-7020528bf90d"
 
 [[outputs]]
 id = "5CLxHf6Fry8--hfmckxhF"
 uri = "file://docs/zero-duplicate-sends-plan.md"
 type = "text"
 title = "Plan 0 doublon — exactly-once par (campagne, destinataire)"
+logical_id = "12d7de1d-de03-406e-90b5-eefede7bd044"
+
+[[outputs]]
+id = "EQz9RS6Lslsv9VL6UykNL"
+uri = "file://exports/epeda-2916-ouvreurs-O2CZ.csv"
+type = "table"
+title = "Export des 52 213 ouvreurs — O2CZ"
+description = "CSV séparé par des points-virgules : email;tags;refs;ip_address. Tags existants conservés avec ajout de O2CZ ; tags et refs en majuscules. Hors désabonnements et complaints sur la campagne."
+logical_id = "0c787f45-542f-4a2e-9adb-58464d1c80cf"
+content_hash = "sha256:100a2d37717ee97ab2eae5b6b5e8fc574fdfa22a57668e63cf4d0b5905556694"
+size = 12083739
+mtime_ms = 1789534170375
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/0c787f45-542f-4a2e-9adb-58464d1c80cf/71348c29-27bc-412a-bf0e-878e0c03b6c8"
+storage_version_token = "1789534179632721"
+content_type = "text/csv"
