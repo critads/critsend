@@ -60,6 +60,14 @@ export const brands = pgTable("brands", {
   refLowerIdx: index("brands_ref_lower_idx").on(sql`lower(${table.ref})`),
 }));
 
+// A single global presentation claim per canonical client IP. Only the
+// SHA-256 digest is persisted; this table is intentionally independent of
+// unsubscribe tokens and campaigns.
+export const unsubscribeContinueClaims = pgTable("unsubscribe_continue_claims", {
+  ipHash: varchar("ip_hash", { length: 64 }).primaryKey(),
+  claimedAt: timestamp("claimed_at").notNull().defaultNow(),
+});
+
 const brandFieldSchema = z.string()
   .trim()
   .min(1, "must not be empty")

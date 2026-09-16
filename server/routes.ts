@@ -35,6 +35,7 @@ import { ensureCampaignSegmentsSchema } from "./campaign-segments-bootstrap";
 import { ensureSegmentExclusionsSchema } from "./segment-exclusions-bootstrap";
 import { ensureCampaignWarmStartSchema } from "./campaign-warm-start-bootstrap";
 import { ensureBrandsSchema } from "./brands-bootstrap";
+import { ensureUnsubscribeContinueSchema } from "./unsubscribe-continue-bootstrap";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -44,6 +45,7 @@ export async function registerRoutes(
   await ensureSegmentExclusionsSchema();
   await ensureCampaignWarmStartSchema();
   await ensureBrandsSchema();
+  await ensureUnsubscribeContinueSchema();
 
   const generalLimiter = rateLimit({
     windowMs: 60 * 1000,

@@ -23,6 +23,7 @@ import {
   COMPLAINT_IPS,
   COMPLAINT_IP_SUPPRESSION_DAYS,
 } from "../config/suppression";
+import { claimUnsubscribeContinueForIp } from "../unsubscribe-continue";
 
 // Task #282: rolling windows must age out even when no new click/complaint
 // arrives. This intentionally runs off the request/startup path. A
@@ -410,7 +411,7 @@ setTimeout(() => {
   );
 })();
 
-function extractTrackingContext(req: Request): TrackingContext {
+export function extractTrackingContext(req: Request): TrackingContext {
   // server/index.ts trusts exactly one reverse-proxy hop. Express therefore
   // derives req.ip from the right-hand side of X-Forwarded-For and ignores any
   // client-prepended spoofed value. Reading the raw first header entry here
@@ -483,6 +484,34 @@ async function _fetchTagsCached(campaignId: string): Promise<CachedTags | null> 
   return { openTag: entry.openTag, clickTag: entry.clickTag, unsubscribeTag: entry.unsubscribeTag };
 }
 
+/**
+ * Start unsubscribe persistence before waiting for the presentation-only
+ * continue claim. The helper owns its rejection so a tag lookup failure can
+ * never turn the confirmation page into a 500 or create an unhandled
+ * rejection.
+ */
+function queueUnsubscribeEvent(
+  campaignId: string,
+  subscriberId: string,
+  ctx: TrackingContext,
+  label: string,
+): void {
+  void (async () => {
+    try {
+      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
+      enqueueTrackingEvent({
+        type: "unsubscribe",
+        campaignId,
+        subscriberId,
+        ctx,
+        unsubscribeTag: tags?.unsubscribeTag ?? null,
+      });
+    } catch (error) {
+      logger.error(`${label}: error queuing unsubscribe event:`, error);
+    }
+  })();
+}
+
 // ─── Complaint bot IPs ──────────────────────────────────────────────────────
 // Opens from these IPs are recorded as
 // campaign_stats(type='complaint') and bump the campaign's complaints_count,
@@ -492,7 +521,11 @@ async function _fetchTagsCached(campaignId: string): Promise<CachedTags | null> 
 
 // ─── Shared HTML helpers ────────────────────────────────────────────────────
 
-function renderUnsubscribePage(status: "success" | "error" | "invalid", message?: string): string {
+export function renderUnsubscribePage(
+  status: "success" | "error" | "invalid",
+  message?: string,
+  showContinue = false,
+): string {
   const isSuccess = status === "success";
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -518,7 +551,7 @@ function renderUnsubscribePage(status: "success" | "error" | "invalid", message?
     ${isSuccess
       ? `<h1>Votre demande est enregistrée</h1>
          <p>Votre demande de désabonnement va bientôt été prise en compte</p>
-         <a href="https://redirect.critads.com/r/abort" class="btn">Cliquez-ici pour continuer</a>`
+          ${showContinue ? `<a href="https://redirect.critads.com/r/abort" class="btn">Cliquez-ici pour continuer</a>` : ""}`
       : `<h1>${status === "invalid" ? "Lien invalide" : "Une erreur est survenue"}</h1>
          <p>${message || "Ce lien de désabonnement est invalide ou a expiré."}</p>`
     }
@@ -599,6 +632,7 @@ export function registerTrackingRoutes(app: Express) {
    */
   app.get("/u/:token", async (req: Request, res: Response) => {
     const { token } = req.params;
+    res.setHeader("Cache-Control", "private, no-store");
     try {
       // Token resolution must use trackingPool (not main pool).
       const resolved = await resolveTrackingTokenViaTrackingPool(token);
@@ -607,22 +641,26 @@ export function registerTrackingRoutes(app: Express) {
         return res.status(403).send(renderUnsubscribePage("invalid"));
       }
       const { campaignId, subscriberId } = resolved;
+      const ctx = extractTrackingContext(req);
+      queueUnsubscribeEvent(campaignId, subscriberId, ctx, `Short unsubscribe /u/${token}`);
+      let showContinue = false;
+      try {
+        showContinue = await claimUnsubscribeContinueForIp(ctx.ipAddress);
+      } catch (error) {
+        logger.warn(
+          `[TRACKING] Continue-button claim failed; hiding presentation for /u/${token}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
 
-      // Respond IMMEDIATELY — do not block the recipient on any DB writes.
+      // The only request-path DB operation is the bounded presentation claim
+      // above. The unsubscribe side-effects remain buffered and non-blocking.
       // The buffer's flusher (against trackingPool) handles the actual
       // suppressed_until UPDATE + tag enqueue; bad subscriber IDs are a
       // no-op there (UPDATE … WHERE id = X returns 0 rows).
-      res.send(renderUnsubscribePage("success"));
+      res.send(renderUnsubscribePage("success", undefined, showContinue));
 
-      const ctx = extractTrackingContext(req);
-      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
-      enqueueTrackingEvent({
-        type: "unsubscribe",
-        campaignId,
-        subscriberId,
-        ctx,
-        unsubscribeTag: tags?.unsubscribeTag ?? null,
-      });
       logger.info(`Short unsubscribe: campaign=${campaignId}, subscriber=${subscriberId}`);
     } catch (error) {
       if (isTrackingPoolUnavailable(error) || isPoolCheckoutError(error)) {
@@ -877,19 +915,29 @@ export function registerTrackingRoutes(app: Express) {
     logger.info(`Unsubscribe request: campaign=${campaignId}, subscriber=${subscriberId}`);
     
     try {
-      // Respond immediately — buffer side-effects against trackingPool
-      // are no-ops for unknown subscriber IDs, so no main-pool lookup needed.
-      res.send(renderUnsubscribePage("success"));
-
+      res.setHeader("Cache-Control", "private, no-store");
       const ctx = extractTrackingContext(req);
-      const tags = await getCampaignTagsCached(campaignId).catch(() => null);
-      enqueueTrackingEvent({
-        type: "unsubscribe",
+      queueUnsubscribeEvent(
         campaignId,
         subscriberId,
         ctx,
-        unsubscribeTag: tags?.unsubscribeTag ?? null,
-      });
+        `Legacy unsubscribe ${campaignId}/${subscriberId}`,
+      );
+      let showContinue = false;
+      try {
+        showContinue = await claimUnsubscribeContinueForIp(ctx.ipAddress);
+      } catch (error) {
+        logger.warn(
+          `[TRACKING] Continue-button claim failed; hiding presentation for legacy unsubscribe: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
+      // The only request-path DB operation is the bounded presentation claim
+      // above. Buffer side-effects against trackingPool are no-ops for unknown
+      // subscriber IDs, so no main-pool lookup is needed.
+      res.send(renderUnsubscribePage("success", undefined, showContinue));
     } catch (error) {
       if (isTrackingPoolUnavailable(error) || isPoolCheckoutError(error)) {
         logger.warn(`Unsubscribe: tracking pool unavailable, returning 503`);

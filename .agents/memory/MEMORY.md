@@ -25,3 +25,4 @@
 - [Campaign badge counter backfills](campaign-badge-counter-backfills.md) — never reconstruct Orange/Wanadoo counters in list/search requests; zero is valid, not an initialization marker.
 - [Campaign warm-start invariants](campaign-warm-start.md) — freeze the clicker snapshot/order; fence resumes by generation; never complete before durable audience exhaustion.
 - [Ref-similarity semantics](ref-similarity-semantics.md) — similarity is exact-case ref affinity; DEL is excluded from analysis, not a subscriber-wide exclusion.
+- [Unsubscribe presentation](unsubscribe-presentation.md) — optional button persistence must never block unsubscribe processing or application startup.
