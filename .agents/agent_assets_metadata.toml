@@ -77,3 +77,17 @@ mtime_ms = 1789534170375
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/0c787f45-542f-4a2e-9adb-58464d1c80cf/71348c29-27bc-412a-bf0e-878e0c03b6c8"
 storage_version_token = "1789534179632721"
 content_type = "text/csv"
+
+[[outputs]]
+id = "4eMOekw2z_dRPOVbzv24S"
+uri = "file://exports/epeda-2916-ouvreurs-emails.csv"
+type = "table"
+title = "52 213 ouvreurs — emails uniquement"
+description = "CSV contenant une seule colonne email, sans tags, refs ni adresses IP."
+logical_id = "f192f900-becc-45f2-8761-e290ec48a6b6"
+content_hash = "sha256:9111d6416d41564be422cb396099ab76d40ab8d55364316a8f19e319bd77c2de"
+size = 1321750
+mtime_ms = 1789534345839
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/f192f900-becc-45f2-8761-e290ec48a6b6/90414545-7e30-4f61-9a4d-9cd670bc5c38"
+storage_version_token = "1789534353666327"
+content_type = "text/csv"
