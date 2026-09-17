@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -8,6 +8,7 @@ import {
   CircleAlert,
   Filter,
   GripVertical,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Server,
@@ -15,6 +16,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -22,6 +24,17 @@ import {
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import {
+  commitCampaignMtaTransfer,
+  isCrossMtaDrop,
+  previewCampaignMtaTransfer,
+  transferFailureMessage,
+  type TransferDialogValues,
+} from "@/lib/campaign-mta-transfer";
+import {
+  CampaignMtaTransferDialog,
+  type TransferRequest,
+} from "@/components/campaign-mta-transfer-dialog";
 import {
   addCalendarDays as addDays,
   calendarDropInstant,
@@ -34,6 +47,7 @@ import {
   UNIDENTIFIED_MTA_COLUMN_ID,
   type CalendarCampaignRecord as CalendarCampaign,
 } from "@/lib/campaign-calendar";
+import type { CampaignMtaTransferPreview } from "@shared/campaign-mta-transfer";
 
 interface CalendarMta {
   id: string;
@@ -73,17 +87,26 @@ function CampaignCard({
   campaign,
   expanded = false,
   rescheduling = false,
+  mtas = [],
+  currentMtaId,
   onDragStart,
   onDragEnd,
+  onRequestTransfer,
 }: {
   campaign: CalendarCampaign;
   expanded?: boolean;
   rescheduling?: boolean;
+  mtas?: CalendarMta[];
+  currentMtaId?: string;
   onDragStart?: (event: DragEvent<HTMLDivElement>, campaign: CalendarCampaign) => void;
   onDragEnd?: () => void;
+  onRequestTransfer?: (campaign: CalendarCampaign, target: CalendarMta) => void;
 }) {
   const status = campaign.status.replace(/_/g, " ");
   const canDrag = campaign.status === "scheduled" && !rescheduling;
+  const transferTargets = mtas.filter(
+    (mta) => mta.id !== UNIDENTIFIED_MTA_COLUMN_ID && mta.id !== currentMtaId,
+  );
   return (
     <div
       className={`group relative h-full rounded-md border transition-all hover:-translate-y-px hover:border-stone-500 hover:shadow-sm ${
@@ -155,6 +178,43 @@ function CampaignCard({
           )}
         </PopoverContent>
       </Popover>
+      {canDrag && transferTargets.length > 0 && onRequestTransfer && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="absolute right-8 top-1 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-white/70 text-current shadow-sm ring-1 ring-black/10 hover:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+              aria-label={`Actions pour ${campaign.name}`}
+              title="Actions"
+              draggable={false}
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              onDragStart={(event) => event.preventDefault()}
+              data-testid={`calendar-campaign-menu-${campaign.id}`}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Changer de MTA</DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent>
+                  {transferTargets.map((target) => (
+                    <DropdownMenuItem
+                      key={target.id}
+                      onSelect={() => onRequestTransfer(campaign, target)}
+                    >
+                      {target.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }
@@ -169,6 +229,8 @@ function Timeline({
   onDragStart,
   onDragEnd,
   onReschedule,
+  onRequestTransfer,
+  transferCampaignId,
 }: {
   day: Date;
   campaigns: CalendarCampaign[];
@@ -179,6 +241,8 @@ function Timeline({
   onDragStart: (event: DragEvent<HTMLDivElement>, campaign: CalendarCampaign) => void;
   onDragEnd: () => void;
   onReschedule: (campaignId: string, scheduledAt: Date) => void;
+  onRequestTransfer: (campaign: CalendarCampaign, target: CalendarMta) => void;
+  transferCampaignId: string | null;
 }) {
   const draggedCampaign = campaigns.find(
     (campaign) => campaign.id === draggedCampaignId,
@@ -220,7 +284,10 @@ function Timeline({
             const timelineItems = layoutCampaignTimeline(items, day);
             const acceptsDrop =
               draggedCampaign?.status === "scheduled" &&
-              campaignCalendarColumnId(draggedCampaign, knownMtaIds) === mta.id;
+              mta.id !== UNIDENTIFIED_MTA_COLUMN_ID;
+            const crossMta = draggedCampaign
+              ? isCrossMtaDrop(draggedCampaign, mta.id, knownMtaIds)
+              : false;
             return (
               <div
                 key={mta.id}
@@ -239,6 +306,12 @@ function Timeline({
                     event.dataTransfer.getData("application/x-critsend-campaign") ||
                     event.dataTransfer.getData("text/plain");
                   if (!campaignId || campaignId !== draggedCampaignId) return;
+                   if (!draggedCampaign) return;
+                   if (crossMta) {
+                     onRequestTransfer(draggedCampaign, mta);
+                     return;
+                   }
+                   if (campaignCalendarColumnId(draggedCampaign, knownMtaIds) !== mta.id) return;
                   const rect = event.currentTarget.getBoundingClientRect();
                   const rawMinute =
                     (event.clientY - rect.top) / TIMELINE_PIXELS_PER_MINUTE;
@@ -271,9 +344,15 @@ function Timeline({
                       <CampaignCard
                         campaign={campaign}
                         expanded
-                        rescheduling={reschedulingCampaignId === campaign.id}
+                        rescheduling={
+                          reschedulingCampaignId === campaign.id ||
+                          transferCampaignId === campaign.id
+                        }
                         onDragStart={onDragStart}
                         onDragEnd={onDragEnd}
+                        mtas={mtas}
+                        currentMtaId={campaignCalendarColumnId(campaign, knownMtaIds)}
+                        onRequestTransfer={onRequestTransfer}
                       />
                     </div>
                   );
@@ -309,6 +388,12 @@ export default function CampaignCalendar() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [draggedCampaignId, setDraggedCampaignId] = useState<string | null>(null);
   const [reschedulingCampaignId, setReschedulingCampaignId] = useState<string | null>(null);
+  const [transferRequest, setTransferRequest] = useState<TransferRequest | null>(null);
+  const [transferPreview, setTransferPreview] = useState<CampaignMtaTransferPreview | null>(null);
+  const [transferPreviewLoading, setTransferPreviewLoading] = useState(false);
+  const [transferPreviewError, setTransferPreviewError] = useState<string | null>(null);
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const transferInFlight = useRef(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const from = startOfParis(anchor).toISOString();
@@ -360,6 +445,117 @@ export default function CampaignCalendar() {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+  const requestTransfer = (campaign: CalendarCampaign, target: CalendarMta) => {
+    if (
+      campaign.status !== "scheduled"
+      || target.id === UNIDENTIFIED_MTA_COLUMN_ID
+      || target.id === campaign.mtaId
+      || transferSubmitting
+    ) {
+      return;
+    }
+    setDraggedCampaignId(null);
+    setTransferPreview(null);
+    setTransferPreviewError(null);
+    setTransferRequest({ campaign, target });
+  };
+  useEffect(() => {
+    if (!transferRequest) return;
+    let cancelled = false;
+    setTransferPreviewLoading(true);
+    void previewCampaignMtaTransfer(
+      apiRequest,
+      transferRequest.campaign.id,
+      transferRequest.target.id,
+    )
+      .then((preview) => {
+        if (!cancelled) setTransferPreview(preview);
+      })
+      .catch((error: any) => {
+        if (!cancelled) {
+          setTransferPreviewError(
+            error?.body?.error ||
+              "Impossible de préparer le transfert. Aucun changement n'a été effectué.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTransferPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [transferRequest]);
+  const closeTransfer = (open: boolean) => {
+    if (open || transferSubmitting) return;
+    setTransferRequest(null);
+    setTransferPreview(null);
+    setTransferPreviewError(null);
+  };
+  const confirmTransfer = async (values: TransferDialogValues) => {
+    if (
+      !transferRequest
+      || !transferPreview
+      || transferSubmitting
+      || transferInFlight.current
+      || !values.name
+    ) {
+      return;
+    }
+    transferInFlight.current = true;
+    setTransferSubmitting(true);
+    const request = transferRequest;
+    const queryKey = ["/api/campaigns/calendar", from, to] as const;
+    const previous = queryClient.getQueryData<CalendarResponse>(queryKey);
+    queryClient.setQueryData<CalendarResponse>(queryKey, (current) =>
+      current
+        ? {
+            ...current,
+            campaigns: current.campaigns.map((item) =>
+              item.id === request.campaign.id
+                ? {
+                    ...item,
+                    name: values.name,
+                    mtaId: request.target.id,
+                    mtaName: request.target.name,
+                  }
+                : item,
+            ),
+          }
+        : current,
+    );
+    try {
+      await commitCampaignMtaTransfer(
+        apiRequest,
+        request.campaign.id,
+        request.target.id,
+        transferPreview,
+        values,
+      );
+      toast({
+        title: "MTA modifié",
+        description: `${request.campaign.name} utilise maintenant ${request.target.name}.`,
+      });
+      setTransferRequest(null);
+      setTransferPreview(null);
+      setTransferPreviewError(null);
+    } catch (error: any) {
+      if (previous) queryClient.setQueryData(queryKey, previous);
+      toast({
+        title: "Transfert impossible",
+        description: transferFailureMessage(error),
+        variant: "destructive",
+      });
+    } finally {
+      setTransferSubmitting(false);
+      transferInFlight.current = false;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns/calendar"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns", request.campaign.id] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] }),
+      ]);
+    }
+  };
   const handleDragStart = (
     event: DragEvent<HTMLDivElement>,
     campaign: CalendarCampaign,
@@ -559,11 +755,22 @@ export default function CampaignCalendar() {
             onDragStart={handleDragStart}
             onDragEnd={() => setDraggedCampaignId(null)}
             onReschedule={handleReschedule}
+            onRequestTransfer={requestTransfer}
+            transferCampaignId={transferRequest?.campaign.id ?? null}
           />
         ) : (
           <EmptyState text="Aucune campagne programmée pour cette journée." />
         )}
       </section>
+      <CampaignMtaTransferDialog
+        request={transferRequest}
+        preview={transferPreview}
+        loading={transferPreviewLoading}
+        previewError={transferPreviewError}
+        submitting={transferSubmitting}
+        onOpenChange={closeTransfer}
+        onConfirm={confirmTransfer}
+      />
     </main>
   );
 }

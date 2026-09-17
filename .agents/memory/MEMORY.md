@@ -27,3 +27,4 @@
 - [Ref-similarity semantics](ref-similarity-semantics.md) — similarity is exact-case ref affinity; DEL is excluded from analysis, not a subscriber-wide exclusion.
 - [Unsubscribe presentation](unsubscribe-presentation.md) — optional button persistence must never block unsubscribe processing or application startup.
 - [Maintenance safety](maintenance-safety.md) — long idle lock transactions conflict with zombie cleanup; historical processing tags cannot safely be replayed.
+- [Transfer asset safety](transfer-asset-safety.md) — lost COMMIT acknowledgements must preserve prepared images until publication can be reconciled.

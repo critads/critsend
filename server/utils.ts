@@ -1,13 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as dns from "dns";
+import * as http from "http";
+import * as https from "https";
 import crypto from "crypto";
-import { promisify } from "util";
-import { Readable } from "stream";
+import ipaddr from "ipaddr.js";
 import sanitizeHtml from "sanitize-html";
 import { logger } from "./logger";
-
-const dnsLookup = promisify(dns.lookup);
 
 export const IMAGES_DIR = path.join(process.cwd(), "images");
 export const TEMP_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -95,22 +94,38 @@ export function sanitizeImageFilename(sourceUrl: string, fallbackIndex: number, 
 }
 
 export function isBlockedIP(ip: string): boolean {
-  const blockedPatterns = [
-    /^127\.\d+\.\d+\.\d+$/,
-    /^10\.\d+\.\d+\.\d+$/,
-    /^192\.168\.\d+\.\d+$/,
-    /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/,
-    /^169\.254\.\d+\.\d+$/,
-    /^0\.0\.0\.0$/,
-    /^::1$/,
-    /^fe80:/i,
-    /^fc00:/i,
-    /^fd00:/i,
-  ];
-  return blockedPatterns.some(pattern => pattern.test(ip));
+  const normalized = ip.trim().replace(/^\[|\]$/g, "");
+  try {
+    let parsed: any = ipaddr.parse(normalized);
+    // IPv4-mapped IPv6 is still an IPv4 socket destination.  Convert before
+    // applying the IPv4 range policy; otherwise hexadecimal forms such as
+    // ::ffff:7f00:1 and ::ffff:a00:1 bypass dotted-quad checks.
+    if (parsed.kind() === "ipv6" && parsed.isIPv4MappedAddress()) {
+      parsed = parsed.toIPv4Address();
+    }
+    if (parsed.kind() === "ipv4") {
+      const octets = parsed.octets;
+      const [a, b] = octets;
+      // ipaddr's range table covers loopback, RFC1918, link-local, CGNAT,
+      // multicast, unspecified and reserved/documentation ranges.  Keep the
+      // benchmarking range explicit because it is classified as unicast.
+      return parsed.range() !== "unicast" || (a === 198 && b >= 18 && b <= 19);
+    }
+    // Only globally routable IPv6 unicast is acceptable.  This excludes
+    // fc/fd ULA, fe80/febf link-local, multicast, transition mechanisms
+    // (Teredo/6to4), documentation and all other special-use ranges.
+    const bytes = parsed.toByteArray();
+    return (bytes[0] & 0xe0) !== 0x20 || parsed.range() !== "unicast";
+  } catch {
+    // Anything that is not a canonical IP literal is unsafe when supplied as
+    // the result of a resolver.
+    return true;
+  }
 }
 
 export function isBlockedHost(hostname: string): boolean {
+  const literal = hostname.trim().replace(/^\[|\]$/g, "");
+  if (ipaddr.isValid(literal) && isBlockedIP(literal)) return true;
   const blockedPatterns = [
     /^localhost$/i,
     /^127\.\d+\.\d+\.\d+$/,
@@ -127,119 +142,278 @@ export function isBlockedHost(hostname: string): boolean {
   return blockedPatterns.some(pattern => pattern.test(hostname));
 }
 
-export async function downloadImage(url: string, destPath: string, redirectCount = 0): Promise<boolean> {
-  if (redirectCount > 3) {
+const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const IMAGE_REQUEST_TIMEOUT_MS = 15_000;
+const IMAGE_MAX_REDIRECTS = 3;
+
+type ResolvedImageAddress = { address: string; family: 4 | 6 };
+type ImageAddressResolver = (hostname: string) => Promise<ResolvedImageAddress[]>;
+type PinnedImageRequester = (url: URL, address: ResolvedImageAddress, deadlineAt?: number) => Promise<http.IncomingMessage>;
+
+/**
+ * Resolve every address before connecting.  Rejecting a hostname when ANY
+ * answer is private is intentional: selecting the first answer would leave a
+ * public/private DNS race to the OS resolver.  The selected address is then
+ * pinned through http(s).request's lookup callback.
+ */
+export async function resolvePublicImageAddresses(hostname: string): Promise<ResolvedImageAddress[]> {
+  const results = await dns.promises.lookup(hostname, { all: true, verbatim: true });
+  const addresses = results.map((result) => ({
+    address: result.address,
+    family: result.family === 6 ? 6 as const : 4 as const,
+  }));
+  if (!addresses.length || addresses.some(({ address }) => isBlockedIP(address))) {
+    throw new Error(`DNS answer for ${hostname} contains a blocked address`);
+  }
+  return addresses;
+}
+
+function imageContentTypeAllowed(value: string | string[] | undefined): boolean {
+  if (!value) return true;
+  const contentType = Array.isArray(value) ? value[0] : value;
+  if (!contentType) return true;
+  return /^image\/(?:jpeg|png|gif|webp|svg\+xml|bmp|x-icon|vnd\.microsoft\.icon)(?:\s*;|$)/i.test(contentType.trim());
+}
+
+function requestPinnedImage(
+  urlObj: URL,
+  address: ResolvedImageAddress,
+  deadlineAt = Date.now() + IMAGE_REQUEST_TIMEOUT_MS,
+  connectOverride?: { hostname: string; port: number },
+): Promise<http.IncomingMessage> {
+  const transport = urlObj.protocol === "https:" ? https : http;
+  return new Promise((resolve, reject) => {
+    const remaining = Math.max(1, deadlineAt - Date.now());
+    let deadlineTimer: ReturnType<typeof setTimeout>;
+    let promiseSettled = false;
+    const onError = (error: Error) => {
+      clearTimeout(deadlineTimer);
+      // The request promise is normally settled as soon as headers arrive,
+      // but the ClientRequest can still emit an error when its socket is
+      // destroyed while the response body is being handled. Keep this
+      // listener for the request's entire lifetime so that late errors never
+      // become process-level unhandled errors.
+      if (!promiseSettled) {
+        promiseSettled = true;
+        reject(error);
+      }
+    };
+    const request = transport.request({
+      protocol: urlObj.protocol,
+      // Keep the logical hostname for Host/SNI while lookup pins the socket
+      // to the already validated address. TLS certificate verification remains
+      // against the original hostname via `servername`.
+      hostname: connectOverride?.hostname ?? urlObj.hostname,
+      port: connectOverride?.port ?? (urlObj.port || (urlObj.protocol === "https:" ? 443 : 80)),
+      path: `${urlObj.pathname}${urlObj.search}`,
+      method: "GET",
+      headers: {
+        Host: urlObj.host,
+        "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)",
+      },
+      lookup: (_hostname, _options, callback) => callback(
+        null,
+        connectOverride?.hostname ?? address.address,
+        connectOverride ? 4 : address.family,
+      ),
+      ...(urlObj.protocol === "https:" ? { servername: urlObj.hostname } : {}),
+    }, (response) => {
+      clearTimeout(deadlineTimer);
+      promiseSettled = true;
+      Object.defineProperty(response, "__imageRequest", { value: request, configurable: true });
+      resolve(response);
+    });
+    // setTimeout is only an inactivity guard. The hard deadline is separate
+    // and spans DNS, connection setup, redirects, and response streaming.
+    request.setTimeout(Math.min(IMAGE_REQUEST_TIMEOUT_MS, remaining), () => request.destroy(new Error("image request inactivity timeout")));
+    deadlineTimer = setTimeout(() => request.destroy(new Error("image download deadline exceeded")), remaining);
+    request.on("error", onError);
+    request.end();
+  });
+}
+
+function destroyDiscardedImageResponse(response: http.IncomingMessage, error?: Error): void {
+  const request = (response as any).__imageRequest as { destroy: (cause?: Error) => void } | undefined;
+  // Destroy both sides. Calling resume() here would permit an attacker to
+  // keep an unwanted redirect/error body alive indefinitely.
+  request?.destroy(error);
+  response.destroy(error);
+}
+
+function abortDiscardedImageResponse(
+  response: http.IncomingMessage,
+  deadlineTimer: ReturnType<typeof setTimeout>,
+  error?: Error,
+): void {
+  clearTimeout(deadlineTimer);
+  destroyDiscardedImageResponse(response, error);
+}
+
+async function downloadImageInternal(
+  url: string,
+  destPath: string,
+  redirectCount: number,
+  network: { resolve: ImageAddressResolver; request: PinnedImageRequester },
+  deadlineAt: number,
+): Promise<boolean> {
+  if (Date.now() >= deadlineAt) {
+    logger.info(`[Image download] Failed: ${url} - overall deadline exceeded`);
+    return false;
+  }
+  if (redirectCount > IMAGE_MAX_REDIRECTS) {
     logger.info(`[Image download] Failed: ${url} - too many redirects`);
     return false;
   }
 
+  let urlObj: URL;
+  let addresses: ResolvedImageAddress[];
   try {
-    const urlObj = new URL(url);
-
+    urlObj = new URL(url);
     if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
       logger.info(`[Image download] Failed: ${url} - invalid protocol`);
       return false;
     }
-
     if (isBlockedHost(urlObj.hostname)) {
       logger.info(`[Image download] Failed: ${url} - blocked host`);
       return false;
     }
-
-    const result = await dnsLookup(urlObj.hostname);
-    if (isBlockedIP(result.address)) {
-      logger.info(`[Image download] Failed: ${url} - blocked IP ${result.address}`);
-      return false;
-    }
+    const remaining = Math.max(1, deadlineAt - Date.now());
+    addresses = await new Promise<ResolvedImageAddress[]>((resolve, reject) => {
+      const dnsTimer = setTimeout(() => reject(new Error("DNS lookup timeout")), remaining);
+      Promise.resolve()
+        .then(() => network.resolve(urlObj.hostname))
+        .then(resolve, reject)
+        .finally(() => clearTimeout(dnsTimer));
+    });
   } catch (error) {
     logger.info(`[Image download] Failed: ${url} - DNS/URL error: ${error}`);
     return false;
   }
 
-  const maxSize = 10 * 1024 * 1024;
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-    logger.info(`[Image download] Failed: ${url} - timeout`);
-  }, 15000);
-
+  // One validated address is chosen and passed to the socket lookup callback;
+  // the callback never performs a second DNS lookup.
+  const address = addresses[0];
+  let response: http.IncomingMessage | undefined;
+  let responseDeadlineTimer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const response = await fetch(url, {
-      method: "GET",
-      signal: controller.signal,
-      redirect: "manual",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)" },
-    });
-
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
+    const currentResponse = await network.request(urlObj, address, deadlineAt);
+    response = currentResponse;
+    const responseRemaining = deadlineAt - Date.now();
+    if (responseRemaining <= 0) {
+      destroyDiscardedImageResponse(currentResponse, new Error("image download deadline exceeded"));
+      return false;
+    }
+    responseDeadlineTimer = setTimeout(
+      () => destroyDiscardedImageResponse(currentResponse, new Error("image download deadline exceeded")),
+      responseRemaining,
+    );
+    if ((currentResponse.statusCode ?? 0) >= 300 && (currentResponse.statusCode ?? 0) < 400) {
+      const location = currentResponse.headers.location;
+      abortDiscardedImageResponse(currentResponse, responseDeadlineTimer);
+      responseDeadlineTimer = undefined;
       if (!location) return false;
       try {
-        const redirectObj = new URL(location, url);
-        if (redirectObj.protocol !== "http:" && redirectObj.protocol !== "https:") return false;
-        if (isBlockedHost(redirectObj.hostname)) return false;
-        return downloadImage(redirectObj.href, destPath, redirectCount + 1);
+        const redirected = new URL(Array.isArray(location) ? location[0] : location, urlObj);
+        return downloadImageInternal(redirected.href, destPath, redirectCount + 1, network, deadlineAt);
       } catch {
         return false;
       }
     }
-
-    if (response.status !== 200) {
-      logger.info(`[Image download] Failed: ${url} - HTTP ${response.status}`);
+    if (currentResponse.statusCode !== 200) {
+      abortDiscardedImageResponse(currentResponse, responseDeadlineTimer);
+      responseDeadlineTimer = undefined;
+      logger.info(`[Image download] Failed: ${url} - HTTP ${currentResponse.statusCode}`);
       return false;
     }
-
-    const contentLength = parseInt(response.headers.get("content-length") || "0", 10);
-    if (contentLength > maxSize) {
+    if (!imageContentTypeAllowed(currentResponse.headers["content-type"])) {
+      abortDiscardedImageResponse(currentResponse, responseDeadlineTimer);
+      responseDeadlineTimer = undefined;
+      logger.info(`[Image download] Failed: ${url} - unsupported content type`);
+      return false;
+    }
+    const contentLength = Number.parseInt(String(currentResponse.headers["content-length"] ?? "0"), 10);
+    if (contentLength > IMAGE_MAX_BYTES) {
+      abortDiscardedImageResponse(currentResponse, responseDeadlineTimer);
+      responseDeadlineTimer = undefined;
       logger.info(`[Image download] Failed: ${url} - content-length exceeds 10MB`);
       return false;
     }
 
-    if (!response.body) return false;
-
-    const nodeStream = Readable.fromWeb(response.body as any);
     const fileStream = fs.createWriteStream(destPath, { mode: 0o644 });
     let downloadedSize = 0;
-
-    return new Promise((resolve) => {
-      nodeStream.on("data", (chunk: Buffer) => {
-        downloadedSize += chunk.length;
-        if (downloadedSize > maxSize) {
-          nodeStream.destroy();
-          fileStream.destroy();
-          fs.unlink(destPath, () => {});
-          resolve(false);
-        }
-      });
-
-      nodeStream.pipe(fileStream);
-
-      fileStream.on("finish", () => resolve(true));
-
-      fileStream.on("error", (err) => {
-        logger.info(`[Image download] Failed: ${url} - write error: ${err.message}`);
-        fs.unlink(destPath, () => {});
-        resolve(false);
-      });
-
-      nodeStream.on("error", (err) => {
-        logger.info(`[Image download] Failed: ${url} - stream error: ${err.message}`);
+    let settled = false;
+    return await new Promise<boolean>((resolve) => {
+      const fail = (message: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(responseDeadlineTimer);
+        responseDeadlineTimer = undefined;
+        destroyDiscardedImageResponse(currentResponse);
         fileStream.destroy();
         fs.unlink(destPath, () => {});
+        logger.info(`[Image download] Failed: ${url} - ${message}`);
         resolve(false);
+      };
+      let responseEnded = false;
+      currentResponse.once("end", () => { responseEnded = true; });
+      currentResponse.on("data", (chunk: Buffer) => {
+        downloadedSize += chunk.length;
+        if (downloadedSize > IMAGE_MAX_BYTES) fail("response exceeds 10MB");
       });
+      currentResponse.once("error", (error) => fail(`stream error: ${error.message}`));
+      currentResponse.once("aborted", () => fail("response aborted"));
+      currentResponse.once("close", () => {
+        if (!settled && !responseEnded) fail("response closed before completion");
+      });
+      fileStream.once("error", (error) => fail(`write error: ${error.message}`));
+      fileStream.once("finish", () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(responseDeadlineTimer);
+          responseDeadlineTimer = undefined;
+          resolve(true);
+        }
+      });
+      currentResponse.pipe(fileStream);
     });
   } catch (error: any) {
-    if (error?.name === "AbortError") {
-      logger.info(`[Image download] Failed: ${url} - request timed out`);
-    } else {
-      logger.info(`[Image download] Failed: ${url} - fetch error: ${error?.message}`);
+    if (responseDeadlineTimer) {
+      clearTimeout(responseDeadlineTimer);
+      responseDeadlineTimer = undefined;
     }
+    if (response) destroyDiscardedImageResponse(response);
+    logger.info(`[Image download] Failed: ${url} - request error: ${error?.message || error}`);
     fs.unlink(destPath, () => {});
     return false;
-  } finally {
-    clearTimeout(timer);
   }
+}
+
+export function downloadImage(url: string, destPath: string, redirectCount = 0): Promise<boolean> {
+  return downloadImageInternal(url, destPath, redirectCount, {
+    resolve: resolvePublicImageAddresses,
+    request: requestPinnedImage,
+  }, Date.now() + IMAGE_REQUEST_TIMEOUT_MS);
+}
+
+/** Dependency-injected entry point used by SSRF behavioral tests. */
+export function downloadImageWithNetworkForTest(
+  url: string,
+  destPath: string,
+  network: { resolve: ImageAddressResolver; request: PinnedImageRequester },
+  timeoutMs = IMAGE_REQUEST_TIMEOUT_MS,
+): Promise<boolean> {
+  return downloadImageInternal(url, destPath, 0, network, Date.now() + timeoutMs);
+}
+
+/** Uses the production pinned ClientRequest while allowing tests to connect
+ * to a local fixture server. The logical URL/Host/SNI remain unchanged. */
+export function requestPinnedImageForTest(
+  url: string,
+  address: ResolvedImageAddress,
+  connectTo: { hostname: string; port: number },
+  timeoutMs = IMAGE_REQUEST_TIMEOUT_MS,
+): Promise<http.IncomingMessage> {
+  return requestPinnedImage(new URL(url), address, Date.now() + timeoutMs, connectTo);
 }
 
 export function getExtensionFromUrl(url: string): string {
@@ -324,6 +498,11 @@ export async function mapWithConcurrency<T, R>(
   }
 
   const workers = Array.from({ length: effectiveConcurrency }, () => worker());
-  await Promise.all(workers);
+  // Do not reject as soon as one worker fails: sibling workers may already
+  // have downloaded/renamed files.  The caller must receive the failure only
+  // after every worker has settled so its cleanup cannot race those writes.
+  const settled = await Promise.allSettled(workers);
+  const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failure) throw failure.reason;
   return results;
 }

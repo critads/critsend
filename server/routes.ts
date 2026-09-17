@@ -31,6 +31,7 @@ import { registerAdminStuckCampaignsRoutes } from "./routes/admin-stuck-campaign
 import { registerPmtaRoutes } from "./routes/pmta";
 import { registerApiKeyRoutes } from "./routes/api-keys";
 import { registerBrandRoutes } from "./routes/brands";
+import { registerCampaignMtaTransferRoutes } from "./routes/campaign-mta-transfer";
 import { ensureCampaignSegmentsSchema } from "./campaign-segments-bootstrap";
 import { ensureSegmentExclusionsSchema } from "./segment-exclusions-bootstrap";
 import { ensureCampaignWarmStartSchema } from "./campaign-warm-start-bootstrap";
@@ -136,6 +137,7 @@ export async function registerRoutes(
   registerSegmentRoutes(app, helpers);
   registerMtaRoutes(app, helpers);
   registerBrandRoutes(app);
+  registerCampaignMtaTransferRoutes(app);
   registerTrackingRoutes(app);
   registerWebhookRoutes(app);
   registerAnalyticsRoutes(app, helpers);

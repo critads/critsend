@@ -1406,7 +1406,13 @@ async function pollScheduledCampaigns() {
     const result = await db.execute(sql`
       WITH promoted AS (
         UPDATE campaigns
-        SET status = 'sending'
+        -- Bump the execution fence at the exact scheduled→sending
+        -- transition.  A sender that loaded a pre-promotion snapshot can no
+        -- longer pass the step-version CAS after this point; likewise a
+        -- transfer transaction holding the campaign row lock either commits
+        -- before promotion or observes sending and aborts.
+        SET status = 'sending',
+            step_execution_version = step_execution_version + 1
         WHERE status = 'scheduled'
           AND scheduled_at <= NOW()
         RETURNING id, name
