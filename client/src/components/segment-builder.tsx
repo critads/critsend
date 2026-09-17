@@ -438,6 +438,13 @@ export function ConditionRow({
   const isDate = condition.operator === "before" || condition.operator === "after";
   const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag" || condition.operator === "tag_contains" || condition.operator === "tag_not_contains";
   const isRefText = condition.operator === "has_ref" || condition.operator === "not_has_ref" || condition.operator === "ref_contains";
+  // Click-based operators ignore bot-attributed clicks server-side: clicks by
+  // subscribers detected by the complaint IP are not counted. Surface it so a
+  // smaller count than the raw click stats is not mistaken for a bug.
+  const isBotFilteredClickOperator =
+    condition.operator === "clicked_recently" ||
+    condition.operator === "top_active_clicker" ||
+    condition.operator === "ultra_active_clicker";
 
   const handleFieldChange = (field: string) => {
     const newOps = fieldOperatorsV2[field as keyof typeof fieldOperatorsV2];
@@ -588,6 +595,16 @@ export function ConditionRow({
       >
         <X className="h-4 w-4" />
       </Button>
+
+      {isBotFilteredClickOperator && (
+        <p
+          className="basis-full text-xs text-muted-foreground"
+          data-testid={`${testIdPrefix}-bot-click-hint`}
+        >
+          Clicks by subscribers ever detected by the complaint IP 195.154.17.225 are not counted
+          (scanner clicks come from rotating IPs, so only the subscriber-level detection is reliable).
+        </p>
+      )}
     </div>
   );
 }

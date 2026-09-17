@@ -1,6 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { subscribers } from "@shared/schema";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2, SegmentSimilarity } from "@shared/schema";
+import { COMPLAINT_IP } from "../config/suppression";
 import { logger } from "../logger";
 
 export class SimilaritySnapshotMismatchError extends Error {
@@ -24,7 +25,64 @@ export const ENGAGEMENT_RECENCY_DAYS = 60;
 // campaign count once (COUNT(DISTINCT campaign_id)).
 export const TOP_CLICKER_MIN_CAMPAIGNS = 4;
 export const ULTRA_CLICKER_MIN_CAMPAIGNS = 6;
-export const EXCLUDED_BOT_OPEN_IP = "195.154.17.225";
+
+// The fixed complaint-detection IP (single source of truth: config/suppression).
+// It is rendered as a SQL *literal* — never a bind parameter — because the two
+// partial indexes that serve the exclusion below
+// (campaign_stats_bot_open_subscriber_idx and
+// campaign_stats_complaint_ip_timestamp_subscriber_idx) are defined with the
+// exact predicate `ip_address = '195.154.17.225' AND type IN ('open','complaint')`
+// and PostgreSQL only picks a partial index when the query predicate matches
+// it textually. If the IP ever changes, those index predicates (shared/schema.ts
+// + the bootstrap DDL in routes/tracking.ts) must change in lockstep.
+export const EXCLUDED_BOT_OPEN_IP = COMPLAINT_IP;
+if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(EXCLUDED_BOT_OPEN_IP)) {
+  // Defensive: the literal is inlined into SQL below, so it must be a plain IPv4.
+  throw new Error(`Invalid COMPLAINT_IP literal for segment compiler: ${EXCLUDED_BOT_OPEN_IP}`);
+}
+const botOpenIpLiteral = sql.raw(`'${EXCLUDED_BOT_OPEN_IP}'`);
+
+/**
+ * Subscribers detected by the complaint IP: any open or counting-only complaint
+ * row recorded from that IP, at any time. Same population as the
+ * `not_opened_from_bot_ip` operator.
+ */
+function botDetectedSubscriberIds(): SQL {
+  return sql`SELECT cs.subscriber_id
+          FROM campaign_stats cs
+          WHERE cs.ip_address = ${botOpenIpLiteral}
+            AND cs.type IN ('open', 'complaint')`;
+}
+
+/**
+ * Bot-attributed clicks are ignored by every click-based engagement operator.
+ *
+ * Production finding (2026-09-17): the Orange/Wanadoo scanning infrastructure
+ * never clicks from the complaint IP — its clicks arrive from hundreds of
+ * rotating cloud IPs with realistic user agents, hours after delivery — so a
+ * per-click ip_address/latency filter would remove nothing (and would force
+ * heap fetches on millions of click rows, since the click partial index does
+ * not cover ip_address). The only reliable marker is subscriber-level: on the
+ * 2026-09-12 send, 100% of Orange/Wanadoo clickers were complaint-IP-detected
+ * subscribers and the ~93K non-detected ones produced 0 clicks. A "bot click"
+ * is therefore any click by a subscriber with at least one complaint-IP
+ * detection.
+ *
+ * Shape (perf): NOT EXISTS, planned as a hash anti-join fed by an index-only
+ * scan of the complaint-IP partial index. Deliberately NOT `NOT IN (subquery)`:
+ * that form only stays fast while the subquery result fits in work_mem as a
+ * hashed SubPlan and silently degrades to a per-row scan beyond that — a cliff
+ * the click operators must not sit on, since the detection set keeps growing.
+ */
+function notBotDetected(): SQL {
+  return sql`NOT EXISTS (
+          SELECT 1
+          FROM campaign_stats bot
+          WHERE bot.subscriber_id = ${subscribers.id}
+            AND bot.ip_address = ${botOpenIpLiteral}
+            AND bot.type IN ('open', 'complaint')
+        )`;
+}
 
 function compileCondition(cond: SegmentCondition): SQL {
   const { field, operator, value, value2 } = cond;
@@ -175,11 +233,18 @@ function compileCondition(cond: SegmentCondition): SQL {
       // (subscriber_id, timestamp, campaign_id) WHERE type='click' is kept
       // for queries that probe by subscriber first (e.g. per-subscriber
       // click-history lookups). Both are bootstrapped in routes/tracking.ts.
+      //
+      // All three click operators additionally ignore bot-attributed clicks
+      // (see notBotDetected): the click semi-join is untouched and the
+      // complaint-IP-detected subscribers are removed with a subscriber-level
+      // anti-join, combined with AND. The whole expression is parenthesised
+      // so it composes safely inside OR groups.
+      //
       // Clicked at least once in the window — same semi-join shape as the
       // clicker tiers (served by campaign_stats_click_subscriber_ts_idx),
       // just without the distinct-campaign threshold.
       case "clicked_recently":
-        return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id)`;
+        return sql`(${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id) AND ${notBotDetected()})`;
       case "opened_campaign":
         return sql`${subscribers.id} IN (
           SELECT cs.subscriber_id
@@ -195,18 +260,16 @@ function compileCondition(cond: SegmentCondition): SQL {
             AND cs.first_click_at IS NOT NULL
         )`;
       case "top_active_clicker":
-        return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS})`;
+        return sql`(${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS}) AND ${notBotDetected()})`;
       case "ultra_active_clicker":
-        return sql`${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${ULTRA_CLICKER_MIN_CAMPAIGNS})`;
+        return sql`(${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${ULTRA_CLICKER_MIN_CAMPAIGNS}) AND ${notBotDetected()})`;
       case "not_opened_from_bot_ip":
         // Opens from this robot IP are stored either as normal opens or as
         // counting-only complaints. Keep the IP as a SQL literal so PostgreSQL
         // can use campaign_stats_bot_open_subscriber_idx's exact predicate.
+        // (campaign_stats.subscriber_id is NOT NULL, so NOT IN is NULL-safe.)
         return sql`${subscribers.id} NOT IN (
-          SELECT cs.subscriber_id
-          FROM campaign_stats cs
-          WHERE cs.ip_address = '195.154.17.225'
-            AND cs.type IN ('open', 'complaint')
+          ${botDetectedSubscriberIds()}
         )`;
       case "unsubscribed_from_fewer_campaigns": {
         const threshold = Number(value);

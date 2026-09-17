@@ -14,6 +14,7 @@
 - [Singleton loop hung-tick freeze](singleton-loop-hung-tick.md) — re-entrancy guard + self-refreshing leader lease = no recovery from a never-settling await; needs per-unit timeout + heartbeat watchdog (safeInterval catches errors, not hangs).
 - [Import staging cleanup & completion invariants](import-staging-cleanup.md) — batch import_staging deletes (single DELETE → 57014, not retried, fails before merge); never complete an import from row counters; startup orphan-fail must count 'pending' queue rows as active.
 - [Complaint-IP cooling-off](complaint-bot-ip-contract.md) — bot-IP opens remain complaint analytics, add no tag, and extend a temporary 15-day subscriber suppression.
+- [Bot click attribution](bot-click-attribution.md) — scanner never clicks from the complaint IP; exclude bot clicks per subscriber (detection set) via NOT EXISTS, never per click IP/latency.
 - [Pressure-drain tails & 72h cap](pressure-drain-held-vs-due.md) — held mixes future/due; deadline uses first_send_at and may close only after durable audience handoff.
 - [Campaign bulk deletion](campaign-bulk-deletion.md) — campaigns can own hundreds of thousands of rows; bulk UI must use bounded per-campaign requests with visible progress, never one long request.
 - [Concurrent index reaping](concurrent-index-reaping.md) — INVALID-index cleanup must skip pg_stat_progress_create_index entries or it can deadlock and delete a healthy concurrent build.
