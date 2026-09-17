@@ -105,3 +105,17 @@ mtime_ms = 1789535119802
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/da55983e-5619-4b8f-aa41-caba1b4da804/c9dd3b5c-7fbe-4af2-982e-81f5e6f1765d"
 storage_version_token = "1789535133014149"
 content_type = "text/csv"
+
+[[outputs]]
+id = "yy-k-eKNkZJ8m72r2hY3B"
+uri = "file://.local/exports/cliqueurs-paca-2026-09-17.csv"
+type = "table"
+title = "25 068 cliqueurs — IP localisée en PACA"
+description = "CSV dédupliqué : email, identifiant, nombre et dates des clics PACA, nombre d’IP et villes estimées. Historique du 3 avril au 17 septembre 2026. Éligibilité à un nouvel envoi non vérifiée."
+logical_id = "72317f0c-85f0-4bf8-8928-ba86e621ed8b"
+content_hash = "sha256:c09c1ac3b83c70ff553ad98b2f524a6f6aba288fd586f54ef459393b684205a5"
+size = 4109753
+mtime_ms = 1789620663828
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/72317f0c-85f0-4bf8-8928-ba86e621ed8b/3a2be627-4eac-4209-bc19-eddb9187b8b4"
+storage_version_token = "1789620695475919"
+content_type = "text/csv"
