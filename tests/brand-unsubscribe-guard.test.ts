@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../server/storage", () => ({ storage: {} }));
 
 import {
+  BRAND_UNSUB_LIMIT,
+  BRAND_UNSUB_WARN_THRESHOLD,
+  BRAND_UNSUB_WINDOW_DAYS,
   brandUnsubscribeBlockPayload,
   classifyBrandUnsubscribeCount,
   evaluateBrandUnsubscribeGuard,
@@ -20,6 +23,12 @@ beforeEach(() => {
 });
 
 describe("brand unsubscribe guard", () => {
+  it("defaults to a 5-day Europe/Paris calendar window with unchanged thresholds", () => {
+    expect(BRAND_UNSUB_WINDOW_DAYS).toBe(5);
+    expect(BRAND_UNSUB_LIMIT).toBe(2_500);
+    expect(BRAND_UNSUB_WARN_THRESHOLD).toBe(1_500);
+  });
+
   it.each([
     [1_500, "ok"],
     [1_501, "warn"],
@@ -46,14 +55,14 @@ describe("brand unsubscribe guard", () => {
       "air\u001ffrance",
       "air",
     ]);
-    expect(countBrandUnsubscribes).toHaveBeenCalledWith("air\u001ffrance", 10);
+    expect(countBrandUnsubscribes).toHaveBeenCalledWith("air\u001ffrance", 5);
     expect(result).toEqual(expect.objectContaining({
       brand: "Air France",
       brandKey: "air\u001ffrance",
       count: 2_634,
       status: "blocked",
       limit: 2_500,
-      windowDays: 10,
+      windowDays: 5,
     }));
   });
 
@@ -86,7 +95,7 @@ describe("brand unsubscribe guard", () => {
       count: 2_501,
       warnThreshold: 1_500,
       limit: 2_500,
-      windowDays: 10,
+      windowDays: 5,
       status: "blocked",
     });
 

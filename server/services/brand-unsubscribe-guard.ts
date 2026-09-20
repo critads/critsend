@@ -12,12 +12,22 @@ function envInt(name: string, fallback: number, min: number): number {
   return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
 }
 
+// Brand-unsubscribe guard thresholds. Each value is a code default that an
+// environment variable of the same name OVERRIDES — on the self-hosted
+// deployment the `.env` loaded by PM2 wins over anything changed here, so a
+// change of default must be paired with a check of that file (deploy.sh warns
+// when `.env` still pins BRAND_UNSUB_WINDOW_DAYS to another value).
+//
+// The window is counted in Europe/Paris calendar days: the current day plus
+// (N - 1) previous days (see countBrandUnsubscribes). 2026-09-20: default
+// window reduced to 5 days (was 7 in production via .env, 10 in code) so the
+// limit reflects more recent pressure; blocking/warning thresholds unchanged.
 export const BRAND_UNSUB_LIMIT = envInt("BRAND_UNSUB_LIMIT", 2_500, 0);
 export const BRAND_UNSUB_WARN_THRESHOLD = Math.min(
   envInt("BRAND_UNSUB_WARN_THRESHOLD", 1_500, 0),
   BRAND_UNSUB_LIMIT,
 );
-export const BRAND_UNSUB_WINDOW_DAYS = envInt("BRAND_UNSUB_WINDOW_DAYS", 10, 1);
+export const BRAND_UNSUB_WINDOW_DAYS = envInt("BRAND_UNSUB_WINDOW_DAYS", 5, 1);
 
 export type BrandUnsubscribeDecision = {
   brand: string | null;

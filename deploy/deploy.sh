@@ -174,6 +174,31 @@ if [[ "$_uploads_ok" != "1" || "$_chunks_ok" != "1" ]]; then
 fi
 ok "Import upload dirs writable: $_import_upload_dir, $_import_chunks_dir"
 
+# ─── Step 5c: Brand-unsubscribe guard — detect a stale .env override ──────────
+# The guard's window/thresholds are code defaults that ANY value in .env
+# overrides (ecosystem.config.cjs merges .env into the process env). The code
+# default window moved 7 → 5 days on 2026-09-20; if .env still pins
+# BRAND_UNSUB_WINDOW_DAYS to another value the new default silently never
+# applies. Non-fatal: the operator may pin a value on purpose, so we only warn.
+# NOTE: under `set -euo pipefail` a no-match grep would abort the script, hence
+# the trailing `|| true` (an absent key is the normal case).
+_brand_window_default=5
+_brand_window_env=$(grep -E "^BRAND_UNSUB_WINDOW_DAYS=" .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d '[:space:]' || true)
+if [[ -n "$_brand_window_env" && "$_brand_window_env" != "$_brand_window_default" ]]; then
+    echo "[deploy] ─────────────────────────────────────────────────────────────"
+    echo "[deploy] ⚠ .env pins BRAND_UNSUB_WINDOW_DAYS=$_brand_window_env (code default: $_brand_window_default days)."
+    echo "[deploy]   The .env value WINS over the code default. If the ${_brand_window_default}-day window is"
+    echo "[deploy]   intended, set BRAND_UNSUB_WINDOW_DAYS=$_brand_window_default in .env and redeploy. Do NOT just"
+    echo "[deploy]   delete the line: pm2 reload keeps a removed key's old value in the saved"
+    echo "[deploy]   process env (only pm2 delete + start drops it)."
+    echo "[deploy]   Verify after reload:  pm2 jlist | grep -o '\"BRAND_UNSUB[A-Z_]*\":\"[0-9]*\"' | sort -u"
+    echo "[deploy] ─────────────────────────────────────────────────────────────"
+elif [[ -n "$_brand_window_env" ]]; then
+    ok "Brand-unsubscribe guard window: $_brand_window_env days (.env override, matches code default)"
+else
+    ok "Brand-unsubscribe guard window: $_brand_window_default days (code default)"
+fi
+
 # ─── Step 6: Update Nginx config (safe — rolls back on failure) ───────────────
 step "Updating Nginx configuration..."
 NGINX_LIVE="/etc/nginx/sites-available/critsend"

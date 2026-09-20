@@ -244,6 +244,39 @@ git commit -m "ci: add auto-deploy workflow"
 git push
 ```
 
+### Brand unsubscribe guard — `.env` overrides win over code defaults
+
+The guard that blocks a campaign launch when its brand generated too many
+unsubscribers reads three values: `BRAND_UNSUB_WINDOW_DAYS` (code default **5**
+Europe/Paris calendar days since 2026-09-20 — previously 7 in production),
+`BRAND_UNSUB_LIMIT` (default 2500) and `BRAND_UNSUB_WARN_THRESHOLD` (default 1500).
+Any of them present in `.env` **overrides** the code default, because
+`ecosystem.config.cjs` merges `.env` into every PM2 process. When a code default
+changes, the new value only applies once the `.env` line is aligned:
+
+```bash
+# 1. Is the window pinned in .env? (deploy.sh also prints a warning when it is)
+grep -n '^BRAND_UNSUB' .env
+
+# 2. Set the line to the new value explicitly, then redeploy
+#    BRAND_UNSUB_WINDOW_DAYS=5
+bash deploy/deploy.sh           # reloads PM2 with --update-env
+
+# 3. Check the values the running processes actually use
+pm2 jlist | grep -o '"BRAND_UNSUB[A-Z_]*":"[0-9]*"' | sort -u
+```
+
+Set the value explicitly rather than deleting the line: `pm2 reload --update-env`
+merges the new env over the saved one and **keeps a removed key's old value**.
+If you do want the key gone, recreate the processes once
+(`pm2 delete critsend-web critsend-worker critsend-drainer && pm2 start
+deploy/ecosystem.config.cjs --env production && pm2 save`, ≈5 s downtime).
+
+Final check from the application: in the campaign wizard, the brand warning
+reads « … désabonnés sur les **5** derniers jours (limite : …) », and
+`GET /api/campaigns/brand-unsub-check?name=<campaign name>` (authenticated)
+returns `"windowDays": 5`.
+
 ---
 
 ## Troubleshooting
