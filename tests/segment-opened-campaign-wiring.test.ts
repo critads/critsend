@@ -70,16 +70,23 @@ describe("selected campaign opener segment wiring", () => {
     );
   });
 
-  it("reuses the campaign selector for open and click conditions", () => {
+  it("reuses the campaign selector for open, click and not-received conditions", () => {
     expect(builderSource).toContain(
       'condition.operator === "opened_campaign" ||',
     );
     expect(builderSource).toContain(
-      'condition.operator === "clicked_campaign"',
+      'condition.operator === "clicked_campaign" ||',
     );
     expect(builderSource).toContain(
-      'const campaignOperators = ["opened_campaign", "clicked_campaign"]',
+      'condition.operator === "not_received_campaign"',
     );
-    expect(builderSource).toContain("{isSpecificCampaign ? (");
+    expect(builderSource).toContain(
+      'const campaignOperators = ["opened_campaign", "clicked_campaign", "not_received_campaign"]',
+    );
+    expect(builderSource).toContain(") : isSpecificCampaign ? (");
+    // Multi-campaign values (Smart segment recent-send exclusion) are shown
+    // read-only instead of falling back to an empty picker.
+    expect(builderSource).toContain("isSpecificCampaign && Array.isArray(condition.value)");
+    expect(builderSource).toContain("campagnes exclues (Smart segment)");
   });
 });

@@ -434,7 +434,8 @@ export function ConditionRow({
   const isCampaignCount = condition.operator === "unsubscribed_from_fewer_campaigns";
   const isSpecificCampaign =
     condition.operator === "opened_campaign" ||
-    condition.operator === "clicked_campaign";
+    condition.operator === "clicked_campaign" ||
+    condition.operator === "not_received_campaign";
   const isDate = condition.operator === "before" || condition.operator === "after";
   const isTagText = condition.operator === "has_tag" || condition.operator === "not_has_tag" || condition.operator === "tag_contains" || condition.operator === "tag_not_contains";
   const isRefText = condition.operator === "has_ref" || condition.operator === "not_has_ref" || condition.operator === "ref_contains";
@@ -461,7 +462,7 @@ export function ConditionRow({
   const handleOperatorChange = (op: string) => {
     const wasUnary = unaryOperators.includes(condition.operator);
     const nowUnary = unaryOperators.includes(op);
-    const campaignOperators = ["opened_campaign", "clicked_campaign"];
+    const campaignOperators = ["opened_campaign", "clicked_campaign", "not_received_campaign"];
     const changesCampaignSelector =
       campaignOperators.includes(op) ||
       campaignOperators.includes(condition.operator);
@@ -510,7 +511,19 @@ export function ConditionRow({
 
       {!isUnary && (
         <>
-          {isSpecificCampaign ? (
+          {isSpecificCampaign && Array.isArray(condition.value) ? (
+            // Multi-campaign exclusion written by the Smart segment assistant
+            // (one anti-join over every recent send). Shown read-only: the
+            // picker below only edits a single campaign.
+            <Badge
+              variant="secondary"
+              className="h-9 px-3 font-normal"
+              title={condition.value.join("\n")}
+              data-testid={`${testIdPrefix}-value`}
+            >
+              {condition.value.length} campagnes exclues (Smart segment)
+            </Badge>
+          ) : isSpecificCampaign ? (
             <RecentSentCampaignSelect
               value={typeof condition.value === "string" ? condition.value : ""}
               onChange={(value) => onChange({ ...condition, value })}

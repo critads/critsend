@@ -37,6 +37,9 @@ import { ensureSegmentExclusionsSchema } from "./segment-exclusions-bootstrap";
 import { ensureCampaignWarmStartSchema } from "./campaign-warm-start-bootstrap";
 import { ensureBrandsSchema } from "./brands-bootstrap";
 import { ensureUnsubscribeContinueSchema } from "./unsubscribe-continue-bootstrap";
+import { ensureSmartSegmentSchema } from "./smart-segment-bootstrap";
+import { registerSmartSegmentRoutes } from "./routes/smart-segments";
+import { startSmartSegmentJanitor, sweepStaleSmartSegmentAnalyses } from "./services/smart-segment-jobs";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -47,6 +50,9 @@ export async function registerRoutes(
   await ensureCampaignWarmStartSchema();
   await ensureBrandsSchema();
   await ensureUnsubscribeContinueSchema();
+  await ensureSmartSegmentSchema();
+  await sweepStaleSmartSegmentAnalyses();
+  startSmartSegmentJanitor();
 
   const generalLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -137,6 +143,7 @@ export async function registerRoutes(
   registerSegmentRoutes(app, helpers);
   registerMtaRoutes(app, helpers);
   registerBrandRoutes(app);
+  registerSmartSegmentRoutes(app);
   registerCampaignMtaTransferRoutes(app);
   registerTrackingRoutes(app);
   registerWebhookRoutes(app);

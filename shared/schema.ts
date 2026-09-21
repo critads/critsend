@@ -95,6 +95,42 @@ export const segmentRefSimilarityAnalyses = pgTable("segment_ref_similarity_anal
     .on(table.sourceRef, table.createdAt.desc()),
 }));
 
+// Task #304: tracked "Smart segment" analyses. One row per analysis job:
+// request parameters, the deterministic evidence dossier, the validated AI
+// proposal (with server recounts/projections), model/prompt provenance, token
+// usage and the segments materialised from it. `fingerprint` identifies an
+// identical request (brand key + family + objective + cap) for 6 h reuse.
+export const smartSegmentAnalyses = pgTable("smart_segment_analyses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fingerprint: varchar("fingerprint", { length: 128 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("queued"),
+  stage: varchar("stage", { length: 32 }).notNull().default("brand_history"),
+  progress: integer("progress").notNull().default(0),
+  error: text("error"),
+  errorCode: varchar("error_code", { length: 64 }),
+  params: jsonb("params").notNull(),
+  evidence: jsonb("evidence"),
+  proposal: jsonb("proposal"),
+  model: varchar("model", { length: 128 }),
+  promptVersion: varchar("prompt_version", { length: 32 }),
+  tokenUsage: jsonb("token_usage"),
+  createdSegments: jsonb("created_segments").notNull().default(sql`'[]'::jsonb`),
+  createdBy: varchar("created_by", { length: 255 }),
+  /** Process that inserted the row (diagnostics); liveness is heartbeat_at. */
+  owner: varchar("owner", { length: 255 }),
+  heartbeatAt: timestamp("heartbeat_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  fingerprintCreatedIdx: index("smart_segment_analyses_fingerprint_created_idx")
+    .on(table.fingerprint, table.createdAt.desc()),
+  statusIdx: index("smart_segment_analyses_status_idx").on(table.status),
+}));
+
+export type SmartSegmentAnalysisRow = typeof smartSegmentAnalyses.$inferSelect;
+
 // Task #257: externally supplied SHA-256 suppression values. Only hashes from
 // the uploaded CSV are stored here; subscriber email hashes are computed in
 // SQL while evaluating an audience and are never persisted.
@@ -1215,6 +1251,14 @@ export type FlushJobStatus = "pending" | "processing" | "completed" | "failed" |
 export const campaignReferenceIdSchema = z.string()
   .regex(/^[A-Za-z0-9_-]{1,255}$/, "A valid campaign must be selected");
 
+// not_received_campaign may carry a bounded list of campaign ids (Smart
+// segment excludes every recent send of a brand in one condition); the other
+// campaign operators stay single-valued.
+export const campaignReferenceIdListSchema = z.union([
+  campaignReferenceIdSchema,
+  z.array(campaignReferenceIdSchema).min(1).max(50),
+]);
+
 export const segmentConditionSchema = z.object({
   type: z.literal("condition"),
   field: z.enum(["email", "tags", "refs", "date_added", "ip_address", "engagement"]),
@@ -1225,6 +1269,7 @@ export const segmentConditionSchema = z.object({
     "before", "after", "between", "in_last_days", "not_in_last_days",
     "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker",
     "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns", "opened_campaign", "clicked_campaign",
+    "not_received_campaign",
   ]),
   value: z.union([z.string(), z.array(z.string()), z.null()]),
   value2: z.string().nullable().default(null),
@@ -1240,8 +1285,10 @@ export const segmentConditionSchema = z.object({
     });
   }
   if (
-    (condition.operator === "opened_campaign" || condition.operator === "clicked_campaign") &&
-    !campaignReferenceIdSchema.safeParse(condition.value).success
+    ((condition.operator === "opened_campaign" || condition.operator === "clicked_campaign") &&
+      !campaignReferenceIdSchema.safeParse(condition.value).success) ||
+    (condition.operator === "not_received_campaign" &&
+      !campaignReferenceIdListSchema.safeParse(condition.value).success)
   ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -1322,7 +1369,7 @@ export const fieldOperatorsV2 = {
   refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
-  engagement: ["engaged_recently", "not_engaged_recently", "clicked_recently", "opened_campaign", "clicked_campaign", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns"],
+  engagement: ["engaged_recently", "not_engaged_recently", "clicked_recently", "opened_campaign", "clicked_campaign", "not_received_campaign", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns"],
 } as const;
 
 export const operatorLabelsV2: Record<string, string> = {
@@ -1354,6 +1401,7 @@ export const operatorLabelsV2: Record<string, string> = {
   clicked_recently: "clicked in last 60 days (complaint-IP bot subscribers ignored)",
   opened_campaign: "opened a specific campaign",
   clicked_campaign: "Clicked a specific campaign",
+  not_received_campaign: "did not receive a specific campaign",
   not_engaged_recently: "no open/click in last 60 days",
   top_active_clicker: "Top active clicker — clicked >3 campaigns in last 60 days (complaint-IP bot subscribers ignored)",
   ultra_active_clicker: "Ultra active clicker — clicked >5 campaigns in last 60 days (complaint-IP bot subscribers ignored)",

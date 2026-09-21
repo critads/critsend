@@ -42,6 +42,7 @@ import { SegmentCombobox } from "@/components/segment-combobox";
 import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
 import { TagSuggestionsButton } from "@/components/campaign-wizard/tag-suggestions";
 import { SegmentSuggestions } from "@/components/campaign-wizard/segment-suggestions";
+import { SmartSegmentAssistant } from "@/components/campaign-wizard/smart-segment-assistant";
 import { ExternalImagesAlert } from "@/components/campaign-wizard/external-images-alert";
 import { OrangeWanadooRiskSummary } from "@/components/orange-wanadoo-risk-summary";
 import {
@@ -709,6 +710,20 @@ export default function CampaignNew() {
               )}
             </div>
 
+            <SmartSegmentAssistant
+              campaignName={formData.name || ""}
+              campaignId={campaignId}
+              mtaId={formData.mtaId || null}
+              selectedSegmentIds={segmentIds}
+              onSegmentsCreated={(createdSegments) => {
+                setFormData((old: any) => {
+                  const current: string[] = old.segmentIds ?? (old.segmentId ? [old.segmentId] : []);
+                  const next = [...current, ...createdSegments.map((segment) => segment.id).filter((id) => !current.includes(id))];
+                  return { ...old, segmentIds: next, segmentId: next[0] ?? "" };
+                });
+              }}
+            />
+
              {segments && segments.length > 1 && segmentIds.length > 0 && (
               <div className="space-y-2">
                 {!excludeOpen ? (
@@ -855,7 +870,7 @@ export default function CampaignNew() {
                   {showPreview ? (
                     <div className="border rounded-md bg-[#fdfcf7] overflow-hidden">
                       <iframe
-                        srcDoc={withBaseHref(formData.htmlContent)}
+                        srcDoc={withBaseHref(formData.htmlContent || "")}
                         className="w-full min-h-[400px] border-0"
                         title="Email Preview"
                         sandbox="allow-same-origin"

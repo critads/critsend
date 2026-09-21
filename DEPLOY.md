@@ -277,6 +277,39 @@ reads « … désabonnés sur les **5** derniers jours (limite : …) », and
 `GET /api/campaigns/brand-unsub-check?name=<campaign name>` (authenticated)
 returns `"windowDays": 5`.
 
+### Smart segment IA (campaign wizard) — optional, needs an Anthropic key
+
+The « Smart segment » block of the campaign wizard is **off until
+`ANTHROPIC_API_KEY` is set** in `.env` (the wizard shows the block disabled with
+the reason; nothing else depends on it). The model only composes a segment out
+of server-measured blocks: it never writes SQL, and every audience count and
+projection shown to the operator is computed by the server. Model provenance
+(model id, prompt version, token usage) is stored with each analysis.
+
+```bash
+# 1. Add the key (and, optionally, the model / tuning knobs — see .env.example)
+cat >> .env <<'EOF'
+ANTHROPIC_API_KEY=sk-ant-...
+# SMART_SEGMENT_MODEL=claude-sonnet-4-5
+EOF
+
+# 2. Apply the schema (table smart_segment_analyses — migration 0006). The web
+#    process also creates it idempotently at startup, so a plain redeploy is enough.
+bash deploy/deploy.sh
+
+# 3. Verify (authenticated session cookie required)
+curl -s -b cookies.txt https://your-domain/api/smart-segments/status
+#    → {"enabled":true,"model":"claude-sonnet-4-5",...}
+pm2 logs critsend-web --lines 50 | grep SMART_SEGMENT
+```
+
+Operational limits: at most `SMART_SEGMENT_MAX_CONCURRENT` (default 2) analyses
+per process, identical requests reuse a fresh analysis for 6 h, every analysis
+runs in one read-only transaction with `SET LOCAL statement_timeout`
+(`SMART_SEGMENT_QUERY_TIMEOUT_MS`) and is refused with HTTP 503 `DB_SATURATED`
+when the pool is ≥ 60 % busy. Analyses left `running` by a restart are marked
+failed at startup (`INTERRUPTED`) and can simply be relaunched.
+
 ---
 
 ## Troubleshooting

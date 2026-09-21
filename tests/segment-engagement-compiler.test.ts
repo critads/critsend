@@ -36,7 +36,7 @@ function rulesFor(operator: string): SegmentRulesV2 {
   };
 }
 
-function rulesForValue(operator: string, value: string): SegmentRulesV2 {
+function rulesForValue(operator: string, value: string | string[]): SegmentRulesV2 {
   return {
     version: 2,
     root: {
@@ -321,6 +321,68 @@ describe("Task #214 — engagement recency compiler", () => {
       value: "<invalid>",
       value2: null,
     }).success).toBe(false);
+  });
+
+  it("compiles the not-received-campaign exclusion as an anti-join on campaign_sends", () => {
+    const campaignId = "123e4567-e89b-42d3-a456-426614174000";
+    expect(fieldOperatorsV2.engagement).toContain("not_received_campaign");
+    expect(operatorLabelsV2.not_received_campaign).toBe("did not receive a specific campaign");
+    expect(segmentConditionSchema.safeParse({
+      type: "condition",
+      field: "engagement",
+      operator: "not_received_campaign",
+      value: campaignId,
+      value2: null,
+    }).success).toBe(true);
+    expect(segmentConditionSchema.safeParse({
+      type: "condition",
+      field: "engagement",
+      operator: "not_received_campaign",
+      value: "<invalid>",
+      value2: null,
+    }).success).toBe(false);
+
+    const compiled = renderSql(rulesForValue("not_received_campaign", campaignId));
+    expect(compiled).toContain("NOT EXISTS");
+    expect(compiled).toContain("FROM campaign_sends cs");
+    expect(compiled).toContain("cs.campaign_id = $1");
+    expect(compiled).toContain('cs.subscriber_id = "subscribers"."id"');
+    // Any send row counts as received: no status/open filter must narrow the exclusion.
+    expect(compiled).not.toContain("first_open_at");
+    expect(compiled).not.toContain("status");
+
+    // An invalid campaign reference must compile to FALSE, never to an unbounded exclusion.
+    const invalid = renderSql(rulesForValue("not_received_campaign", "not a campaign id"));
+    expect(invalid).toContain("FALSE");
+    expect(invalid).not.toContain("campaign_sends");
+  });
+
+  it("compiles a bounded list of campaigns into one ANY() anti-join (Smart segment recent sends)", () => {
+    const ids = ["camp-a", "camp-b", "camp-a", "123e4567-e89b-42d3-a456-426614174000"];
+    expect(segmentConditionSchema.safeParse({
+      type: "condition", field: "engagement", operator: "not_received_campaign", value: ids, value2: null,
+    }).success).toBe(true);
+    // Lists stay exclusive to not_received_campaign and bounded.
+    expect(segmentConditionSchema.safeParse({
+      type: "condition", field: "engagement", operator: "opened_campaign", value: ids, value2: null,
+    }).success).toBe(false);
+    expect(segmentConditionSchema.safeParse({
+      type: "condition", field: "engagement", operator: "not_received_campaign", value: [], value2: null,
+    }).success).toBe(false);
+    expect(segmentConditionSchema.safeParse({
+      type: "condition", field: "engagement", operator: "not_received_campaign", value: Array.from({ length: 51 }, (_, i) => `c${i}`), value2: null,
+    }).success).toBe(false);
+
+    const { sql, params } = renderQuery(rulesForValue("not_received_campaign", ids));
+    expect((sql.match(/NOT EXISTS/g) ?? [])).toHaveLength(1);
+    expect(sql).toContain("cs.campaign_id = ANY($1::text[])");
+    expect(params[0]).toEqual(["camp-a", "camp-b", "123e4567-e89b-42d3-a456-426614174000"]);
+
+    // One malformed id poisons the whole list → FALSE, never a partial exclusion.
+    const poisoned = renderSql(rulesForValue("not_received_campaign", ["camp-a", "bad id"]));
+    expect(poisoned).toContain("FALSE");
+    expect(poisoned).not.toContain("campaign_sends");
+    expect(renderSql(rulesForValue("not_received_campaign", []))).toContain("FALSE");
   });
 
   it("exposes and validates the selected-campaign clicker condition", () => {

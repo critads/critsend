@@ -84,6 +84,18 @@ function notBotDetected(): SQL {
         )`;
 }
 
+
+const CAMPAIGN_ID_PATTERN = /^[A-Za-z0-9_-]{1,255}$/;
+export const MAX_NOT_RECEIVED_CAMPAIGN_IDS = 50;
+
+/** Normalises a campaign id or id list; null when anything is malformed. */
+function campaignIdList(value: unknown): string[] | null {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? [value] : null;
+  if (!raw || raw.length === 0 || raw.length > MAX_NOT_RECEIVED_CAMPAIGN_IDS) return null;
+  const ids = [...new Set(raw.map((entry) => String(entry).trim()))];
+  return ids.every((id) => CAMPAIGN_ID_PATTERN.test(id)) ? ids : null;
+}
+
 function compileCondition(cond: SegmentCondition): SQL {
   const { field, operator, value, value2 } = cond;
 
@@ -111,9 +123,16 @@ function compileCondition(cond: SegmentCondition): SQL {
   }
   if (
     (operator === "opened_campaign" || operator === "clicked_campaign") &&
-    (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,255}$/.test(value))
+    (typeof value !== "string" || !CAMPAIGN_ID_PATTERN.test(value))
   ) {
     logger.warn("Invalid campaign ID for campaign engagement segment", { field, operator });
+    return sql`FALSE`;
+  }
+  // not_received_campaign accepts one id or a bounded list (Smart segment
+  // excludes every recent send of a brand with a single anti-join).
+  const notReceivedIds = operator === "not_received_campaign" ? campaignIdList(value) : null;
+  if (operator === "not_received_campaign" && !notReceivedIds) {
+    logger.warn("Invalid campaign ID list for not_received_campaign", { field, operator });
     return sql`FALSE`;
   }
 
@@ -259,6 +278,26 @@ function compileCondition(cond: SegmentCondition): SQL {
           WHERE cs.campaign_id = ${String(value)}
             AND cs.first_click_at IS NOT NULL
         )`;
+      case "not_received_campaign":
+        // Excludes every recipient of a previous send (Task #304). Any
+        // campaign_sends row counts as "received" — including failed/pending
+        // reservations — so a resumed or retried send never re-solicits the
+        // same mailbox. NOT EXISTS is a hash anti-join served by the unique
+        // (campaign_id, subscriber_id) index; campaign_sends.subscriber_id is
+        // NOT NULL so no NULL-safety wrapper is needed.
+        return notReceivedIds!.length === 1
+          ? sql`NOT EXISTS (
+              SELECT 1
+              FROM campaign_sends cs
+              WHERE cs.campaign_id = ${notReceivedIds![0]}
+                AND cs.subscriber_id = ${subscribers.id}
+            )`
+          : sql`NOT EXISTS (
+              SELECT 1
+              FROM campaign_sends cs
+              WHERE cs.campaign_id = ANY(${sql.param(notReceivedIds)}::text[])
+                AND cs.subscriber_id = ${subscribers.id}
+            )`;
       case "top_active_clicker":
         return sql`(${subscribers.id} IN (SELECT cs.subscriber_id FROM campaign_stats cs WHERE cs.type = 'click' AND cs.timestamp >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int GROUP BY cs.subscriber_id HAVING COUNT(DISTINCT cs.campaign_id) >= ${TOP_CLICKER_MIN_CAMPAIGNS}) AND ${notBotDetected()})`;
       case "ultra_active_clicker":
