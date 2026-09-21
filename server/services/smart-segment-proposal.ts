@@ -498,8 +498,12 @@ export async function validateAndProject(
     if (text.strippedSentences > 0) {
       warnings.push("Des phrases chiffrées écrites par le modèle ont été retirées : seuls les chiffres calculés par le serveur sont affichés.");
     }
-    if (projection.refCohortsApplied.length) {
-      warnings.push("Taux de plaintes projeté borné par la cohorte la plus risquée impliquée (blocs de refs) sur chaque tranche de cliqueurs : projection prudente.");
+    const boundingCohorts = new Set(projection.tiers.map((tier) => tier.complaintCohort).filter((cohort) => !cohort.startsWith("clicker_tier/")));
+    if (boundingCohorts.has("family/in_family")) {
+      warnings.push("Taux de plaintes projeté borné par l'historique de la famille de domaines choisie sur au moins une tranche de cliqueurs : projection prudente.");
+    }
+    if ([...boundingCohorts].some((cohort) => cohort.startsWith("ref_relation/"))) {
+      warnings.push("Taux de plaintes projeté borné par la cohorte de refs la plus risquée impliquée sur au moins une tranche de cliqueurs : projection prudente.");
     }
     if (projection.unattributedCount > 0) {
       warnings.push(`${projection.unattributedCount.toLocaleString("fr-FR")} abonnés non attribués à une tranche de cliqueurs (dérive de comptage) : projetés au pire taux.`);

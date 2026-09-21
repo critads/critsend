@@ -79,9 +79,12 @@ describe("smart segment projection — cohorts", () => {
 });
 
 describe("smart segment projection — mandatory exclusions", () => {
-  it("lists bot IP, DEL, family, unsubscribe tags and EVERY recent send in one bounded condition", () => {
-    const recent = Array.from({ length: 9 }, (_, i) => `camp-${i}`);
-    const required = mandatoryExclusions(brand, "fai_fr", [...recent, "camp-0"]);
+  it("lists bot IP, DEL, family, unsubscribe tags and the NEWEST recent sends in one bounded condition", () => {
+    // Ids arrive newest first from the evidence: nine sends in the window,
+    // only the six most recent are excluded (spec: « ≤ 6 envois récents »).
+    const window = Array.from({ length: 9 }, (_, i) => `camp-${i}`);
+    const recent = window.slice(0, 6);
+    const required = mandatoryExclusions(brand, "fai_fr", [...window, "camp-0"]);
     const ids = required.map((entry) => entry.id);
     expect(ids).toContain("bot_ip");
     expect(ids).toContain("del_ref");
@@ -91,13 +94,13 @@ describe("smart segment projection — mandatory exclusions", () => {
     const notReceived = required.filter((entry) => entry.id === "not_received_recent");
     expect(notReceived).toHaveLength(1);
     expect(notReceived[0].node).toMatchObject({ field: "engagement", operator: "not_received_campaign", value: recent });
-    expect(notReceived[0].label).toContain("9 envois récents");
+    expect(notReceived[0].label).toContain("6 envois récents");
     // A single recent send stays a scalar value (builder-friendly).
     const single = mandatoryExclusions(brand, "fai_fr", ["camp-x"]).find((entry) => entry.id === "not_received_recent")!;
     expect(single.node).toMatchObject({ value: "camp-x" });
-    // Bounded at the compiler limit.
+    // Bounded whatever the window holds.
     const many = mandatoryExclusions(brand, "fai_fr", Array.from({ length: 80 }, (_, i) => `c-${i}`)).find((entry) => entry.id === "not_received_recent")!;
-    expect((many.node as { value: string[] }).value).toHaveLength(50);
+    expect((many.node as { value: string[] }).value).toEqual(["c-0", "c-1", "c-2", "c-3", "c-4", "c-5"]);
     const del = required.find((entry) => entry.id === "del_ref")!.node;
     expect(del).toMatchObject({ field: "refs", operator: "not_has_ref", value: BOT_OPENER_REF });
   });
@@ -185,7 +188,9 @@ describe("smart segment projection — blocks and compositions", () => {
     ["ref_relation", "core", 30_000, 900, 30],
     ["ref_relation", "extension", 10_000, 200, 12],
     ["ref_relation", "none", 99_000, 900, 40],
-    ["family", "in_family", 120_000, 1_500, 70],
+    // Family history well below every clicker tier here: the family bound is
+    // exercised on its own in the dedicated test below.
+    ["family", "in_family", 120_000, 1_500, 12],
   ]);
 
   it("builds ref-based blocks only when the brand has refs", () => {
@@ -267,6 +272,48 @@ describe("smart segment projection — blocks and compositions", () => {
     const narrowed = projectComposition({ total: 800, tierCounts: { "6+": 800 } }, ["clickers_6plus", "brand_core_refs"], blocks, table, "brand");
     expect(narrowed.weightedCtr).toBeCloseTo(0.12);
     expect(narrowed.projectedComplaintRate).toBeCloseTo(core);
+  });
+
+  it("bounds every cell (and every block) by the selected family's own complaint history", () => {
+    // Same tiers, but this family complained at 0.75 % on the brand's sends:
+    // above the hard cap, while every clicker tier looks harmless. The final
+    // audience IS restricted to the family, so no cell may be projected below it.
+    const riskyFamily = rates([
+      ["clicker_tier", "0", 100_000, 500, 60],
+      ["clicker_tier", "4-5", 5_000, 400, 1],
+      ["clicker_tier", "6+", 4_000, 480, 1],
+      ["ref_relation", "core", 30_000, 900, 30],
+      ["family", "in_family", 120_000, 1_500, 900],
+      ["family", "other", 80_000, 900, 8],
+    ]);
+    const familyRate = 900 / 120_000;
+    const definitions = buildBlockLibrary(brand);
+    const block = projectBlock(definitions[0], 2_000, riskyFamily, "brand", { "6+": 2_000 });
+    expect(block.expectedComplaintRate).toBeCloseTo(familyRate);
+    expect(block.expectedCtr).toBeCloseTo(0.12);
+    const projection = projectComposition(
+      { total: 5_000, tierCounts: { "6+": 2_000, "4-5": 3_000 } },
+      ["clickers_6plus", "clickers_4plus"],
+      [block, projectBlock(definitions[1], 5_000, riskyFamily, "brand", { "4-5": 3_000, "6+": 2_000 })],
+      riskyFamily,
+      "brand",
+    );
+    expect(projection.familyComplaintBound).toBeCloseTo(familyRate);
+    for (const cell of projection.tiers) expect(cell.complaintCohort).toBe("family/in_family");
+    expect(projection.projectedComplaintRate).toBeCloseTo(familyRate);
+    expect(exceedsComplaintCap(projection.projectedComplaintRate, 0.006)).toBe(true);
+    // Vertical fallback: the family bound carries the same markup as any cohort.
+    const vertical = projectComposition({ total: 2_000, tierCounts: { "6+": 2_000 } }, ["clickers_6plus"], [block], riskyFamily, "vertical");
+    expect(vertical.projectedComplaintRate).toBeCloseTo(familyRate * CALIBRATION_ADJUSTMENTS.vertical.complaintMarkup);
+    // A worse ref cohort still wins over the family bound.
+    const riskyCore = rates([
+      ["clicker_tier", "6+", 4_000, 480, 1],
+      ["ref_relation", "core", 30_000, 900, 300],
+      ["family", "in_family", 120_000, 1_500, 900],
+    ]);
+    const core = projectComposition({ total: 800, tierCounts: { "6+": 800 } }, ["clickers_6plus", "brand_core_refs"], [block, projectBlock(definitions[5], 40_000, riskyCore, "brand", {})], riskyCore, "brand");
+    expect(core.tiers[0].complaintCohort).toBe("ref_relation/core");
+    expect(core.projectedComplaintRate).toBeCloseTo(300 / 30_000);
   });
 
   it("charges count drift to the worst cell and fails closed without any tier cell", () => {

@@ -10,6 +10,7 @@ import {
   type DomainFamilyId,
   type SmartSegmentBlock,
   type SmartSegmentBrandResolution,
+  SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS,
 } from "@shared/smart-segment";
 import { BOT_OPENER_REF } from "../config/suppression";
 
@@ -101,6 +102,17 @@ export function rateFor(
   return { ...totals, reliable: false };
 }
 
+/**
+ * Complaint bound of the selected domain family: every final audience is
+ * restricted to that family, so no cell may be projected below the family's
+ * own measured complaint rate (falls back to the axis total when the
+ * in-family cohort is too small to be reliable).
+ */
+export const FAMILY_BOUND_COHORT = "family/in_family";
+export function familyComplaintBound(rates: CohortRate[]): number {
+  return rateFor(rates, "family", "in_family").complaintRate;
+}
+
 // ====== DSL helpers ======
 
 export function condition(
@@ -119,8 +131,8 @@ export function familyFilterGroup(family: DomainFamilyId): SegmentGroup {
   return group("OR", DOMAIN_FAMILIES[family].domains.map((domain) => condition("email", "ends_with", `@${domain}`)));
 }
 
-/** Upper bound of recent sends excluded in one condition (compiler limit). */
-export const MAX_RECENT_SEND_EXCLUSIONS = 50;
+/** Newest brand sends whose recipients are excluded (ids arrive newest first). */
+export const MAX_RECENT_SEND_EXCLUSIONS = SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS;
 
 /**
  * Mandatory exclusions every proposal must carry (Done-looks-like §4). Each
@@ -350,7 +362,7 @@ export function projectBlock(
     complaintRate = rate.complaintRate;
   }
   const expectedCtr = humanCtr * adjustments.discount;
-  const expectedComplaintRate = complaintRate * adjustments.complaintMarkup;
+  const expectedComplaintRate = Math.max(complaintRate, familyComplaintBound(cohortRates)) * adjustments.complaintMarkup;
   const point = available * expectedCtr;
   return {
     id: definition.id,
@@ -390,6 +402,8 @@ export type CompositionProjection = {
   usedBlockIds: string[];
   /** Ref-relation cohorts implicated by the used blocks (their rates bound every cell). */
   refCohortsApplied: string[];
+  /** Complaint rate of the selected family (before markup) that bounds every cell. */
+  familyComplaintBound: number;
   tiers: TierProjection[];
   /** Subscribers the tier partition did not account for (count drift): projected at the worst cell. */
   unattributedCount: number;
@@ -400,9 +414,11 @@ export type CompositionProjection = {
  * by clicker tier (disjoint cells, so nested blocks such as 6+ ⊂ 4+ ⊂ 1+ or
  * AND/OR topology cannot double count anything). Each cell takes the tier's
  * calibrated CTR; its complaint rate is the WORST measured among the tier
- * cohort and the ref-relation cohorts of the ref blocks used in the
- * composition (a core-ref holder with 0 clicks must never look safer than
- * the core-ref cohort). Calibration-level discount/markup apply on top.
+ * cohort, the selected domain family (every audience is restricted to it)
+ * and the ref-relation cohorts of the ref blocks used in the composition (a
+ * core-ref holder with 0 clicks must never look safer than the core-ref
+ * cohort, nor a family safer than its own history). Calibration-level
+ * discount/markup apply on top.
  */
 export function projectComposition(
   measure: AudienceMeasure,
@@ -414,7 +430,10 @@ export function projectComposition(
   const used = blocks.filter((block) => blockIds.includes(block.id));
   const adjustments = CALIBRATION_ADJUSTMENTS[level];
   const refCohorts = [...new Set(used.filter((block) => block.calibration.axis === "ref_relation").map((block) => block.calibration.cohort))];
-  const refBounds = refCohorts.map((cohort) => ({ cohort: `ref_relation/${cohort}`, rate: rateFor(cohortRates, "ref_relation", cohort).complaintRate }));
+  const bounds = [
+    { cohort: FAMILY_BOUND_COHORT, rate: familyComplaintBound(cohortRates) },
+    ...refCohorts.map((cohort) => ({ cohort: `ref_relation/${cohort}`, rate: rateFor(cohortRates, "ref_relation", cohort).complaintRate })),
+  ];
 
   const tiers: TierProjection[] = [];
   let attributed = 0;
@@ -426,7 +445,7 @@ export function projectComposition(
     const rate = rateFor(cohortRates, "clicker_tier", tier);
     let complaintCohort = `clicker_tier/${tier}`;
     let worst = rate.complaintRate;
-    for (const bound of refBounds) {
+    for (const bound of bounds) {
       if (bound.rate > worst) {
         worst = bound.rate;
         complaintCohort = bound.cohort;
@@ -463,6 +482,7 @@ export function projectComposition(
     weightedCtr,
     usedBlockIds: used.map((block) => block.id),
     refCohortsApplied: refCohorts,
+    familyComplaintBound: bounds[0].rate,
     tiers,
     unattributedCount,
   };

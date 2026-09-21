@@ -20,11 +20,18 @@ inclusion in disguise (widens beyond the blocks) — the operator allowlist alon
 **How to apply:** any new operator, block, or prompt change must keep: (a) inclusions = macros,
 (b) the projection computed from the EXACT recount of the final rules partitioned by clicker
 tier (disjoint cells — blocks nest, 6+ ⊂ 4+ ⊂ 1+, so summing block capacities double counts),
-each cell bounded by the worst complaint rate among the tier cohort and the ref cohorts of the
-ref blocks used; unattributed subscribers at the worst measured rate, (c) authoritative
+each cell bounded by the worst complaint rate among the tier cohort, the selected family's
+own cohort (audiences are family-restricted; tier rates are all-family) and the ref cohorts of
+the ref blocks used; unattributed subscribers at the worst measured rate, (c) authoritative
 `blocksUsed` derived from macros actually expanded in that segment, never from the model's
 declaration, (d) model text (name/rationale/warnings) stripped of every figure — the server
 writes the numeric explanation itself.
+
+## 1a. Recent-send exclusion = the ≤ 6 NEWEST brand sends, not the whole window
+Rule: the evidence keeps the newest matches only (rows ordered by first send desc, sliced after
+the exact brand-token filter); the same list feeds the prompt, the mandatory injection and the
+coverage check. **Why:** excluding every send of the 30-day window over-excluded and distorted
+the recount for brands sending several times a week.
 
 ## 1b. Model call timeouts must cover the body
 Rule: keep the abort timer armed until the response body is fully consumed; clear it in a
@@ -45,7 +52,9 @@ Rule: server-side attach only when the analysis was computed for the exact same 
 campaign id; unbound analysis ⇒ segments created, `attached:false`, wizard attaches through its
 own save path; two different ids ⇒ 409. The wizard ties the shown proposal to the shared
 `smartSegmentAnalysisIdentity` (immediate name, campaign, family, target, cap, override — not
-MTA), resets on change, drops late responses, disables « Créer » unless params still match.
+MTA), resets on change, drops late responses, disables « Créer » unless params still match. A
+hand-typed brand must stay editable and is dropped when the campaign name changes (otherwise it
+silently keeps precedence over detection with stale refs/tags/history).
 
 **Why:** an analysis made for another name/cap/pre-draft context could otherwise be attached to
 the current draft (500 ms debounce + un-fenced mutation results made this reachable).

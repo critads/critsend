@@ -22,6 +22,7 @@ import {
   type SmartSegmentBrandSend,
   type SmartSegmentEvidence,
   type SmartSegmentStage,
+  SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS,
 } from "@shared/smart-segment";
 import { compileCountQuery, compileSegmentRules, EXCLUDED_BOT_OPEN_IP } from "./segment-compiler";
 import { getSegmentPerformanceHistoryCandidates } from "../repositories/campaign-repository";
@@ -379,7 +380,9 @@ export async function buildSmartSegmentEvidence(
           LIMIT 50`,
         [pattern, config.recentBrandSendDays, input.excludeCampaignId],
       );
-      const recentMatches = recentRows.filter((row) => campaignMatchesBrand(row.name, brand));
+      // Rows arrive newest first: keep the newest matches only (the rule is
+      // « the ≤ N most recent sends », not every send of the window).
+      const recentMatches = recentRows.filter((row) => campaignMatchesBrand(row.name, brand)).slice(0, SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS);
       recentBrandCampaignIds = recentMatches.map((row) => row.id);
       for (const row of recentMatches) campaignNames[row.id] = row.name;
     }

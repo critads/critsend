@@ -70,6 +70,17 @@ export function SmartSegmentAssistant({
     const timer = window.setTimeout(() => setDebouncedName(campaignName.trim()), 500);
     return () => window.clearTimeout(timer);
   }, [campaignName]);
+  // A brand typed by hand describes ONE campaign name. When the name changes
+  // the override is dropped, otherwise it would keep precedence over the
+  // detection and the analysis would run with stale refs, unsubscribe tags
+  // and brand history.
+  const overrideForName = useRef(debouncedName);
+  useEffect(() => {
+    if (overrideForName.current === debouncedName) return;
+    overrideForName.current = debouncedName;
+    setBrandName("");
+    setBrandRef("");
+  }, [debouncedName]);
 
   const statusQuery = useQuery({
     queryKey: ["/api/smart-segments/status"],
@@ -214,7 +225,7 @@ export function SmartSegmentAssistant({
       <fieldset disabled={!configured} className="space-y-4 disabled:opacity-60">
         {resolveQuery.isLoading && <Skeleton className="h-8 w-full" />}
         {resolveQuery.isError && <p className="flex items-center gap-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" />{parseSmartSegmentApiError(resolveQuery.error).message}</p>}
-        {brand?.detected ? (
+        {brand?.detected && brand.source !== "manual" ? (
           <div className="space-y-2 text-sm">
             <p><span className="font-medium">Marque détectée :</span> {brand.brandName}</p>
             <div className="flex flex-wrap gap-1">
@@ -224,11 +235,24 @@ export function SmartSegmentAssistant({
           </div>
         ) : debouncedName ? (
           <div className="space-y-2">
-            <p className="text-sm font-medium">Marque non reconnue — indiquez-la pour pouvoir analyser</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium">
+                {override ? "Marque saisie manuellement (modifiable)" : "Marque non reconnue — indiquez-la pour pouvoir analyser"}
+              </p>
+              {(brandName || brandRef) && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setBrandName(""); setBrandRef(""); }} data-testid="button-smart-segment-brand-clear">Effacer</Button>
+              )}
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div><Label htmlFor="smart-brand-name">Nom de la marque</Label><Input id="smart-brand-name" value={brandName} onChange={(e) => setBrandName(e.target.value)} data-testid="input-smart-segment-brand-name" /></div>
               <div><Label htmlFor="smart-brand-ref">Ref principale</Label><Input id="smart-brand-ref" value={brandRef} onChange={(e) => setBrandRef(e.target.value)} data-testid="input-smart-segment-brand-ref" /></div>
             </div>
+            {brand?.detected && brand.source === "manual" && (
+              <div className="flex flex-wrap gap-1 text-sm">
+                {[...brand.coreRefs, ...brand.extensionRefs].map((ref) => <Badge key={ref} variant="outline">{ref}</Badge>)}
+                {brand.verticalLabel && <Badge variant="secondary">{brand.verticalLabel}</Badge>}
+              </div>
+            )}
           </div>
         ) : null}
 

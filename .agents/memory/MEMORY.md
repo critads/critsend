@@ -31,4 +31,4 @@
 - [Transfer asset safety](transfer-asset-safety.md) — lost COMMIT acknowledgements must preserve prepared images until publication can be reconciled.
 - [PM2 .env overrides vs code defaults](pm2-env-overrides.md) — prod `.env` wins over env-overridable defaults; tell operators to SET (not delete) the line; deploy.sh greps need `|| true` under pipefail.
 - [Ref conventions & in-flight counters](subscriber-ref-conventions.md) — ref prefix = vertical (4 = travel), US/E prefixes, U-tags; campaign_sends 'sent' = reservation, trust campaigns.sent_count while delivering.
-- [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — model inclusions only via block macros (OR needs a block per branch), worst-rate residual floor, DB-only job admission (PM2 cluster), strict campaign binding.
+- [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — inclusions only via block macros; projection = exact recount × worst implicated cohort (tier/family/ref); DB-only job admission; strict binding.

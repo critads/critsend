@@ -17,6 +17,8 @@ import {
 export const SMART_SEGMENT_COMPLAINT_HARD_CAP = 0.006;
 export const SMART_SEGMENT_COMPLAINT_TARGET = 0.0045;
 export const SMART_SEGMENT_REUSE_WINDOW_MS = 6 * 60 * 60 * 1000;
+/** Recipients of at most this many of the brand's newest sends (30 d) are excluded. */
+export const SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS = 6;
 export const SMART_SEGMENT_DISCLAIMER =
   "Projections issues de l'historique d'envois de la marque : le résultat réel dépend de la créa, de l'objet et de l'heure d'envoi.";
 

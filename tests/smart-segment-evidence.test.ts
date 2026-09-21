@@ -111,7 +111,11 @@ describe("buildSmartSegmentEvidence", () => {
     ]);
     const { runner, recorded, counts } = fakeRunner({
       stats: (ids) => ids.map((id) => id === "camp-a" ? statsRow(id, "Air France 01/09", 1_000_000, 1_000_000) : statsRow(id, "Air France 20/08", 120_000, 100_000)),
-      recent: () => [{ id: "camp-live", name: "Air France 19/09" }, { id: "camp-other", name: "Air Caraïbes 19/09" }],
+      recent: () => [
+        { id: "camp-live", name: "Air France 19/09" },
+        { id: "camp-other", name: "Air Caraïbes 19/09" },
+        ...Array.from({ length: 8 }, (_, i) => ({ id: `camp-older-${i}`, name: `Air France ${18 - i}/09` })),
+      ],
       cohorts: (campaignId, divisor) => (campaignId === "camp-a" ? cohortRows(divisor) : []),
       tiers: () => [{ tier: "6+", count: "3000" }, { tier: "1", count: "9000" }],
       count: (_sql, label) => (label.includes("très actifs") ? 3_000 : 20_000),
@@ -132,8 +136,9 @@ describe("buildSmartSegmentEvidence", () => {
       ["camp-b", false, false],
     ]);
     expect(evidence.brandSends[0].humanClickers).toBe(2_400);
-    // Only the brand's own recent send is excluded, not the other advertiser matched by ILIKE.
-    expect(evidence.recentBrandCampaignIds).toEqual(["camp-live"]);
+    // Only the brand's own recent sends are excluded (not the other advertiser
+    // matched by ILIKE), and only the six NEWEST of them (rows arrive newest first).
+    expect(evidence.recentBrandCampaignIds).toEqual(["camp-live", "camp-older-0", "camp-older-1", "camp-older-2", "camp-older-3", "camp-older-4"]);
     expect(evidence.campaignNames["camp-live"]).toBe("Air France 19/09");
     // 1,000,000 recipients → sampled 1/4 and rescaled.
     expect(evidence.budget.sampledCampaigns).toEqual([{ campaignId: "camp-a", divisor: 4 }]);
