@@ -21,7 +21,8 @@ import type { AudienceMeasure } from "../server/services/smart-segment-projectio
 import type { SegmentRulesV2 } from "../shared/schema";
 import { SmartSegmentError } from "../server/services/smart-segment-evidence";
 import { AnthropicClientError } from "../server/services/anthropic-client";
-import { aggregateCohortRates, buildBlockLibrary, condition, group, projectBlock } from "../server/services/smart-segment-projection";
+import { aggregateCohortRates, buildBlockLibrary,
+  splitProjectableBlocks, condition, group, projectBlock } from "../server/services/smart-segment-projection";
 
 const brand = {
   detected: true,
@@ -48,7 +49,7 @@ const cohortRates = aggregateCohortRates([
 ]);
 
 function makeEvidence(): SmartSegmentEvidence {
-  const definitions = buildBlockLibrary(brand);
+  const { projectable: definitions } = splitProjectableBlocks(buildBlockLibrary(brand), cohortRates);
   const availability: Record<string, number> = {
     clickers_6plus: 3_000, clickers_4plus: 6_000, clickers_1plus: 25_000, warm_openers: 90_000,
     openers_vertical: 20_000, brand_core_refs: 40_000, brand_extension_refs: 8_000,

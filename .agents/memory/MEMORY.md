@@ -32,4 +32,4 @@
 - [PM2 .env overrides vs code defaults](pm2-env-overrides.md) — prod `.env` wins over env-overridable defaults; tell operators to SET (not delete) the line; deploy.sh greps need `|| true` under pipefail.
 - [Ref conventions & in-flight counters](subscriber-ref-conventions.md) — ref prefix = vertical (4 = travel), US/E prefixes, U-tags; campaign_sends 'sent' = reservation, trust campaigns.sent_count while delivering.
 - [Naive timestamp parse shift](naive-timestamp-parse-shift.md) — raw db.execute rows return naive `timestamp` columns shifted by the prod process TZ (−2 h CEST); use `AT TIME ZONE 'UTC'` or Drizzle-typed selects.
-- [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — inclusions only via block macros; projection = exact recount × worst implicated cohort (tier/family/ref); DB-only job admission; strict binding.
+- [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — inclusions only via block macros; projection = exact recount × worst implicated cohort; non-active blocks need their own recency cohort or are omitted.

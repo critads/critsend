@@ -35,7 +35,7 @@ export function getSmartSegmentConfig() {
     /** statement_timeout applied to every evidence query (SET LOCAL). */
     queryTimeoutMs: envInt("SMART_SEGMENT_QUERY_TIMEOUT_MS", 30_000, 1_000, 120_000),
     /** Whole evidence phase budget (all queries together). */
-    evidenceBudgetMs: envInt("SMART_SEGMENT_EVIDENCE_BUDGET_MS", 150_000, 10_000, 600_000),
+    evidenceBudgetMs: envInt("SMART_SEGMENT_EVIDENCE_BUDGET_MS", 240_000, 10_000, 600_000),
     /** Analyses running at the same time across every web instance (DB-enforced). */
     maxConcurrent: envInt("SMART_SEGMENT_MAX_CONCURRENT", 2, 1, 4),
     /** Refuse to start when the main pool is this saturated (matches backgroundQuery's guard). */
@@ -47,6 +47,12 @@ export function getSmartSegmentConfig() {
     recentBrandSendDays: envInt("SMART_SEGMENT_RECENT_SEND_DAYS", 30, 1, 365),
     /** Sends larger than this are measured on a deterministic 1/k sample. */
     cohortSampleTarget: envInt("SMART_SEGMENT_COHORT_SAMPLE_TARGET", 250_000, 20_000, 5_000_000),
+    /** Recency cohorts cost one index probe per recipient: measured on a smaller sample per send. */
+    recencySampleTarget: envInt("SMART_SEGMENT_RECENCY_SAMPLE_TARGET", 20_000, 5_000, 500_000),
+    /** Fallback pool for the recency cohorts: recent finished sends of every brand. */
+    recencyPoolDays: envInt("SMART_SEGMENT_RECENCY_POOL_DAYS", 60, 7, 365),
+    recencyPoolMaxCampaigns: envInt("SMART_SEGMENT_RECENCY_POOL_MAX_CAMPAIGNS", 12, 1, 100),
+    recencyPoolSampleTarget: envInt("SMART_SEGMENT_RECENCY_POOL_SAMPLE_TARGET", 30_000, 5_000, 500_000),
   };
 }
 

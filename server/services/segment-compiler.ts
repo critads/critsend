@@ -18,6 +18,9 @@ function escapeLikeValue(value: string): string {
 // Fixed re-engagement window (days) for the "engagement" segment field.
 // Single source of truth so the window is trivial to change later.
 export const ENGAGEMENT_RECENCY_DAYS = 60;
+// Outer bound of the « lapsed » band (61–180 days without open/click); beyond
+// it a subscriber is « dormant ». Shared by the smart-segment recency blocks.
+export const ENGAGEMENT_LAPSED_DAYS = 180;
 
 // Task #232 — clicker-tier thresholds: minimum number of DISTINCT campaigns
 // clicked within the 60-day window. "Top" = strictly more than 3 (>= 4),
@@ -99,7 +102,7 @@ function campaignIdList(value: unknown): string[] | null {
 function compileCondition(cond: SegmentCondition): SQL {
   const { field, operator, value, value2 } = cond;
 
-  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip"];
+  const unaryOps = ["is_empty", "is_not_empty", "has_any_tag", "has_no_tags", "has_any_ref", "has_no_refs", "engaged_recently", "not_engaged_recently", "engaged_lapsed", "dormant", "clicked_recently", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip"];
   if (!unaryOps.includes(operator)) {
     if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) {
       logger.warn("Empty value for non-unary segment operator", { field, operator });
@@ -235,6 +238,13 @@ function compileCondition(cond: SegmentCondition): SQL {
         return sql`${subscribers.lastEngagedAt} >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int`;
       case "not_engaged_recently":
         return sql`(${subscribers.lastEngagedAt} IS NULL OR ${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int)`;
+      // Recency bands used by the smart-segment « non-active » blocks: lapsed =
+      // last open/click between 61 and 180 days ago; dormant = none in 180 days
+      // (or never). The three bands (recent / lapsed / dormant) partition the base.
+      case "engaged_lapsed":
+        return sql`(${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int AND ${subscribers.lastEngagedAt} >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_LAPSED_DAYS}::int)`;
+      case "dormant":
+        return sql`(${subscribers.lastEngagedAt} IS NULL OR ${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_LAPSED_DAYS}::int)`;
       // Clicker tiers (Task #232): distinct campaigns clicked in the window.
       // IMPORTANT (perf): use a SEMI-JOIN (IN + GROUP BY/HAVING) — one single
       // index scan over the recent click slice, hashed against subscribers —

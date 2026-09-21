@@ -271,6 +271,7 @@ describe("startSmartSegmentAnalysis", () => {
     await expect(deps.measureAudience(proposal.segments[0].rules)).resolves.toEqual({
       total: 1_234,
       tierCounts: { "6+": 1_000, "2-3": 200, "0": 34 },
+      recencyCounts: {},
     });
   });
 

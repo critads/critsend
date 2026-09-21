@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,18 +13,24 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   clampComplaintCapPercent,
   complaintRateColor,
+  defaultSimilarBrandRefs,
   formatSmartSegmentPercent,
   parseSmartSegmentApiError,
+  validateManualSimilarRef,
 } from "@/lib/smart-segment-ui";
 import {
   DOMAIN_FAMILIES,
+  RECENCY_BAND_LABELS,
+  SMART_SEGMENT_MAX_SIMILAR_REFS,
   SMART_SEGMENT_STAGE_LABELS,
+  normalizeSimilarRefs,
   type DomainFamilyId,
   type SmartSegmentAnalysisRequest,
   type SmartSegmentAnalysisView,
   type SmartSegmentFeatureStatus,
   type SmartSegmentMaterializeResponse,
   type SmartSegmentResolveResponse,
+  type SmartSegmentSimilarBrandsResponse,
   smartSegmentAnalysisIdentity,
 } from "@shared/smart-segment";
 
@@ -43,7 +50,20 @@ const analysisIdentity = smartSegmentAnalysisIdentity;
 const integer = new Intl.NumberFormat("fr-FR");
 const date = (value: string) => new Intl.DateTimeFormat("fr-FR").format(new Date(value));
 const calibrationLabel = (value: string) => ({ brand: "marque", vertical: "verticale", global: "globale" }[value] ?? value);
-const axisLabel = (value: string) => ({ clicker_tier: "niveau de clic", ref_relation: "relation à la marque", family: "famille" }[value] ?? value);
+const recencyCalibrationLabel = (value: string) => ({ brand: "marque", vertical: "verticale", global: "toutes marques" }[value] ?? value);
+const axisLabel = (value: string) => ({
+  clicker_tier: "niveau de clic",
+  ref_relation: "relation à la marque",
+  family: "famille",
+  recency: "Récence (dernière activité)",
+  ref_recency: "Récence × relation aux refs",
+}[value] ?? value);
+const cohortLabel = (value: string) => {
+  if (value in RECENCY_BAND_LABELS) return RECENCY_BAND_LABELS[value as keyof typeof RECENCY_BAND_LABELS];
+  const [relation, band] = value.split("|");
+  if (band && band in RECENCY_BAND_LABELS) return `${relation} · ${RECENCY_BAND_LABELS[band as keyof typeof RECENCY_BAND_LABELS]}`;
+  return value;
+};
 
 export function SmartSegmentAssistant({
   campaignName,
@@ -65,6 +85,10 @@ export function SmartSegmentAssistant({
   const [proofsOpen, setProofsOpen] = useState(false);
   const [createdIndexes, setCreatedIndexes] = useState<number[]>([]);
   const [successNames, setSuccessNames] = useState<string[]>([]);
+  const [checkedSimilarRefs, setCheckedSimilarRefs] = useState<string[]>([]);
+  const [manualSimilarRefs, setManualSimilarRefs] = useState<string[]>([]);
+  const [manualSimilarInput, setManualSimilarInput] = useState("");
+  const [manualSimilarError, setManualSimilarError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedName(campaignName.trim()), 500);
@@ -100,6 +124,26 @@ export function SmartSegmentAssistant({
       return response.json() as Promise<SmartSegmentResolveResponse>;
     },
   });
+  const brand = resolveQuery.data?.brand;
+  const coreRefs = brand?.detected ? normalizeSimilarRefs(brand.coreRefs) : [];
+  const coreRefsKey = coreRefs.join(",");
+  const similarBrandsQuery = useQuery({
+    queryKey: ["/api/smart-segments/similar-brands", coreRefsKey],
+    enabled: coreRefs.length > 0,
+    queryFn: async () => {
+      const response = await apiRequest("POST", "/api/smart-segments/similar-brands", { coreRefs });
+      return response.json() as Promise<SmartSegmentSimilarBrandsResponse>;
+    },
+  });
+  useEffect(() => {
+    setCheckedSimilarRefs([]);
+    setManualSimilarRefs([]);
+    setManualSimilarInput("");
+    setManualSimilarError(null);
+  }, [coreRefsKey]);
+  useEffect(() => {
+    if (similarBrandsQuery.data) setCheckedSimilarRefs(defaultSimilarBrandRefs(similarBrandsQuery.data.candidates));
+  }, [similarBrandsQuery.data]);
   useEffect(() => {
     if (!familyChosen && resolveQuery.data?.suggestedFamily) setFamily(resolveQuery.data.suggestedFamily);
   }, [resolveQuery.data?.suggestedFamily, familyChosen]);
@@ -123,6 +167,7 @@ export function SmartSegmentAssistant({
   // The exact request "Analyser" would send right now. Every input that
   // changes the analysis is part of it (immediate name — not the debounced
   // one —, campaign, MTA, family, target, cap, brand override).
+  const similarRefs = normalizeSimilarRefs([...checkedSimilarRefs, ...manualSimilarRefs]);
   const requestBody = useMemo<SmartSegmentAnalysisRequest>(() => ({
     campaignName: campaignName.trim(),
     campaignId,
@@ -131,7 +176,8 @@ export function SmartSegmentAssistant({
     targetClicks: Math.max(50, Math.round(targetClicks)),
     complaintCap: clampComplaintCapPercent(complaintCapPercent) / 100,
     brandOverride: override,
-  }), [campaignName, campaignId, mtaId, family, targetClicks, complaintCapPercent, override]);
+    ...(similarRefs.length > 0 ? { similarRefs } : {}),
+  }), [campaignName, campaignId, mtaId, family, targetClicks, complaintCapPercent, override, similarRefs.join(",")]);
   const requestKey = analysisIdentity(requestBody);
   // The displayed analysis belongs to one exact request. When any input
   // changes, the projection on screen no longer describes what "Analyser"
@@ -166,7 +212,11 @@ export function SmartSegmentAssistant({
       setAnalysisId(view.id);
       setCreatedIndexes(view.createdSegments.map((segment) => segment.index));
     },
-    onError: (cause) => setError(parseSmartSegmentApiError(cause).message),
+    onMutate: () => ({ key: currentRequestKey.current }),
+    onError: (cause, _refresh, context) => {
+      if (context?.key !== currentRequestKey.current) return; // inputs changed meanwhile: stale error
+      setError(parseSmartSegmentApiError(cause).message);
+    },
   });
 
   // A proposal may only be materialised while it still describes the current
@@ -195,7 +245,6 @@ export function SmartSegmentAssistant({
     onError: (cause) => setError(parseSmartSegmentApiError(cause).message),
   });
 
-  const brand = resolveQuery.data?.brand;
   // Without a resolved brand (detected or entered manually) the server refuses
   // the analysis (BRAND_UNRESOLVED): keep the button consistent with it.
   const brandReady = brand?.detected === true || override !== null;
@@ -207,6 +256,25 @@ export function SmartSegmentAssistant({
     for (const row of evidence?.cohortRates ?? []) groups.set(row.axis, [...(groups.get(row.axis) ?? []), row]);
     return groups;
   }, [evidence]);
+  const ownBrandRefs = normalizeSimilarRefs([...(brand?.coreRefs ?? []), ...(brand?.extensionRefs ?? [])]);
+  const similarRefsAtCap = similarRefs.length >= SMART_SEGMENT_MAX_SIMILAR_REFS;
+  const toggleSimilarRef = (ref: string, checked: boolean) => {
+    const normalized = ref.toUpperCase();
+    setCheckedSimilarRefs((current) => checked
+      ? normalizeSimilarRefs([...current, normalized]).slice(0, SMART_SEGMENT_MAX_SIMILAR_REFS)
+      : current.filter((value) => value !== normalized));
+    setManualSimilarError(null);
+  };
+  const addManualSimilarRef = () => {
+    const result = validateManualSimilarRef(manualSimilarInput, ownBrandRefs, similarRefs);
+    if (!result.ref) {
+      setManualSimilarError(result.error);
+      return;
+    }
+    setManualSimilarRefs((current) => normalizeSimilarRefs([...current, result.ref!]));
+    setManualSimilarInput("");
+    setManualSimilarError(null);
+  };
 
   return (
     <div className="rounded-lg border bg-muted/30 p-4 space-y-4" data-testid="smart-segment-assistant">
@@ -255,6 +323,71 @@ export function SmartSegmentAssistant({
             )}
           </div>
         ) : null}
+
+        {brand?.detected && coreRefs.length > 0 && (
+          <div className="space-y-3 rounded-md border bg-background p-3">
+            <div>
+              <p className="text-sm font-medium">Marques similaires</p>
+              <p className="text-xs text-muted-foreground">
+                Refs de marques dont les porteurs recoupent ceux de la marque (co-occurrence mesurée sur la base). Cochées par défaut ; décochez pour les écarter.
+              </p>
+            </div>
+            {similarBrandsQuery.isLoading ? <Skeleton className="h-16 w-full" /> : similarBrandsQuery.isError ? (
+              <p className="text-sm text-muted-foreground">Marques similaires indisponibles</p>
+            ) : similarBrandsQuery.data?.candidates.length ? (
+              <div className="space-y-2">
+                {similarBrandsQuery.data.candidates.map((candidate) => {
+                  const ref = candidate.ref.toUpperCase();
+                  const checked = checkedSimilarRefs.includes(ref);
+                  return (
+                    <div key={`${candidate.sourceRef}-${ref}`} className="flex items-start gap-2">
+                      <Checkbox
+                        id={`smart-similar-${candidate.sourceRef}-${ref}`}
+                        checked={checked}
+                        disabled={!checked && similarRefsAtCap}
+                        onCheckedChange={(value) => toggleSimilarRef(ref, value === true)}
+                        data-testid={`checkbox-smart-segment-similar-${ref}`}
+                      />
+                      <Label htmlFor={`smart-similar-${candidate.sourceRef}-${ref}`} className="min-w-0 flex-1 font-normal">
+                        <span className="block">{candidate.brandName ?? ref} · {ref}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          lift ×{candidate.lift.toFixed(1)} · {integer.format(candidate.commonCount)} porteurs communs
+                        </span>
+                      </Label>
+                      {coreRefs.length > 1 && <Badge variant="outline">{candidate.sourceRef}</Badge>}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Aucune marque similaire mesurable pour cette marque.</p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Input
+                className="h-8 w-56"
+                placeholder="Ajouter une ref, ex. 4TUI"
+                value={manualSimilarInput}
+                onChange={(event) => { setManualSimilarInput(event.target.value); setManualSimilarError(null); }}
+                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addManualSimilarRef(); } }}
+                data-testid="input-smart-segment-similar-ref"
+              />
+              <Button type="button" variant="outline" size="sm" disabled={similarRefsAtCap} onClick={addManualSimilarRef}>Ajouter</Button>
+            </div>
+            {manualSimilarRefs.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {manualSimilarRefs.map((ref) => (
+                  <Badge key={ref} variant="secondary" className="gap-1">
+                    {ref}
+                    <button type="button" className="rounded px-0.5 hover:bg-muted" aria-label={`Retirer ${ref}`} onClick={() => setManualSimilarRefs((current) => current.filter((value) => value !== ref))}>×</button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {manualSimilarError && <p className="text-xs text-destructive">{manualSimilarError}</p>}
+            {similarRefsAtCap && <p className="text-xs text-muted-foreground">{SMART_SEGMENT_MAX_SIMILAR_REFS} refs maximum</p>}
+            {similarBrandsQuery.data?.notes.map((note) => <p key={note} className="text-xs text-muted-foreground">{note}</p>)}
+          </div>
+        )}
 
         <div className="grid gap-3 md:grid-cols-3">
           <div className="space-y-1"><Label>Famille de domaines</Label>
@@ -313,9 +446,13 @@ export function SmartSegmentAssistant({
           {evidence && <div className="rounded-lg border bg-background">
             <Button type="button" variant="ghost" className="w-full justify-between" onClick={() => setProofsOpen((open) => !open)}>Preuves {proofsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>
             {proofsOpen && <div className="space-y-5 overflow-x-auto p-4 text-sm">
+              {!!evidence.similarBrands?.length && <p><span className="font-medium">Marques similaires retenues :</span> {evidence.similarBrands.map((item) => `${item.brandName ?? item.ref} (${item.ref})`).join(", ")}</p>}
+              {evidence.recencyCalibration && <p><span className="font-medium">Cohortes de récence :</span> calibrage {recencyCalibrationLabel(evidence.recencyCalibration.level)} sur {integer.format(evidence.recencyCalibration.campaignIds.length)} envoi(s)</p>}
+              {evidence.recencyCalibration === null && <p className="text-muted-foreground">Blocs non actifs indisponibles (aucune cohorte de récence fiable)</p>}
               <div><h5 className="mb-2 font-medium">Envois de la marque</h5><Table><TableHeader><TableRow><TableHead>Nom / date</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes</TableHead><TableHead>Terminé / calibration</TableHead></TableRow></TableHeader><TableBody>{evidence.brandSends.map((send) => <TableRow key={send.campaignId}><TableCell>{send.name}<br /><span className="text-xs text-muted-foreground">{date(send.firstSendAt)}</span></TableCell><TableCell>{integer.format(send.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(send.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(send.complaintRate)} %</TableCell><TableCell>{send.finished ? "Oui" : "Non"} / {send.usedForCalibration ? "Oui" : "Non"}</TableCell></TableRow>)}</TableBody></Table></div>
-              {[...groupedCohorts.entries()].map(([axis, rows]) => <div key={axis}><h5 className="mb-2 font-medium">Cohortes — {axisLabel(axis)}</h5><Table><TableHeader><TableRow><TableHead>Cohorte</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={`${axis}-${row.cohort}`}><TableCell>{row.cohort}</TableCell><TableCell>{integer.format(row.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(row.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(row.complaintRate)} %</TableCell></TableRow>)}</TableBody></Table></div>)}
+              {[...groupedCohorts.entries()].map(([axis, rows]) => <div key={axis}><h5 className="mb-2 font-medium">Cohortes — {axisLabel(axis)}</h5><Table><TableHeader><TableRow><TableHead>Cohorte</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={`${axis}-${row.cohort}`}><TableCell>{cohortLabel(row.cohort)}</TableCell><TableCell>{integer.format(row.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(row.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(row.complaintRate)} %</TableCell></TableRow>)}</TableBody></Table></div>)}
               <div><h5 className="mb-2 font-medium">Blocs</h5><Table><TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Disponible</TableHead><TableHead>CTR attendu</TableHead><TableHead>Clics projetés</TableHead><TableHead>Calibration / décote</TableHead></TableRow></TableHeader><TableBody>{evidence.blocks.map((block) => <TableRow key={block.id}><TableCell>{block.label}</TableCell><TableCell>{integer.format(block.available)}</TableCell><TableCell>{formatSmartSegmentPercent(block.expectedCtr)} %</TableCell><TableCell>{integer.format(block.projectedClicks.low)} – {integer.format(block.projectedClicks.high)}</TableCell><TableCell>{calibrationLabel(block.calibration.level)} / {formatSmartSegmentPercent(block.calibration.discount)} %</TableCell></TableRow>)}</TableBody></Table></div>
+              {evidence.omittedBlocks?.map((block) => <p key={block.id} className="text-muted-foreground">Bloc non proposé : {block.label} — {block.reason}</p>)}
               <p><span className="font-medium">Niveau de calibration :</span> {calibrationLabel(evidence.calibrationLevel)}</p>
               {evidence.notes.length > 0 && <ul className="list-disc space-y-1 pl-5">{evidence.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
             </div>}

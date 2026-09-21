@@ -33,6 +33,7 @@ import {
 } from "@shared/smart-segment";
 import { getSmartSegmentConfig, type SmartSegmentConfig } from "../config/smart-segment";
 import { resolveSmartSegmentBrand } from "./smart-segment-brand";
+import { validateSimilarRefs, withSimilarRefs } from "./smart-segment-similar";
 import { buildSmartSegmentEvidence, createTransactionRunner, measureAudienceWith, SmartSegmentError } from "./smart-segment-evidence";
 import { defaultModelCaller, generateSmartSegmentProposal, type ModelCaller } from "./smart-segment-proposal";
 import type { AudienceMeasure } from "./smart-segment-projection";
@@ -197,7 +198,10 @@ async function runAnalysis(id: string, params: SmartSegmentAnalysisRequest, deps
       logger.warn("[SMART_SEGMENT] analysis no longer queued at start; skipped", { id });
       return;
     }
-    const brand = await resolveSmartSegmentBrand({ campaignName: params.campaignName, brandOverride: params.brandOverride ?? null });
+    const resolved = await resolveSmartSegmentBrand({ campaignName: params.campaignName, brandOverride: params.brandOverride ?? null });
+    // Selection already validated at start; re-validated here so a persisted
+    // row can never smuggle the brand's own refs into the « similar » pool.
+    const brand = withSimilarRefs(resolved, validateSimilarRefs(params.similarRefs, resolved).similarRefs);
     const evidence = await buildSmartSegmentEvidence(
       { campaignName: params.campaignName, excludeCampaignId: params.campaignId ?? null, brand, family: params.family },
       (stage, progress) => updateProgress(id, stage, progress),
@@ -273,6 +277,14 @@ export async function startSmartSegmentAnalysis(
     throw new SmartSegmentError(
       "BRAND_UNRESOLVED",
       "Marque non reconnue dans le nom de campagne : indiquez le nom de la marque et sa ref principale avant d'analyser.",
+      422,
+    );
+  }
+  const similar = validateSimilarRefs(params.similarRefs, brand);
+  if (similar.rejected.length) {
+    throw new SmartSegmentError(
+      "SIMILAR_REFS_INVALID",
+      `Refs de marques similaires refusées : ${similar.rejected.join(", ")} (refs de la marque elle-même, DEL ou ref robot).`,
       422,
     );
   }

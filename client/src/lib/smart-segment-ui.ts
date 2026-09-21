@@ -1,3 +1,10 @@
+import {
+  SMART_SEGMENT_MAX_SIMILAR_REFS,
+  normalizeSimilarRefs,
+  smartSegmentRefSchema,
+  type SmartSegmentSimilarBrand,
+} from "@shared/smart-segment";
+
 export type ParsedSmartSegmentError = {
   status: number | null;
   message: string;
@@ -20,6 +27,27 @@ export function complaintRateColor(value: number): string {
   if (value >= 0.006) return "text-red-600";
   if (value >= 0.0045) return "text-amber-600";
   return "text-green-600";
+}
+
+export function defaultSimilarBrandRefs(candidates: readonly SmartSegmentSimilarBrand[]): string[] {
+  return normalizeSimilarRefs(candidates.map((candidate) => candidate.ref)).slice(0, SMART_SEGMENT_MAX_SIMILAR_REFS);
+}
+
+export function validateManualSimilarRef(
+  value: string,
+  forbiddenRefs: readonly string[],
+  selectedRefs: readonly string[],
+): { ref: string | null; error: string | null } {
+  const ref = value.trim().toUpperCase();
+  const parsed = smartSegmentRefSchema.safeParse(ref);
+  if (!parsed.success) return { ref: null, error: parsed.error.issues[0]?.message ?? "Ref invalide" };
+  const forbidden = new Set(normalizeSimilarRefs([...forbiddenRefs, "DEL"]));
+  if (forbidden.has(ref)) return { ref: null, error: "Cette ref ne peut pas être ajoutée." };
+  if (normalizeSimilarRefs(selectedRefs).includes(ref)) return { ref: null, error: "Cette ref est déjà sélectionnée." };
+  if (normalizeSimilarRefs(selectedRefs).length >= SMART_SEGMENT_MAX_SIMILAR_REFS) {
+    return { ref: null, error: `${SMART_SEGMENT_MAX_SIMILAR_REFS} refs maximum` };
+  }
+  return { ref, error: null };
 }
 
 export function parseSmartSegmentApiError(error: unknown): ParsedSmartSegmentError {

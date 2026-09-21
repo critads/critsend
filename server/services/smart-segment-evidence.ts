@@ -22,9 +22,12 @@ import {
   type SmartSegmentBrandSend,
   type SmartSegmentEvidence,
   type SmartSegmentStage,
+  type RecencyBand,
+  NON_ACTIVE_RECENCY_BANDS,
+  RECENCY_BAND_LABELS,
   SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS,
 } from "@shared/smart-segment";
-import { compileCountQuery, compileSegmentRules, EXCLUDED_BOT_OPEN_IP } from "./segment-compiler";
+import { compileCountQuery, compileSegmentRules, ENGAGEMENT_LAPSED_DAYS, ENGAGEMENT_RECENCY_DAYS, EXCLUDED_BOT_OPEN_IP } from "./segment-compiler";
 import { getSegmentPerformanceHistoryCandidates } from "../repositories/campaign-repository";
 import {
   campaignMatchesBrand,
@@ -39,7 +42,9 @@ import {
   group,
   mandatoryExclusions,
   projectBlock,
+  recencyRateFor,
   sampleDivisorFor,
+  splitProjectableBlocks,
   type AudienceMeasure,
   type ClickerTier,
   type RawCohortRow,
@@ -143,6 +148,93 @@ const CAMPAIGN_STATS_SQL = `
    WHERE c.id = ANY($1::text[])
    ORDER BY c.first_send_at DESC, c.id ASC`;
 
+/**
+ * Relation of a recipient's refs to the brand, first match wins:
+ * $3 core, $4 extension (US/E), $7 similar brands kept by the operator,
+ * $8 other brands of the vertical.
+ */
+const REF_RELATION_SQL = `CASE WHEN s.refs && $3::text[] THEN 'core'
+                WHEN s.refs && $4::text[] THEN 'extension'
+                WHEN s.refs && $7::text[] THEN 'similar'
+                WHEN s.refs && $8::text[] THEN 'vertical'
+                ELSE 'none' END`;
+
+/**
+ * Recency band of a recipient AT SEND TIME (last open/click before the send,
+ * looked up within 180 days). Same bands as the live `engagement` operators
+ * (60 d / 180 d on last_engaged_at), reconstructed from campaign_stats because
+ * last_engaged_at only holds the current value. One index probe per recipient
+ * (campaign_stats_subscriber_idx), hence the dedicated, smaller sample.
+ */
+const RECENCY_BAND_SQL = `CASE WHEN le.last_ts >= $2::timestamp - INTERVAL '60 days' THEN 'engaged_60d'
+                WHEN le.last_ts IS NOT NULL THEN 'opened_61_180d'
+                ELSE 'dormant_180d' END`;
+
+const RECENCY_COHORT_SQL = `
+  WITH recipients AS (
+    SELECT cs.subscriber_id, (cs.first_click_at IS NOT NULL) AS clicked
+      FROM campaign_sends cs
+     WHERE cs.campaign_id = $1
+       AND cs.status = 'sent'
+       AND ($6::int = 1 OR abs(hashtextextended(cs.subscriber_id, 0)) % $6::int = 0)
+  ),
+  detected AS (
+    SELECT DISTINCT st.subscriber_id
+      FROM campaign_stats st
+     WHERE st.ip_address = ${BOT_IP}
+       AND st.type IN ('open', 'complaint')
+       AND st.subscriber_id IN (SELECT subscriber_id FROM recipients)
+  ),
+  campaign_detected AS (
+    SELECT DISTINCT st.subscriber_id
+      FROM campaign_stats st
+     WHERE st.campaign_id = $1
+       AND st.ip_address = ${BOT_IP}
+       AND st.type IN ('open', 'complaint')
+  ),
+  enriched AS (
+    SELECT r.clicked,
+           ${RECENCY_BAND_SQL} AS recency,
+           ${REF_RELATION_SQL} AS ref_relation,
+           (d.subscriber_id IS NOT NULL) AS bot,
+           (cd.subscriber_id IS NOT NULL) AS complained
+      FROM recipients r
+      JOIN subscribers s ON s.id = r.subscriber_id
+      CROSS JOIN LATERAL (
+        SELECT MAX(st.timestamp) AS last_ts
+          FROM campaign_stats st
+         WHERE st.subscriber_id = r.subscriber_id
+           AND st.type IN ('open', 'click')
+           AND st.timestamp < $2::timestamp
+           AND st.timestamp >= $2::timestamp - INTERVAL '180 days'
+      ) le
+      LEFT JOIN detected d ON d.subscriber_id = r.subscriber_id
+      LEFT JOIN campaign_detected cd ON cd.subscriber_id = r.subscriber_id
+  )
+  SELECT axis, cohort,
+         COUNT(*)::text AS delivered,
+         COUNT(*) FILTER (WHERE clicked AND NOT bot)::text AS human_clickers,
+         COUNT(*) FILTER (WHERE clicked AND bot)::text AS bot_clickers,
+         COUNT(*) FILTER (WHERE complained)::text AS complaints
+    FROM (
+      SELECT 'recency' AS axis, recency AS cohort, clicked, bot, complained FROM enriched
+      UNION ALL SELECT 'ref_recency', ref_relation || '|' || recency, clicked, bot, complained FROM enriched
+    ) x
+   GROUP BY axis, cohort`;
+
+/** Recent finished sends of every brand: the fallback pool for the recency cohorts. */
+const RECENCY_POOL_CAMPAIGNS_SQL = `
+  SELECT id, name, first_send_at, sent_count
+    FROM campaigns
+   WHERE status IN ('completed', 'sent')
+     AND first_send_at IS NOT NULL
+     AND first_send_at >= NOW() - ($1::int * INTERVAL '1 day')
+     AND sent_count >= $2
+     AND ($3::text IS NULL OR id <> $3)
+     AND NOT (id = ANY($4::text[]))
+   ORDER BY first_send_at DESC
+   LIMIT $5`;
+
 const COHORT_SQL = `
   WITH recipients AS (
     SELECT cs.subscriber_id, (cs.first_click_at IS NOT NULL) AS clicked
@@ -177,7 +269,7 @@ const COHORT_SQL = `
   enriched AS (
     SELECT r.clicked,
            CASE WHEN p.n IS NULL THEN '0' WHEN p.n = 1 THEN '1' WHEN p.n <= 3 THEN '2-3' WHEN p.n <= 5 THEN '4-5' ELSE '6+' END AS tier,
-           CASE WHEN s.refs && $3::text[] THEN 'core' WHEN s.refs && $4::text[] THEN 'extension' ELSE 'none' END AS ref_relation,
+           ${REF_RELATION_SQL} AS ref_relation,
            CASE WHEN lower(split_part(s.email, '@', 2)) = ANY($5::text[]) THEN 'in_family' ELSE 'other' END AS family,
            (d.subscriber_id IS NOT NULL) AS bot,
            (cd.subscriber_id IS NOT NULL) AS complained
@@ -228,6 +320,24 @@ export function tierMixSql(rulesWhere: string): string {
  * disjoint clicker-tier partition, both from the same runner (one snapshot
  * transaction). This is what the projection and the complaint cap apply to.
  */
+/**
+ * Recency partition of an audience on the live `last_engaged_at` (same bands
+ * as the engagement operators). Only the two non-active bands are returned:
+ * the projection carves them out of the 0-click tier.
+ */
+export function recencyMixSql(rulesWhere: string): string {
+  return `
+  SELECT CASE WHEN subscribers.last_engaged_at >= NOW() - INTERVAL '${ENGAGEMENT_RECENCY_DAYS} days' THEN 'engaged_60d'
+              WHEN subscribers.last_engaged_at >= NOW() - INTERVAL '${ENGAGEMENT_LAPSED_DAYS} days' THEN 'opened_61_180d'
+              ELSE 'dormant_180d' END AS band,
+         COUNT(*)::text AS count
+    FROM subscribers
+   WHERE ${rulesWhere}
+     AND NOT COALESCE('BCK' = ANY(subscribers.tags), false)
+     AND (subscribers.suppressed_until IS NULL OR subscribers.suppressed_until < NOW())
+   GROUP BY 1`;
+}
+
 export async function measureAudienceWith(runner: EvidenceQueryRunner, rules: SegmentRulesV2, label = "proposition"): Promise<AudienceMeasure> {
   const total = await runner.queryCount(`recomptage de la ${label}`, compileCountQuery(rules));
   const tierCounts: TierCounts = {};
@@ -241,6 +351,14 @@ export async function measureAudienceWith(runner: EvidenceQueryRunner, rules: Se
       clickers += count;
     }
     tierCounts["0"] = Math.max(0, total - clickers);
+    const recencyRows = await runner.query<{ band: string; count: string }>(`répartition par récence de la ${label}`, recencyMixSql(where.sql), where.params);
+    const recencyCounts: NonNullable<AudienceMeasure["recencyCounts"]> = {};
+    for (const row of recencyRows) {
+      if ((NON_ACTIVE_RECENCY_BANDS as readonly string[]).includes(row.band) || row.band === "engaged_60d") {
+        recencyCounts[row.band as RecencyBand] = Number(row.count);
+      }
+    }
+    return { total, tierCounts, recencyCounts };
   }
   return { total, tierCounts };
 }
@@ -450,6 +568,7 @@ export async function buildSmartSegmentEvidence(
     // ── Stage 2: cohorts ─────────────────────────────────────────────────
     await onProgress("cohorts", 25);
     const familyDomains = [...DOMAIN_FAMILIES[input.family].domains];
+    const similarRefs = input.brand.similarRefs ?? [];
     const rawRows: RawCohortRow[] = [];
     for (const [index, send] of calibrationSends.entries()) {
       const divisor = sampleDivisorFor(send.delivered, config.cohortSampleTarget);
@@ -457,7 +576,7 @@ export async function buildSmartSegmentEvidence(
       const rows = await runner.query<{ axis: string; cohort: string; delivered: string; human_clickers: string; bot_clickers: string; complaints: string }>(
         `cohortes « ${send.name} »`,
         COHORT_SQL,
-        [send.campaignId, send.firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, familyDomains, divisor],
+        [send.campaignId, send.firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, familyDomains, divisor, similarRefs, input.brand.verticalRefs],
       );
       for (const row of rows) {
         rawRows.push({
@@ -469,9 +588,83 @@ export async function buildSmartSegmentEvidence(
           complaints: Number(row.complaints) * divisor,
         });
       }
-      await onProgress("cohorts", 25 + Math.round(((index + 1) / calibrationSends.length) * 25));
+      await onProgress("cohorts", 25 + Math.round(((index + 1) / calibrationSends.length) * 15));
     }
+
+    // ── Stage 2b: recency cohorts ────────────────────────────────────────
+    // Non-active bands (lapsed / dormant) are calibrated on the brand's own
+    // sends only when those reached enough non-active recipients; otherwise
+    // on a pool of recent sends of every brand, projected with the global
+    // markups. Without any reliable band, the non-active blocks are omitted.
+    const recencyQuery = async (campaignId: string, firstSendAt: string, delivered: number, target: number, label: string): Promise<RawCohortRow[]> => {
+      const divisor = sampleDivisorFor(delivered, target);
+      const rows = await runner.query<{ axis: string; cohort: string; delivered: string; human_clickers: string; bot_clickers: string; complaints: string }>(
+        `récence « ${label} »`,
+        RECENCY_COHORT_SQL,
+        [campaignId, firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, familyDomains, divisor, similarRefs, input.brand.verticalRefs],
+      );
+      return rows.map((row) => ({
+        axis: row.axis as RawCohortRow["axis"],
+        cohort: row.cohort,
+        delivered: Number(row.delivered) * divisor,
+        humanClickers: Number(row.human_clickers) * divisor,
+        botClickers: Number(row.bot_clickers) * divisor,
+        complaints: Number(row.complaints) * divisor,
+        // Reliability of a recency band is judged on recipients actually observed.
+        observed: Number(row.delivered),
+      }));
+    };
+    const bandsReliable = (rows: RawCohortRow[]): RecencyBand[] => {
+      const rates = aggregateCohortRates(rows);
+      return NON_ACTIVE_RECENCY_BANDS.filter((band) => recencyRateFor(rates, band) !== null);
+    };
+    const brandRecencyRows: RawCohortRow[] = [];
+    for (const [index, send] of calibrationSends.entries()) {
+      brandRecencyRows.push(...await recencyQuery(send.campaignId, send.firstSendAt, send.delivered, config.recencySampleTarget, send.name));
+      await onProgress("cohorts", 40 + Math.round(((index + 1) / calibrationSends.length) * 5));
+    }
+    let recencyRows = brandRecencyRows;
+    let recencyCalibration: SmartSegmentEvidence["recencyCalibration"] = {
+      level: calibrationLevel,
+      campaignIds: calibrationSends.map((send) => send.campaignId),
+    };
+    // The pool is a best-effort refinement: when the budget left would not
+    // also cover block sizing and the recount, the non-active blocks are
+    // omitted (fail closed) instead of failing the whole analysis.
+    const RECENCY_POOL_BUDGET_RESERVE_MS = 90_000;
+    const poolBudgetLeft = config.evidenceBudgetMs - runner.elapsedMs() > RECENCY_POOL_BUDGET_RESERVE_MS;
+    if (bandsReliable(brandRecencyRows).length < NON_ACTIVE_RECENCY_BANDS.length && !poolBudgetLeft) {
+      recencyRows = bandsReliable(brandRecencyRows).length ? brandRecencyRows : [];
+      recencyCalibration = recencyRows.length ? recencyCalibration : null;
+      notes.push("Budget d'analyse insuffisant pour calibrer la récence sur les envois récents toutes marques : les blocs sans activité 60 j non calibrés ne sont pas proposés.");
+    } else if (bandsReliable(brandRecencyRows).length < NON_ACTIVE_RECENCY_BANDS.length) {
+      const poolRows = await runner.query<{ id: string; name: string; first_send_at: Date | string; sent_count: string }>(
+        "envois récents toutes marques (récence)",
+        RECENCY_POOL_CAMPAIGNS_SQL,
+        [config.recencyPoolDays, MIN_CALIBRATION_DELIVERED, input.excludeCampaignId, calibrationSends.map((send) => send.campaignId), config.recencyPoolMaxCampaigns],
+      );
+      const poolTarget = Math.max(2_000, Math.ceil(config.recencyPoolSampleTarget / Math.max(1, poolRows.length)));
+      const pooled: RawCohortRow[] = [];
+      for (const [index, row] of poolRows.entries()) {
+        const firstSendAt = row.first_send_at instanceof Date ? row.first_send_at.toISOString() : String(row.first_send_at);
+        pooled.push(...await recencyQuery(row.id, firstSendAt, Number(row.sent_count), poolTarget, row.name));
+        campaignNames[row.id] = row.name;
+        await onProgress("cohorts", 45 + Math.round(((index + 1) / poolRows.length) * 5));
+      }
+      const poolBands = bandsReliable(pooled);
+      if (poolBands.length) {
+        recencyRows = pooled;
+        recencyCalibration = { level: "global", campaignIds: poolRows.map((row) => row.id) };
+        notes.push(`Cohortes de récence (${poolBands.map((band) => RECENCY_BAND_LABELS[band]).join(", ")}) calibrées sur ${poolRows.length} envois récents toutes marques (repli global : CTR ×0,65, plaintes ×1,5) : les envois de la marque ne touchent pas assez de contacts sans activité 60 j.`);
+      } else {
+        recencyRows = bandsReliable(brandRecencyRows).length ? brandRecencyRows : [];
+        recencyCalibration = recencyRows.length ? recencyCalibration : null;
+        notes.push("Aucun envoi récent ne touche assez de contacts sans activité 60 j : les blocs « ouverts 61–180 j » et « dormants » ne sont pas proposés.");
+      }
+    }
+    rawRows.push(...recencyRows);
     const cohortRates = aggregateCohortRates(rawRows);
+    const recencyLevel: CalibrationLevel = recencyCalibration?.level ?? calibrationLevel;
     if (sampledCampaigns.length) {
       notes.push(`Envois volumineux mesurés sur un échantillon déterministe (1/${sampledCampaigns.map((s) => s.divisor).join(", 1/")}) ; les effectifs sont remis à l'échelle, les taux sont exacts sur l'échantillon.`);
     }
@@ -491,12 +684,14 @@ export async function buildSmartSegmentEvidence(
     const tierCounts: TierCounts = {};
     for (const row of tierRows) tierCounts[row.tier as ClickerTier] = Number(row.count);
 
-    const definitions = buildBlockLibrary(input.brand);
+    // Fail closed: a non-active block without a reliable recency cohort is
+    // omitted rather than projected at the actives' rates.
+    const { projectable: definitions, omitted: omittedBlocks } = splitProjectableBlocks(buildBlockLibrary(input.brand), cohortRates);
     const blocks: SmartSegmentBlock[] = [];
     for (const [index, definition] of definitions.entries()) {
       const rules: SegmentRulesV2 = { version: 2, root: group("AND", [definition.rules, ...exclusions.map((entry) => entry.node)]) };
       const available = await runner.queryCount(`réservoir « ${definition.label} »`, compileCountQuery(rules));
-      blocks.push(projectBlock(definition, available, cohortRates, calibrationLevel, tierCounts));
+      blocks.push(projectBlock(definition, available, cohortRates, calibrationLevel, tierCounts, recencyLevel));
       await onProgress("reservoirs", 55 + Math.round(((index + 1) / definitions.length) * 20));
     }
 
@@ -505,6 +700,19 @@ export async function buildSmartSegmentEvidence(
     }
     if (!input.brand.detected) {
       notes.push("Marque sans ref connue : les réservoirs fondés sur les refs de la marque sont indisponibles.");
+    }
+    if (omittedBlocks.length) {
+      notes.push(`Blocs non proposés faute de calibrage fiable : ${omittedBlocks.map((block) => block.id).join(", ")}.`);
+    }
+    let similarBrands: NonNullable<SmartSegmentEvidence["similarBrands"]> = [];
+    if (similarRefs.length) {
+      const nameRows = await runner.query<{ ref: string; name: string }>(
+        "noms des marques similaires",
+        `SELECT DISTINCT ON (upper(ref)) upper(ref) AS ref, name FROM brands WHERE upper(ref) = ANY($1::text[]) ORDER BY upper(ref), name`,
+        [similarRefs],
+      );
+      const names = new Map(nameRows.map((row) => [row.ref, row.name]));
+      similarBrands = similarRefs.map((ref) => ({ ref, brandName: names.get(ref) ?? null }));
     }
 
     return {
@@ -518,6 +726,9 @@ export async function buildSmartSegmentEvidence(
       calibrationLevel,
       calibrationCampaignIds: calibrationSends.map((send) => send.campaignId),
       cohortRates,
+      recencyCalibration,
+      similarBrands,
+      omittedBlocks,
       blocks,
       mandatoryExclusions: exclusions.map((entry) => entry.label),
       budget: { elapsedMs: runner.elapsedMs(), queries: runner.queries(), sampledCampaigns },

@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
   compileSegmentRules,
-  ENGAGEMENT_RECENCY_DAYS,
+  ENGAGEMENT_RECENCY_DAYS, ENGAGEMENT_LAPSED_DAYS,
   EXCLUDED_BOT_OPEN_IP,
   TOP_CLICKER_MIN_CAMPAIGNS,
   ULTRA_CLICKER_MIN_CAMPAIGNS,
@@ -92,6 +92,26 @@ describe("Task #214 — engagement recency compiler", () => {
     expect(s).toContain("INTERVAL '1 day' *");
     expect(params.map(String)).toContain(String(ENGAGEMENT_RECENCY_DAYS));
     expect(s).not.toContain("FALSE");
+  });
+
+  it("compiles the lapsed band as a half-open 61–180 day window and dormant as NULL or older than 180 days", () => {
+    const lapsed = renderQuery(rulesFor("engaged_lapsed"));
+    expect(lapsed.sql).toContain("last_engaged_at");
+    expect(lapsed.sql).not.toContain("IS NULL");
+    expect(lapsed.sql).toContain("<");
+    expect(lapsed.sql).toContain(">=");
+    expect(lapsed.params.map(String)).toEqual(expect.arrayContaining([String(ENGAGEMENT_RECENCY_DAYS), String(ENGAGEMENT_LAPSED_DAYS)]));
+    const dormant = renderQuery(rulesFor("dormant"));
+    expect(dormant.sql).toContain("IS NULL");
+    expect(dormant.sql).toContain("<");
+    expect(dormant.params.map(String)).toContain(String(ENGAGEMENT_LAPSED_DAYS));
+    expect(dormant.params.map(String)).not.toContain(String(ENGAGEMENT_RECENCY_DAYS));
+    expect(ENGAGEMENT_LAPSED_DAYS).toBe(180);
+    for (const operator of ["engaged_lapsed", "dormant"]) {
+      expect(fieldOperatorsV2.engagement).toContain(operator);
+      expect(operatorLabelsV2[operator as keyof typeof operatorLabelsV2]).toBeTruthy();
+      expect(renderQuery(rulesFor(operator as never)).sql).not.toContain("FALSE");
+    }
   });
 
   it("compiles not_engaged_recently to include NULL and an older-than check", () => {

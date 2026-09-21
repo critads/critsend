@@ -16,6 +16,8 @@ import {
   projectComposition,
   rateFor,
   sampleDivisorFor,
+  recencyRateFor,
+  splitProjectableBlocks,
 } from "../server/services/smart-segment-projection";
 import { BOT_OPENER_REF } from "../server/config/suppression";
 
@@ -195,7 +197,14 @@ describe("smart segment projection — blocks and compositions", () => {
 
   it("builds ref-based blocks only when the brand has refs", () => {
     const ids = buildBlockLibrary(brand).map((block) => block.id);
-    expect(ids).toEqual(["clickers_6plus", "clickers_4plus", "clickers_1plus", "warm_openers", "openers_vertical", "brand_core_refs", "brand_extension_refs"]);
+    expect(ids).toEqual([
+      "clickers_6plus", "clickers_4plus", "clickers_1plus", "warm_openers", "openers_vertical", "brand_core_refs", "brand_extension_refs",
+      "brand_core_refs_lapsed", "vertical_refs_lapsed", "brand_core_refs_dormant", "vertical_refs_dormant",
+    ]);
+    const withSimilar = buildBlockLibrary({ ...brand, similarRefs: ["4TUI"] }).map((block) => block.id);
+    expect(withSimilar).toContain("similar_refs_active");
+    expect(withSimilar).toContain("similar_refs_lapsed");
+    expect(withSimilar).toContain("similar_refs_dormant");
     const anonymous = buildBlockLibrary({ ...brand, detected: false, coreRefs: [], extensionRefs: [], verticalRefs: [], vertical: null });
     expect(anonymous.map((block) => block.id)).toEqual(["clickers_6plus", "clickers_4plus", "clickers_1plus", "warm_openers"]);
   });
@@ -331,5 +340,137 @@ describe("smart segment projection — blocks and compositions", () => {
     expect(blind.unattributedCount).toBe(10_000);
     expect(blind.weightedCtr).toBeCloseTo(0.005 * CALIBRATION_ADJUSTMENTS.global.discount);
     expect(blind.projectedComplaintRate).toBeCloseTo(0.0012 * CALIBRATION_ADJUSTMENTS.global.complaintMarkup);
+  });
+});
+
+describe("smart segment projection — non-active recency blocks (Task #311)", () => {
+  const brandTable = rates([
+    ["clicker_tier", "0", 50_000, 400, 25],
+    ["ref_relation", "core", 20_000, 300, 10],
+    ["family", "in_family", 60_000, 500, 30],
+    ["recency", "engaged_60d", 60_000, 700, 20],
+  ]);
+  const recencyTable = rates([
+    ...brandTable.map((rate): [CohortRate["axis"], string, number, number, number] => [rate.axis, rate.cohort, rate.delivered, rate.humanClickers, rate.complaints]),
+    ["recency", "opened_61_180d", 5_000, 20, 4],
+    ["recency", "dormant_180d", 8_000, 8, 12],
+    ["ref_recency", "core|opened_61_180d", 2_000, 12, 3],
+    ["ref_recency", "core|dormant_180d", 500, 5, 0], // too thin: falls back to the band marginal
+  ]);
+
+  it("never blends a non-active band with the actives: no reliable band means no rate", () => {
+    expect(recencyRateFor(brandTable, "opened_61_180d")).toBeNull();
+    expect(recencyRateFor(brandTable, "dormant_180d", "core")).toBeNull();
+    const cross = recencyRateFor(recencyTable, "opened_61_180d", "core")!;
+    expect(cross.cohort).toBe("ref_recency/core|opened_61_180d");
+    expect(cross.humanCtr).toBeCloseTo(12 / 2_000);
+    const marginal = recencyRateFor(recencyTable, "dormant_180d", "core")!;
+    expect(marginal.cohort).toBe("recency/dormant_180d");
+    expect(marginal.humanCtr).toBeCloseTo(8 / 8_000);
+  });
+
+  it("omits the non-active blocks when their band is not calibrated and projects them on their own cohort otherwise", () => {
+    const definitions = buildBlockLibrary({ ...brand, similarRefs: ["4TUI"] });
+    const blind = splitProjectableBlocks(definitions, brandTable);
+    expect(blind.omitted.map((block) => block.id).sort()).toEqual([
+      "brand_core_refs_dormant", "brand_core_refs_lapsed", "similar_refs_dormant", "similar_refs_lapsed", "vertical_refs_dormant", "vertical_refs_lapsed",
+    ]);
+    expect(blind.projectable.map((block) => block.id)).toContain("similar_refs_active");
+    expect(() => projectBlock(definitions.find((d) => d.id === "brand_core_refs_lapsed")!, 1_000, brandTable, "brand", {})).toThrow(/sans cohorte de récence fiable/);
+
+    const sighted = splitProjectableBlocks(definitions, recencyTable);
+    expect(sighted.omitted).toEqual([]);
+    const lapsed = projectBlock(definitions.find((d) => d.id === "brand_core_refs_lapsed")!, 10_000, recencyTable, "brand", {}, "global");
+    // Cross cohort core|lapsed, projected with the recency (global) markups, never the tier-0 rate.
+    expect(lapsed.calibration.level).toBe("global");
+    expect(lapsed.expectedCtr).toBeCloseTo((12 / 2_000) * CALIBRATION_ADJUSTMENTS.global.discount);
+    expect(lapsed.expectedCtr).toBeLessThan(400 / 50_000);
+    expect(lapsed.expectedComplaintRate).toBeCloseTo(Math.max(3 / 2_000, 30 / 60_000) * CALIBRATION_ADJUSTMENTS.global.complaintMarkup);
+    const dormant = projectBlock(definitions.find((d) => d.id === "brand_core_refs_dormant")!, 10_000, recencyTable, "brand", {});
+    expect(dormant.expectedCtr).toBeCloseTo(8 / 8_000);
+    expect(dormant.expectedComplaintRate).toBeCloseTo(12 / 8_000);
+  });
+
+  it("carves the lapsed and dormant cells out of the 0-click tier of a composition and bounds them by the worst cross cohort", () => {
+    const definitions = buildBlockLibrary(brand);
+    const blocks = [
+      projectBlock(definitions.find((d) => d.id === "brand_core_refs")!, 40_000, recencyTable, "brand", {}),
+      projectBlock(definitions.find((d) => d.id === "brand_core_refs_lapsed")!, 10_000, recencyTable, "brand", {}),
+    ];
+    const measure = { total: 30_000, tierCounts: { "0": 30_000 }, recencyCounts: { engaged_60d: 12_000, opened_61_180d: 10_000, dormant_180d: 8_000 } };
+    const projection = projectComposition(measure, ["brand_core_refs", "brand_core_refs_lapsed"], blocks, recencyTable, "brand", "global");
+    const cells = Object.fromEntries(projection.tiers.map((cell) => [cell.band ?? cell.tier, cell]));
+    expect(cells["0"].count).toBe(12_000);
+    expect(cells["0"].ctr).toBeCloseTo(400 / 50_000);
+    expect(cells.opened_61_180d.count).toBe(10_000);
+    expect(cells.opened_61_180d.ctr).toBeCloseTo((20 / 5_000) * CALIBRATION_ADJUSTMENTS.global.discount);
+    // Worst of: band marginal (4/5000), core cross (3/2000), family bound, ref_relation/core.
+    expect(cells.opened_61_180d.complaintCohort).toBe("ref_recency/core|opened_61_180d");
+    expect(cells.opened_61_180d.complaintRate).toBeCloseTo((3 / 2_000) * CALIBRATION_ADJUSTMENTS.global.complaintMarkup);
+    expect(cells.dormant_180d.count).toBe(8_000);
+    expect(cells.dormant_180d.complaintCohort).toBe("recency/dormant_180d");
+    expect(projection.unattributedCount).toBe(0);
+
+    // Without any reliable recency cohort the non-active contacts are still
+    // carved out — at a zero CTR and the worst complaint rate measured anywhere.
+    const blind = projectComposition(measure, ["brand_core_refs"], blocks, brandTable, "brand");
+    const blindCells = Object.fromEntries(blind.tiers.map((cell) => [cell.band ?? cell.tier, cell]));
+    expect(blindCells["0"].count).toBe(12_000);
+    expect(blindCells.opened_61_180d.ctr).toBe(0);
+    expect(blindCells.dormant_180d.ctr).toBe(0);
+    const worstAnywhere = Math.max(...brandTable.map((rate) => rate.complaintRate));
+    expect(blindCells.dormant_180d.complaintRate).toBeCloseTo(worstAnywhere * CALIBRATION_ADJUSTMENTS.brand.complaintMarkup);
+    expect(blind.projectedClicks.high).toBeLessThan(projection.projectedClicks.high);
+  });
+
+  it("projects a carved cell at the lowest reliable CTR among the band marginal and the implicated crosses", () => {
+    const table = rates([
+      ["clicker_tier", "0", 50_000, 400, 25],
+      ["ref_relation", "core", 20_000, 300, 10],
+      ["family", "in_family", 60_000, 500, 30],
+      ["recency", "opened_61_180d", 5_000, 50, 4],
+      ["ref_recency", "core|opened_61_180d", 2_000, 4, 1], // lower CTR than the marginal
+    ]);
+    const definitions = buildBlockLibrary(brand);
+    const blocks = [projectBlock(definitions.find((d) => d.id === "brand_core_refs")!, 40_000, table, "brand", {})];
+    const measure = { total: 10_000, tierCounts: { "0": 10_000 }, recencyCounts: { engaged_60d: 5_000, opened_61_180d: 5_000, dormant_180d: 0 } };
+    const projection = projectComposition(measure, ["brand_core_refs"], blocks, table, "brand");
+    const lapsed = projection.tiers.find((cell) => cell.band === "opened_61_180d")!;
+    expect(lapsed.ctr).toBeCloseTo(4 / 2_000);
+    expect(lapsed.complaintCohort).toBe("recency/opened_61_180d");
+  });
+
+  it("judges the reliability of a recency band on observed recipients, not on the re-scaled effectives", () => {
+    const sampled = aggregateCohortRates([
+      { axis: "recency", cohort: "dormant_180d", delivered: 20 * 50, humanClickers: 0, botClickers: 0, complaints: 0, observed: 20 },
+      { axis: "recency", cohort: "opened_61_180d", delivered: 600 * 2, humanClickers: 10, botClickers: 0, complaints: 2, observed: 600 },
+      { axis: "recency", cohort: "opened_61_180d", delivered: 500 * 2, humanClickers: 8, botClickers: 0, complaints: 1, observed: 500 },
+    ]);
+    expect(recencyRateFor(sampled, "dormant_180d")).toBeNull();
+    const lapsed = recencyRateFor(sampled, "opened_61_180d")!;
+    expect(lapsed.delivered).toBe(2_200);
+    expect(sampled.find((rate) => rate.cohort === "opened_61_180d")?.observed).toBe(1_100);
+    // Rows without an observed count (exact measurements) keep the delivered gate.
+    expect(recencyRateFor(rates([["recency", "dormant_180d", 1_000, 1, 1]]), "dormant_180d")).not.toBeNull();
+  });
+
+  it("bounds a non-active ref block — alone in a composition — by its ref relation's complaint history, not only by the recency cohort", () => {
+    const risky = rates([
+      ["clicker_tier", "0", 50_000, 400, 25],
+      ["ref_relation", "core", 20_000, 300, 160], // 0.8 % — above any cap
+      ["family", "in_family", 60_000, 500, 30],
+      ["recency", "opened_61_180d", 5_000, 20, 1], // 0.02 % — deceptively clean
+    ]);
+    const definitions = buildBlockLibrary(brand);
+    const lapsedDefinition = definitions.find((d) => d.id === "brand_core_refs_lapsed")!;
+    const block = projectBlock(lapsedDefinition, 10_000, risky, "brand", {});
+    expect(block.expectedComplaintRate).toBeCloseTo(160 / 20_000);
+    const measure = { total: 10_000, tierCounts: { "0": 10_000 }, recencyCounts: { opened_61_180d: 10_000 } };
+    const projection = projectComposition(measure, ["brand_core_refs_lapsed"], [block], risky, "brand");
+    expect(projection.refCohortsApplied).toEqual(["core"]);
+    expect(projection.tiers).toHaveLength(1);
+    expect(projection.tiers[0].complaintCohort).toBe("ref_relation/core");
+    expect(projection.projectedComplaintRate).toBeCloseTo(160 / 20_000);
+    expect(exceedsComplaintCap(projection.projectedComplaintRate, 0.006)).toBe(true);
   });
 });

@@ -188,9 +188,14 @@ async function ensureCampaignExcludeSegmentForeignKey(): Promise<void> {
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
         source_ref text NOT NULL,
         result jsonb NOT NULL,
-        created_at timestamp NOT NULL DEFAULT now(),
-        expires_at timestamp NOT NULL
+        created_at timestamp NOT NULL DEFAULT now()
       )
+    `);
+    // A previous bootstrap declared an `expires_at NOT NULL` column that the
+    // insert never fills (production's table never had it): every fresh
+    // database rejected each analysis. Unused everywhere — drop it if present.
+    await db.execute(sql`
+      ALTER TABLE segment_ref_similarity_analyses DROP COLUMN IF EXISTS expires_at
     `);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS segment_ref_similarity_source_created_idx

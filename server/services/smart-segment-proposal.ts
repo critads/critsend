@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2 } from "@shared/schema";
 import {
   DOMAIN_FAMILIES,
+  RECENCY_BAND_LABELS,
   SMART_SEGMENT_ALLOWED_OPERATORS,
   SMART_SEGMENT_DISCLAIMER,
   describeRulesFr,
@@ -29,7 +30,9 @@ import {
 } from "./smart-segment-projection";
 import { logger } from "../logger";
 
-const MAX_CONDITIONS = 120;
+// Counted AFTER block expansion: three ref-pool blocks of a wide vertical can
+// carry ~60 has_ref conditions each, so the ceiling leaves room for them.
+const MAX_CONDITIONS = 400;
 const MAX_DEPTH = 5;
 const ALLOWED = new Set<string>(SMART_SEGMENT_ALLOWED_OPERATORS);
 
@@ -77,7 +80,7 @@ export function buildSmartSegmentPrompt(
     "Chaque segment inclut au moins un bloc. Tu peux ajouter des conditions {\"type\":\"condition\",\"field\":...,\"operator\":...,\"value\":...,\"value2\":null} UNIQUEMENT pour exclure (not_has_ref, not_has_tag, not_received_campaign, not_opened_from_bot_ip, not_equals, unsubscribed_from_fewer_campaigns), avec les refs, tags et identifiants de campagne du dossier, placées en AND à côté des blocs (dans un OR, chaque branche doit contenir un bloc) : toute inclusion écrite à la main (has_ref, clicked_campaign, ends_with…) est refusée car non calibrée.",
     `Opérateurs autorisés : ${SMART_SEGMENT_ALLOWED_OPERATORS.join(", ")}. Le champ « engagement » porte les opérateurs d'engagement, « refs » has_ref / not_has_ref, « tags » not_has_tag seulement, « email » equals / not_equals / starts_with / ends_with.`,
     "Les exclusions obligatoires (IP de plainte, ref DEL, tags de désabonnement de la marque, famille de domaines, destinataires des envois récents) seront ajoutées par le serveur si tu les omets ; ne les contredis pas.",
-    "Stratégie : atteindre l'objectif de clics avec le taux de plaintes projeté le plus bas — d'abord les cliqueurs les plus actifs, puis élargir aux blocs suivants seulement si l'objectif n'est pas atteint. Le premier segment est la recommandation ; un second segment optionnel propose une variante (plus sûre ou plus volumique). Chaque segment doit rester sous le plafond de plaintes.",
+    "Stratégie : atteindre l'objectif de clics avec le taux de plaintes projeté le plus bas — d'abord les cliqueurs les plus actifs, puis les autres actifs 60 j, puis les porteurs des refs de la marque, puis les porteurs de refs de marques similaires (similar_refs_*), puis la verticale ; n'élargis à un bloc suivant que si l'objectif n'est pas atteint. Les blocs « _lapsed » (ouverts 61–180 j) et « _dormant » (dormants > 180 j) portent des contacts sans activité 60 j : ils sont calibrés sur leur propre cohorte de récence, ne les ajoute que si les blocs actifs ne suffisent pas, prends d'abord la bande « _lapsed », et signale-le dans les mises en garde. Le premier segment est la recommandation ; un second segment optionnel propose une variante (plus sûre ou plus volumique). Chaque segment doit rester sous le plafond de plaintes.",
     "Les projections sont indicatives (créa, objet et heure d'envoi comptent) : dis-le dans les mises en garde quand c'est pertinent.",
     "IMPORTANT : name, rationale et warnings ne doivent contenir AUCUN chiffre (ni effectif, ni taux, ni pourcentage, ni date) : le serveur affiche lui-même les chiffres recomptés. Cite les blocs par leur identifiant et explique le raisonnement en mots ; toute phrase chiffrée sera supprimée.",
   ].join("\n");
@@ -92,12 +95,20 @@ export function buildSmartSegmentPrompt(
       verticale: evidence.brand.verticalLabel,
       refsVerticale: evidence.brand.verticalRefs,
     },
+    marquesSimilaires: (evidence.similarBrands ?? (evidence.brand.similarRefs ?? []).map((ref) => ({ ref, brandName: null }))).map((entry) => ({
+      ref: entry.ref,
+      nom: entry.brandName,
+    })),
     familleDomaines: { id: evidence.family, libelle: DOMAIN_FAMILIES[evidence.family].label },
     objectifClics: params.targetClicks,
     plafondPlaintes: pct(params.complaintCap),
     calibrage: {
       niveau: evidence.calibrationLevel,
       campagnes: evidence.calibrationCampaignIds,
+      recence: evidence.recencyCalibration
+        ? { niveau: evidence.recencyCalibration.level, campagnes: evidence.recencyCalibration.campaignIds }
+        : "aucune cohorte fiable : blocs non actifs indisponibles",
+      blocsOmis: (evidence.omittedBlocks ?? []).map((block) => ({ id: block.id, raison: block.reason })),
       notes: evidence.notes,
     },
     derniersEnvois: evidence.brandSends.map((send) => ({
@@ -305,6 +316,7 @@ export function auditModelRules(rules: SegmentRulesV2, evidence: SmartSegmentEvi
     ...evidence.brand.coreRefs,
     ...evidence.brand.extensionRefs,
     ...evidence.brand.verticalRefs,
+    ...(evidence.brand.similarRefs ?? []),
     BOT_OPENER_REF,
   ]);
   const knownCampaigns = new Set([
@@ -428,7 +440,7 @@ export function serverRationale(
   blocksUsed: string[],
   evidence: SmartSegmentEvidence,
 ): string {
-  const tiers = projection.tiers.map((cell) => `${cell.tier === "0" ? "0 clic" : `${cell.tier} campagne(s) cliquée(s)`} : ${cell.count.toLocaleString("fr-FR")} abonnés, plaintes ≈ ${pct(cell.complaintRate)}`);
+  const tiers = projection.tiers.map((cell) => `${cell.band ? `0 clic, ${RECENCY_BAND_LABELS[cell.band]}` : cell.tier === "0" ? "0 clic" : `${cell.tier} campagne(s) cliquée(s)`} : ${cell.count.toLocaleString("fr-FR")} abonnés, plaintes ≈ ${pct(cell.complaintRate)}`);
   const level = evidence.calibrationLevel === "brand" ? "la marque" : evidence.calibrationLevel === "vertical" ? "la verticale" : "l'historique global";
   return [
     `Chiffres serveur — blocs : ${compositionLabel(blocksUsed, evidence)}. Calibrage sur ${level} (${evidence.calibrationCampaignIds.length} envoi(s)).`,
@@ -481,7 +493,7 @@ export async function validateAndProject(
     const { rules, injected } = ensureMandatoryExclusions(segment.rules, required);
     const measure = await measureAudience(rules);
     const audienceCount = measure.total;
-    const projection = projectComposition(measure, blocksUsed, evidence.blocks, evidence.cohortRates, evidence.calibrationLevel);
+    const projection = projectComposition(measure, blocksUsed, evidence.blocks, evidence.cohortRates, evidence.calibrationLevel, evidence.recencyCalibration?.level ?? evidence.calibrationLevel);
     if (audienceCount === 0) {
       rejections.push(`segment ${index + 1} : effectif nul après exclusions obligatoires`);
       continue;

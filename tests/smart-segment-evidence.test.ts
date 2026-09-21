@@ -63,6 +63,9 @@ function fakeRunner(handlers: {
   verticalBrands?: () => unknown[];
   cohorts?: (campaignId: string, divisor: number) => unknown[];
   tiers?: () => unknown[];
+  recency?: (campaignId: string, divisor: number, label: string) => unknown[];
+  recencyPool?: () => unknown[];
+  recencyMix?: () => unknown[];
   count?: (sql: string, label: string) => number;
 }) {
   const recorded: Recorded[] = [];
@@ -76,6 +79,10 @@ function fakeRunner(handlers: {
       if (label === "marques de la verticale") return (handlers.verticalBrands?.() ?? []) as never;
       if (label.startsWith("cohortes")) return (handlers.cohorts?.(params[0] as string, params[5] as number) ?? []) as never;
       if (label === "répartition des cliqueurs disponibles") return (handlers.tiers?.() ?? []) as never;
+      if (label.startsWith("récence")) return (handlers.recency?.(params[0] as string, params[5] as number, label) ?? []) as never;
+      if (label === "envois récents toutes marques (récence)") return (handlers.recencyPool?.() ?? []) as never;
+      if (label.startsWith("répartition par récence")) return (handlers.recencyMix?.() ?? []) as never;
+      if (label === "noms des marques similaires") return [] as never;
       throw new Error(`unexpected query ${label}`);
     },
     async queryCount(label, statement: SQL) {
@@ -229,16 +236,20 @@ describe("buildSmartSegmentEvidence", () => {
       ] },
     };
     const measure = await measureAudienceWith(runner, rules);
-    expect(measure).toEqual({ total: 1_500, tierCounts: { "6+": 300, "1": 700, "0": 500 } });
-    expect(seen).toHaveLength(2);
-    // Both statements apply the same base filters (BCK tag, suppression) and
-    // the same compiled rules, so the partition is a partition of the total.
+    expect(measure).toEqual({ total: 1_500, tierCounts: { "6+": 300, "1": 700, "0": 500 }, recencyCounts: {} });
+    expect(seen).toHaveLength(3);
+    // All statements apply the same base filters (BCK tag, suppression) and
+    // the same compiled rules, so each partition is a partition of the total.
     for (const statement of seen) {
       expect(statement.sql).toContain("'BCK' = ANY(");
       expect(statement.sql).toContain("suppressed_until");
     }
     expect(seen[1].sql).toContain("COUNT(DISTINCT st.campaign_id)");
     expect(seen[1].params).toEqual(expect.arrayContaining(["4AF", "U4AF"]));
+    // Recency bands follow the live last_engaged_at, like the engagement operators.
+    expect(seen[2].sql).toContain("last_engaged_at >= NOW() - INTERVAL '60 days'");
+    expect(seen[2].sql).toContain("INTERVAL '180 days'");
+    expect(seen[2].params).toEqual(expect.arrayContaining(["4AF", "U4AF"]));
     // Empty audience: no tier query at all.
     const empty = await measureAudienceWith({ ...runner, queryCount: async () => 0 }, rules);
     expect(empty).toEqual({ total: 0, tierCounts: {} });

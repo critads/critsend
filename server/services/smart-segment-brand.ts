@@ -164,6 +164,7 @@ async function buildResolution(
     verticalLabel: vertical ? (VERTICAL_LABELS[vertical] ?? `Verticale ${vertical}`) : null,
     verticalRefs,
     matchedKeys,
+    similarRefs: [],
   };
 }
 

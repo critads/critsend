@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { smartSegmentAnalysisIdentity } from "../shared/smart-segment";
+import { normalizeSimilarRefs, smartSegmentAnalysisIdentity } from "../shared/smart-segment";
 import {
   clampComplaintCapPercent,
   complaintRateColor,
+  defaultSimilarBrandRefs,
   formatSmartSegmentPercent,
   parseSmartSegmentApiError,
+  validateManualSimilarRef,
 } from "../client/src/lib/smart-segment-ui";
 
 describe("Smart segment UI helpers", () => {
@@ -30,6 +32,31 @@ describe("Smart segment UI helpers", () => {
     expect(complaintRateColor(0.0044)).toContain("green");
     expect(complaintRateColor(0.0045)).toContain("amber");
     expect(complaintRateColor(0.006)).toContain("red");
+  });
+
+  it("checks every similar-brand candidate by default and canonicalises request refs", () => {
+    const candidates = [
+      { ref: "z9", brandName: "Zed", sourceRef: "CORE", lift: 2, commonCount: 10, additionalCount: 4 },
+      { ref: "a1", brandName: "Alpha", sourceRef: "CORE", lift: 3, commonCount: 12, additionalCount: 5 },
+    ];
+    const checked = defaultSimilarBrandRefs(candidates);
+    expect(checked).toEqual(["A1", "Z9"]);
+    expect(normalizeSimilarRefs([...checked, "m2"])).toEqual(["A1", "M2", "Z9"]);
+  });
+
+  it("uppercases manual refs and refuses own refs or DEL", () => {
+    expect(validateManualSimilarRef(" 4tui ", ["CORE", "ECORE"], [])).toEqual({ ref: "4TUI", error: null });
+    expect(validateManualSimilarRef("core", ["CORE", "ECORE"], []).ref).toBeNull();
+    expect(validateManualSimilarRef("del", ["CORE"], []).ref).toBeNull();
+  });
+
+  it("caps the similar-ref selection at eight", () => {
+    const selected = Array.from({ length: 8 }, (_, index) => `R${index}`);
+    expect(validateManualSimilarRef("R9", [], selected)).toEqual({ ref: null, error: "8 refs maximum" });
+    const candidates = Array.from({ length: 9 }, (_, index) => ({
+      ref: `r${index}`, brandName: null, sourceRef: "CORE", lift: 2, commonCount: 10, additionalCount: 4,
+    }));
+    expect(defaultSimilarBrandRefs(candidates)).toHaveLength(8);
   });
 });
 
@@ -57,6 +84,7 @@ describe("Smart segment source wiring", () => {
     // Identity built from the immediate request body (name, campaign, family,
     // target, cap, override) — never from the debounced name.
     expect(component).toContain("const requestKey = analysisIdentity(requestBody)");
+    expect(component).toContain("...(similarRefs.length > 0 ? { similarRefs } : {})");
     expect(component).toMatch(/campaignName: campaignName\.trim\(\),\s+campaignId,\s+mtaId,\s+family,\s+targetClicks: Math\.max\(50, Math\.round\(targetClicks\)\),\s+complaintCap: clampComplaintCapPercent\(complaintCapPercent\) \/ 100,\s+brandOverride: override,/);
     // Reset on any change, fence for late responses, materialisation gated.
     expect(component).toContain("if (key !== currentRequestKey.current) return;");
@@ -74,5 +102,13 @@ describe("smartSegmentAnalysisIdentity", () => {
     expect(smartSegmentAnalysisIdentity({ ...base, targetClicks: 501 })).not.toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, campaignId: null })).not.toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, brandOverride: null })).not.toBe(same);
+  });
+
+  it("changes when the similar-brand selection changes", () => {
+    const base = { campaignName: "Air France", campaignId: "camp-1", family: "fai_fr" as const, targetClicks: 500, complaintCap: 0.0045, brandOverride: null };
+    expect(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["A1"] }))
+      .not.toBe(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["A1", "B2"] }));
+    expect(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["b2", "A1"] }))
+      .toBe(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["A1", "B2"] }));
   });
 });

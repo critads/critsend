@@ -8,12 +8,15 @@ import {
   smartSegmentAnalysisRequestSchema,
   smartSegmentMaterializeRequestSchema,
   smartSegmentResolveRequestSchema,
+  smartSegmentSimilarBrandsRequestSchema,
+  type SmartSegmentSimilarBrandsResponse,
   type SmartSegmentFeatureStatus,
   type SmartSegmentResolveResponse,
 } from "@shared/smart-segment";
 import { smartSegmentFeatureStatus } from "../config/smart-segment";
 import { SmartSegmentError } from "../services/smart-segment-evidence";
 import { resolveSmartSegmentContext } from "../services/smart-segment-brand";
+import { listSimilarBrandCandidates } from "../services/smart-segment-similar";
 import {
   getSmartSegmentAnalysis,
   materializeSmartSegmentProposal,
@@ -73,6 +76,17 @@ export function registerSmartSegmentRoutes(app: Express): void {
       res.json(result);
     } catch (error) {
       sendError(res, error, "resolve");
+    }
+  });
+
+  // Similar-brand candidates for the wizard (co-occurrence engine, read-only).
+  app.post("/api/smart-segments/similar-brands", resolveLimiter, async (req: Request, res: Response) => {
+    try {
+      const body = smartSegmentSimilarBrandsRequestSchema.parse(req.body ?? {});
+      const result: SmartSegmentSimilarBrandsResponse = await listSimilarBrandCandidates(body.coreRefs);
+      res.json(result);
+    } catch (error) {
+      sendError(res, error, "similar-brands");
     }
   });
 

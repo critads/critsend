@@ -58,3 +58,19 @@ silently keeps precedence over detection with stale refs/tags/history).
 
 **Why:** an analysis made for another name/cap/pre-draft context could otherwise be attached to
 the current draft (500 ms debounce + un-fenced mutation results made this reachable).
+
+## 5. Non-active (lapsed / dormant) contacts are never projected at the actives' rates
+Rule: a non-active band (no open/click in 60 days) is projected only from a reliable recency
+cohort — reliability judged on recipients actually OBSERVED, not on sample-rescaled effectives —
+using the lowest implicated CTR and the worst implicated complaint rate. Without such a cohort
+the dedicated blocks are omitted and any non-active contacts inside a wider block are carved out
+at CTR 0 / worst measured complaint rate. There is no axis-wide fallback for recency.
+
+**Why:** the recency axis is dominated by actives; blending would give dormant contacts the
+actives' CTR. Brand sends target engagement-filtered audiences, so their own non-active cohorts
+are almost never reliable — the pool of recent sends of every brand (global markups) is the usual
+source, and the pool is best-effort under the evidence budget (omit, never fail the analysis).
+
+**How to apply:** audience recency = live `last_engaged_at` bands; calibration recency = last
+activity BEFORE the send. Similar-brand refs are an operator selection validated server-side,
+part of the analysis identity, and removed from the vertical pool (no double counting).

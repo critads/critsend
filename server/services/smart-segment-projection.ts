@@ -10,7 +10,12 @@ import {
   type DomainFamilyId,
   type SmartSegmentBlock,
   type SmartSegmentBrandResolution,
+  type RecencyBand,
+  type RefRelation,
+  NON_ACTIVE_RECENCY_BANDS,
+  RECENCY_BAND_LABELS,
   SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS,
+  refRecencyCohort,
 } from "@shared/smart-segment";
 import { BOT_OPENER_REF } from "../config/suppression";
 
@@ -48,6 +53,8 @@ export type RawCohortRow = {
   humanClickers: number;
   botClickers: number;
   complaints: number;
+  /** Un-scaled recipients behind a sampled row (recency axes). */
+  observed?: number;
 };
 
 export function aggregateCohortRates(rows: RawCohortRow[]): CohortRate[] {
@@ -59,6 +66,7 @@ export function aggregateCohortRates(rows: RawCohortRow[]): CohortRate[] {
     current.humanClickers += row.humanClickers;
     current.botClickers += row.botClickers;
     current.complaints += row.complaints;
+    if (row.observed !== undefined) current.observed = (current.observed ?? 0) + row.observed;
     merged.set(key, current);
   }
   return [...merged.values()]
@@ -111,6 +119,46 @@ export function rateFor(
 export const FAMILY_BOUND_COHORT = "family/in_family";
 export function familyComplaintBound(rates: CohortRate[]): number {
   return rateFor(rates, "family", "in_family").complaintRate;
+}
+
+/**
+ * Rate of a non-active recency band: the recency × ref-relation cross cohort
+ * when it is reliable, else the band's marginal when reliable, else NOTHING.
+ * There is deliberately no axis-wide fallback here: the recency axis is
+ * dominated by 60-day actives, so blending would project dormant contacts at
+ * the actives' rates — the one thing these blocks must never do.
+ */
+export function recencyRateFor(
+  rates: CohortRate[],
+  band: RecencyBand,
+  refRelation?: RefRelation,
+): { humanCtr: number; complaintRate: number; delivered: number; cohort: string } | null {
+  if (refRelation) {
+    const cohort = refRecencyCohort(refRelation, band);
+    const cross = rates.find((rate) => rate.axis === "ref_recency" && rate.cohort === cohort);
+    if (cross && reliableSupport(cross)) {
+      return { humanCtr: cross.humanCtr, complaintRate: cross.complaintRate, delivered: cross.delivered, cohort: `ref_recency/${cohort}` };
+    }
+  }
+  const marginal = rates.find((rate) => rate.axis === "recency" && rate.cohort === band);
+  if (marginal && reliableSupport(marginal)) {
+    return { humanCtr: marginal.humanCtr, complaintRate: marginal.complaintRate, delivered: marginal.delivered, cohort: `recency/${band}` };
+  }
+  return null;
+}
+
+/**
+ * Reliability is judged on recipients actually observed: a sampled row is
+ * re-scaled by its divisor for the effectives, but 20 observed dormant
+ * recipients × 50 are not 1,000 measured ones.
+ */
+function reliableSupport(rate: Pick<CohortRate, "delivered" | "observed">): boolean {
+  return (rate.observed ?? rate.delivered) >= MIN_RELIABLE_COHORT_DELIVERED;
+}
+
+/** Non-active bands that have a reliable rate somewhere in the dossier. */
+export function calibratedRecencyBands(rates: CohortRate[]): RecencyBand[] {
+  return NON_ACTIVE_RECENCY_BANDS.filter((band) => recencyRateFor(rates, band) !== null);
 }
 
 // ====== DSL helpers ======
@@ -260,10 +308,15 @@ export type BlockDefinition = {
   label: string;
   description: string;
   rules: SegmentGroup;
-  calibration: { axis: CohortAxis; cohort: string };
+  calibration: { axis: CohortAxis; cohort: string; refRelation?: RefRelation };
   /** Nested clicker blocks are projected from the reservoir's tier mix. */
   tiers?: ClickerTier[];
 };
+
+/** Recency band of a block whose members have no activity in 60 days (undefined for the active blocks). */
+export function blockRecencyBand(definition: { calibration: { axis: CohortAxis; cohort: string } }): RecencyBand | undefined {
+  return definition.calibration.axis === "recency" ? (definition.calibration.cohort as RecencyBand) : undefined;
+}
 
 export function buildBlockLibrary(brand: SmartSegmentBrandResolution): BlockDefinition[] {
   const blocks: BlockDefinition[] = [
@@ -308,7 +361,7 @@ export function buildBlockLibrary(brand: SmartSegmentBrandResolution): BlockDefi
         condition("engagement", "engaged_recently"),
         group("OR", brand.verticalRefs.map((ref) => condition("refs", "has_ref", ref))),
       ]),
-      calibration: { axis: "ref_relation", cohort: "none" },
+      calibration: { axis: "ref_relation", cohort: "vertical" },
     });
   }
   if (brand.coreRefs.length) {
@@ -329,7 +382,70 @@ export function buildBlockLibrary(brand: SmartSegmentBrandResolution): BlockDefi
       calibration: { axis: "ref_relation", cohort: "extension" },
     });
   }
+  const similarRefs = brand.similarRefs ?? [];
+  if (similarRefs.length) {
+    blocks.push({
+      id: "similar_refs_active",
+      label: "Actifs 60 j porteurs de refs de marques similaires",
+      description: "A ouvert ou cliqué dans les 60 derniers jours et porte une ref d'une marque similaire retenue par l'opérateur (co-occurrence mesurée sur la base).",
+      rules: group("AND", [
+        condition("engagement", "engaged_recently"),
+        group("OR", similarRefs.map((ref) => condition("refs", "has_ref", ref))),
+      ]),
+      calibration: { axis: "ref_relation", cohort: "similar" },
+    });
+  }
+  // Non-active bands: the same ref pools without any activity in 60 days,
+  // split by recency so the model can take the lapsed band alone. Each one is
+  // calibrated on its recency (× ref relation) cohort, never on the actives.
+  const refPools: Array<{ key: string; relation: RefRelation; refs: string[]; who: string }> = [
+    { key: "brand_core_refs", relation: "core", refs: brand.coreRefs, who: "des refs de la marque (cœur)" },
+    { key: "similar_refs", relation: "similar", refs: similarRefs, who: "de refs de marques similaires" },
+    { key: "vertical_refs", relation: "vertical", refs: brand.verticalRefs, who: `de refs ${brand.verticalLabel ?? "de la verticale"}` },
+  ];
+  const bands: Array<{ band: RecencyBand; suffix: string; operator: SegmentCondition["operator"]; when: string }> = [
+    { band: "opened_61_180d", suffix: "lapsed", operator: "engaged_lapsed", when: "dernière ouverture ou clic il y a 61 à 180 jours" },
+    { band: "dormant_180d", suffix: "dormant", operator: "dormant", when: "aucune ouverture ni clic depuis plus de 180 jours" },
+  ];
+  for (const { band, suffix, operator, when } of bands) {
+    for (const pool of refPools) {
+      if (!pool.refs.length) continue;
+      blocks.push({
+        id: `${pool.key}_${suffix}`,
+        label: `Porteurs ${pool.who} — ${RECENCY_BAND_LABELS[band]}`,
+        description: `Porte au moins une ref ${pool.who.replace(/^(des|de) /, "")} et ${when} (aucune activité 60 j : bloc calibré sur sa cohorte de récence, pas sur les actifs).`,
+        rules: group("AND", [
+          condition("engagement", operator),
+          group("OR", pool.refs.map((ref) => condition("refs", "has_ref", ref))),
+        ]),
+        calibration: { axis: "recency", cohort: band, refRelation: pool.relation },
+      });
+    }
+  }
   return blocks;
+}
+
+/**
+ * Splits a block library into the blocks that can be projected from the
+ * dossier and the ones that must be omitted: a non-active block whose recency
+ * band (× ref relation) has no reliable cohort is never offered, so it can
+ * never be projected at the actives' rates.
+ */
+export function splitProjectableBlocks(
+  definitions: BlockDefinition[],
+  cohortRates: CohortRate[],
+): { projectable: BlockDefinition[]; omitted: Array<{ id: string; label: string; reason: string }> } {
+  const projectable: BlockDefinition[] = [];
+  const omitted: Array<{ id: string; label: string; reason: string }> = [];
+  for (const definition of definitions) {
+    const band = blockRecencyBand(definition);
+    if (band && !recencyRateFor(cohortRates, band, definition.calibration.refRelation)) {
+      omitted.push({ id: definition.id, label: definition.label, reason: `aucune cohorte « ${RECENCY_BAND_LABELS[band]} » fiable (≥ ${MIN_RELIABLE_COHORT_DELIVERED.toLocaleString("fr-FR")} livrés) dans le calibrage` });
+      continue;
+    }
+    projectable.push(definition);
+  }
+  return { projectable, omitted };
 }
 
 export type TierCounts = Partial<Record<ClickerTier, number>>;
@@ -340,11 +456,23 @@ export function projectBlock(
   cohortRates: CohortRate[],
   level: CalibrationLevel,
   tierCounts: TierCounts,
+  recencyLevel: CalibrationLevel = level,
 ): SmartSegmentBlock {
-  const adjustments = CALIBRATION_ADJUSTMENTS[level];
+  const band = blockRecencyBand(definition);
+  const adjustments = CALIBRATION_ADJUSTMENTS[band ? recencyLevel : level];
   let humanCtr: number;
   let complaintRate: number;
-  if (definition.tiers && definition.tiers.some((tier) => (tierCounts[tier] ?? 0) > 0)) {
+  if (band) {
+    const rate = recencyRateFor(cohortRates, band, definition.calibration.refRelation);
+    if (!rate) throw new Error(`bloc « ${definition.id} » sans cohorte de récence fiable : à omettre avant projection`);
+    humanCtr = rate.humanCtr;
+    // Worst of the recency cohort and the ref relation's own complaint history
+    // (core / similar / vertical), exactly like the ref blocks it derives from.
+    const relation = definition.calibration.refRelation;
+    complaintRate = relation && relation !== "none"
+      ? Math.max(rate.complaintRate, rateFor(cohortRates, "ref_relation", relation).complaintRate)
+      : rate.complaintRate;
+  } else if (definition.tiers && definition.tiers.some((tier) => (tierCounts[tier] ?? 0) > 0)) {
     let weight = 0, clicks = 0, complaints = 0;
     for (const tier of definition.tiers) {
       const count = tierCounts[tier] ?? 0;
@@ -370,7 +498,7 @@ export function projectBlock(
     description: definition.description,
     rules: definition.rules,
     available,
-    calibration: { ...definition.calibration, level, discount: adjustments.discount, complaintMarkup: adjustments.complaintMarkup },
+    calibration: { ...definition.calibration, level: band ? recencyLevel : level, discount: adjustments.discount, complaintMarkup: adjustments.complaintMarkup },
     expectedCtr,
     expectedComplaintRate,
     projectedClicks: { low: Math.round(point * PROJECTION_RANGE.low), high: Math.round(point * PROJECTION_RANGE.high) },
@@ -383,10 +511,14 @@ export type AudienceMeasure = {
   total: number;
   /** Disjoint counts per clicker tier (60 d), "0" = non-clickers; sums to total. */
   tierCounts: TierCounts;
+  /** Recency partition of the same audience (last open/click), when measured. */
+  recencyCounts?: Partial<Record<RecencyBand, number>>;
 };
 
 export type TierProjection = {
   tier: ClickerTier;
+  /** Set on the non-active cells carved out of tier "0" (lapsed / dormant). */
+  band?: RecencyBand;
   count: number;
   ctr: number;
   complaintRate: number;
@@ -426,37 +558,84 @@ export function projectComposition(
   blocks: SmartSegmentBlock[],
   cohortRates: CohortRate[],
   level: CalibrationLevel,
+  recencyLevel: CalibrationLevel = level,
 ): CompositionProjection {
   const used = blocks.filter((block) => blockIds.includes(block.id));
   const adjustments = CALIBRATION_ADJUSTMENTS[level];
-  const refCohorts = [...new Set(used.filter((block) => block.calibration.axis === "ref_relation").map((block) => block.calibration.cohort))];
+  const recencyAdjustments = CALIBRATION_ADJUSTMENTS[recencyLevel];
+  // Ref relations implicated by the blocks used: the cohort of the ref-relation
+  // blocks (core, extension, similar, vertical) and the relation of the
+  // non-active blocks. Each one's complaint history bounds EVERY cell.
+  const bandRelations = [...new Set(used.flatMap((block): RefRelation[] => {
+    if (block.calibration.axis === "ref_relation") return [block.calibration.cohort as RefRelation];
+    return block.calibration.refRelation && block.calibration.refRelation !== "none" ? [block.calibration.refRelation] : [];
+  }))];
+  const refCohorts: string[] = bandRelations;
   const bounds = [
     { cohort: FAMILY_BOUND_COHORT, rate: familyComplaintBound(cohortRates) },
     ...refCohorts.map((cohort) => ({ cohort: `ref_relation/${cohort}`, rate: rateFor(cohortRates, "ref_relation", cohort).complaintRate })),
   ];
+  const worstBound = (candidates: Array<{ cohort: string; rate: number }>, initial: { cohort: string; rate: number }) => {
+    let worst = initial;
+    for (const bound of candidates) if (bound.rate > worst.rate) worst = bound;
+    return worst;
+  };
+
+  // Non-active cells carved out of tier "0": each band is projected at its own
+  // recency cohort — never at the tier-0 openers' rate. CTR = the LOWEST
+  // reliable rate among the band's marginal and the recency × relation
+  // crosses of the ref blocks used; complaints = the worst of them and of the
+  // usual bounds. A band without any reliable rate is still carved out, at a
+  // zero CTR and the worst complaint rate measured anywhere (fail closed).
+  const nonActiveCells: TierProjection[] = [];
+  const worstMeasuredAnywhere = cohortRates.reduce((max, row) => Math.max(max, row.complaintRate), 0);
+  for (const band of NON_ACTIVE_RECENCY_BANDS) {
+    const count = Math.max(0, Math.round(measure.recencyCounts?.[band] ?? 0));
+    if (!count) continue;
+    const rate = recencyRateFor(cohortRates, band);
+    if (!rate) {
+      const worst = worstBound(bounds, { cohort: `non calibré/${band}`, rate: worstMeasuredAnywhere });
+      nonActiveCells.push({ tier: "0", band, count, ctr: 0, complaintRate: worst.rate * recencyAdjustments.complaintMarkup, complaintCohort: worst.cohort });
+      continue;
+    }
+    const crosses = bandRelations
+      .map((relation) => recencyRateFor(cohortRates, band, relation))
+      .filter((cross): cross is NonNullable<typeof cross> => !!cross && cross.cohort.startsWith("ref_recency/"));
+    const lowestCtr = crosses.reduce((min, cross) => Math.min(min, cross.humanCtr), rate.humanCtr);
+    const worst = worstBound([...bounds, ...crosses.map((cross) => ({ cohort: cross.cohort, rate: cross.complaintRate }))], { cohort: rate.cohort, rate: rate.complaintRate });
+    nonActiveCells.push({
+      tier: "0",
+      band,
+      count,
+      ctr: lowestCtr * recencyAdjustments.discount,
+      complaintRate: worst.rate * recencyAdjustments.complaintMarkup,
+      complaintCohort: worst.cohort,
+    });
+  }
+  const carvedOut = nonActiveCells.reduce((sum, cell) => sum + cell.count, 0);
 
   const tiers: TierProjection[] = [];
   let attributed = 0;
   let clicks = 0;
   let complaints = 0;
   for (const tier of CLICKER_TIERS) {
-    const count = Math.max(0, Math.round(measure.tierCounts[tier] ?? 0));
+    let count = Math.max(0, Math.round(measure.tierCounts[tier] ?? 0));
+    if (tier === "0") count = Math.max(0, count - carvedOut);
     if (!count) continue;
     const rate = rateFor(cohortRates, "clicker_tier", tier);
-    let complaintCohort = `clicker_tier/${tier}`;
-    let worst = rate.complaintRate;
-    for (const bound of bounds) {
-      if (bound.rate > worst) {
-        worst = bound.rate;
-        complaintCohort = bound.cohort;
-      }
-    }
+    const worst = worstBound(bounds, { cohort: `clicker_tier/${tier}`, rate: rate.complaintRate });
     const ctr = rate.humanCtr * adjustments.discount;
-    const complaintRate = worst * adjustments.complaintMarkup;
-    tiers.push({ tier, count, ctr, complaintRate, complaintCohort });
+    const complaintRate = worst.rate * adjustments.complaintMarkup;
+    tiers.push({ tier, count, ctr, complaintRate, complaintCohort: worst.cohort });
     attributed += count;
     clicks += count * ctr;
     complaints += count * complaintRate;
+  }
+  for (const cell of nonActiveCells) {
+    tiers.push(cell);
+    attributed += cell.count;
+    clicks += cell.count * cell.ctr;
+    complaints += cell.count * cell.complaintRate;
   }
   // Drift between the total and its partition (counts taken at slightly
   // different instants) is charged to the worst cell — or, without any cell,

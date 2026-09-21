@@ -19,6 +19,21 @@ export const SMART_SEGMENT_COMPLAINT_TARGET = 0.0045;
 export const SMART_SEGMENT_REUSE_WINDOW_MS = 6 * 60 * 60 * 1000;
 /** Recipients of at most this many of the brand's newest sends (30 d) are excluded. */
 export const SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS = 6;
+/** Upper bound of « similar brand » refs an analysis may carry (candidates + manual additions). */
+export const SMART_SEGMENT_MAX_SIMILAR_REFS = 8;
+/** Subscriber ref as typed by an operator (exact-case once normalised to uppercase). */
+export const smartSegmentRefSchema = z.string().trim().min(1).max(32).regex(/^[A-Za-z0-9_-]+$/, "Ref invalide");
+
+/** Uppercase, deduplicated, sorted: the canonical form used by the identity and the server. */
+export function normalizeSimilarRefs(refs: readonly string[] | null | undefined): string[] {
+  const out = new Set<string>();
+  for (const ref of refs ?? []) {
+    const normalized = String(ref).trim().toUpperCase();
+    if (normalized) out.add(normalized);
+  }
+  return [...out].sort((a, b) => a.localeCompare(b, "en"));
+}
+
 export const SMART_SEGMENT_DISCLAIMER =
   "Projections issues de l'historique d'envois de la marque : le résultat réel dépend de la créa, de l'objet et de l'heure d'envoi.";
 
@@ -57,6 +72,8 @@ export const smartSegmentAnalysisRequestSchema = z.object({
   targetClicks: z.number().int().min(50).max(5_000_000),
   complaintCap: z.number().min(0.0005).max(SMART_SEGMENT_COMPLAINT_HARD_CAP),
   brandOverride: smartSegmentBrandOverrideSchema.nullable().optional(),
+  /** Refs of similar brands the operator kept (validated server-side against the brand's own refs). */
+  similarRefs: z.array(smartSegmentRefSchema).max(SMART_SEGMENT_MAX_SIMILAR_REFS).optional(),
   refresh: z.boolean().optional(),
 });
 export type SmartSegmentAnalysisRequest = z.infer<typeof smartSegmentAnalysisRequestSchema>;
@@ -79,6 +96,7 @@ export function smartSegmentAnalysisIdentity(params: Omit<SmartSegmentAnalysisRe
     brandOverride: params.brandOverride
       ? { name: params.brandOverride.name.trim().toLowerCase(), ref: params.brandOverride.ref.trim().toUpperCase() }
       : null,
+    similarRefs: normalizeSimilarRefs(params.similarRefs),
   });
 }
 
@@ -121,6 +139,27 @@ export type SmartSegmentBrandResolution = {
   verticalRefs: string[];
   /** Historical campaign name tokens matched (for transparency). */
   matchedKeys: string[];
+  /** Refs of similar brands kept by the operator for this analysis (exact-case, never the brand's own refs nor DEL). */
+  similarRefs: string[];
+};
+
+/** A similar-brand candidate: a ref that co-occurs with one of the brand's refs more than chance. */
+export type SmartSegmentSimilarBrand = {
+  ref: string;
+  brandName: string | null;
+  /** Core ref of the brand the co-occurrence was measured from. */
+  sourceRef: string;
+  lift: number;
+  commonCount: number;
+  additionalCount: number;
+};
+export const smartSegmentSimilarBrandsRequestSchema = z.object({
+  coreRefs: z.array(smartSegmentRefSchema).min(1).max(8),
+});
+export type SmartSegmentSimilarBrandsResponse = {
+  coreRefs: string[];
+  candidates: SmartSegmentSimilarBrand[];
+  notes: string[];
 };
 
 export type SmartSegmentResolveResponse = {
@@ -146,12 +185,30 @@ export type SmartSegmentBrandSend = {
   usedForCalibration: boolean;
 };
 
-export type CohortAxis = "clicker_tier" | "ref_relation" | "family";
+export type CohortAxis = "clicker_tier" | "ref_relation" | "family" | "recency" | "ref_recency";
+/** Relation between a subscriber's refs and the brand (priority order: first match wins). */
+export type RefRelation = "core" | "extension" | "similar" | "vertical" | "none";
+export const REF_RELATIONS: readonly RefRelation[] = ["core", "extension", "similar", "vertical", "none"];
+/** Engagement recency bands (last open/click), a partition of the base. */
+export type RecencyBand = "engaged_60d" | "opened_61_180d" | "dormant_180d";
+export const RECENCY_BANDS: readonly RecencyBand[] = ["engaged_60d", "opened_61_180d", "dormant_180d"];
+export const NON_ACTIVE_RECENCY_BANDS: readonly RecencyBand[] = ["opened_61_180d", "dormant_180d"];
+export const RECENCY_BAND_LABELS: Record<RecencyBand, string> = {
+  engaged_60d: "actifs 60 j",
+  opened_61_180d: "ouverts 61–180 j",
+  dormant_180d: "dormants > 180 j",
+};
+/** Cohort key of the recency × ref-relation cross axis. */
+export function refRecencyCohort(relation: RefRelation, band: RecencyBand): string {
+  return `${relation}|${band}`;
+}
 
 export type CohortRate = {
   axis: CohortAxis;
   cohort: string;
   delivered: number;
+  /** Recipients actually observed before sample re-scaling (recency axes): reliability is gated on this, not on the extrapolated `delivered`. */
+  observed?: number;
   humanClickers: number;
   botClickers: number;
   complaints: number;
@@ -168,7 +225,7 @@ export type SmartSegmentBlock = {
   rules: SegmentGroup;
   /** Available subscribers after mandatory exclusions (server count). */
   available: number;
-  calibration: { axis: CohortAxis; cohort: string; level: CalibrationLevel; discount: number; complaintMarkup: number };
+  calibration: { axis: CohortAxis; cohort: string; level: CalibrationLevel; discount: number; complaintMarkup: number; refRelation?: RefRelation };
   expectedCtr: number;
   expectedComplaintRate: number;
   projectedClicks: { low: number; high: number };
@@ -188,6 +245,18 @@ export type SmartSegmentEvidence = {
   calibrationLevel: CalibrationLevel;
   calibrationCampaignIds: string[];
   cohortRates: CohortRate[];
+  /**
+   * Where the recency cohorts (axes recency / ref_recency) come from: the
+   * brand's own calibration sends when they reached enough non-active
+   * recipients, else a pool of recent sends of every brand (projected with the
+   * global markups). Null when no reliable recency cohort exists anywhere:
+   * the non-active blocks are then omitted.
+   */
+  recencyCalibration?: { level: CalibrationLevel; campaignIds: string[] } | null;
+  /** Similar brands kept for this analysis, with their display names. */
+  similarBrands?: Array<{ ref: string; brandName: string | null }>;
+  /** Blocks that could not be offered (no reliable calibration), for transparency. */
+  omittedBlocks?: Array<{ id: string; label: string; reason: string }>;
   blocks: SmartSegmentBlock[];
   mandatoryExclusions: string[];
   budget: { elapsedMs: number; queries: number; sampledCampaigns: Array<{ campaignId: string; divisor: number }> };
@@ -256,7 +325,7 @@ export type SmartSegmentFeatureStatus = {
 export const SMART_SEGMENT_ALLOWED_OPERATORS = [
   "equals", "not_equals", "ends_with", "starts_with",
   "has_tag", "not_has_tag", "has_ref", "not_has_ref",
-  "engaged_recently", "not_engaged_recently", "clicked_recently", "top_active_clicker", "ultra_active_clicker",
+  "engaged_recently", "not_engaged_recently", "engaged_lapsed", "dormant", "clicked_recently", "top_active_clicker", "ultra_active_clicker",
   "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns", "opened_campaign", "clicked_campaign",
   "not_received_campaign",
 ] as const;
@@ -303,6 +372,8 @@ const FR_OPERATOR_LABELS: Record<string, (value: string, value2: string | null) 
   not_in_last_days: (v) => `hors des ${v} derniers jours`,
   engaged_recently: () => "a ouvert ou cliqué dans les 60 derniers jours",
   not_engaged_recently: () => "n'a ni ouvert ni cliqué dans les 60 derniers jours",
+  engaged_lapsed: () => "dernière ouverture ou clic il y a 61 à 180 jours",
+  dormant: () => "aucune ouverture ni clic depuis plus de 180 jours (ou jamais)",
   clicked_recently: () => "a cliqué dans les 60 derniers jours (robots exclus)",
   top_active_clicker: () => "cliqueur actif : au moins 4 campagnes cliquées en 60 jours (robots exclus)",
   ultra_active_clicker: () => "cliqueur très actif : au moins 6 campagnes cliquées en 60 jours (robots exclus)",
