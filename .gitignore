@@ -4,3 +4,7 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+# Secrets: never commit real env files (only the template is tracked)
+.env
+.env.*
+!.env.example
