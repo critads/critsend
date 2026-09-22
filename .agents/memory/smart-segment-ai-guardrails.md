@@ -86,3 +86,25 @@ backtest had substituted literals and the unit tests use a fake runner, so nothi
 
 **How to apply:** after editing any `*_SQL` constant, run it once against a real database with
 typed placeholders (a throwaway pg script in .local/tmp/), not with substituted literals.
+
+## 7. Similar brands: synchronous web-search lookup, strict output, versioned reuse
+Rule: the « marques similaires » lookup answers inside the wizard request, so directory load +
+web-enabled call + knowledge fallback share ONE deadline capped below the reverse proxy's 60 s
+(config max 55 s; a fallback gets only what is left, and is skipped under ~4 s). A model answer
+that is not the requested shape (no `marques` array) is AI_BAD_RESPONSE and never persisted —
+only an explicit empty list means "no comparable brand". Candidates come only from the brand
+directory; invented names are dropped and noted. `webSearchUsed` means a search RETURNED results
+(billed attempts can all fail). Model prose is stripped of performance figures (%, €, clics,
+plaintes…) but plain numbers stay (« 3 Suisses », age ranges) — a digit-stripper mangles names.
+
+**Why:** two sequential calls with the full timeout each silently exceeded the proxy, a
+non-array answer was cached 30 days as "no brands", and `stripDigits` broke real brand names.
+
+**How to apply:** any new synchronous model call in a request path needs an outer deadline
+passed down per call; the client query for a billed lookup must never refetch on focus/reconnect
+(refresh = new query key nonce, so its retries stay refreshes). The 6 h analysis reuse is keyed
+by prompt version too: a prompt change must not be invisible until the reuse window expires.
+When the operator selected similar brands, the proposal must hold a recommendation without them
+AND, last, a « avec marques similaires » segment on EVERY model attempt; after the last attempt the
+analysis fails (422, with « retirez des marques similaires ») — never a success with a note. The
+web-search `max_uses` is a per-answer ceiling: a paused turn that spent it is not continued.

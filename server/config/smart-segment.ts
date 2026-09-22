@@ -19,7 +19,11 @@ function envInt(name: string, fallback: number, min: number, max = Number.MAX_SA
 }
 
 export const SMART_SEGMENT_DEFAULT_MODEL = "claude-sonnet-4-5";
-export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v1";
+// v2 (task #315): 1 to 3 segments, mandatory « with similar brands » segment
+// when similar_refs_* blocks exist.
+export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v2";
+/** Prompt of the « similar brands » web-search lookup; part of the persisted result key. */
+export const SMART_SEGMENT_SIMILAR_PROMPT_VERSION = "similar-brands-v1";
 
 export function getSmartSegmentConfig() {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim() || null;
@@ -53,6 +57,16 @@ export function getSmartSegmentConfig() {
     recencyPoolDays: envInt("SMART_SEGMENT_RECENCY_POOL_DAYS", 60, 7, 365),
     recencyPoolMaxCampaigns: envInt("SMART_SEGMENT_RECENCY_POOL_MAX_CAMPAIGNS", 12, 1, 100),
     recencyPoolSampleTarget: envInt("SMART_SEGMENT_RECENCY_POOL_SAMPLE_TARGET", 30_000, 5_000, 500_000),
+    /**
+     * « Similar brands » lookup (task #315): one synchronous model call with
+     * the web search tool, answered inside the wizard request. Kept under the
+     * 60 s the production reverse proxy allows for one HTTP request.
+     */
+    similarAiTimeoutMs: envInt("SMART_SEGMENT_SIMILAR_AI_TIMEOUT_MS", 55_000, 5_000, 55_000),
+    /** Web searches the model may run per lookup (each one is billed and takes seconds). */
+    similarWebSearchMaxUses: envInt("SMART_SEGMENT_SIMILAR_WEB_SEARCH_MAX_USES", 3, 1, 8),
+    /** Persisted lookup results are reused for this many days (« Actualiser » bypasses them). */
+    similarCacheDays: envInt("SMART_SEGMENT_SIMILAR_CACHE_DAYS", 30, 1, 365),
   };
 }
 

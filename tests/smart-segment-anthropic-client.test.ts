@@ -77,6 +77,108 @@ describe("anthropic client", () => {
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
+  it("sends the web search tool when asked, counts the searches and keeps only the text blocks", async () => {
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]);
+      return jsonResponse(200, {
+        model: "claude-test-2",
+        stop_reason: "end_turn",
+        content: [
+          { type: "server_tool_use", id: "srvtoolu_1", name: "web_search", input: { query: "Morgan mode femme" } },
+          { type: "web_search_tool_result", tool_use_id: "srvtoolu_1", content: [{ type: "web_search_result", url: "https://example.com", title: "Morgan" }] },
+          { type: "text", text: "Voici :" },
+          { type: "web_search_tool_result", tool_use_id: "srvtoolu_2", content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" } },
+          { type: "text", text: "{\"secteur\":\"mode\",\"marques\":[]}" },
+        ],
+        usage: { input_tokens: 40, output_tokens: 9, server_tool_use: { web_search_requests: 2 } },
+      });
+    });
+    const response = await anthropicCreateMessage({ ...options, fetchImpl: fetchImpl as unknown as typeof fetch }, { ...request, webSearch: { maxUses: 3 } });
+    expect(response.text).toBe("Voici :\n{\"secteur\":\"mode\",\"marques\":[]}");
+    expect(response.webSearches).toBe(2);
+    expect(response.webSearchErrors).toEqual(["max_uses_exceeded"]);
+    expect(response.usage).toEqual({ inputTokens: 40, outputTokens: 9 });
+    // Without the tool nothing tool-related is reported (existing callers unchanged).
+    const plain = await anthropicCreateMessage({ ...options, fetchImpl: (async () => jsonResponse(200, { content: [{ type: "text", text: "ok" }] })) as unknown as typeof fetch }, request);
+    expect(plain.webSearches).toBeUndefined();
+  });
+
+  it("resumes a pause_turn a bounded number of times under the same deadline, accumulating usage and never re-granting the search budget", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body));
+      expect(body.messages).toHaveLength(1 + (calls - 1) * 2);
+      // 5 allowed in total: 5, then 4 after one search, then 3.
+      expect(body.tools[0].max_uses).toBe(5 - (calls - 1));
+      if (calls < 3) {
+        return jsonResponse(200, { stop_reason: "pause_turn", content: [{ type: "server_tool_use", id: `s${calls}`, name: "web_search", input: { query: "q" } }], usage: { input_tokens: 10, output_tokens: 1, server_tool_use: { web_search_requests: 1 } } });
+      }
+      return jsonResponse(200, { stop_reason: "end_turn", content: [{ type: "text", text: "{}" }], usage: { input_tokens: 10, output_tokens: 2, server_tool_use: { web_search_requests: 1 } } });
+    });
+    const response = await anthropicCreateMessage({ ...options, fetchImpl: fetchImpl as unknown as typeof fetch }, { ...request, webSearch: { maxUses: 5 } });
+    expect(calls).toBe(3);
+    expect(response.text).toBe("{}");
+    expect(response.webSearches).toBe(3);
+    expect(response.usage).toEqual({ inputTokens: 30, outputTokens: 4 });
+
+    // A loop that never ends stops after the allowed continuations and is an
+    // unfinished (bad) answer, not a hang — even when partial text exists.
+    let endlessCalls = 0;
+    const endless = (async () => {
+      endlessCalls += 1;
+      return jsonResponse(200, { stop_reason: "pause_turn", content: [{ type: "text", text: "{\"partial\":true}" }, { type: "server_tool_use", id: "s", name: "web_search", input: {} }] });
+    }) as unknown as typeof fetch;
+    const error = await anthropicCreateMessage({ ...options, fetchImpl: endless }, { ...request, webSearch: { maxUses: 5 } }).catch((e) => e);
+    expect(error).toBeInstanceOf(AnthropicClientError);
+    expect(error.code).toBe("AI_BAD_RESPONSE");
+    expect(endlessCalls).toBe(3);
+  });
+
+  it("never grants a search beyond the caller's ceiling: a paused turn that spent the whole budget is not continued", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {
+      stop_reason: "pause_turn",
+      content: [{ type: "text", text: "{\"partial\":true}" }, { type: "server_tool_use", id: "s1", name: "web_search", input: { query: "q" } }],
+      usage: { input_tokens: 10, output_tokens: 1, server_tool_use: { web_search_requests: 2 } },
+    }));
+    const error = await anthropicCreateMessage({ ...options, fetchImpl: fetchImpl as unknown as typeof fetch }, { ...request, webSearch: { maxUses: 2 } }).catch((e) => e);
+    expect(error).toBeInstanceOf(AnthropicClientError);
+    expect(error.code).toBe("AI_BAD_RESPONSE");
+    expect(error.message).toContain("budget de recherches");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body)).tools[0].max_uses).toBe(2);
+  });
+
+  it("tells billed searches apart from searches that returned results", async () => {
+    const fetchImpl = (async () => jsonResponse(200, {
+      stop_reason: "end_turn",
+      content: [
+        { type: "web_search_tool_result", tool_use_id: "a", content: [{ type: "web_search_result", url: "https://a" }] },
+        { type: "web_search_tool_result", tool_use_id: "b", content: { type: "web_search_tool_result_error", error_code: "unavailable" } },
+        { type: "text", text: "{}" },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 2 } },
+    })) as unknown as typeof fetch;
+    const response = await anthropicCreateMessage({ ...options, fetchImpl }, { ...request, webSearch: { maxUses: 2 } });
+    expect(response.webSearches).toBe(2);
+    expect(response.webSearchResults).toBe(1);
+    expect(response.webSearchErrors).toEqual(["unavailable"]);
+  });
+
+  it("flags a web search tool refused by the API as AI_TOOL_UNAVAILABLE (not retryable), only when the tool was requested", async () => {
+    const refused = (async () => jsonResponse(400, { error: { type: "invalid_request_error", message: "web_search tool is not available for this organization" } })) as unknown as typeof fetch;
+    const withTool = await anthropicCreateMessage({ ...options, fetchImpl: refused }, { ...request, webSearch: { maxUses: 1 } }).catch((e) => e);
+    expect(withTool.code).toBe("AI_TOOL_UNAVAILABLE");
+    expect(withTool.retryable).toBe(false);
+    const withoutTool = await anthropicCreateMessage({ ...options, fetchImpl: refused }, request).catch((e) => e);
+    expect(withoutTool.code).toBe("AI_REQUEST_REJECTED");
+    // A 400 unrelated to the tool keeps its generic code even with the tool on.
+    const other = (async () => jsonResponse(400, { error: { type: "invalid_request_error", message: "max_tokens too large" } })) as unknown as typeof fetch;
+    const unrelated = await anthropicCreateMessage({ ...options, fetchImpl: other }, { ...request, webSearch: { maxUses: 1 } }).catch((e) => e);
+    expect(unrelated.code).toBe("AI_REQUEST_REJECTED");
+  });
+
   it("extracts the JSON object from fenced or chatty answers", () => {
     expect(extractJsonObject("```json\n{\"segments\":[]}\n```")).toEqual({ segments: [] });
     expect(extractJsonObject("Voici : {\"a\":{\"b\":1}} merci")).toEqual({ a: { b: 1 } });

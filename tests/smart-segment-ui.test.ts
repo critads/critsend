@@ -6,6 +6,7 @@ import {
   complaintRateColor,
   defaultSimilarBrandRefs,
   formatSmartSegmentPercent,
+  isTransientSimilarBrandsError,
   parseSmartSegmentApiError,
   validateManualSimilarRef,
 } from "../client/src/lib/smart-segment-ui";
@@ -36,12 +37,12 @@ describe("Smart segment UI helpers", () => {
 
   it("checks every similar-brand candidate by default and canonicalises request refs", () => {
     const candidates = [
-      { ref: "z9", brandName: "Zed", sourceRef: "CORE", lift: 2, commonCount: 10, additionalCount: 4 },
-      { ref: "a1", brandName: "Alpha", sourceRef: "CORE", lift: 3, commonCount: 12, additionalCount: 5 },
+      { name: "Zed", refs: ["z9"], reason: "Même cible." },
+      { name: "Alpha", refs: ["a1", "A1B"], reason: "Même secteur." },
     ];
     const checked = defaultSimilarBrandRefs(candidates);
-    expect(checked).toEqual(["A1", "Z9"]);
-    expect(normalizeSimilarRefs([...checked, "m2"])).toEqual(["A1", "M2", "Z9"]);
+    expect(checked).toEqual(["A1", "A1B", "Z9"]);
+    expect(normalizeSimilarRefs([...checked, "m2"])).toEqual(["A1", "A1B", "M2", "Z9"]);
   });
 
   it("uppercases manual refs and refuses own refs or DEL", () => {
@@ -50,12 +51,19 @@ describe("Smart segment UI helpers", () => {
     expect(validateManualSimilarRef("del", ["CORE"], []).ref).toBeNull();
   });
 
+  it("retries the similar-brands lookup only on gateway / capacity errors", () => {
+    expect(isTransientSimilarBrandsError({ status: 504, message: "504: gateway" })).toBe(true);
+    expect(isTransientSimilarBrandsError({ status: 502, body: { error: "modèle indisponible", code: "AI_UNAVAILABLE" } })).toBe(true);
+    expect(isTransientSimilarBrandsError({ status: 429, message: "429" })).toBe(true);
+    expect(isTransientSimilarBrandsError({ status: 400, message: "400: bad request" })).toBe(false);
+    expect(isTransientSimilarBrandsError({ status: 409, body: { error: "annuaire vide", code: "SMART_SEGMENT_DIRECTORY_EMPTY" } })).toBe(false);
+    expect(isTransientSimilarBrandsError(new Error("boom"))).toBe(false);
+  });
+
   it("caps the similar-ref selection at eight", () => {
     const selected = Array.from({ length: 8 }, (_, index) => `R${index}`);
     expect(validateManualSimilarRef("R9", [], selected)).toEqual({ ref: null, error: "8 refs maximum" });
-    const candidates = Array.from({ length: 9 }, (_, index) => ({
-      ref: `r${index}`, brandName: null, sourceRef: "CORE", lift: 2, commonCount: 10, additionalCount: 4,
-    }));
+    const candidates = Array.from({ length: 9 }, (_, index) => ({ name: `Brand ${index}`, refs: [`r${index}`], reason: "" }));
     expect(defaultSimilarBrandRefs(candidates)).toHaveLength(8);
   });
 });
@@ -72,6 +80,30 @@ describe("Smart segment source wiring", () => {
     expect(source).toContain("mtaId={formData.mtaId || null}");
     expect(source).toContain("selectedSegmentIds={segmentIds}");
     expect(source).toContain("onSegmentsCreated=");
+  });
+
+  it("asks the server for AI similar brands by brand name (web search), with refresh, retry and bounded auto-retry", () => {
+    expect(component).toContain('apiRequest("POST", "/api/smart-segments/similar-brands", {');
+    expect(component).toContain("brandName: similarBrandName,");
+    expect(component).toContain("...(similarRefreshNonce > 0 ? { refresh: true } : {})");
+    expect(component).toContain('queryKey: ["/api/smart-segments/similar-brands", similarKey, similarRefreshNonce]');
+    expect(component).toContain("enabled: similarBrandName.length > 0");
+    // Billed lookup: no background refetch may re-run it or wipe the operator's ticks.
+    expect(component).toContain("staleTime: Infinity");
+    expect(component).toContain("refetchOnWindowFocus: false");
+    expect(component).toContain("retry: (failureCount, error) => failureCount < 2 && isTransientSimilarBrandsError(error)");
+    expect(component).toContain('data-testid="button-smart-segment-similar-refresh"');
+    expect(component).toContain('data-testid="button-smart-segment-similar-retry"');
+    expect(component).toContain("defaultSimilarBrandRefs(similarBrandsQuery.data.brands)");
+    // The co-occurrence wording is gone: candidates are brands of the directory chosen by the model.
+    expect(component).not.toContain("co-occurrence");
+    expect(component).not.toContain("candidate.lift");
+  });
+
+  it("labels proposals by their server-derived kind and offers a bulk create for two or three", () => {
+    expect(component).toContain("SMART_SEGMENT_PROPOSAL_KIND_LABELS[segment.kind]");
+    expect(component).toContain("analysis.proposal.segments.length >= 2 && createdIndexes.length === 0");
+    expect(component).toContain('Créer les {analysis.proposal.segments.length === 2 ? "deux" : "trois"}');
   });
 
   it("polls analyses and posts materialization", () => {

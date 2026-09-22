@@ -179,9 +179,14 @@ function requestPinnedImage(
   urlObj: URL,
   address: ResolvedImageAddress,
   deadlineAt = Date.now() + IMAGE_REQUEST_TIMEOUT_MS,
-  connectOverride?: { hostname: string; port: number },
+  connectOverride?: { address: string; port: number },
 ): Promise<http.IncomingMessage> {
   const transport = urlObj.protocol === "https:" ? https : http;
+  // The socket destination: the validated public address (tests point it at
+  // a local fixture, the logical URL/Host/SNI staying untouched).
+  const pinned: ResolvedImageAddress = connectOverride
+    ? { address: connectOverride.address, family: 4 }
+    : address;
   return new Promise((resolve, reject) => {
     const remaining = Math.max(1, deadlineAt - Date.now());
     let deadlineTimer: ReturnType<typeof setTimeout>;
@@ -203,7 +208,7 @@ function requestPinnedImage(
       // Keep the logical hostname for Host/SNI while lookup pins the socket
       // to the already validated address. TLS certificate verification remains
       // against the original hostname via `servername`.
-      hostname: connectOverride?.hostname ?? urlObj.hostname,
+      hostname: urlObj.hostname,
       port: connectOverride?.port ?? (urlObj.port || (urlObj.protocol === "https:" ? 443 : 80)),
       path: `${urlObj.pathname}${urlObj.search}`,
       method: "GET",
@@ -211,11 +216,18 @@ function requestPinnedImage(
         Host: urlObj.host,
         "User-Agent": "Mozilla/5.0 (compatible; CritsendBot/1.0)",
       },
-      lookup: (_hostname, _options, callback) => callback(
-        null,
-        connectOverride?.hostname ?? address.address,
-        connectOverride ? 4 : address.family,
-      ),
+      // Never a second DNS query: the pinned address is the only answer. Node
+      // ≥ 20 (autoSelectFamily) asks with `all: true` and expects an ARRAY of
+      // {address, family}; answering a bare string there makes every real
+      // connection fail with "Invalid IP address: undefined". Older Node (or
+      // a forced family) asks without `all` and expects (address, family).
+      lookup: (_hostname, options, callback) => {
+        if (options && typeof options === "object" && (options as { all?: boolean }).all) {
+          (callback as unknown as (err: null, addresses: Array<{ address: string; family: number }>) => void)(null, [{ address: pinned.address, family: pinned.family }]);
+          return;
+        }
+        callback(null, pinned.address, pinned.family);
+      },
       ...(urlObj.protocol === "https:" ? { servername: urlObj.hostname } : {}),
     }, (response) => {
       clearTimeout(deadlineTimer);
@@ -406,11 +418,13 @@ export function downloadImageWithNetworkForTest(
 }
 
 /** Uses the production pinned ClientRequest while allowing tests to connect
- * to a local fixture server. The logical URL/Host/SNI remain unchanged. */
+ * to a local fixture server: the URL keeps its (unresolvable) hostname, so
+ * the request goes through the same lookup callback as in production, and
+ * the pinned answer is the fixture's address. Host/SNI remain unchanged. */
 export function requestPinnedImageForTest(
   url: string,
   address: ResolvedImageAddress,
-  connectTo: { hostname: string; port: number },
+  connectTo: { address: string; port: number },
   timeoutMs = IMAGE_REQUEST_TIMEOUT_MS,
 ): Promise<http.IncomingMessage> {
   return requestPinnedImage(new URL(url), address, Date.now() + timeoutMs, connectTo);

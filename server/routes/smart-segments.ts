@@ -16,7 +16,7 @@ import {
 import { smartSegmentFeatureStatus } from "../config/smart-segment";
 import { SmartSegmentError } from "../services/smart-segment-evidence";
 import { resolveSmartSegmentContext } from "../services/smart-segment-brand";
-import { listSimilarBrandCandidates } from "../services/smart-segment-similar";
+import { lookupSimilarBrands } from "../services/smart-segment-similar";
 import {
   getSmartSegmentAnalysis,
   materializeSmartSegmentProposal,
@@ -37,6 +37,14 @@ const resolveLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Trop de résolutions de marque. Réessayez dans une minute.", code: "RATE_LIMITED" },
+});
+
+const similarLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Trop de recherches de marques similaires. Réessayez dans une minute.", code: "RATE_LIMITED" },
 });
 
 const idSchema = z.string().uuid();
@@ -79,11 +87,17 @@ export function registerSmartSegmentRoutes(app: Express): void {
     }
   });
 
-  // Similar-brand candidates for the wizard (co-occurrence engine, read-only).
-  app.post("/api/smart-segments/similar-brands", resolveLimiter, async (req: Request, res: Response) => {
+  // Similar brands for the wizard: one synchronous model call (web search)
+  // choosing inside the brand directory, persisted per brand. Slow (tens of
+  // seconds) and billed, hence its own tighter limiter.
+  app.post("/api/smart-segments/similar-brands", similarLimiter, async (req: Request, res: Response) => {
     try {
       const body = smartSegmentSimilarBrandsRequestSchema.parse(req.body ?? {});
-      const result: SmartSegmentSimilarBrandsResponse = await listSimilarBrandCandidates(body.coreRefs);
+      const result: SmartSegmentSimilarBrandsResponse = await lookupSimilarBrands({
+        brandName: body.brandName,
+        coreRefs: body.coreRefs ?? [],
+        refresh: body.refresh === true,
+      });
       res.json(result);
     } catch (error) {
       sendError(res, error, "similar-brands");

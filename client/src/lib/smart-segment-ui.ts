@@ -29,8 +29,15 @@ export function complaintRateColor(value: number): string {
   return "text-green-600";
 }
 
-export function defaultSimilarBrandRefs(candidates: readonly SmartSegmentSimilarBrand[]): string[] {
-  return normalizeSimilarRefs(candidates.map((candidate) => candidate.ref)).slice(0, SMART_SEGMENT_MAX_SIMILAR_REFS);
+/** Every ref of every proposed brand is checked by default (the server already applied the global cap). */
+export function defaultSimilarBrandRefs(brands: readonly SmartSegmentSimilarBrand[]): string[] {
+  return normalizeSimilarRefs(brands.flatMap((brand) => brand.refs)).slice(0, SMART_SEGMENT_MAX_SIMILAR_REFS);
+}
+
+/** True when the similar-brands lookup failed for a transient reason worth retrying automatically (gateway/timeout). */
+export function isTransientSimilarBrandsError(error: unknown): boolean {
+  const status = parseSmartSegmentApiError(error).status;
+  return status === 502 || status === 503 || status === 504 || status === 429;
 }
 
 export function validateManualSimilarRef(

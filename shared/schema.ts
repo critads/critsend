@@ -131,6 +131,20 @@ export const smartSegmentAnalyses = pgTable("smart_segment_analyses", {
 
 export type SmartSegmentAnalysisRow = typeof smartSegmentAnalyses.$inferSelect;
 
+// Task #315: persisted « similar brands » lookups of the Smart segment wizard.
+// One row per (prompt version, brand name, brand refs) answer of the model —
+// the web-search call takes tens of seconds and is billed, so the same brand
+// is not searched again for weeks unless the operator asks to refresh.
+export const smartSegmentSimilarBrandAnalyses = pgTable("smart_segment_similar_brand_analyses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  brandKey: varchar("brand_key", { length: 512 }).notNull(),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  brandKeyCreatedIdx: index("smart_segment_similar_brand_analyses_key_created_idx")
+    .on(table.brandKey, table.createdAt.desc()),
+}));
+
 // Task #257: externally supplied SHA-256 suppression values. Only hashes from
 // the uploaded CSV are stored here; subscriber email hashes are computed in
 // SQL while evaluating an audience and are never persisted.

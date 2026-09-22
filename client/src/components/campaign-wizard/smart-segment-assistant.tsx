@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronUp, Globe, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +15,7 @@ import {
   complaintRateColor,
   defaultSimilarBrandRefs,
   formatSmartSegmentPercent,
+  isTransientSimilarBrandsError,
   parseSmartSegmentApiError,
   validateManualSimilarRef,
 } from "@/lib/smart-segment-ui";
@@ -22,6 +23,7 @@ import {
   DOMAIN_FAMILIES,
   RECENCY_BAND_LABELS,
   SMART_SEGMENT_MAX_SIMILAR_REFS,
+  SMART_SEGMENT_PROPOSAL_KIND_LABELS,
   SMART_SEGMENT_STAGE_LABELS,
   normalizeSimilarRefs,
   type DomainFamilyId,
@@ -126,24 +128,47 @@ export function SmartSegmentAssistant({
   });
   const brand = resolveQuery.data?.brand;
   const coreRefs = brand?.detected ? normalizeSimilarRefs(brand.coreRefs) : [];
-  const coreRefsKey = coreRefs.join(",");
+  const similarBrandName = brand?.detected ? (brand.brandName ?? "").trim() : "";
+  const similarKey = `${similarBrandName}|${coreRefs.join(",")}`;
+  // « Actualiser » is a distinct operation, not a flag on the next fetch: it
+  // gets its own query key (nonce) so its retries stay refreshes and a failed
+  // refresh never quietly shows the server's stored answer again.
+  const [similarRefreshNonce, setSimilarRefreshNonce] = useState(0);
+  useEffect(() => { setSimilarRefreshNonce(0); }, [similarKey]);
   const similarBrandsQuery = useQuery({
-    queryKey: ["/api/smart-segments/similar-brands", coreRefsKey],
-    enabled: coreRefs.length > 0,
+    queryKey: ["/api/smart-segments/similar-brands", similarKey, similarRefreshNonce],
+    enabled: similarBrandName.length > 0,
     queryFn: async () => {
-      const response = await apiRequest("POST", "/api/smart-segments/similar-brands", { coreRefs });
+      const response = await apiRequest("POST", "/api/smart-segments/similar-brands", {
+        brandName: similarBrandName,
+        coreRefs,
+        ...(similarRefreshNonce > 0 ? { refresh: true } : {}),
+      });
       return response.json() as Promise<SmartSegmentSimilarBrandsResponse>;
     },
+    // The lookup runs a web search (tens of seconds) and is billed: only an
+    // input change, « Actualiser » or « Réessayer » may run it — never a
+    // focus/reconnect refetch, which would also discard the operator's ticks.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    // A gateway timeout or a busy model gets two quiet retries; the server
+    // answers from its store once the first call has finished.
+    retry: (failureCount, error) => failureCount < 2 && isTransientSimilarBrandsError(error),
+    retryDelay: 5_000,
   });
   useEffect(() => {
     setCheckedSimilarRefs([]);
     setManualSimilarRefs([]);
     setManualSimilarInput("");
     setManualSimilarError(null);
-  }, [coreRefsKey]);
+  }, [similarKey]);
+  // A new answer (first load or refresh) resets the ticks to the server's proposal.
   useEffect(() => {
-    if (similarBrandsQuery.data) setCheckedSimilarRefs(defaultSimilarBrandRefs(similarBrandsQuery.data.candidates));
+    if (similarBrandsQuery.data) setCheckedSimilarRefs(defaultSimilarBrandRefs(similarBrandsQuery.data.brands));
   }, [similarBrandsQuery.data]);
+  const refreshSimilarBrands = () => setSimilarRefreshNonce((nonce) => nonce + 1);
   useEffect(() => {
     if (!familyChosen && resolveQuery.data?.suggestedFamily) setFamily(resolveQuery.data.suggestedFamily);
   }, [resolveQuery.data?.suggestedFamily, familyChosen]);
@@ -258,11 +283,22 @@ export function SmartSegmentAssistant({
   }, [evidence]);
   const ownBrandRefs = normalizeSimilarRefs([...(brand?.coreRefs ?? []), ...(brand?.extensionRefs ?? [])]);
   const similarRefsAtCap = similarRefs.length >= SMART_SEGMENT_MAX_SIMILAR_REFS;
-  const toggleSimilarRef = (ref: string, checked: boolean) => {
-    const normalized = ref.toUpperCase();
-    setCheckedSimilarRefs((current) => checked
-      ? normalizeSimilarRefs([...current, normalized]).slice(0, SMART_SEGMENT_MAX_SIMILAR_REFS)
-      : current.filter((value) => value !== normalized));
+  // A brand is (un)checked as a whole: all of its refs enter or leave the
+  // selection, and the cap counts the manual refs too — a brand that does
+  // not fit entirely is refused rather than half-checked.
+  const toggleSimilarBrand = (refs: string[], checked: boolean) => {
+    const normalized = normalizeSimilarRefs(refs);
+    if (!checked) {
+      setCheckedSimilarRefs((current) => current.filter((value) => !normalized.includes(value)));
+      setManualSimilarError(null);
+      return;
+    }
+    const next = normalizeSimilarRefs([...checkedSimilarRefs, ...manualSimilarRefs, ...normalized]);
+    if (next.length > SMART_SEGMENT_MAX_SIMILAR_REFS) {
+      setManualSimilarError(`${SMART_SEGMENT_MAX_SIMILAR_REFS} refs maximum : décochez une marque ou retirez une ref ajoutée à la main.`);
+      return;
+    }
+    setCheckedSimilarRefs((current) => normalizeSimilarRefs([...current, ...normalized]));
     setManualSimilarError(null);
   };
   const addManualSimilarRef = () => {
@@ -324,44 +360,65 @@ export function SmartSegmentAssistant({
           </div>
         ) : null}
 
-        {brand?.detected && coreRefs.length > 0 && (
-          <div className="space-y-3 rounded-md border bg-background p-3">
-            <div>
-              <p className="text-sm font-medium">Marques similaires</p>
-              <p className="text-xs text-muted-foreground">
-                Refs de marques dont les porteurs recoupent ceux de la marque (co-occurrence mesurée sur la base). Cochées par défaut ; décochez pour les écarter.
-              </p>
+        {brand?.detected && similarBrandName.length > 0 && (
+          <div className="space-y-3 rounded-md border bg-background p-3" data-testid="smart-segment-similar-brands">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Marques similaires</p>
+                <p className="text-xs text-muted-foreground">
+                  Marques de l'annuaire (Brands + REF) que l'IA juge comparables à « {similarBrandName} » après une recherche web : même secteur, même cible. Cochées par défaut ; décochez pour les écarter. Cette sélection sert au segment « avec marques similaires ».
+                </p>
+              </div>
+              {similarBrandsQuery.data && (
+                <Button type="button" variant="ghost" size="sm" disabled={similarBrandsQuery.isFetching} onClick={refreshSimilarBrands} data-testid="button-smart-segment-similar-refresh">
+                  <RefreshCw className={`mr-1 h-3.5 w-3.5 ${similarBrandsQuery.isFetching ? "animate-spin" : ""}`} />Actualiser
+                </Button>
+              )}
             </div>
-            {similarBrandsQuery.isLoading ? <Skeleton className="h-16 w-full" /> : similarBrandsQuery.isError ? (
-              <p className="text-sm text-muted-foreground">Marques similaires indisponibles</p>
-            ) : similarBrandsQuery.data?.candidates.length ? (
+            {similarBrandsQuery.isLoading || (similarBrandsQuery.isFetching && !similarBrandsQuery.data) ? (
               <div className="space-y-2">
-                {similarBrandsQuery.data.candidates.map((candidate) => {
-                  const ref = candidate.ref.toUpperCase();
-                  const checked = checkedSimilarRefs.includes(ref);
+                <Skeleton className="h-16 w-full" />
+                <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Recherche web des marques similaires en cours (jusqu'à une minute)…</p>
+              </div>
+            ) : similarBrandsQuery.isError ? (
+              <div className="space-y-2">
+                <p className="flex items-center gap-2 text-sm text-destructive"><AlertCircle className="h-4 w-4 shrink-0" />Marques similaires indisponibles : {parseSmartSegmentApiError(similarBrandsQuery.error).message}</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void similarBrandsQuery.refetch()} data-testid="button-smart-segment-similar-retry">Réessayer</Button>
+              </div>
+            ) : similarBrandsQuery.data ? (
+              <div className="space-y-2">
+                {similarBrandsQuery.data.sector && <p className="text-xs text-muted-foreground"><span className="font-medium">Lecture de la marque :</span> {similarBrandsQuery.data.sector}</p>}
+                {similarBrandsQuery.data.brands.length ? similarBrandsQuery.data.brands.map((candidate) => {
+                  const refs = normalizeSimilarRefs(candidate.refs);
+                  const checkedCount = refs.filter((ref) => checkedSimilarRefs.includes(ref)).length;
+                  const checked = checkedCount === refs.length ? true : checkedCount === 0 ? false : "indeterminate";
                   return (
-                    <div key={`${candidate.sourceRef}-${ref}`} className="flex items-start gap-2">
+                    <div key={candidate.name} className="flex items-start gap-2">
                       <Checkbox
-                        id={`smart-similar-${candidate.sourceRef}-${ref}`}
+                        id={`smart-similar-${candidate.name}`}
                         checked={checked}
-                        disabled={!checked && similarRefsAtCap}
-                        onCheckedChange={(value) => toggleSimilarRef(ref, value === true)}
-                        data-testid={`checkbox-smart-segment-similar-${ref}`}
+                        disabled={checked !== true && similarRefsAtCap}
+                        onCheckedChange={(value) => toggleSimilarBrand(refs, value === true)}
+                        data-testid={`checkbox-smart-segment-similar-${refs[0] ?? candidate.name}`}
                       />
-                      <Label htmlFor={`smart-similar-${candidate.sourceRef}-${ref}`} className="min-w-0 flex-1 font-normal">
-                        <span className="block">{candidate.brandName ?? ref} · {ref}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          lift ×{candidate.lift.toFixed(1)} · {integer.format(candidate.commonCount)} porteurs communs
-                        </span>
+                      <Label htmlFor={`smart-similar-${candidate.name}`} className="min-w-0 flex-1 font-normal">
+                        <span className="block">{candidate.name} · {refs.join(", ")}</span>
+                        {candidate.reason && <span className="block text-xs text-muted-foreground">{candidate.reason}</span>}
                       </Label>
-                      {coreRefs.length > 1 && <Badge variant="outline">{candidate.sourceRef}</Badge>}
                     </div>
                   );
-                })}
+                }) : (
+                  <p className="text-sm text-muted-foreground">Aucune marque comparable trouvée dans l'annuaire pour cette marque.</p>
+                )}
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Globe className="h-3.5 w-3.5" />
+                  {similarBrandsQuery.data.webSearchUsed
+                    ? `${integer.format(similarBrandsQuery.data.webSearches)} recherche(s) web`
+                    : "Sans recherche web (connaissances du modèle)"}
+                  {" · "}{similarBrandsQuery.data.cached ? `résultat mémorisé du ${date(similarBrandsQuery.data.generatedAt)}` : "résultat frais"}
+                </p>
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Aucune marque similaire mesurable pour cette marque.</p>
-            )}
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Input
                 className="h-8 w-56"
@@ -423,8 +480,12 @@ export function SmartSegmentAssistant({
         <div className="space-y-4">
           {analysis.proposal.segments.map((segment, index) => {
             const created = createdIndexes.includes(index) || analysis.createdSegments.some((entry) => entry.index === index);
-            return <div key={`${segment.name}-${index}`} className="rounded-lg border bg-background p-4 space-y-3">
-              <h4 className="font-semibold">{segment.name}</h4>
+            const kindLabel = segment.kind ? SMART_SEGMENT_PROPOSAL_KIND_LABELS[segment.kind] : null;
+            return <div key={`${segment.name}-${index}`} className="rounded-lg border bg-background p-4 space-y-3" data-testid={`smart-segment-proposal-${index}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="font-semibold">{segment.name}</h4>
+                {kindLabel && <Badge variant={segment.kind === "similar_brands" ? "default" : "secondary"}>{kindLabel}</Badge>}
+              </div>
               <pre className="whitespace-pre-wrap font-sans text-sm">{segment.readableRules.join("\n")}</pre>
               <div className="grid gap-1 text-sm sm:grid-cols-3">
                 <p><span className="font-medium">Effectif réel :</span> {integer.format(segment.audienceCount)}</p>
@@ -440,7 +501,7 @@ export function SmartSegmentAssistant({
               )}
             </div>;
           })}
-          {analysis.proposal.segments.length === 2 && createdIndexes.length === 0 && analysis.createdSegments.length === 0 && <Button type="button" variant="outline" disabled={materializeMutation.isPending || !analysisMatchesInputs} onClick={() => materializeMutation.mutate([0, 1])} data-testid="button-smart-segment-create-all">Créer les deux</Button>}
+          {analysis.proposal.segments.length >= 2 && createdIndexes.length === 0 && analysis.createdSegments.length === 0 && <Button type="button" variant="outline" disabled={materializeMutation.isPending || !analysisMatchesInputs} onClick={() => materializeMutation.mutate(analysis.proposal!.segments.map((_, index) => index))} data-testid="button-smart-segment-create-all">Créer les {analysis.proposal.segments.length === 2 ? "deux" : "trois"}</Button>}
           {successNames.map((name) => <p key={name} className="text-sm font-medium text-green-700">Segment créé : {name}</p>)}
 
           {evidence && <div className="rounded-lg border bg-background">

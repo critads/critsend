@@ -15,6 +15,7 @@ import {
   type SmartSegmentEvidence,
   type SmartSegmentModelOutput,
   type SmartSegmentProposal,
+  type SmartSegmentProposalKind,
   type SmartSegmentProposalSegment,
 } from "@shared/smart-segment";
 import { BOT_OPENER_REF } from "../config/suppression";
@@ -69,7 +70,7 @@ export function buildSmartSegmentPrompt(
   const system = [
     "Tu es l'assistant de ciblage d'une plateforme d'emailing B2C française. Tu travailles EN CADRÉ :",
     "- tu ne calcules aucun chiffre : effectifs, CTR et taux de plaintes viennent du serveur et seront recomptés après toi ;",
-    "- tu composes 1 à 2 segments à partir des BLOCS fournis (réservoirs déjà mesurés après exclusions) ;",
+    "- tu composes 1 à 3 segments à partir des BLOCS fournis (réservoirs déjà mesurés après exclusions) ;",
     "- tu n'écris jamais de SQL, jamais de tag de clic ou d'ouverture, jamais de ref ou de campagne absente du dossier ;",
     "- tu réponds UNIQUEMENT par un objet JSON valide, sans texte autour.",
     "",
@@ -81,6 +82,7 @@ export function buildSmartSegmentPrompt(
     `Opérateurs autorisés : ${SMART_SEGMENT_ALLOWED_OPERATORS.join(", ")}. Le champ « engagement » porte les opérateurs d'engagement, « refs » has_ref / not_has_ref, « tags » not_has_tag seulement, « email » equals / not_equals / starts_with / ends_with.`,
     "Les exclusions obligatoires (IP de plainte, ref DEL, tags de désabonnement de la marque, famille de domaines, destinataires des envois récents) seront ajoutées par le serveur si tu les omets ; ne les contredis pas.",
     "Stratégie : atteindre l'objectif de clics avec le taux de plaintes projeté le plus bas — d'abord les cliqueurs les plus actifs, puis les autres actifs 60 j, puis les porteurs des refs de la marque, puis les porteurs de refs de marques similaires (similar_refs_*), puis la verticale ; n'élargis à un bloc suivant que si l'objectif n'est pas atteint. Les blocs « _lapsed » (ouverts 61–180 j) et « _dormant » (dormants > 180 j) portent des contacts sans activité 60 j : ils sont calibrés sur leur propre cohorte de récence, ne les ajoute que si les blocs actifs ne suffisent pas, prends d'abord la bande « _lapsed », et signale-le dans les mises en garde. Le premier segment est la recommandation ; un second segment optionnel propose une variante (plus sûre ou plus volumique). Chaque segment doit rester sous le plafond de plaintes.",
+    "Marques similaires : si le dossier contient des blocs similar_refs_* (marques similaires retenues par l'opérateur), tu DOIS ajouter, en DERNIER, un segment « avec marques similaires » : la recommandation élargie au bloc similar_refs_active (et à similar_refs_lapsed s'il existe et si le plafond le permet), afin que l'opérateur mesure l'apport de ces marques ; ce segment doit lui aussi rester sous le plafond de plaintes. Sans bloc similar_refs_* dans le dossier, n'ajoute pas ce segment.",
     "Les projections sont indicatives (créa, objet et heure d'envoi comptent) : dis-le dans les mises en garde quand c'est pertinent.",
     "IMPORTANT : name, rationale et warnings ne doivent contenir AUCUN chiffre (ni effectif, ni taux, ni pourcentage, ni date) : le serveur affiche lui-même les chiffres recomptés. Cite les blocs par leur identifiant et explique le raisonnement en mots ; toute phrase chiffrée sera supprimée.",
   ].join("\n");
@@ -449,12 +451,55 @@ export function serverRationale(
   ].filter(Boolean).join(" ");
 }
 
+/** Blocks built from the operator's similar-brand selection (see smart-segment-projection). */
+export function similarBlockIds(evidence: Pick<SmartSegmentEvidence, "blocks">): string[] {
+  return evidence.blocks.filter((block) => block.id.startsWith("similar_refs_")).map((block) => block.id);
+}
+
+/**
+ * Role of every validated segment, from the blocks actually expanded: any
+ * segment using a similar_refs_* block is the « with similar brands » one;
+ * among the others the first is the recommendation, the rest are variants.
+ */
+export function assignProposalKinds<T extends { blocksUsed: string[] }>(segments: T[]): Array<T & { kind: SmartSegmentProposalKind }> {
+  let recommendationSeen = false;
+  return segments.map((segment) => {
+    if (segment.blocksUsed.some((id) => id.startsWith("similar_refs_"))) return { ...segment, kind: "similar_brands" as const };
+    const kind: SmartSegmentProposalKind = recommendationSeen ? "variant" : "recommendation";
+    recommendationSeen = true;
+    return { ...segment, kind };
+  });
+}
+
+export type ValidatedProposal = {
+  segments: SmartSegmentProposalSegment[];
+};
+
+/** Compatibility wrapper: validated segments only (see validateProposal). */
 export async function validateAndProject(
   rawText: string,
   evidence: SmartSegmentEvidence,
   params: SmartSegmentAnalysisRequest,
   measureAudience: ProposalDeps["measureAudience"],
 ): Promise<SmartSegmentProposalSegment[]> {
+  return (await validateProposal(rawText, evidence, params, measureAudience)).segments;
+}
+
+/**
+ * Parses, audits, recounts and projects the model output. When the dossier
+ * offers similar_refs_* blocks (the operator selected similar brands), the
+ * proposal MUST hold a recommendation without them and, last, a « with
+ * similar brands » segment: anything else is a rejection the model gets as
+ * feedback, and after the last attempt the analysis fails explicitly — an
+ * analysis without the segment the operator asked for is never persisted
+ * as a success.
+ */
+export async function validateProposal(
+  rawText: string,
+  evidence: SmartSegmentEvidence,
+  params: SmartSegmentAnalysisRequest,
+  measureAudience: ProposalDeps["measureAudience"],
+): Promise<ValidatedProposal> {
   const parsedJson = extractJsonObject(rawText);
   const expanded = expandBlockMacros(parsedJson, evidence);
   if (expanded.unknown.length) {
@@ -543,7 +588,30 @@ export async function validateAndProject(
   if (!segments.length) {
     throw new ModelOutputRejected(rejections.length ? rejections : ["aucun segment exploitable"]);
   }
-  return segments;
+  // Kinds come from the blocks really expanded, never from the model's
+  // labels; the « with similar brands » segment(s) are shown last whatever
+  // the model's order, so index 0 is always the recommendation.
+  const typed = assignProposalKinds(segments);
+  const ordered = [...typed.filter((segment) => segment.kind !== "similar_brands"), ...typed.filter((segment) => segment.kind === "similar_brands")];
+  const similarIds = similarBlockIds(evidence);
+  if (similarIds.length) {
+    const preferred = similarIds.includes("similar_refs_active") ? "similar_refs_active" : similarIds[0];
+    const hasSimilar = ordered.some((segment) => segment.kind === "similar_brands");
+    const hasRecommendation = ordered.some((segment) => segment.kind === "recommendation");
+    if (!hasSimilar) {
+      throw new ModelOutputRejected([
+        ...rejections,
+        `aucun segment « avec marques similaires » valide : ajoute en dernier un segment reprenant la recommandation élargie au bloc ${preferred} (blocs disponibles : ${similarIds.join(", ")}), sous le plafond de plaintes`,
+      ]);
+    }
+    if (!hasRecommendation) {
+      throw new ModelOutputRejected([
+        ...rejections,
+        `aucune recommandation sans marques similaires : propose d'abord un segment sans bloc similar_refs_* (la recommandation), puis en dernier le segment élargi au bloc ${preferred}`,
+      ]);
+    }
+  }
+  return { segments: ordered };
 }
 
 /**
@@ -587,9 +655,9 @@ export async function generateSmartSegmentProposal(
     const tokenUsage: SmartSegmentProposal["tokenUsage"] = usageSeen ? { ...usage } : null;
     await options.onValidation?.();
     try {
-      const segments = await validateAndProject(response.text, evidence, params, deps.measureAudience);
+      const validated = await validateProposal(response.text, evidence, params, deps.measureAudience);
       return {
-        segments,
+        segments: validated.segments,
         model: lastModel,
         promptVersion: SMART_SEGMENT_PROMPT_VERSION,
         attempts: attempt,
@@ -604,7 +672,12 @@ export async function generateSmartSegmentProposal(
           feedback = reason;
           continue;
         }
-        throw new SmartSegmentError("AI_PROPOSAL_REJECTED", `Proposition IA refusée après ${maxAttempts} tentatives : ${reason}`, 422);
+        // The operator's similar brands are part of the request: a proposal
+        // that cannot honour them fails out loud, with the way out.
+        const hint = similarBlockIds(evidence).length && /marques similaires/.test(reason)
+          ? " Relancez l'analyse ou retirez des marques similaires."
+          : "";
+        throw new SmartSegmentError("AI_PROPOSAL_REJECTED", `Proposition IA refusée après ${maxAttempts} tentatives : ${reason}${hint}`, 422);
       }
       throw error;
     }

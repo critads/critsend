@@ -4,7 +4,8 @@ import { logger } from "./logger";
 let bootstrapPromise: Promise<void> | null = null;
 
 /**
- * Task #304 — smart_segment_analyses. Mirrors migrations/0006 so a deployment
+ * Task #304 — smart_segment_analyses (+ task #315 similar-brand lookups).
+ * Mirrors migrations/0006 and 0007 so a deployment
  * that missed the migration run still gets the table on next start (same
  * convention as the brands / unsubscribe-continue bootstraps).
  */
@@ -49,6 +50,19 @@ async function runSmartSegmentBootstrap(): Promise<void> {
     await client.query(`
       CREATE INDEX IF NOT EXISTS smart_segment_analyses_status_idx
       ON smart_segment_analyses (status)
+    `);
+    // Task #315 — persisted « similar brands » lookups (mirrors migrations/0007).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS smart_segment_similar_brand_analyses (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        brand_key varchar(512) NOT NULL,
+        result jsonb NOT NULL,
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS smart_segment_similar_brand_analyses_key_created_idx
+      ON smart_segment_similar_brand_analyses (brand_key, created_at DESC)
     `);
     await client.query("COMMIT");
     logger.info("[SMART_SEGMENT] Schema ready");

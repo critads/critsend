@@ -31,7 +31,7 @@ import {
   type SmartSegmentStatus,
   smartSegmentAnalysisIdentity,
 } from "@shared/smart-segment";
-import { getSmartSegmentConfig, type SmartSegmentConfig } from "../config/smart-segment";
+import { getSmartSegmentConfig, SMART_SEGMENT_PROMPT_VERSION, type SmartSegmentConfig } from "../config/smart-segment";
 import { resolveSmartSegmentBrand } from "./smart-segment-brand";
 import { validateSimilarRefs, withSimilarRefs } from "./smart-segment-similar";
 import { buildSmartSegmentEvidence, createTransactionRunner, measureAudienceWith, SmartSegmentError } from "./smart-segment-evidence";
@@ -301,12 +301,12 @@ export async function startSmartSegmentAnalysis(
         `SELECT ${ROW_COLUMNS} FROM smart_segment_analyses
           WHERE fingerprint = $1
             AND created_at >= NOW() - ($2::int * INTERVAL '1 millisecond')
-            AND (status = 'succeeded'
+            AND ((status = 'succeeded' AND proposal->>'promptVersion' = $4)
                  OR (status IN ('queued', 'running')
                      AND heartbeat_at >= NOW() - ($3::int * INTERVAL '1 millisecond')))
           ORDER BY created_at DESC
           LIMIT 1`,
-        [fingerprint, config.reuseWindowMs, STALE_HEARTBEAT_MS],
+        [fingerprint, config.reuseWindowMs, STALE_HEARTBEAT_MS, SMART_SEGMENT_PROMPT_VERSION],
       );
       if (recent.rows[0]) {
         await client.query("COMMIT");
@@ -441,7 +441,12 @@ export async function materializeSmartSegmentProposal(
       }
       const segmentProposal = proposal.segments[index];
       const baseName = formatSmartSegmentName(brandLabel, row.params.family, now);
-      const name = (requested.length > 1 || index > 0 ? `${baseName} · ${index + 1}` : baseName).slice(0, 200);
+      // The « with similar brands » proposal is named after its role so the
+      // operator tells it apart from the recommendation in the segment list.
+      const suffix = segmentProposal.kind === "similar_brands"
+        ? "marques similaires"
+        : requested.length > 1 || index > 0 ? String(index + 1) : null;
+      const name = (suffix ? `${baseName} · ${suffix}` : baseName).slice(0, 200);
       const description = [
         segmentProposal.rationale,
         "",

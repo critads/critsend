@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as dns from "dns";
 import * as http from "http";
+import * as net from "net";
 import { access, unlink } from "fs/promises";
 import { PassThrough } from "stream";
 import {
@@ -160,7 +161,7 @@ describe("pinned image downloader DNS policy", () => {
         request: (url, address, deadlineAt) => requestPinnedImageForTest(
           url.href,
           address,
-          { hostname: "127.0.0.1", port: fixture.port },
+          { address: "127.0.0.1", port: fixture.port },
           Math.max(1, deadlineAt! - Date.now()),
         ),
       } as any, 30);
@@ -171,6 +172,38 @@ describe("pinned image downloader DNS policy", () => {
     } finally {
       process.removeListener("uncaughtException", onUncaught);
       process.removeListener("unhandledRejection", onUnhandled);
+      await close(fixture.server);
+    }
+  });
+
+  it("connects through the pinned lookup for a real hostname, whatever answer shape Node asks for", async () => {
+    // public.example does not resolve: the only way to reach the fixture is
+    // the lookup callback. Node ≥ 20 asks it with `all: true` (Happy
+    // Eyeballs) and expects an array; a bare string answer used to fail every
+    // real download with "Invalid IP address: undefined".
+    const seenHosts: string[] = [];
+    const fixture = await listen((req, res) => {
+      seenHosts.push(String(req.headers.host));
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    });
+    const previous = net.getDefaultAutoSelectFamily();
+    try {
+      for (const autoSelectFamily of [true, false]) {
+        net.setDefaultAutoSelectFamily(autoSelectFamily);
+        const response = await requestPinnedImageForTest(
+          "http://public.example/pinned.png",
+          { address: "8.8.8.8", family: 4 },
+          { address: "127.0.0.1", port: fixture.port },
+          2_000,
+        );
+        expect(response.statusCode, `autoSelectFamily=${autoSelectFamily}`).toBe(200);
+        response.resume();
+        await new Promise((resolve) => response.once("end", resolve));
+      }
+      expect(seenHosts).toEqual(["public.example", "public.example"]);
+    } finally {
+      net.setDefaultAutoSelectFamily(previous);
       await close(fixture.server);
     }
   });
@@ -192,7 +225,7 @@ describe("pinned image downloader DNS policy", () => {
       requestPinnedImageForTest(
         url.href,
         address,
-        { hostname: "127.0.0.1", port: fixture.port },
+        { address: "127.0.0.1", port: fixture.port },
         Math.max(1, (deadlineAt ?? Date.now() + 500) - Date.now()),
       );
     const network = {

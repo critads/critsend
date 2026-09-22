@@ -21,6 +21,15 @@ export const SMART_SEGMENT_REUSE_WINDOW_MS = 6 * 60 * 60 * 1000;
 export const SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS = 6;
 /** Upper bound of « similar brand » refs an analysis may carry (candidates + manual additions). */
 export const SMART_SEGMENT_MAX_SIMILAR_REFS = 8;
+/** Proposals per analysis: recommendation, variant, and « with similar brands » when those blocks exist. */
+export const SMART_SEGMENT_MAX_PROPOSALS = 3;
+/** Role of a proposal, derived by the server from the blocks actually used (never declared by the model). */
+export type SmartSegmentProposalKind = "recommendation" | "variant" | "similar_brands";
+export const SMART_SEGMENT_PROPOSAL_KIND_LABELS: Record<SmartSegmentProposalKind, string> = {
+  recommendation: "Recommandation",
+  variant: "Variante",
+  similar_brands: "Avec marques similaires",
+};
 /** Subscriber ref as typed by an operator (exact-case once normalised to uppercase). */
 export const smartSegmentRefSchema = z.string().trim().min(1).max(32).regex(/^[A-Za-z0-9_-]+$/, "Ref invalide");
 
@@ -108,7 +117,7 @@ export const smartSegmentResolveRequestSchema = z.object({
 
 export const smartSegmentMaterializeRequestSchema = z.object({
   campaignId: campaignReferenceIdSchema.nullable().optional(),
-  proposalIndexes: z.array(z.number().int().min(0).max(1)).min(1).max(2).optional(),
+  proposalIndexes: z.array(z.number().int().min(0).max(SMART_SEGMENT_MAX_PROPOSALS - 1)).min(1).max(SMART_SEGMENT_MAX_PROPOSALS).optional(),
 });
 
 export type SmartSegmentStatus = "queued" | "running" | "succeeded" | "failed";
@@ -143,22 +152,36 @@ export type SmartSegmentBrandResolution = {
   similarRefs: string[];
 };
 
-/** A similar-brand candidate: a ref that co-occurs with one of the brand's refs more than chance. */
+/**
+ * A similar brand chosen by the model INSIDE the brand directory (never a
+ * brand absent from the base), with the refs kept for the analysis.
+ */
 export type SmartSegmentSimilarBrand = {
-  ref: string;
-  brandName: string | null;
-  /** Core ref of the brand the co-occurrence was measured from. */
-  sourceRef: string;
-  lift: number;
-  commonCount: number;
-  additionalCount: number;
+  /** Display name exactly as in the brand directory. */
+  name: string;
+  /** Uppercase refs of that brand kept after exclusions and the global cap. */
+  refs: string[];
+  /** One-sentence justification written by the model (French). */
+  reason: string;
 };
 export const smartSegmentSimilarBrandsRequestSchema = z.object({
-  coreRefs: z.array(smartSegmentRefSchema).min(1).max(8),
+  brandName: z.string().trim().min(1).max(120),
+  coreRefs: z.array(smartSegmentRefSchema).max(16).optional(),
+  /** Bypass the persisted result and run the web search again. */
+  refresh: z.boolean().optional(),
 });
+export type SmartSegmentSimilarBrandsRequest = z.infer<typeof smartSegmentSimilarBrandsRequestSchema>;
 export type SmartSegmentSimilarBrandsResponse = {
+  brandName: string;
   coreRefs: string[];
-  candidates: SmartSegmentSimilarBrand[];
+  /** The model's one-line reading of the brand (sector, products, target) — display only. */
+  sector: string | null;
+  brands: SmartSegmentSimilarBrand[];
+  /** Whether the answer was grounded by the web search tool (false = model knowledge only). */
+  webSearchUsed: boolean;
+  webSearches: number;
+  cached: boolean;
+  generatedAt: string;
   notes: string[];
 };
 
@@ -265,6 +288,8 @@ export type SmartSegmentEvidence = {
 
 export type SmartSegmentProposalSegment = {
   name: string;
+  /** Absent on analyses stored before proposals were typed. */
+  kind?: SmartSegmentProposalKind;
   rules: SegmentRulesV2;
   readableRules: string[];
   blocksUsed: string[];
@@ -339,7 +364,7 @@ export const smartSegmentModelSegmentSchema = z.object({
 });
 
 export const smartSegmentModelOutputSchema = z.object({
-  segments: z.array(smartSegmentModelSegmentSchema).min(1).max(2),
+  segments: z.array(smartSegmentModelSegmentSchema).min(1).max(SMART_SEGMENT_MAX_PROPOSALS),
 });
 export type SmartSegmentModelOutput = z.infer<typeof smartSegmentModelOutputSchema>;
 
