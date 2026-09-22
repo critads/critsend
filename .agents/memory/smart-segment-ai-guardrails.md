@@ -74,3 +74,15 @@ source, and the pool is best-effort under the evidence budget (omit, never fail 
 **How to apply:** audience recency = live `last_engaged_at` bands; calibration recency = last
 activity BEFORE the send. Similar-brand refs are an operator selection validated server-side,
 part of the analysis identity, and removed from the vertical pool (no double counting).
+
+## 6. Raw SQL statements: every bound parameter must be referenced
+Rule: a hand-written statement run through the evidence runner must reference every `$n` it
+binds (and nothing beyond). Shared fragments take their placeholder numbers as arguments
+instead of hard-coding them. The evidence test runner enforces both directions.
+
+**Why:** a recency statement bound the family-domain array it never used; PostgreSQL rejected
+it at bind time ("could not determine data type of parameter $5") only in production — the
+backtest had substituted literals and the unit tests use a fake runner, so nothing caught it.
+
+**How to apply:** after editing any `*_SQL` constant, run it once against a real database with
+typed placeholders (a throwaway pg script in .local/tmp/), not with substituted literals.

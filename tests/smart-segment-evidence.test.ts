@@ -73,14 +73,24 @@ function fakeRunner(handlers: {
   const runner: EvidenceQueryRunner = {
     async query(label, text, params = []) {
       recorded.push({ label, text, params });
+      // PostgreSQL rejects a statement that binds a parameter it never
+      // references ("could not determine data type of parameter $n"), and a
+      // reference beyond the bound list fails at bind time: check both here,
+      // since the SQL text is otherwise only exercised against a real database.
+      const referenced = new Set([...text.matchAll(/\$(\d+)/g)].map((match) => Number(match[1])));
+      for (let index = 1; index <= params.length; index++) {
+        if (!referenced.has(index)) throw new Error(`query « ${label} » binds ${index} but never references it`);
+      }
+      const beyond = [...referenced].filter((index) => index > params.length);
+      if (beyond.length) throw new Error(`query « ${label} » references ${beyond[0]} beyond its ${params.length} params`);
+      if (label === "envois récents toutes marques (récence)") return (handlers.recencyPool?.() ?? []) as never;
       if (text.includes("AS delivered_rows")) return (handlers.stats?.(params[0] as string[], label) ?? []) as never;
       if (label === "envois récents de la marque") return (handlers.recent?.() ?? []) as never;
       if (label === "candidats de repli") return (handlers.fallback?.() ?? []) as never;
       if (label === "marques de la verticale") return (handlers.verticalBrands?.() ?? []) as never;
       if (label.startsWith("cohortes")) return (handlers.cohorts?.(params[0] as string, params[5] as number) ?? []) as never;
       if (label === "répartition des cliqueurs disponibles") return (handlers.tiers?.() ?? []) as never;
-      if (label.startsWith("récence")) return (handlers.recency?.(params[0] as string, params[5] as number, label) ?? []) as never;
-      if (label === "envois récents toutes marques (récence)") return (handlers.recencyPool?.() ?? []) as never;
+      if (label.startsWith("récence")) return (handlers.recency?.(params[0] as string, params[4] as number, label) ?? []) as never;
       if (label.startsWith("répartition par récence")) return (handlers.recencyMix?.() ?? []) as never;
       if (label === "noms des marques similaires") return [] as never;
       throw new Error(`unexpected query ${label}`);
@@ -170,6 +180,55 @@ describe("buildSmartSegmentEvidence", () => {
     expect(stages[0]).toEqual(["brand_history", 5]);
     expect(stages.at(-1)![0]).toBe("reservoirs");
     expect(evidence.budget.queries).toBe(recorded.length);
+  });
+
+  it("calibrates the non-active bands on the finished sends of every brand when the brand's own sends reach too few of them", async () => {
+    historyCandidates.mockResolvedValueOnce([{ campaignId: "camp-a", segmentName: "FR - Cliqueurs" }]);
+    const recencyRow = (axis: string, cohort: string, delivered: number, clickers: number, complaints: number) =>
+      ({ axis, cohort, delivered: String(delivered), human_clickers: String(clickers), bot_clickers: "0", complaints: String(complaints) });
+    const { runner, recorded } = fakeRunner({
+      stats: (ids) => ids.map((id) => statsRow(id, "Air France 01/09", 50_000, 50_000)),
+      cohorts: (campaignId, divisor) => (campaignId === "camp-a" ? cohortRows(divisor) : []),
+      // The brand's send is engagement-filtered: 30 lapsed / 10 dormant recipients only.
+      recency: (campaignId) => campaignId === "camp-a"
+        ? [recencyRow("recency", "engaged_60d", 49_000, 500, 20), recencyRow("recency", "opened_61_180d", 30, 0, 0), recencyRow("recency", "dormant_180d", 10, 0, 0)]
+        : campaignId === "pool-ok"
+          // Pool send of 600,000 recipients sampled 1/30 → 40 observed dormant rows are NOT 1,200 reliable ones.
+          ? [recencyRow("recency", "engaged_60d", 15_000, 100, 5), recencyRow("recency", "opened_61_180d", 3_000, 6, 3), recencyRow("recency", "dormant_180d", 40, 0, 0),
+             recencyRow("ref_recency", "none|opened_61_180d", 2_900, 6, 3)]
+          : (() => { throw new Error(`unexpected recency query for ${campaignId}`); })(),
+      recencyPool: () => [
+        { id: "pool-live", name: "Autre 20/09", status: "completed", first_send_at: "2026-09-20T08:00:00.000Z", sent_count: "400000", delivered_rows: "350000" }, // counter not converged
+        { id: "pool-ok", name: "Autre 15/09", status: "completed", first_send_at: "2026-09-15T08:00:00.000Z", sent_count: "600000", delivered_rows: "600000" },
+      ],
+      tiers: () => [{ tier: "1", count: "9000" }],
+      recencyMix: () => [],
+    });
+    const evidence = await buildSmartSegmentEvidence(
+      { campaignName: "Air France 21/09", excludeCampaignId: "camp-new", brand, family: "fai_fr" },
+      async () => {},
+      { config: { ...config, recencyPoolSampleTarget: 20_000, recencyPoolMaxCampaigns: 12 }, runner },
+    );
+    // Only the converged pool send was measured (with the pool sample target), never the live one.
+    const recencyQueries = recorded.filter((entry) => entry.label.startsWith("récence"));
+    expect(recencyQueries.map((entry) => entry.params[0])).toEqual(["camp-a", "pool-ok"]);
+    expect(recencyQueries[1].params[4]).toBe(30);
+    expect(evidence.recencyCalibration).toEqual({ level: "global", campaignIds: ["pool-ok"] });
+    expect(evidence.campaignNames["pool-ok"]).toBe("Autre 15/09");
+    // Lapsed band: 3,000 observed → reliable, rescaled ×30; dormant: 40 observed → not reliable although 1,200 once rescaled.
+    const lapsed = evidence.cohortRates.find((rate) => rate.axis === "recency" && rate.cohort === "opened_61_180d")!;
+    expect(lapsed.delivered).toBe(90_000);
+    expect(lapsed.observed).toBe(3_000);
+    const dormant = evidence.cohortRates.find((rate) => rate.axis === "recency" && rate.cohort === "dormant_180d")!;
+    expect(dormant.delivered).toBe(1_200);
+    expect(dormant.observed).toBe(40);
+    // Lapsed blocks are offered with the global markups; dormant blocks are omitted, never projected at the actives' rates.
+    const lapsedBlock = evidence.blocks.find((block) => block.id === "brand_core_refs_lapsed")!;
+    expect(lapsedBlock.calibration.level).toBe("global");
+    expect(lapsedBlock.expectedCtr).toBeCloseTo((6 / 3_000) * 0.65);
+    expect(evidence.blocks.some((block) => block.id.endsWith("_dormant"))).toBe(false);
+    expect(evidence.omittedBlocks?.map((block) => block.id)).toEqual(["brand_core_refs_dormant", "vertical_refs_dormant"]);
+    expect(evidence.notes.some((note) => note.includes("repli global"))).toBe(true);
   });
 
   it("falls back to the vertical, then to all brands, and fails explicitly without any finished send", async () => {

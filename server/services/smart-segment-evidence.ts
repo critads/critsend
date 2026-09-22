@@ -149,15 +149,20 @@ const CAMPAIGN_STATS_SQL = `
    ORDER BY c.first_send_at DESC, c.id ASC`;
 
 /**
- * Relation of a recipient's refs to the brand, first match wins:
- * $3 core, $4 extension (US/E), $7 similar brands kept by the operator,
- * $8 other brands of the vertical.
+ * Relation of a recipient's refs to the brand, first match wins: core,
+ * extension (US/E), similar brands kept by the operator, other brands of the
+ * vertical. Placeholders are passed in because the two statements that embed
+ * this fragment do not bind the same parameters (every bound parameter MUST
+ * be referenced, or PostgreSQL rejects the statement: "could not determine
+ * data type of parameter").
  */
-const REF_RELATION_SQL = `CASE WHEN s.refs && $3::text[] THEN 'core'
-                WHEN s.refs && $4::text[] THEN 'extension'
-                WHEN s.refs && $7::text[] THEN 'similar'
-                WHEN s.refs && $8::text[] THEN 'vertical'
+function refRelationSql(p: { core: string; extension: string; similar: string; vertical: string }): string {
+  return `CASE WHEN s.refs && ${p.core}::text[] THEN 'core'
+                WHEN s.refs && ${p.extension}::text[] THEN 'extension'
+                WHEN s.refs && ${p.similar}::text[] THEN 'similar'
+                WHEN s.refs && ${p.vertical}::text[] THEN 'vertical'
                 ELSE 'none' END`;
+}
 
 /**
  * Recency band of a recipient AT SEND TIME (last open/click before the send,
@@ -170,13 +175,17 @@ const RECENCY_BAND_SQL = `CASE WHEN le.last_ts >= $2::timestamp - INTERVAL '60 d
                 WHEN le.last_ts IS NOT NULL THEN 'opened_61_180d'
                 ELSE 'dormant_180d' END`;
 
-const RECENCY_COHORT_SQL = `
+/**
+ * Params: $1 campaign id, $2 first send at, $3 core refs, $4 extension refs,
+ * $5 sample divisor, $6 similar refs, $7 vertical refs.
+ */
+export const RECENCY_COHORT_SQL = `
   WITH recipients AS (
     SELECT cs.subscriber_id, (cs.first_click_at IS NOT NULL) AS clicked
       FROM campaign_sends cs
      WHERE cs.campaign_id = $1
        AND cs.status = 'sent'
-       AND ($6::int = 1 OR abs(hashtextextended(cs.subscriber_id, 0)) % $6::int = 0)
+       AND ($5::int = 1 OR abs(hashtextextended(cs.subscriber_id, 0)) % $5::int = 0)
   ),
   detected AS (
     SELECT DISTINCT st.subscriber_id
@@ -195,7 +204,7 @@ const RECENCY_COHORT_SQL = `
   enriched AS (
     SELECT r.clicked,
            ${RECENCY_BAND_SQL} AS recency,
-           ${REF_RELATION_SQL} AS ref_relation,
+           ${refRelationSql({ core: "$3", extension: "$4", similar: "$6", vertical: "$7" })} AS ref_relation,
            (d.subscriber_id IS NOT NULL) AS bot,
            (cd.subscriber_id IS NOT NULL) AS complained
       FROM recipients r
@@ -222,20 +231,27 @@ const RECENCY_COHORT_SQL = `
     ) x
    GROUP BY axis, cohort`;
 
-/** Recent finished sends of every brand: the fallback pool for the recency cohorts. */
-const RECENCY_POOL_CAMPAIGNS_SQL = `
-  SELECT id, name, first_send_at, sent_count
-    FROM campaigns
-   WHERE status IN ('completed', 'sent')
-     AND first_send_at IS NOT NULL
-     AND first_send_at >= NOW() - ($1::int * INTERVAL '1 day')
-     AND sent_count >= $2
-     AND ($3::text IS NULL OR id <> $3)
-     AND NOT (id = ANY($4::text[]))
-   ORDER BY first_send_at DESC
-   LIMIT $5`;
+/**
+ * Recent sends of every brand, newest first: candidates for the recency
+ * pool. Twice the wanted count is fetched with their delivered rows so the
+ * SAME finished criterion as the brand calibration (`isFinishedSend`: counter
+ * converged with the send rows) can drop a send whose outcomes are still
+ * being finalised before it is used.
+ */
+export const RECENCY_POOL_CAMPAIGNS_SQL = `
+  SELECT c.id, c.name, c.status, c.first_send_at, c.sent_count::text AS sent_count,
+         (SELECT COUNT(*) FROM campaign_sends cs WHERE cs.campaign_id = c.id AND cs.status = 'sent')::text AS delivered_rows
+    FROM campaigns c
+   WHERE c.status IN ('completed', 'sent')
+     AND c.first_send_at IS NOT NULL
+     AND c.first_send_at >= NOW() - ($1::int * INTERVAL '1 day')
+     AND c.sent_count >= $2
+     AND ($3::text IS NULL OR c.id <> $3)
+     AND NOT (c.id = ANY($4::text[]))
+   ORDER BY c.first_send_at DESC
+   LIMIT $5::int * 2`;
 
-const COHORT_SQL = `
+export const COHORT_SQL = `
   WITH recipients AS (
     SELECT cs.subscriber_id, (cs.first_click_at IS NOT NULL) AS clicked
       FROM campaign_sends cs
@@ -269,7 +285,7 @@ const COHORT_SQL = `
   enriched AS (
     SELECT r.clicked,
            CASE WHEN p.n IS NULL THEN '0' WHEN p.n = 1 THEN '1' WHEN p.n <= 3 THEN '2-3' WHEN p.n <= 5 THEN '4-5' ELSE '6+' END AS tier,
-           ${REF_RELATION_SQL} AS ref_relation,
+           ${refRelationSql({ core: "$3", extension: "$4", similar: "$7", vertical: "$8" })} AS ref_relation,
            CASE WHEN lower(split_part(s.email, '@', 2)) = ANY($5::text[]) THEN 'in_family' ELSE 'other' END AS family,
            (d.subscriber_id IS NOT NULL) AS bot,
            (cd.subscriber_id IS NOT NULL) AS complained
@@ -601,7 +617,7 @@ export async function buildSmartSegmentEvidence(
       const rows = await runner.query<{ axis: string; cohort: string; delivered: string; human_clickers: string; bot_clickers: string; complaints: string }>(
         `récence « ${label} »`,
         RECENCY_COHORT_SQL,
-        [campaignId, firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, familyDomains, divisor, similarRefs, input.brand.verticalRefs],
+        [campaignId, firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, divisor, similarRefs, input.brand.verticalRefs],
       );
       return rows.map((row) => ({
         axis: row.axis as RawCohortRow["axis"],
@@ -638,11 +654,16 @@ export async function buildSmartSegmentEvidence(
       recencyCalibration = recencyRows.length ? recencyCalibration : null;
       notes.push("Budget d'analyse insuffisant pour calibrer la récence sur les envois récents toutes marques : les blocs sans activité 60 j non calibrés ne sont pas proposés.");
     } else if (bandsReliable(brandRecencyRows).length < NON_ACTIVE_RECENCY_BANDS.length) {
-      const poolRows = await runner.query<{ id: string; name: string; first_send_at: Date | string; sent_count: string }>(
+      const poolCandidates = await runner.query<{ id: string; name: string; status: string; first_send_at: Date | string; sent_count: string; delivered_rows: string }>(
         "envois récents toutes marques (récence)",
         RECENCY_POOL_CAMPAIGNS_SQL,
         [config.recencyPoolDays, MIN_CALIBRATION_DELIVERED, input.excludeCampaignId, calibrationSends.map((send) => send.campaignId), config.recencyPoolMaxCampaigns],
       );
+      // Same finished criterion as the brand calibration: a send whose counter
+      // has not rejoined its rows still has immature clicks and complaints.
+      const poolRows = poolCandidates
+        .filter((row) => isFinishedSend(row.status, Number(row.sent_count), Number(row.delivered_rows)) && Number(row.delivered_rows) >= MIN_CALIBRATION_DELIVERED)
+        .slice(0, config.recencyPoolMaxCampaigns);
       const poolTarget = Math.max(2_000, Math.ceil(config.recencyPoolSampleTarget / Math.max(1, poolRows.length)));
       const pooled: RawCohortRow[] = [];
       for (const [index, row] of poolRows.entries()) {
