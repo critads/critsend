@@ -1,0 +1,1646 @@
+[ SpamCop V5.5.0 ]
+This message is brief for your comfort.  Please use links below for details.
+
+Email from 159.69.239.229 / Mon, 21 Sep 2026 16:29:36 +0200
+https://www.spamcop.net/w3m?i=z7409395138z87786bcfe46b9739ad2a789d48d3fdccz
+
+[ Offending message ]
+X-Me-Spamwebmail: SPAM-FROM
+Return-Path: <contact@mahlesoldes.com>
+Received: from opme11d1d08aub.bagnolet.francetelecom.fr ([10.79.3.107])
+	by opme11d1b28aub.bagnolet.francetelecom.fr with LMTP
+	id YDzmHVQYsWrfCiwAiYXgig:T4231:P1:P1
+	(envelope-from <contact@mahlesoldes.com>); Mon, 21 Sep 2026 16:29:36 +0200
+Received: from opme11ppr26aub.idf.fr.intraorange ([10.79.3.107])
+	by opme11d1d08aub.bagnolet.francetelecom.fr with LMTP
+	id YDzmHVQYsWrfCiwAiYXgig:T4231:P1
+	(envelope-from <contact@mahlesoldes.com>)
+	for <MELOFR-200-rIgUFr0NEHcw5owne/2H9RvOCMhteTwL0rWu86LiU/o=>; Mon, 21 Sep 2026 16:29:36 +0200
+Received: from opmta1mti19aub ([10.79.3.107])
+	by opme11ppr26aub.idf.fr.intraorange with LMTP
+	id YDzmHVQYsWrfCiwAiYXgig:T4231
+	(envelope-from <contact@mahlesoldes.com>)
+	for <x>; Mon, 21 Sep 2026 16:29:36 +0200
+Received: from mta1.mahlesoldes.com ([159.69.239.229])
+	by smtp.orange.fr with ESMTPS
+	id 8f1Fx7g0IDfa98f1UxTt47; Mon, 21 Sep 2026 16:29:36 +0200
+X-ME-Srv: default;10025
+X-bcc: x
+X-ME-bounce-domain: orange.fr
+X-ME-engine: default
+X-me-spamcause: (17)(0000)dmFkZTF2W+jqTL76bJNmWygMruo532X6QcrLNXdPucRDbAuT6ToAqCMiBCFs/SOFjZ1oAUsdaEDtVjAQGNSr2taHT+OEcpiLGHMYNW/GpS9F1zmAazpmMJl3argzkazlCstzokkvhTbttbHpBk0HMw9BXLN7UeXu3bJmAnkTNq7syV01DuhGrBHMJWy+FHEMd/8ovqwn6UppQtZgyfNdGarg5tVVyK968e/rfTWYwABTKR62F3e+TZurnGjWerx2UwxyBSSQI4qkfbiNNfcWsXsRD3aPFiOGmGUWcKeHDkbolq51grNJ0kuIn+rg9T04c/qgt5Tsf0gbQoJLjwyL6GmN4JT3msfZ2GX8Zte1zTWmFY3a3YVe4V3viPizhUa4jeIeT5/DccMkRZJfHjmfu0cdeT+9KeacVlHAQlh+bnU7bdBamYu7c38XIaz+9Oj/TNI+eNJ2HN35rfx1Liv4HuVa5IpaTWp7aYb5H1p+/5CnDh7nk1BslYgk9jzfhWSE5CcBO/CkRy5BY9P39YRP/1H59CT2500CwH9nmLhgn8RBJ1+90gDf92W+ivvssIbizprO+qBgu4gJmHfxMyLEKVyLkKlhPGmo2bnA9mJ4bxLG38/2FfLGulk1KxEQZbbP+MCH0W5Ci4aKL6V23TaXVYn8rqVCNpQwSOuHxl/jZIuJF8pUMw
+X-me-spamlevel: not-spam
+ARC-Seal: i=1; a=rsa-sha256; d=orange.fr; s=t20230301; t=1790000976; cv=none;
+	b=h1sUsoKfM/2WeYsg4hIHmlimFS70TsIBBakuGJnuC+kbGKxmIma8VUuvnn+CgQ3zvsbX+5feHql8FqJX9xzFXkiFhAOBwZGdfTWDEI5cZqVFl0ZabbPM2Zy1De0EgyEzLXhgVBBxYWzGJqdRgvFR4TdQ6Rv8ozHBrYr3bnfIiC5BGcV+vNxvwu0ElYiXlMVIXZIfLHCudvzpHxm1W+nD4CanKov5jaih/4c2pZx8La6wDZzpXpf0MMMSDdJhAqky5UEcSGEPUZALrAvdwtjLLTM1QOlvnTbhCcDXe3E2mYlyi6EboOFYyMsusS7/hX+Iwd9fbtEHVCZF6SB+bEQbeg==
+ARC-Message-Signature: i=1; a=rsa-sha256; d=orange.fr; s=t20230301;
+	t=1790000976; c=relaxed/simple;
+	bh=Jk3GIo/ELAQ7cXAcHdDkg3iKuHfMElzAqHuK2ruAGK8=; h=From:To:Subject;
+	b=NA3K5rNKtqRMNznwpcpg5WEYpZSgaobMxoR8kC9sU0FCY4wQ/o3TN63XTNEuDiZfcVF87yRlqlokcVJ7lZdteqsM6ewrdyIA0rBupN9gDUTA37z6tbmeGGajvojLPJdfy9JAxsVudNDVZg10Bg9+lF9tuEAEIBW9iLu4PQ4lhUxK4GsXLhdYxae6m6gXQDg2wJx3BuuWXa6MYGW6JC3O/m5Gg4PMJZJTRMLFvhKBuTdwptovBlpttqK7nzrlvXnLejh1XufJ976Xe4pzRUhABmFZiZcxg3gFXUJ8Yl+Xez6H46LcMoZuxZ36S8y847c+Znvl8cJLcuGtfIO6fwHynQ==
+ARC-Authentication-Results: i=1; opmta1mti19aub; spf=pass (opmta1mti19aub: domain of contact@mahlesoldes.com designates 159.69.239.229 as permited sender) smtp.mailfrom=contact@mahlesoldes.com;
+	arc=none;
+	dkim=pass header.d=mahlesoldes.com header.i=contact@mahlesoldes.com header.b=d/PusxC7;
+	dmarc=pass header.from=mahlesoldes.com
+X-ME-Marketing: true
+X-ME-Helo: mta1.mahlesoldes.com
+X-ME-IP: 159.69.239.229
+Authentication-Results: opmta1mti19aub;
+	arc=none;
+	dkim=pass header.d=mahlesoldes.com header.i=contact@mahlesoldes.com
+ header.b=d/PusxC7
+X-ME-Entity: ofr
+DKIM-Signature: v=1; a=rsa-sha1; c=relaxed/relaxed; s=key1; d=mahlesoldes.com;
+ h=List-Unsubscribe:From:To:Reply-To:Subject:Message-ID:Content-Transfer-Encoding:Date:MIME-Version:Content-Type; i=contact@mahlesoldes.com;
+ bh=cv2VJGg+Wqbh/x0PnIrgalxFU0U=;
+ b=d/PusxC7PbItub6BjDiZM7utZEmLK8wsJ0FvAh9Q4C0v/Sz5Frif7ib1X2ZTj5o9xgykLsjwD5A3
+   14giZ53J5N3RuEmGwldLfAKQPOi/F/19VbF+DlILwJZCHu/BcY874b1c+NXR5R/bZ8fPc4D+/fPS
+   12Dnrc0fmrGYF2f/Fjs=
+DomainKey-Signature: a=rsa-sha1; c=nofws; q=dns; s=key1; d=mahlesoldes.com;
+ b=OPzJqs7tzhxMJRaYGnLgKmuiyFncEZ3kPqu9bk7o5c6WV+Zp872AYF0d8T18P+JXSjze9/jUoLRd
+   k8nfVGhgetC7WBXg6MrSaTF/9f3HXVfN6Wb4xo93Yn2UAM5shBre8V/BU+m3UyoHYbpqJ41W1htH
+   oq05I2vSEqf/oDGaMFw=;
+Received: from [127.0.0.1] (37.27.117.222) by mta1.mahlesoldes.com id hm4vq60001cd for <x>; Mon, 21 Sep 2026 15:52:08 +0200 (envelope-from <contact@mahlesoldes.com>)
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+X-Mailer: Critelab pte ltd
+List-Unsubscribe: https://critsender.mahlesoldes.com/u/28UaSdEA
+From: Critelab presente <contact@mahlesoldes.com>
+To: x
+Reply-To: contact@mahlesoldes.com
+Subject: [Histoire d'Or] Bagues & Bracelets à 49€
+Message-ID: <4d6c____________________________f3d9@mahlesoldes.com>
+Content-Transfer-Encoding: quoted-printable
+Date: Mon, 21 Sep 2026 13:50:44 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head>
+
+
+<meta charset=3D"UTF-8" />
+<meta http-equiv=3D"X-UA-Compatib=
+le" content=3D"IE=3Dedge" />
+<meta name=3D"viewport" =
+content=3D"width=3Ddevice-width, initial-scale=3D1" />
+<style>
+p
+{
+margin:10px 0;
+padding:0;
+}
+table
+{
+border-collapse:collapse;
+}
+h1,h2,h3,h4,h5,h6
+{
+display:block;
+margin:0;
+padding:0;
+}
+img,a img
+{
+border:0;
+height:auto;
+outline:none;
+text-decoration:none;
+}
+body,#bodyTable,#bodyCell
+{
+height:100%;
+margin:0;
+padding:0;
+width:100%;
+}
+.mcnPreviewText
+{
+display:none !important;
+}
+#outlook a
+{
+padding:0;
+}
+img
+{
+-ms-interpolation-mode:bicubic;
+}
+table
+{
+mso-table-lspace:0pt;
+mso-table-rspace:0pt;
+}
+.ReadMsgBody
+{
+width:100%;
+}
+.ExternalClass
+{
+width:100%;
+}
+p,a,li,td,blockquote
+{
+mso-line-height-rule:exactly;
+}
+a[href^=3Dtel],a[href^=3Dsms]
+{
+color:inherit;
+cursor:default;
+text-decoration:none;
+}
+p,a,li,td,body,table,blockquote
+{
+-ms-text-size-adjust:100%;
+-webkit-text-size-adjust:100%;
+}
+.ExternalClass,.ExternalClass p,.ExternalClass td,.ExternalClass div,.=
+ExternalClass span,.ExternalClass font
+{
+line-height:100%;
+}
+a[x-apple-data-detectors]
+{
+color:inherit !important;
+text-decoration:none !important;
+font-size:inherit !important;
+font-family:inherit !important;
+font-weight:inherit !important;
+line-height:inherit !important;
+}
+#bodyCell
+{
+padding:10px;
+}
+.templateContainer
+{
+max-width:600px !important;
+}
+a.mcnButton
+{
+display:block;
+}
+.mcnImage,.mcnRetinaImage
+{
+vertical-align:bottom;
+}
+.mcnTextContent
+{
+word-break:break-word;
+}
+.mcnTextContent img
+{
+height:auto !important;
+}
+.mcnDividerBlock
+{
+table-layout:fixed !important;
+}
+/*@tab Page@section Background Style@tip Set the background color and top=
+ border for your email. You may want to choose colors that match your =
+company's branding.*/
+body,#bodyTable
+{
+/*@editable*/
+background-color:#ffffff;
+}
+/*@tab Page@section Background Style@tip Set =
+the background color and top border for your email. You may want to choose =
+colors that match your company's branding.*/
+#bodyCell
+{
+/*@editable*/
+border-top:0;
+}
+/*@tab Page@section Email Border@tip Set the border for =
+your email.*/
+.templateContainer
+{
+/*@editable*/
+border:0;
+}
+/*@tab Page@section Heading 1@tip Set the styling for all first-level =
+headings in your emails. These should be the largest of your headings.=
+@style heading 1*/
+h1
+{
+/*@editable*/
+color:#202020;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:26px;
+/*@editable*/
+font-style:normal;
+/*@editable*/
+font-weight:bold;
+/*@editable*/
+line-height:125%;
+/*@editable*/
+letter-spacing:normal;
+/*@editable*/
+text-align:left;
+}
+/*@tab Page@section Heading 2@tip Set the styling for =
+all second-level headings in your emails.@style heading 2*/
+h2
+{
+/*@editable*/
+color:#202020;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:22px;
+/*@editable*/
+font-style:normal;
+/*@editable*/
+font-weight:bold;
+/*@editable*/
+line-height:125%;
+/*@editable*/
+letter-spacing:normal;
+/*@editable*/
+text-align:left;
+}
+/*@tab Page@section Heading 3@tip Set the styling for all third-level =
+headings in your emails.@style heading 3*/
+h3
+{
+/*@editable*/
+color:#202020;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:20px;
+/*@editable*/
+font-style:normal;
+/*@editable*/
+font-weight:bold;
+/*@editable*/
+line-height:125%;
+/*@editable*/
+letter-spacing:normal;
+/*@editable*/
+text-align:left;
+}
+/*@tab Page@section Heading 4@tip Set the styling for all fourth-level =
+headings in your emails. These should be the smallest of your headings.=
+@style heading 4*/
+h4
+{
+/*@editable*/
+color:#202020;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:18px;
+/*@editable*/
+font-style:normal;
+/*@editable*/
+font-weight:bold;
+/*@editable*/
+line-height:125%;
+/*@editable*/
+letter-spacing:normal;
+/*@editable*/
+text-align:left;
+}
+/*@tab Preheader@section Preheader Style@tip Set the =
+background color and borders for your email's preheader area.*/
+#templatePreheader
+{
+/*@editable*/
+background-color:#ffffff;
+/*@editable*/
+background-image:none;
+/*@editable*/
+background-repeat:no-repeat;
+/*@editable*/
+background-position:center;
+/*@editable*/
+background-size:cover;
+/*@editable*/
+border-top:0;
+/*@editable*/
+border-bottom:0;
+/*@editable*/
+padding-top:9px;
+/*@editable*/
+padding-bottom:9px;
+}
+/*@tab Preheader@section Preheader Text@tip Set the =
+styling for your email's preheader text. Choose a size and color that is =
+easy to read.*/
+#templatePreheader .mcnTextContent,#templatePreheader .=
+mcnTextContent p
+{
+/*@editable*/
+color:#656565;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:12px;
+/*@editable*/
+line-height:150%;
+/*@editable*/
+text-align:left;
+}
+/*@tab Preheader@section=
+ Preheader Link@tip Set the styling for your email's preheader links. =
+Choose a color that helps them stand out from your text.*/
+#templatePreheader .mcnTextContent a,#templatePreheader .mcnTextContent p a
+{
+/*@editable*/
+color:#656565;
+/*@editable*/
+font-weight:normal;
+/*@editable*/
+text-decoration:underline;
+}
+/*@tab Header@section Header =
+Style@tip Set the background color and borders for your email's header area=
+.*/
+#templateHeader
+{
+/*@editable*/
+background-color:#FFFFFF;
+/*@editable*/
+background-image:none;
+/*@editable*/
+background-repeat:no-repeat;
+/*@editable*/
+background-position:center;
+/*@editable*/
+background-size:cover;
+/*@editable*/
+border-top:0;
+/*@editable*/
+border-bottom:0;
+/*@editable*/
+padding-top:9px;
+/*@editable*/
+padding-bottom:0;
+}
+/*@tab Header@section Header Text@tip Set the styling =
+for your email's header text. Choose a size and color that is easy to read.=
+*/
+#templateHeader .mcnTextContent,#templateHeader .mcnTextContent p
+{
+/*@editable*/
+color:#202020;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:16px;
+/*@editable*/
+line-height:150%;
+/*@editable*/
+text-align:left;
+}
+/*@tab Header@section Header Link@tip Set the styling =
+for your email's header links. Choose a color that helps them stand out =
+from your text.*/
+#templateHeader .mcnTextContent a,#templateHeader .=
+mcnTextContent p a
+{
+/*@editable*/
+color:#007C89;
+/*@editable*/
+font-weight:normal;
+/*@editable*/
+text-decoration:underline;
+}
+/*@tab Body@section Body Style@tip Set the background color and borders for=
+ your email's body area.*/
+#templateBody
+{
+/*@editable*/
+background-color:#FFFFFF;
+/*@editable*/
+background-image:none;
+/*@editable*/
+background-repeat:no-repeat;
+/*@editable*/
+background-position:center;
+/*@editable*/
+background-size:cover;
+/*@editable*/
+border-top:0;
+/*@editable*/
+padding-top:0;
+/*@editable*/
+padding-bottom:9px;
+}
+/*@tab Body@section Body Text@tip Set the styling for=
+ your email's body text. Choose a size and color that is easy to read.*/
+#templateBody .mcnTextContent,#templateBody .mcnTextContent p
+{
+/*@editable*/
+color:#202020;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:16px;
+/*@editable*/
+line-height:150%;
+/*@editable*/
+text-align:left;
+}
+/*@tab Body@section Body Link@tip Set the styling for =
+your email's body links. Choose a color that helps them stand out from your=
+ text.*/
+#templateBody .mcnTextContent a,#templateBody .mcnTextContent p a
+{
+/*@editable*/
+color:#A9A9A9;
+/*@editable*/
+font-weight:normal;
+/*@editable*/
+text-decoration:underline;
+}
+/*@tab Footer@section Footer =
+Style@tip Set the background color and borders for your email's footer area=
+.*/
+#templateFooter
+{
+/*@editable*/
+background-color:#ffffff;
+/*@editable*/
+background-image:none;
+/*@editable*/
+background-repeat:no-repeat;
+/*@editable*/
+background-position:center;
+/*@editable*/
+background-size:cover;
+/*@editable*/
+border-top:0;
+/*@editable*/
+border-bottom:0;
+/*@editable*/
+padding-top:9px;
+/*@editable*/
+padding-bottom:9px;
+}
+/*@tab Footer@section Footer Text@tip Set the styling=
+ for your email's footer text. Choose a size and color that is easy to read=
+.*/
+#templateFooter .mcnTextContent,#templateFooter .mcnTextContent p
+{
+/*@editable*/
+color:#656565;
+/*@editable*/
+font-family:Helvetica;
+/*@editable*/
+font-size:12px;
+/*@editable*/
+line-height:150%;
+/*@editable*/
+text-align:center;
+}
+/*@tab Footer@section Footer Link@tip Set the styling =
+for your email's footer links. Choose a color that helps them stand out =
+from your text.*/
+#templateFooter .mcnTextContent a,#templateFooter .=
+mcnTextContent p a
+{
+/*@editable*/
+color:#656565;
+/*@editable*/
+font-weight:normal;
+/*@editable*/
+text-decoration:underline;
+}
+@media only screen and (min-width:768px)
+{
+.templateContainer
+{
+width:600px !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+body,table,td,p,a,li,blockquote
+{
+-webkit-text-size-adjust:none !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+body
+{
+width:100% !important;
+min-width:100% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+#bodyCell
+{
+padding-top:10px !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnRetinaImage
+{
+max-width:100% !important;
+}
+}
+@media only screen and =
+(max-width: 480px)
+{
+.mcnImage
+{
+width:100% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnCartContainer,.=
+mcnCaptionTopContent,.mcnRecContentContainer,.mcnCaptionBottomContent,.=
+mcnTextContentContainer,.mcnBoxedTextContentContainer,.=
+mcnImageGroupContentContainer,.mcnCaptionLeftTextContentContainer,.=
+mcnCaptionRightTextContentContainer,.mcnCaptionLeftImageContentContainer,.=
+mcnCaptionRightImageContentContainer,.mcnImageCardLeftTextContentContainer,=
+.mcnImageCardRightTextContentContainer,.mcnImageCardLeftImageContentContain=
+er,.mcnImageCardRightImageContentContainer
+{
+max-width:100% !important;
+width:100% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnBoxedTextContentContainer
+{
+min-width:100% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnImageGroupContent
+{
+padding:9px !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnCaptionLeftContentOuter .mcnTextContent,.mcnCaptionRightContentOuter .=
+mcnTextContent
+{
+padding-top:9px !important;
+}
+}
+@media only screen and =
+(max-width: 480px)
+{
+.mcnImageCardTopImageContent,.mcnCaptionBottomContent:=
+last-child .mcnCaptionBottomImageContent,.mcnCaptionBlockInner .=
+mcnCaptionTopContent:last-child .mcnTextContent
+{
+padding-top:18px !=
+important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnImageCardBottomImageContent
+{
+padding-bottom:9px !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnImageGroupBlockInner
+{
+padding-top:0 !important;
+padding-bottom:0 !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnImageGroupBlockOuter
+{
+padding-top:9px !important;
+padding-bottom:9px !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnTextContent,.=
+mcnBoxedTextContentColumn
+{
+padding-right:18px !important;
+padding-left:18px !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcnImageCardLeftImageContent,.mcnImageCardRightImageContent
+{
+padding-right:18px !important;
+padding-bottom:0 !important;
+padding-left:18px !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.mcpreview-image-uploader
+{
+display:none !important;
+width:100% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section Heading 1@tip Make the first-level headings =
+larger in size for better readability on small screens.*/
+h1
+{
+/*@editable*/
+font-size:22px !important;
+/*@editable*/
+line-height:125% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section Heading 2@tip Make the second-level headings=
+ larger in size for better readability on small screens.*/
+h2
+{
+/*@editable*/
+font-size:20px !important;
+/*@editable*/
+line-height:125% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section Heading 3@tip Make the third-level headings =
+larger in size for better readability on small screens.*/
+h3
+{
+/*@editable*/
+font-size:18px !important;
+/*@editable*/
+line-height:125% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section Heading 4@tip Make the fourth-level headings=
+ larger in size for better readability on small screens.*/
+h4
+{
+/*@editable*/
+font-size:16px !important;
+/*@editable*/
+line-height:150% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section Boxed Text@tip Make the boxed text larger in=
+ size for better readability on small screens. We recommend a font size of =
+at least 16px.*/
+.mcnBoxedTextContentContainer .mcnTextContent,.=
+mcnBoxedTextContentContainer .mcnTextContent p
+{
+/*@editable*/
+font-size:14px !important;
+/*@editable*/
+line-height:150% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section =
+Preheader Visibility@tip Set the visibility of the email's preheader on =
+small screens. You can hide it to save space.*/
+#templatePreheader
+{
+/*@editable*/
+display:block !important;
+}
+}
+@media only screen and =
+(max-width: 480px)
+{
+/*@tab Mobile Styles@section Preheader Text@tip Make =
+the preheader text larger in size for better readability on small screens.=
+*/
+#templatePreheader .mcnTextContent,#templatePreheader .mcnTextContent p
+{
+/*@editable*/
+font-size:14px !important;
+/*@editable*/
+line-height:150% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section Header Text@tip Make the header text larger =
+in size for better readability on small screens.*/
+#templateHeader .=
+mcnTextContent,#templateHeader .mcnTextContent p
+{
+/*@editable*/
+font-size:16px !important;
+/*@editable*/
+line-height:150% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section =
+Body Text@tip Make the body text larger in size for better readability on =
+small screens. We recommend a font size of at least 16px.*/
+#templateBody .mcnTextContent,#templateBody .mcnTextContent p
+{
+/*@editable*/
+font-size:16px !important;
+/*@editable*/
+line-height:150% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+/*@tab Mobile Styles@section Footer Text@tip Make the footer content text=
+ larger in size for better readability on small screens.*/
+#templateFooter .mcnTextContent,#templateFooter .mcnTextContent p
+{
+/*@editable*/
+font-size:14px !important;
+/*@editable*/
+line-height:150% !important;
+}
+}
+@media only screen and (max-width: 480px)
+{
+.hidden-xs{display:none}
+}
+@media only screen and (min-width: 480px)
+{
+.hidden-xl{display:none}
+}	=09
+</style>
+</head>
+<body>
+<center>
+<table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+height=3D"100%" width=3D"100%" id=3D"bodyTable">
+<tbody><tr>
+<td align=3D"center" valign=3D"top" id=3D"bodyCell">
+
+
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" width=3D"100%" =
+class=3D"templateContainer">
+<tbody><tr>
+<td valign=3D"top" =
+id=3D"templatePreheader">
+<table class=3D"mcnTextBlock" =
+style=3D"min-width:100%" width=3D"100%" cellspacing=3D"0" cellpadding=3D"0"=
+ border=3D"0">
+<tbody class=3D"mcnTextBlockOuter">
+<tr>
+<td class=3D"mcnTextBlockInner" style=3D"padding-top:9px" valign=3D"top">
+
+
+<table style=3D"max-width:100%;min-width:100%" class=3D"mcnTextContentConta=
+iner" width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnTextContent" =
+style=3D"padding:0px 18px 9px;text-align:center" valign=3D"top">
+Cet email ne vous est pas envoy=C3=A9 par Histoire d'Or mais par un =
+partenaire externe
+</td>
+</tr>
+</tbody>
+</table>
+
+
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<tr>
+<td valign=3D"top" id=3D"templateHeader">
+<table class=3D"mcnImageBlock" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody =
+class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageContentContainer" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageContent" style=3D"padding-right:0px;padding-left:=
+0px;padding-top:0;padding-bottom:10px;text-align:center" valign=3D"top">
+<a href=3D"https://critsender.mahlesoldes.com/c/5HdhS398"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/logoHO.jpg" alt=3D"Histoire d'Or" width=3D"230" =
+height=3D"60" class=3D"mcnImage" style=3D"max-width:258px;padding-bottom:0;=
+display:inline !important;vertical-align:bottom" align=3D"middle" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+<br />
+<table class=3D"mcnImageBlock" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody =
+class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageContentContainer" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody><tr>
+<td width=3D"20%" align=3D"center">
+<a href=3D"https://critsend=
+er.mahlesoldes.com/c/0OCRdKZK" target=3D"_blank" title=3D"BIJOUX;" =
+style=3D"color:#14001c;margin:0;padding:0;text-decoration:none">
+<span style=3D"font-family:arial,helvetica neue,helvetica,sans-serif">
+<span style=3D"font-size:14px"><strong>BIJOUX</strong></span>
+</span>
+</a>
+</td>
+<td width=3D"20%" align=3D"center">
+<a href=3D"https://critsender.=
+mahlesoldes.com/c/lW4Kvvcd" target=3D"_blank" title=3D"MONTRES" =
+style=3D"color:#14001c;margin:0;padding:0;text-decoration:none">
+<span style=3D"font-family:arial,helvetica neue,helvetica,sans-serif">
+<span style=3D"font-size:14px"><strong>MONTRES</strong></span>
+</span>
+</a>
+</td>
+<td width=3D"20%" align=3D"center">
+<a href=3D"https://critsender.=
+mahlesoldes.com/c/Egs39LPF" target=3D"_blank" title=3D"COLLECTION AUTOMNE" =
+style=3D"color:#a11e2f;margin:0;padding:0;text-decoration:none">
+<span style=3D"font-family:arial,helvetica neue,helvetica,sans-serif">
+<span style=3D"font-size:14px"><strong>COLLECTION AUTOMNE</strong></span>
+</span>
+</a>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody>
+</table>
+<br />
+<table class=3D"mcnImageBlock hidden-xl mobile" =
+style=3D"min-width:100%" width=3D"100%" cellspacing=3D"0" cellpadding=3D"0"=
+ border=3D"0">
+<tbody class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" class=3D"mcnImageBlockInner" valign=3D"top">
+<table class=3D"mcnImageContentContainer" style=3D"min-width:100%" =
+width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageContent" =
+style=3D"padding-right:0px;padding-left:0px;padding-top:0;padding-bottom:5p=
+x;text-align:center" valign=3D"top">
+<br />
+<a href=3D"https://critsender.=
+mahlesoldes.com/c/Egs39LPF"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/ho-mob.gif" =
+alt=3D"Nouveaut=C3=A9s de l'Automne" width=3D"800" class=3D"mcnImage" =
+style=3D"max-width:644px;padding-bottom:0;display:inline !=
+important;vertical-align:bottom" align=3D"middle" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+<table =
+class=3D"mcnImageBlock hidden-xs desktop" style=3D"min-width:100%" =
+width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageContentContainer" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageContent" style=3D"padding-right:0px;padding-left:=
+0px;padding-top:0;padding-bottom:5px;text-align:center" valign=3D"top">
+<br />
+<a href=3D"https://critsender.mahlesoldes.com/c/Egs39LPF"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/ho-desk.gif" alt=3D"Nouveaut=C3=A9s de l'Automne" =
+width=3D"644" class=3D"mcnImage" style=3D"max-width:644px;padding-bottom:0;=
+display:inline !important;vertical-align:bottom" align=3D"middle" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<tr>
+<td valign=3D"top" id=3D"templateBody">
+<table class=3D"mcnTextBlock" =
+style=3D"min-width:100%" width=3D"100%" cellspacing=3D"0" cellpadding=3D"0"=
+ border=3D"0">
+<tbody class=3D"mcnTextBlockOuter">
+<tr>
+<td class=3D"mcnTextBlockInner" style=3D"padding-top:9px" valign=3D"top">
+
+
+<table style=3D"max-width:100%;min-width:100%" class=3D"mcnTextContentConta=
+iner" width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnTextContent" =
+style=3D"padding-top:10px;padding-right:18px;padding-bottom:15px;padding-le=
+ft:18px" valign=3D"top">
+<div style=3D"text-align:center">
+<span style=3D"color:#14001c">
+<span style=3D"font-size:16px">
+<span style=3D"font-family:Queens,arial,helvetica neue,helvetica,=
+sans-serif"><strong>Les nouveaut=C3=A9s de l'automne sont arriv=C3=A9es !=
+</strong></span><br />
+<span style=3D"font-family:WorkSans,arial,helvetica =
+neue,helvetica,sans-serif">L'automne s'installe et avec lui, une collection=
+ inspir=C3=A9e par la lumi=C3=A8re douce et les couleurs de la saison. =
+D=C3=A9couvrez les nouvelles cr=C3=A9ations sign=C3=A9es Histoire d'Or.=
+</span></span>
+</span>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+</td>
+</tr>
+</tbody>
+</table>
+<table style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody =
+class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageContentContainer" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageContent" style=3D"padding-right:0px;padding-left:=
+0px;padding-top:0;padding-bottom:5px;text-align:center" valign=3D"top">
+<br />
+<a href=3D"https://critsender.mahlesoldes.com/c/5HdhS398"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/coupdecoeur.jpg" alt=3D"Nos coups de coeur" =
+width=3D"280" height=3D"35" class=3D"mcnImage" style=3D"max-width:250px;pad=
+ding-bottom:0;display:inline !important;vertical-align:bottom" =
+align=3D"middle" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnImageGroupBlock" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody =
+class=3D"mcnImageGroupBlockOuter">
+<tr>
+<td style=3D"padding:9px" =
+class=3D"mcnImageGroupBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageGroupContentContainer" width=3D"290" cellspacing=3D"0" =
+cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupContent" style=3D"padding-left:20px;padding-top:0=
+;padding-bottom:0" valign=3D"top" align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.com/c/QNoHV8Bf"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/produitsho_03.jpg" alt=3D"Histoire d'Or" =
+width=3D"268" class=3D"mcnImage" style=3D"max-width:268px;padding-bottom:0"=
+ /></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnImageGroupContentC=
+ontainer" width=3D"290" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"right">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupContent" =
+style=3D"padding-right:20px;padding-top:0;padding-bottom:0" valign=3D"top" =
+align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/ditYTpcw"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/produitsho_05.=
+jpg" alt=3D"Histoire d'Or" width=3D"268" class=3D"mcnImage" =
+style=3D"max-width:268px;padding-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<tr>
+<td style=3D"padding:9px" =
+class=3D"mcnImageGroupBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageGroupContentContainer" width=3D"290" cellspacing=3D"0" =
+cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupContent" style=3D"padding-left:20px;padding-top:0=
+;padding-bottom:0" valign=3D"top" align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.com/c/gQhicllA"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/produitsho_09.jpg" alt=3D"Histoire d'Or" =
+width=3D"268" class=3D"mcnImage" style=3D"max-width:268px;padding-bottom:0"=
+ /></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnImageGroupContentC=
+ontainer" width=3D"290" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"right">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupContent" =
+style=3D"padding-right:20px;padding-top:0;padding-bottom:0" valign=3D"top" =
+align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/f4h6tna4"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/produitsho_10.=
+jpg" alt=3D"Histoire d'Or" width=3D"268" class=3D"mcnImage" =
+style=3D"max-width:268px;padding-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<tr>
+<td style=3D"padding:9px" class=3D"mcnImageGroupBlockInner" valign=3D"top">
+<table class=3D"mcnButtonBlock" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody =
+class=3D"mcnButtonBlockOuter">
+<tr>
+<td style=3D"padding-top:15px;padding-r=
+ight:18px;padding-bottom:18px;padding-left:18px" class=3D"mcnButtonBlockInn=
+er" valign=3D"top" align=3D"center">
+<table class=3D"mcnButtonContentContai=
+ner" style=3D"border-collapse:separate !important;border-radius:0px;backgro=
+und-color:#00141c" cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody>
+<tr>
+<td width=3D"300" align=3D"center" valign=3D"middle" =
+class=3D"mcnButtonContent" style=3D"font-family:Roboto, WorkSans, =
+Arial;font-size:13px;padding:13px">
+<a class=3D"mcnButton " title=3D"VOIR =
+TOUS LES BIJOUX" href=3D"https://critsender.mahlesoldes.com/c/Egs39LPF" =
+target=3D"_blank" style=3D"font-weight:normal;letter-spacing:normal;line-he=
+ight:100%;text-align:center;text-decoration:none;color:#FFFFFF">VOIR TOUS =
+LES BIJOUX</a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table><br />
+
+<table class=3D"mcnImageGroupBlock hidden-xl mobile" =
+width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody class=3D"mcnImageGroupBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageGroupBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageGroupContentContainer" cellspacing=3D"0" cellpadding=3D"0"=
+ border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupConten=
+t" style=3D"padding-right:0px;padding-top:0px;padding-bottom:0" =
+valign=3D"top" align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/wTBWkxoh"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/categories_03.=
+jpg" alt=3D"Bijoux fins" class=3D"mcnImage" style=3D"max-width:350px;paddin=
+g-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table =
+class=3D"mcnImageGroupContentContainer" cellspacing=3D"0" cellpadding=3D"0"=
+ border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupConten=
+t" style=3D"padding-right:0px;padding-top:0px;padding-bottom:0" =
+valign=3D"top" align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/ZCrzVj0x"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/categories_05.=
+jpg" alt=3D"Bijoux XXL" class=3D"mcnImage" style=3D"max-width:350px;padding=
+-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table =
+class=3D"mcnImageGroupContentContainer" cellspacing=3D"0" cellpadding=3D"0"=
+ border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupConten=
+t" style=3D"padding-right:0px;padding-top:0px;padding-bottom:0" =
+valign=3D"top" align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/jjyYwTvo"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/categories_07.=
+jpg" alt=3D"Bijoux dor=C3=A9s" class=3D"mcnImage" style=3D"max-width:350px;=
+padding-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+<table class=3D"mcnImageGroupBlock hidden-xs desktop" =
+width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody class=3D"mcnImageGroupBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageGroupBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageGroupContentContainer" width=3D"150" cellspacing=3D"0" =
+cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupContent" style=3D"padding-right:5px;padding-top:0=
+;padding-bottom:0" valign=3D"top" align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.com/c/zhro7acW"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/categories_03-2.jpg" alt=3D"Bijoux fins" =
+width=3D"205" height=3D"600" class=3D"mcnImage" style=3D"max-width:205px;pa=
+dding-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnImageGroupContentContainer" width=3D"150" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupContent" style=3D"padding-right:5px;padding-=
+top:0px;padding-bottom:0" valign=3D"top" align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.com/c/ZCrzVj0x"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/categories_05-2.jpg" alt=3D"Bijoux XXL" width=3D"205"=
+ class=3D"mcnImage" style=3D"max-width:205px;padding-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnImageGroupContentContainer" =
+width=3D"150" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageGroupContent" =
+style=3D"padding-right:5px;padding-top:0px;padding-bottom:0" valign=3D"top"=
+ align=3D"center">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/jjyYwTvo"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/categories_07-2.=
+jpg" alt=3D"Bijoux dor=C3=A9s" width=3D"205" class=3D"mcnImage" =
+style=3D"max-width:205px;padding-bottom:0" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+
+<table style=3D"min-width:100%" =
+width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageContentContainer" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnImageContent" style=3D"padding-right:0px;padding-left:=
+0px;padding-top:20px;padding-bottom:15px;text-align:center" valign=3D"top">
+<br />
+<a href=3D"https://critsender.mahlesoldes.com/c/5HdhS398"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/nosservices.jpg" alt=3D"Nos services" width=3D"170" =
+height=3D"35" class=3D"mcnImage" style=3D"max-width:130px;padding-bottom:0;=
+display:inline !important;vertical-align:bottom" align=3D"middle" /></a>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnImageBlock" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody =
+class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageContentContainer" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody><tr>
+<td>
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/VGLfGB5f"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/footerHO_12.jpg"=
+ alt=3D"Livraison offerte*" width=3D"315" height=3D"82" class=3D"mcnImage" =
+style=3D"max-width:315px;padding-bottom:0;display:inline !=
+important;vertical-align:bottom" align=3D"middle" /></a>
+</td>
+<td>
+<a href=3D"https://critsender.mahlesoldes.com/c/JC7wRKay"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/footerHO_13.jpg" alt=3D"Click &amp; Collect sous 2h" =
+width=3D"329" height=3D"82" class=3D"mcnImage" style=3D"max-width:329px;pad=
+ding-bottom:0;display:inline !important;vertical-align:bottom" =
+align=3D"middle" /></a>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnImageBlock" style=3D"min-width:100%" =
+width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody class=3D"mcnImageBlockOuter">
+<tr>
+<td style=3D"padding:0px" =
+class=3D"mcnImageBlockInner" valign=3D"top">
+<table =
+class=3D"mcnImageContentContainer" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0" align=3D"left">
+<tbody><tr>
+<td>
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/cY5xk3pX"><img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/footerHO_14.jpg"=
+ alt=3D"Satisfait ou rembours=C3=A9 sous 30 jours" width=3D"316" =
+height=3D"97" class=3D"mcnImage" style=3D"max-width:316px;padding-bottom:0;=
+display:inline !important;vertical-align:bottom" align=3D"middle" /></a>
+</td>
+<td>
+<a href=3D"https://critsender.mahlesoldes.com/c/SqCv0Gib"><img =
+src=3D"https://critsender.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4=
+c75-ad89-794880499ea6/footerHO_15.jpg" alt=3D"Paiement en 3 fois sans =
+frais" width=3D"328" height=3D"97" class=3D"mcnImage" =
+style=3D"max-width:328px;padding-bottom:0;display:inline !=
+important;vertical-align:bottom" align=3D"middle" /></a>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody>
+</table>
+<table =
+class=3D"mcnTextBlock" style=3D"min-width:100%" width=3D"100%" =
+cellspacing=3D"0" cellpadding=3D"0" border=3D"0">
+<tbody =
+class=3D"mcnTextBlockOuter">
+<tr>
+<td class=3D"mcnTextBlockInner" =
+style=3D"padding-top:20px" valign=3D"top">
+
+
+<table =
+style=3D"max-width:100%;min-width:100%" class=3D"mcnTextContentContainer" =
+width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnTextContent" =
+style=3D"padding-top:10px;padding-right:18px;padding-bottom:0px;padding-lef=
+t:18px" valign=3D"top">
+<div style=3D"text-align:center">
+<span style=3D"color:#000000">
+<span style=3D"font-size:18px">
+<span style=3D"font-family:Queens, arial,helvetica neue,helvetica,=
+sans-serif">
+<span style=3D"font-size:16px">SUIVEZ-NOUS</span></span>
+</span>
+</span>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+</td>
+</tr>
+</tbody>
+</table>
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+width=3D"100%" class=3D"mcnFollowBlock" style=3D"min-width:100%">
+<tbody class=3D"mcnFollowBlockOuter">
+<tr>
+<td align=3D"center" =
+valign=3D"top" style=3D"padding:9px" class=3D"mcnFollowBlockInner">
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" width=3D"100%" =
+class=3D"mcnFollowContentContainer" style=3D"min-width:100%">
+<tbody><tr>
+<td align=3D"center" style=3D"padding-left:9px;padding-right:9px">
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" width=3D"100%" =
+style=3D"min-width:100%" class=3D"mcnFollowContent">
+<tbody><tr>
+<td align=3D"center" valign=3D"top" style=3D"padding-top:9px;padding-right:=
+9px;padding-left:9px">
+<table align=3D"center" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0">
+<tbody><tr>
+<td align=3D"center" =
+valign=3D"top">
+
+
+<table align=3D"left" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0" class=3D"mcnBlockFloatLeft" style=3D"display:inline">
+<tbody><tr>
+<td valign=3D"top" style=3D"padding-right:0px;padding-bottom:9p=
+x" class=3D"mcnFollowContentItemContainer">
+<table border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" width=3D"100%" class=3D"mcnFollowConten=
+tItem">
+<tbody><tr>
+<td align=3D"left" valign=3D"middle" =
+style=3D"padding-top:5px;padding-right:10px;padding-bottom:5px;padding-left=
+:9px">
+<table align=3D"left" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0">
+<tbody><tr>
+<td align=3D"center" valign=3D"middle" =
+width=3D"24" class=3D"mcnFollowIconContent">
+<a href=3D"https://critsender.=
+mahlesoldes.com/c/OafVplQ1" target=3D"_blank"><img src=3D"https://critsende=
+r.mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/da=
+rk-facebook-48.png" alt=3D"Facebook" style=3D"display:block" height=3D"24" =
+width=3D"24" /></a>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+
+
+<table align=3D"left" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"mcnBlockFloatLeft=
+" style=3D"display:inline">
+<tbody><tr>
+<td valign=3D"top" =
+style=3D"padding-right:0px;padding-bottom:9px" class=3D"mcnFollowContentIte=
+mContainer">
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+width=3D"100%" class=3D"mcnFollowContentItem">
+<tbody><tr>
+<td align=3D"left" valign=3D"middle" style=3D"padding-top:5px;padding-right=
+:10px;padding-bottom:5px;padding-left:9px">
+<table align=3D"left" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0">
+<tbody><tr>
+<td align=3D"center" valign=3D"middle" width=3D"24" =
+class=3D"mcnFollowIconContent">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/JVUDGARN" target=3D"_blank"><img src=3D"https://critsender.=
+mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/dark=
+-instagram-48.png" alt=3D"Instagram" style=3D"display:block" height=3D"24" =
+width=3D"24" /></a>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+
+
+<table align=3D"left" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"mcnBlockFloatLeft=
+" style=3D"display:inline">
+<tbody><tr>
+<td valign=3D"top" =
+style=3D"padding-right:0px;padding-bottom:9px" class=3D"mcnFollowContentIte=
+mContainer">
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+width=3D"100%" class=3D"mcnFollowContentItem">
+<tbody><tr>
+<td align=3D"left" valign=3D"middle" style=3D"padding-top:5px;padding-right=
+:10px;padding-bottom:5px;padding-left:9px">
+<table align=3D"left" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0">
+<tbody><tr>
+<td align=3D"center" valign=3D"middle" width=3D"24" =
+class=3D"mcnFollowIconContent">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/RCwcpUEO" target=3D"_blank"><img src=3D"https://critsender.=
+mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/dark=
+-youtube-48.png" alt=3D"YouTube" style=3D"display:block" height=3D"24" =
+width=3D"24" /></a>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+
+
+<table align=3D"left" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"mcnBlockFloatLeft=
+" style=3D"display:inline">
+<tbody><tr>
+<td valign=3D"top" =
+style=3D"padding-right:0;padding-bottom:9px" class=3D"mcnFollowContentItemC=
+ontainer">
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+width=3D"100%" class=3D"mcnFollowContentItem">
+<tbody><tr>
+<td align=3D"left" valign=3D"middle" style=3D"padding-top:5px;padding-right=
+:10px;padding-bottom:5px;padding-left:9px">
+<table align=3D"left" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0">
+<tbody><tr>
+<td align=3D"center" valign=3D"middle" width=3D"24" =
+class=3D"mcnFollowIconContent">
+<a href=3D"https://critsender.mahlesoldes.=
+com/c/dBNrbg0H" target=3D"_blank"><img src=3D"https://critsender.=
+mahlesoldes.com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/dark=
+-tiktok-48.png" alt=3D"TikTok" style=3D"display:block" height=3D"24" =
+width=3D"24" /></a>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+
+
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody>
+</table>
+<table class=3D"mcnTextBlock" =
+style=3D"min-width:100%" width=3D"100%" cellspacing=3D"0" cellpadding=3D"0"=
+ border=3D"0">
+<tbody class=3D"mcnTextBlockOuter">
+<tr>
+<td class=3D"mcnTextBlockInner" style=3D"padding-top:9px" valign=3D"top">
+
+
+<table style=3D"max-width:100%;min-width:100%" class=3D"mcnTextContentConta=
+iner" width=3D"100%" cellspacing=3D"0" cellpadding=3D"0" border=3D"0" =
+align=3D"left">
+<tbody>
+<tr>
+<td class=3D"mcnTextContent" =
+style=3D"padding:0px 18px 9px;line-height:100%" valign=3D"top">
+<div style=3D"text-align:center">
+<span style=3D"color:#A9A9A9">
+<span style=3D"font-size:12px">
+<span style=3D"font-family:arial,helvetica =
+neue,helvetica,sans-serif"><br />*voir conditions sur le site<br =
+/>Photographies et graphismes communiqu=C3=A9s =C3=A0 titre =
+d=E2=80=99illustration. Bijoux grossis 1 =C3=A0 10 fois =E2=80=93 Nos =
+pierres sont susceptibles d'avoir subi des traitements destin=C3=A9s =C3=A0=
+ les embellir, voir la fiche d=E2=80=99information disponible =
+surhistoiredor.com =E2=80=93 Malgr=C3=A9 notre vigilance, des fautes =
+peuvent s=E2=80=99=C3=AAtre gliss=C3=A9es dans les textes ou dans les prix.=
+En cas de divergence, merci de donner la priorit=C3=A9 aux fiches =
+descriptives des produits. Les prix sont susceptibles de varier en fonction=
+ du poids et du cours de l=E2=80=99or ainsi que de la taille du bijou.=
+</span>
+</span>
+</span>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<tr>
+<td valign=3D"top" =
+id=3D"templateFooter"></td>
+</tr>
+</tbody>
+</table>
+
+
+</td>
+</tr>
+</tbody></table>
+
+
+
+</center>
+<img src=3D"https://critsender.mahlesoldes.=
+com/campaigns/2026/09/f6cd7b50-ad10-4c75-ad89-794880499ea6/imp.jpg" =
+border=3D"0" height=3D"1" width=3D"1" />
+<img src=3D"https://critsender.=
+mahlesoldes.com/o/93bb2594-eac9-46aa-a569-03e1aeb20d1b/b619a68e-b15c-48db-8=
+1d6-c074605b9657/p.gif?sig=3D9e19e2620a11043873bf1ef523f7939d1987cb550170a7=
+c227239b941472a939&mid=3D36029e2d-42de-4aae-8b37-dccacc2eb2b9" width=3D"1" =
+height=3D"1" alt=3D"" border=3D"0" style=3D"width:1px;height:1px;border:0;o=
+utline:none;text-decoration:none;display:block;opacity:0;max-width:1px;max-=
+height:1px;" />
+<div style=3D"margin-top:30px;padding-top:20px;border-top:1=
+px solid #eee;text-align:center;font-size:12px;color:#666;"><div =
+style=3D"margin-top:4px;"><a href=3D"https://critsender.mahlesoldes.=
+com/u/28UaSdEA" style=3D"color:#666;text-decoration:underline;">Si vous ne =
+souhaitez pas recevoir d'emails de ce type, vous pouvez vous =
+d=C3=A9sinscrire</a></div><div style=3D"margin-top:4px;"><span =
+style=3D"color:#888;">Critelab pte ltd - 986 Upper Serangoon Road #09-22 =
+Stars of Kovan Singapore 534732</span></div></div></body></html>
+
+
+
