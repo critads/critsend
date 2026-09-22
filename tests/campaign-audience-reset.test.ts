@@ -23,7 +23,7 @@ describe("campaign audience reset control", () => {
     const reset = audienceResetSection(source);
     expect(reset).toContain("segmentIds: []");
     expect(reset).toContain('segmentId: ""');
-    expect(reset).toContain('excludeSegmentId: ""');
+    expect(reset).toContain("excludeSegmentIds: []");
     expect(reset).toContain("setShowExclusion(false)");
     expect(reset).toContain("segmentIds.length > 0");
   });

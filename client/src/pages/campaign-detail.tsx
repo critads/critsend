@@ -355,6 +355,8 @@ export default function CampaignDetail() {
 
   const mta = mtas?.find(m => m.id === campaign?.mtaId);
   const segmentIds = campaign?.segmentIds ?? (campaign?.segmentId ? [campaign.segmentId] : []);
+  const excludeSegmentIds = campaign?.excludeSegmentIds
+    ?? (campaign?.excludeSegmentId ? [campaign.excludeSegmentId] : []);
 
   const totalErrorPages = errorsData ? Math.ceil(errorsData.total / ERRORS_PER_PAGE) : 0;
 
@@ -569,6 +571,19 @@ export default function CampaignDetail() {
                 <span className="font-medium" data-testid="text-mta">{mta?.name || "Unknown"}</span>
               </div>
               <Separator />
+              {excludeSegmentIds.length > 0 && (
+                <>
+                  <div className="flex justify-between items-center gap-4">
+                    <span className="text-muted-foreground">Exclusions</span>
+                    <span className="font-medium text-right" data-testid="text-exclusion-segments">
+                      {excludeSegmentIds
+                        .map((id) => segments?.find((segment) => segment.id === id)?.name || "Unknown")
+                        .join(", ")}
+                    </span>
+                  </div>
+                  <Separator />
+                </>
+              )}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Audience</span>
                 <div className="flex items-center gap-2">

@@ -1,4 +1,5 @@
 import { type Express, type Request, type Response } from "express";
+import { readExclusionSegmentIds } from "../utils/campaign-exclusions";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { insertSegmentSchema, segmentRulesInputSchema, migrateRulesV1toV2 } from "@shared/schema";
@@ -353,19 +354,22 @@ export function registerSegmentRoutes(app: Express, helpers: {
   app.post("/api/segments/count", async (req: Request, res: Response) => {
     try {
       const segmentIds = req.body?.segmentIds;
-      const excludeSegmentId = req.body?.excludeSegmentId || undefined;
+      // Canonical `excludeSegmentIds[]`; the legacy single key is still accepted.
+      const exclusion = readExclusionSegmentIds(req.body);
+      if (!exclusion.ok) return res.status(400).json({ error: exclusion.error });
+      const excludeSegmentIds = exclusion.ids;
       if (!Array.isArray(segmentIds) || !segmentIds.length || segmentIds.some((id) => !validateId(id)) ||
           new Set(segmentIds).size !== segmentIds.length) {
         return res.status(400).json({ error: "segmentIds must be a unique non-empty list of valid IDs" });
       }
-      if (excludeSegmentId && (!validateId(excludeSegmentId) || segmentIds.includes(excludeSegmentId))) {
+      if (excludeSegmentIds.some((id) => !validateId(id) || segmentIds.includes(id))) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as an audience segment" });
       }
-      const found = await storage.getSegmentsByIds([...segmentIds, ...(excludeSegmentId ? [excludeSegmentId] : [])]);
-      if (found.length !== segmentIds.length + (excludeSegmentId ? 1 : 0)) {
+      const found = await storage.getSegmentsByIds([...segmentIds, ...excludeSegmentIds]);
+      if (found.length !== segmentIds.length + excludeSegmentIds.length) {
         return res.status(400).json({ error: "One or more segments do not exist" });
       }
-      res.json({ count: await storage.countSubscribersForSegments(segmentIds, excludeSegmentId) });
+      res.json({ count: await storage.countSubscribersForSegments(segmentIds, excludeSegmentIds) });
     } catch (error) {
       logger.error("Error counting multi-segment subscribers:", error);
       res.status(500).json({ error: "Failed to count segment subscribers" });
@@ -694,6 +698,14 @@ export function registerSegmentRoutes(app: Express, helpers: {
       await storage.deleteSegment(req.params.id);
       res.status(204).send();
     } catch (error) {
+      // campaign_segments / campaign_exclusion_segments RESTRICT deletion of
+      // a segment still referenced by a campaign (audience or exclusion).
+      const pgCode = (error as any)?.code ?? (error as any)?.cause?.code;
+      if (pgCode === "23503") {
+        return res.status(409).json({
+          error: "Segment is used as an audience or exclusion by one or more campaigns and cannot be deleted",
+        });
+      }
       logger.error("Error deleting segment:", error);
       res.status(500).json({ error: "Failed to delete segment" });
     }

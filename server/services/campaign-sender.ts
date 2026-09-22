@@ -405,6 +405,10 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   // avoiding a second full count and keeping the 30% cap aligned with total.
   let total: number;
   const campaignSegmentIds = (campaign as any).segmentIds ?? [campaign.segmentId!];
+  // Canonical multi-exclusion list; the legacy single column is only the
+  // fallback for a row that predates the exclusion bootstrap.
+  const campaignExcludeSegmentIds: string[] = (campaign as any).excludeSegmentIds
+    ?? (campaign.excludeSegmentId ? [campaign.excludeSegmentId] : []);
   // This durable snapshot is created once, including when there are no
   // similarity rules ({}). Resumes therefore never silently adopt refs from a
   // later explicit segment re-analysis.
@@ -424,7 +428,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       const plan = await storage.planCampaignWarmStart(
         campaignId,
         campaignSegmentIds,
-        campaign.excludeSegmentId ?? undefined,
+        campaignExcludeSegmentIds,
         stepExecutionVersion,
         similaritySnapshot,
       );
@@ -439,14 +443,14 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   } else {
     total = await storage.countSubscribersForSegments(
       campaignSegmentIds,
-      campaign.excludeSegmentId ?? undefined,
+      campaignExcludeSegmentIds,
       similaritySnapshot,
     );
   }
   if (isFollowUp) {
     logger.info(`${logPrefix} Follow-up of parent '${campaign.parentCampaignId}' — ${total} openers eligible`);
-  } else if (campaign.excludeSegmentId) {
-    logger.info(`${logPrefix} Segment '${campaign.segmentId}' minus exclusion '${campaign.excludeSegmentId}' — ${total} subscribers eligible`);
+  } else if (campaignExcludeSegmentIds.length) {
+    logger.info(`${logPrefix} Segment '${campaign.segmentId}' minus exclusion(s) '${campaignExcludeSegmentIds.join("', '")}' — ${total} subscribers eligible`);
   } else {
     logger.info(`${logPrefix} Segment '${campaign.segmentId}' has ${total} subscribers`);
   }
@@ -832,7 +836,7 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
       campaignSegmentIds,
       BATCH_SIZE,
       cursor,
-      campaign!.excludeSegmentId ?? undefined,
+      campaignExcludeSegmentIds,
       false,
       campaign!.prioritizeActiveClickers && audiencePhase === "normal" ? campaignId : undefined,
       similaritySnapshot,

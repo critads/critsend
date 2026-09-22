@@ -178,12 +178,14 @@ export const steps = [
 ];
 
 export function normalizeForApi(data: Partial<InsertCampaign>) {
+  const normalized = { ...data };
+  delete normalized.excludeSegmentId;
   return {
-    ...data,
+    ...normalized,
     replyEmail: data.replyEmail || null,
     mtaId: data.mtaId || null,
     segmentId: data.segmentId || null,
-    excludeSegmentId: data.excludeSegmentId || null,
+    excludeSegmentIds: data.excludeSegmentIds ?? [],
     openTag: data.openTag || null,
     clickTag: data.clickTag || null,
     unsubscribeTag: data.unsubscribeTag || null,

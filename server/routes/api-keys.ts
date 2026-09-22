@@ -210,6 +210,10 @@ export function registerApiKeyRoutes(app: Express) {
           replyEmail: mta?.fromEmail || null,
           ...(mta?.unsubscribeText ? { unsubscribeText: mta.unsubscribeText } : {}),
           companyAddress: mta?.companyAddress ?? null,
+          // Same send-order default as a campaign created in the wizard
+          // (« Envoi prioritaire aux actifs » is on for every new campaign).
+          // The DB default is false, so an API draft must set it explicitly.
+          prioritizeActiveClickers: true,
           status: "draft",
         })
         .returning({ id: campaigns.id, createdAt: campaigns.createdAt });

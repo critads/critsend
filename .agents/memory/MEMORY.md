@@ -34,3 +34,4 @@
 - [Naive timestamp parse shift](naive-timestamp-parse-shift.md) — raw db.execute rows return naive `timestamp` columns shifted by the prod process TZ (−2 h CEST); use `AT TIME ZONE 'UTC'` or Drizzle-typed selects.
 - [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — inclusions only via block macros; recount × worst cohort; raw SQL bind-check on real DB; similar-brands lookup = one deadline < proxy, strict shape.
 - [Pinned DNS lookup on Node ≥ 20](pinned-lookup-node20.md) — custom http.request lookup must honour options.all (array shape) or every real download fails; fixtures need a non-IP hostname.
+- [Campaign exclusion segments](campaign-exclusion-segments.md) — canonical array table, legacy column is a mirror of position 0; FK RESTRICT; re-validate overlap under the row lock; bootstrap rollout.

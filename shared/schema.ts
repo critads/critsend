@@ -479,6 +479,7 @@ export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
   }),
   stats: many(campaignStats),
   audienceSegments: many(campaignSegments),
+  exclusionSegments: many(campaignExclusionSegments),
 }));
 
 // Ordered inclusion audience for a campaign. `campaigns.segment_id` remains
@@ -496,6 +497,28 @@ export const campaignSegments = pgTable("campaign_segments", {
 export const campaignSegmentsRelations = relations(campaignSegments, ({ one }) => ({
   campaign: one(campaigns, { fields: [campaignSegments.campaignId], references: [campaigns.id] }),
   segment: one(segments, { fields: [campaignSegments.segmentId], references: [segments.id] }),
+}));
+
+// Ordered exclusion segments for a campaign. Every listed segment is
+// SUBTRACTED from the inclusion audience at send time (AND NOT for each one).
+// `campaigns.exclude_segment_id` mirrors the first row for older readers;
+// this table is the canonical multi-exclusion representation. Like audience
+// rows, exclusion rows RESTRICT segment deletion: a sender keeps the exclusion
+// ids in memory for the whole run and silently skips segments it can no
+// longer compile, so cascading the delete would let later batches reach
+// subscribers the operator explicitly excluded.
+export const campaignExclusionSegments = pgTable("campaign_exclusion_segments", {
+  campaignId: varchar("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  segmentId: varchar("segment_id").notNull().references(() => segments.id, { onDelete: "restrict" }),
+  position: integer("position").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.campaignId, table.segmentId], name: "campaign_exclusion_segments_pkey" }),
+  orderIdx: uniqueIndex("campaign_exclusion_segments_campaign_position_idx").on(table.campaignId, table.position),
+}));
+
+export const campaignExclusionSegmentsRelations = relations(campaignExclusionSegments, ({ one }) => ({
+  campaign: one(campaigns, { fields: [campaignExclusionSegments.campaignId], references: [campaigns.id] }),
+  segment: one(segments, { fields: [campaignExclusionSegments.segmentId], references: [segments.id] }),
 }));
 
 // Frozen warm-start membership. Only the capped set is materialized, keeping
@@ -1023,6 +1046,16 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   preheader: z.string().max(500, "Preheader too long").nullable().optional(),
   htmlContent: z.string().min(1, "HTML content required").max(5000000, "Content too large"),
   scheduledAt: campaignScheduledAtSchema,
+  // Canonical multi-segment audience and exclusions (the route persists them
+  // in their association tables; the legacy single columns mirror the first).
+  segmentIds: z.array(z.string().min(1)).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Audience segments must be unique",
+  ).optional(),
+  excludeSegmentIds: z.array(z.string().min(1)).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Exclusion segments must be unique",
+  ).optional(),
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   // Auto-resend to openers — settable on the parent at create time. Match
   // the same 1-168h range enforced on the wizard input and on PATCH.
@@ -1080,6 +1113,10 @@ export const insertCampaignDraftSchema = createInsertSchema(campaigns).omit({
     "Audience segments must be unique",
   ).optional(),
   excludeSegmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  excludeSegmentIds: z.array(z.string().min(1)).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Exclusion segments must be unique",
+  ).optional(),
   sendingSpeed: z.enum(["drip", "very_slow", "slow", "medium", "fast", "godzilla"]).optional(),
   status: z.string().optional().default("draft"),
   // Step-by-step sending (Task #242). Must be a positive integer ≥ 1 when
@@ -1112,6 +1149,10 @@ export const updateCampaignDraftSchema = z.object({
     "Audience segments must be unique",
   ).optional(),
   excludeSegmentId: z.preprocess((v) => (v === "" ? null : v), z.string().nullable().optional()),
+  excludeSegmentIds: z.array(z.string().min(1)).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Exclusion segments must be unique",
+  ).optional(),
   trackClicks: z.boolean().optional(),
   trackOpens: z.boolean().optional(),
   unsubscribeText: z.string().optional(),
@@ -1174,7 +1215,7 @@ export type InsertMta = z.infer<typeof insertMtaSchema>;
 export type EmailHeader = typeof emailHeaders.$inferSelect;
 export type InsertEmailHeader = z.infer<typeof insertEmailHeaderSchema>;
 
-export type Campaign = typeof campaigns.$inferSelect & { segmentIds?: string[] };
+export type Campaign = typeof campaigns.$inferSelect & { segmentIds?: string[]; excludeSegmentIds?: string[] };
 export type CampaignSendStateTotals = {
   /** All tracked contacts: finalized plus still pending/in flight. */
   processed: number;

@@ -136,18 +136,19 @@ export function summarizeRisk(decisions: RiskDecision[]) {
 export async function campaignRiskPreflight(input: {
   campaignId?: string;
   segmentIds?: string[];
-  excludeSegmentId?: string;
+  excludeSegmentIds?: string[];
 }) {
   const [{ storage }, { pool }] = await Promise.all([import("../storage"), import("../db")]);
   let campaignId = input.campaignId || "segment-preflight";
   let segmentIds = input.segmentIds || [];
-  let excludeSegmentId = input.excludeSegmentId;
+  let excludeSegmentIds = input.excludeSegmentIds ?? [];
   let parentCampaignId: string | undefined;
   if (input.campaignId) {
     const campaign = await storage.getCampaign(input.campaignId);
     if (!campaign) return null;
     segmentIds = (campaign as any).segmentIds ?? (campaign.segmentId ? [campaign.segmentId] : []);
-    excludeSegmentId = campaign.excludeSegmentId ?? undefined;
+    excludeSegmentIds = (campaign as any).excludeSegmentIds
+      ?? (campaign.excludeSegmentId ? [campaign.excludeSegmentId] : []);
     parentCampaignId = campaign.parentCampaignId ?? undefined;
   }
   const countsByTier = emptyRiskCounts();
@@ -155,7 +156,7 @@ export async function campaignRiskPreflight(input: {
   for (;;) {
     const batch = parentCampaignId
       ? await storage.getOpenersForParentCampaignCursor(parentCampaignId, 10_000, cursor, true)
-      : await storage.getSubscribersForSegmentsCursor(segmentIds, 10_000, cursor, excludeSegmentId, true);
+      : await storage.getSubscribersForSegmentsCursor(segmentIds, 10_000, cursor, excludeSegmentIds, true);
     if (batch.length === 0) break;
     const ids = batch.map((subscriber) => subscriber.id);
     const profiles = await pool.query(

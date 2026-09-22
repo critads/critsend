@@ -37,7 +37,9 @@ const copied = {
 
 const campaignValues = vi.fn();
 const relationValues = vi.fn();
+const exclusionValues = vi.fn();
 const txInsert = vi.fn();
+const txDelete = vi.fn();
 const transaction = vi.fn();
 const select = vi.fn();
 
@@ -60,11 +62,15 @@ vi.mock("../server/repositories/campaigns-list-cache", () => ({
 import { copyCampaign } from "../server/repositories/campaign-repository";
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // mockReset (not clear) so a test that never consumed the queued
+  // once-values cannot leak them into the next test.
+  vi.resetAllMocks();
   select
+    // 1. campaign row
     .mockReturnValueOnce({
       from: () => ({ where: async () => [original] }),
     })
+    // 2. canonical audience rows
     .mockReturnValueOnce({
       from: () => ({
         where: () => ({
@@ -75,14 +81,28 @@ beforeEach(() => {
           ],
         }),
       }),
+    })
+    // 3. canonical exclusion rows
+    .mockReturnValueOnce({
+      from: () => ({
+        where: () => ({
+          orderBy: async () => [
+            { campaignId: original.id, segmentId: "segment-x" },
+            { campaignId: original.id, segmentId: "segment-y" },
+          ],
+        }),
+      }),
     });
   campaignValues.mockReturnValue({ returning: async () => [copied] });
   relationValues.mockResolvedValue(undefined);
+  exclusionValues.mockResolvedValue(undefined);
   txInsert
     .mockReturnValueOnce({ values: campaignValues })
-    .mockReturnValueOnce({ values: relationValues });
+    .mockReturnValueOnce({ values: relationValues })
+    .mockReturnValueOnce({ values: exclusionValues });
+  txDelete.mockReturnValue({ where: async () => undefined });
   transaction.mockImplementation(async (callback: (tx: unknown) => unknown) =>
-    callback({ insert: txInsert }));
+    callback({ insert: txInsert, delete: txDelete }));
 });
 
 describe("copyCampaign", () => {
@@ -107,6 +127,19 @@ describe("copyCampaign", () => {
       { campaignId: copied.id, segmentId: "segment-a", position: 0 },
       { campaignId: copied.id, segmentId: "segment-b", position: 1 },
       { campaignId: copied.id, segmentId: "segment-c", position: 2 },
+    ]);
+  });
+
+  it("copies every exclusion segment and mirrors the first into the legacy column", async () => {
+    await copyCampaign(original.id);
+
+    const insertedCampaign = campaignValues.mock.calls[0][0];
+    expect(insertedCampaign.excludeSegmentId).toBe("segment-x");
+    expect(insertedCampaign).not.toHaveProperty("excludeSegmentIds");
+    expect(txDelete).toHaveBeenCalledTimes(1);
+    expect(exclusionValues).toHaveBeenCalledWith([
+      { campaignId: copied.id, segmentId: "segment-x", position: 0 },
+      { campaignId: copied.id, segmentId: "segment-y", position: 1 },
     ]);
   });
 });

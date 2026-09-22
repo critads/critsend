@@ -75,20 +75,21 @@ const sendingSpeeds = [
 
 type CampaignFormData = Partial<InsertCampaign> & {
   prioritizeActiveClickers: boolean;
+  excludeSegmentIds: string[];
 };
 
 export default function CampaignNew() {
   const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   // Task #138: tracks whether the exclusion combobox is revealed.
-  // Independent of `excludeSegmentId` so the "+ Add" button only opens
+  // Independent of `excludeSegmentIds` so the "+ Add" button only opens
   // an empty selector instead of silently picking the first option.
   const [showExclusion, setShowExclusion] = useState(false);
   const [formData, setFormData] = useState<CampaignFormData>({
     name: "",
     mtaId: "",
     segmentId: "",
-    excludeSegmentId: "",
+    excludeSegmentIds: [],
     fromName: "",
     fromEmail: "",
     replyEmail: "",
@@ -115,6 +116,7 @@ export default function CampaignNew() {
     prioritizeActiveClickers: true,
   });
   const segmentIds: string[] = (formData as any).segmentIds ?? (formData.segmentId ? [formData.segmentId] : []);
+  const excludeSegmentIds = formData.excludeSegmentIds;
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
   const [htmlLoaded, setHtmlLoaded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -247,7 +249,8 @@ export default function CampaignNew() {
   });
 
   const countMutation = useMutation({
-    mutationFn: async (params: { segmentIds: string[]; excludeSegmentId?: string | null }) => {
+    mutationKey: ["/api/segments/count", segmentIds, excludeSegmentIds],
+    mutationFn: async (params: { segmentIds: string[]; excludeSegmentIds: string[] }) => {
       const res = await apiRequest("POST", "/api/segments/count", params);
       return res.json();
     },
@@ -260,12 +263,12 @@ export default function CampaignNew() {
     if (segmentIds.length) {
       countMutation.mutate({
         segmentIds,
-        excludeSegmentId: formData.excludeSegmentId || null,
+        excludeSegmentIds,
       });
     } else {
       setSubscriberCount(null);
     }
-  }, [segmentIds.join(","), formData.excludeSegmentId]);
+  }, [segmentIds.join(","), excludeSegmentIds.join(",")]);
 
   const showSavedIndicator = () => {
     setSavedIndicator(true);
@@ -313,7 +316,10 @@ export default function CampaignNew() {
         await apiRequest("PATCH", `/api/campaigns/${currentCampaignId}`, normalized);
       }
 
-      const sendPayload = data.scheduledAt ? { scheduledAt: data.scheduledAt } : {};
+      const sendPayload = {
+        ...(data.scheduledAt ? { scheduledAt: data.scheduledAt } : {}),
+        excludeSegmentIds: data.excludeSegmentIds ?? [],
+      };
       const sendRes = await apiRequest("POST", `/api/campaigns/${currentCampaignId}/send`, sendPayload);
       return sendRes.json();
     },
@@ -533,10 +539,16 @@ export default function CampaignNew() {
               campaignName={formData.name}
               excludeId={campaignId}
               onSelect={(segmentId) => {
-                if (!segmentIds.includes(segmentId)) setFormData((old: any) => ({ ...old, segmentIds: [...segmentIds, segmentId], segmentId: segmentIds[0] ?? segmentId }));
-                if (formData.excludeSegmentId === segmentId) {
-                  updateField("excludeSegmentId", "");
-                }
+                setFormData((old) => {
+                  const current = old.segmentIds ?? (old.segmentId ? [old.segmentId] : []);
+                  const next = current.includes(segmentId) ? current : [...current, segmentId];
+                  return {
+                    ...old,
+                    segmentIds: next,
+                    segmentId: next[0] ?? "",
+                    excludeSegmentIds: old.excludeSegmentIds.filter((id) => id !== segmentId),
+                  };
+                });
               }}
             />
             <div className="space-y-2">
@@ -649,12 +661,12 @@ export default function CampaignNew() {
         // Task #138: optional exclusion segment. The "+ Add exclusion segment"
         // button only REVEALS the second combobox — it must NOT pre-select
         // a segment, otherwise we'd silently apply an exclusion the user
-        // never chose. `showExclusion` tracks visibility; `excludeSegmentId`
-        // tracks the actual selection. The exclusion list filters out the
+        // never chose. `showExclusion` tracks visibility; `excludeSegmentIds`
+        // tracks the actual selections. The exclusion list filters out every
         // include id so the user can't pick the same segment on both sides
         // (also enforced server-side with a 400).
-        const excludeOpen = showExclusion || !!formData.excludeSegmentId;
-         const excludeChoices = (segments ?? []).filter((s) => !segmentIds.includes(s.id));
+        const excludeOpen = showExclusion || formData.excludeSegmentIds.length > 0;
+        const excludeChoices = (segments ?? []).filter((s) => !segmentIds.includes(s.id));
         return (
           <div className="space-y-6">
             <div className="space-y-2">
@@ -670,7 +682,7 @@ export default function CampaignNew() {
                         ...old,
                         segmentIds: [],
                         segmentId: "",
-                        excludeSegmentId: "",
+                        excludeSegmentIds: [],
                       }));
                       setShowExclusion(false);
                     }}
@@ -691,12 +703,12 @@ export default function CampaignNew() {
                    values={segmentIds}
                    onChange={(v) => {
                      const next = segmentIds.includes(v) ? segmentIds.filter((id) => id !== v) : [...segmentIds, v];
-                     setFormData((old: any) => ({ ...old, segmentIds: next, segmentId: next[0] ?? "" }));
-                    // If the user picks the same segment as the exclusion,
-                    // clear the exclusion to avoid an empty audience.
-                    if (v && formData.excludeSegmentId === v) {
-                      updateField("excludeSegmentId", "");
-                    }
+                     setFormData((old) => ({
+                       ...old,
+                       segmentIds: next,
+                       segmentId: next[0] ?? "",
+                       excludeSegmentIds: old.excludeSegmentIds.filter((id) => id !== v),
+                     }));
                   }}
                 />
               ) : (
@@ -718,8 +730,14 @@ export default function CampaignNew() {
               onSegmentsCreated={(createdSegments) => {
                 setFormData((old: any) => {
                   const current: string[] = old.segmentIds ?? (old.segmentId ? [old.segmentId] : []);
-                  const next = [...current, ...createdSegments.map((segment) => segment.id).filter((id) => !current.includes(id))];
-                  return { ...old, segmentIds: next, segmentId: next[0] ?? "" };
+                  const createdIds = createdSegments.map((segment) => segment.id);
+                  const next = [...current, ...createdIds.filter((id) => !current.includes(id))];
+                  return {
+                    ...old,
+                    segmentIds: next,
+                    segmentId: next[0] ?? "",
+                    excludeSegmentIds: old.excludeSegmentIds.filter((id: string) => !createdIds.includes(id)),
+                  };
                 });
               }}
             />
@@ -746,7 +764,7 @@ export default function CampaignNew() {
                         size="sm"
                         onClick={() => {
                           setShowExclusion(false);
-                          updateField("excludeSegmentId", "");
+                          updateField("excludeSegmentIds", []);
                         }}
                         data-testid="button-remove-exclusion"
                       >
@@ -756,12 +774,39 @@ export default function CampaignNew() {
                     </div>
                     <SegmentCombobox
                       segments={excludeChoices}
-                      value={formData.excludeSegmentId || ""}
-                      onChange={(v) => updateField("excludeSegmentId", v)}
-                      placeholder="Select exclusion segment..."
+                      value={formData.excludeSegmentIds[0] || ""}
+                      multiple
+                      values={formData.excludeSegmentIds}
+                      onChange={(v) => updateField(
+                        "excludeSegmentIds",
+                        formData.excludeSegmentIds.includes(v)
+                          ? formData.excludeSegmentIds.filter((id) => id !== v)
+                          : [...formData.excludeSegmentIds, v],
+                      )}
+                      placeholder="Select exclusion segments..."
                     />
+                    {formData.excludeSegmentIds.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {formData.excludeSegmentIds.map((id) => (
+                          <Badge key={id} variant="secondary" className="gap-1" data-testid={`badge-exclusion-${id}`}>
+                            {segments?.find((segment) => segment.id === id)?.name ?? "Segment"}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-4 w-4"
+                              onClick={() => updateField("excludeSegmentIds", formData.excludeSegmentIds.filter((value) => value !== id))}
+                              data-testid={`button-remove-exclusion-${id}`}
+                              aria-label={`Remove ${segments?.find((segment) => segment.id === id)?.name ?? "segment"} exclusion`}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      Subscribers in this segment will be subtracted from the audience at send time.
+                      Subscribers in any of these segments will be subtracted from the audience at send time.
                     </p>
                   </>
                 )}
@@ -1195,6 +1240,11 @@ export default function CampaignNew() {
                         {subscriberCount.toLocaleString()}
                       </p>
                       <p className="text-sm text-muted-foreground">subscribers</p>
+                      {formData.excludeSegmentIds.length > 0 && (
+                        <p className="text-xs text-muted-foreground" data-testid="text-exclusion-summary">
+                          Excluding: {formData.excludeSegmentIds.map((id) => segments?.find((segment) => segment.id === id)?.name ?? "Segment").join(", ")}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </CardContent>

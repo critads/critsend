@@ -373,23 +373,38 @@ export async function getSubscribersForSegmentCursor(
   return db.select().from(subscribers).where(baseCondition).orderBy(subscribers.id).limit(limit);
 }
 
+/** Normalizes the exclusion list of a campaign audience: unique, non-empty
+ * ids. Accepts the legacy single id so older call sites keep working. */
+export function normalizeExclusionSegmentIds(
+  excludeSegmentIds?: string[] | string | null,
+): string[] {
+  if (!excludeSegmentIds) return [];
+  const list = Array.isArray(excludeSegmentIds) ? excludeSegmentIds : [excludeSegmentIds];
+  return [...new Set(list.filter((id): id is string => typeof id === "string" && id.length > 0))];
+}
+
+/** True when an exclusion id is also an inclusion id: the audience would be
+ * always-empty, so every enumeration path short-circuits to nothing. */
+export function exclusionOverlapsAudience(segmentIds: string[], excludeSegmentIds: string[]): boolean {
+  return excludeSegmentIds.some((id) => segmentIds.includes(id));
+}
+
 /** Union audience for ordered campaign inclusions. OR is evaluated in one
- * subscriber query, so an address matching several segments is emitted once. */
+ * subscriber query, so an address matching several segments is emitted once.
+ * Every exclusion segment is subtracted with its own AND NOT. */
 export async function getSubscribersForSegmentsCursor(
   segmentIds: string[],
   limit: number,
   afterId?: string,
-  excludeSegmentId?: string,
+  excludeSegmentIds?: string[] | string,
   includeTemporarilySuppressed = false,
   excludeWarmCampaignId?: string,
   similaritySnapshot?: Record<string, SegmentSimilarity[]>,
 ): Promise<Subscriber[]> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
-  if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return [];
-  const compiled = await compileSegmentWheres(
-    [...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])],
-    similaritySnapshot,
-  );
+  const excludeIds = normalizeExclusionSegmentIds(excludeSegmentIds);
+  if (!ids.length || exclusionOverlapsAudience(ids, excludeIds)) return [];
+  const compiled = await compileSegmentWheres([...ids, ...excludeIds], similaritySnapshot);
   const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
   if (!includes.length) return [];
   const conditions: any[] = [
@@ -409,8 +424,8 @@ export async function getSubscribersForSegmentsCursor(
       )
     )`);
   }
-  if (excludeSegmentId) {
-    const exclude = compiled.get(excludeSegmentId);
+  for (const excludeId of excludeIds) {
+    const exclude = compiled.get(excludeId);
     if (exclude) conditions.push(not(exclude));
   }
   if (excludeWarmCampaignId) {
@@ -516,15 +531,13 @@ export async function countSubscribersForSegment(
 
 export async function countSubscribersForSegments(
   segmentIds: string[],
-  excludeSegmentId?: string,
+  excludeSegmentIds?: string[] | string,
   similaritySnapshot?: Record<string, SegmentSimilarity[]>,
 ): Promise<number> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
-  if (!ids.length || (excludeSegmentId && ids.includes(excludeSegmentId))) return 0;
-  const compiled = await compileSegmentWheres(
-    [...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])],
-    similaritySnapshot,
-  );
+  const excludeIds = normalizeExclusionSegmentIds(excludeSegmentIds);
+  if (!ids.length || exclusionOverlapsAudience(ids, excludeIds)) return 0;
+  const compiled = await compileSegmentWheres([...ids, ...excludeIds], similaritySnapshot);
   const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
   if (!includes.length) return 0;
   const conditions: any[] = [
@@ -532,8 +545,8 @@ export async function countSubscribersForSegments(
     sql`(suppressed_until IS NULL OR suppressed_until < NOW())`,
     or(...includes),
   ];
-  if (excludeSegmentId) {
-    const exclude = compiled.get(excludeSegmentId);
+  for (const excludeId of excludeIds) {
+    const exclude = compiled.get(excludeId);
     if (exclude) conditions.push(not(exclude));
   }
   const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(subscribers).where(and(...conditions));
@@ -558,17 +571,15 @@ export type CampaignWarmStartPlan = {
 export async function planCampaignWarmStart(
   campaignId: string,
   segmentIds: string[],
-  excludeSegmentId: string | undefined,
+  excludeSegmentIds: string[] | string | undefined,
   expectedStepExecutionVersion: number,
   similaritySnapshot?: Record<string, SegmentSimilarity[]>,
 ): Promise<CampaignWarmStartPlan> {
   const ids = [...new Set(segmentIds.filter(Boolean))];
-  const compiled = await compileSegmentWheres(
-    [...ids, ...(excludeSegmentId ? [excludeSegmentId] : [])],
-    similaritySnapshot,
-  );
+  const excludeIds = normalizeExclusionSegmentIds(excludeSegmentIds);
+  const compiled = await compileSegmentWheres([...ids, ...excludeIds], similaritySnapshot);
   const includes = ids.map((id) => compiled.get(id)).filter((value): value is NonNullable<typeof value> => value !== undefined);
-  if (!includes.length || (excludeSegmentId && ids.includes(excludeSegmentId))) {
+  if (!includes.length || exclusionOverlapsAudience(ids, excludeIds)) {
     throw new Error("Warm-start audience cannot be compiled");
   }
   const conditions: any[] = [
@@ -576,8 +587,8 @@ export async function planCampaignWarmStart(
     sql`(${subscribers.suppressedUntil} IS NULL OR ${subscribers.suppressedUntil} < NOW())`,
     or(...includes),
   ];
-  if (excludeSegmentId) {
-    const exclude = compiled.get(excludeSegmentId);
+  for (const excludeId of excludeIds) {
+    const exclude = compiled.get(excludeId);
     if (exclude) conditions.push(not(exclude));
   }
   const audience = and(...conditions)!;

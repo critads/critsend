@@ -39,6 +39,8 @@ import { parseStrictIsoInstant } from "../services/campaign-calendar";
 import type { RateLimitRequestHandler } from "express-rate-limit";
 import { parseCampaignCalendarRange } from "../services/campaign-calendar";
 import { campaignRiskPreflight } from "../services/orange-wanadoo-risk";
+import { readExclusionSegmentIds, sameIdSets, exclusionAudienceOverlap } from "../utils/campaign-exclusions";
+import { getCampaignExclusionSegmentIds, replaceCampaignExclusionSegments } from "../repositories/campaign-repository";
 import { parseCampaignSimilaritySnapshot, similaritySnapshotsForSegments } from "../services/segment-similarity";
 
 function envInt(name: string, fallback: number, min: number): number {
@@ -238,6 +240,7 @@ const PENDING_CHILD_STATUSES = new Set(["draft", "scheduled", "sending", "paused
 const WARM_EXECUTION_STATUSES = new Set(["sending", "paused", "failed", "completed", "sent", "cancelled"]);
 class WarmCampaignImmutableError extends Error {}
 class CampaignLaunchConflictError extends Error {}
+class ExclusionOverlapError extends Error {}
 function sameIds(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((id, i) => id === b[i]);
 }
@@ -588,18 +591,29 @@ export function registerCampaignRoutes(app: Express, helpers: {
   });
 
   app.post("/api/campaigns/orange-wanadoo-preflight", async (req: Request, res: Response) => {
-    const segmentIds = Array.isArray(req.body?.segmentIds)
-      ? req.body.segmentIds.filter((id: unknown): id is string => typeof id === "string")
+    // Same strictness as create/PATCH/send: malformed members are rejected
+    // (not dropped) so a preflight never reports a zero-risk audience that the
+    // real launch would refuse.
+    const rawSegmentIds: unknown = Array.isArray(req.body?.segmentIds)
+      ? req.body.segmentIds
       : typeof req.body?.segmentId === "string" ? [req.body.segmentId] : [];
-    if (segmentIds.length === 0 || segmentIds.some((id: string) => !validateId(id))) {
-      return res.status(400).json({ error: "At least one valid segment ID is required" });
+    if (!Array.isArray(rawSegmentIds) || rawSegmentIds.length === 0
+      || rawSegmentIds.some((id) => typeof id !== "string" || !validateId(id))
+      || new Set(rawSegmentIds).size !== rawSegmentIds.length) {
+      return res.status(400).json({ error: "segmentIds must be a unique non-empty list of valid segment IDs" });
     }
-    const excludeSegmentId = typeof req.body?.excludeSegmentId === "string" ? req.body.excludeSegmentId : undefined;
-    if (excludeSegmentId && !validateId(excludeSegmentId)) {
+    const segmentIds = rawSegmentIds as string[];
+    const exclusion = readExclusionSegmentIds(req.body);
+    if (!exclusion.ok) return res.status(400).json({ error: exclusion.error });
+    const excludeSegmentIds = exclusion.ids;
+    if (excludeSegmentIds.some((id) => !validateId(id))) {
       return res.status(400).json({ error: "Invalid exclusion segment ID" });
     }
+    if (exclusionAudienceOverlap(segmentIds, excludeSegmentIds).length) {
+      return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
+    }
     try {
-      res.json(await campaignRiskPreflight({ segmentIds, excludeSegmentId }));
+      res.json(await campaignRiskPreflight({ segmentIds, excludeSegmentIds }));
     } catch (error) {
       logger.error("Orange/Wanadoo segment preflight failed:", error);
       res.status(500).json({ error: "Orange/Wanadoo preflight failed" });
@@ -1064,37 +1078,39 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!isDraft && requestedSegmentIds.length === 0) {
         return res.status(400).json({ error: "At least one audience segment is required" });
       }
+      // Exclusions: canonical `excludeSegmentIds[]`, legacy `excludeSegmentId`
+      // still accepted. The legacy column mirrors the first exclusion.
+      const exclusionRequest = readExclusionSegmentIds(req.body);
+      if (!exclusionRequest.ok) return res.status(400).json({ error: exclusionRequest.error });
+      const requestedExcludeIds = exclusionRequest.ids;
       const normalizedBody = {
         ...req.body,
         ...(requestedSegmentIds.length ? { segmentIds: requestedSegmentIds } : {}),
         mtaId: req.body.mtaId || null,
         segmentId: requestedSegmentIds[0] ?? null,
-        excludeSegmentId: req.body.excludeSegmentId || null,
+        excludeSegmentId: requestedExcludeIds[0] ?? null,
+        excludeSegmentIds: requestedExcludeIds,
         replyEmail: req.body.replyEmail || null,
       };
 
-      // Task #138: an exclusion segment that matches the include segment
+      // Task #138: an exclusion segment that matches an include segment
       // would yield an always-empty audience. Reject up front so the user
       // gets a clear error instead of a silent 0-recipient send.
-      if (
-        normalizedBody.excludeSegmentId && requestedSegmentIds.includes(normalizedBody.excludeSegmentId)
-      ) {
+      if (exclusionAudienceOverlap(requestedSegmentIds, requestedExcludeIds).length) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
       // Task #138 + #148: explicit existence check on both segment refs.
       // Coalesced into a single `WHERE id = ANY(...)` round-trip (1 pool
       // checkout instead of 2) so this route stays under the per-request
       // lease cap when followed by the campaign-insert transaction.
-       const segIds = [...requestedSegmentIds, normalizedBody.excludeSegmentId].filter(
-        (v): v is string => typeof v === "string" && v.length > 0,
-      );
+      const segIds = [...new Set([...requestedSegmentIds, ...requestedExcludeIds])];
       if (segIds.length > 0) {
         const found = await storage.getSegmentsByIds(segIds);
         const foundSet = new Set(found.map((s) => s.id));
          if (requestedSegmentIds.some((id: string) => !foundSet.has(id))) {
           return res.status(400).json({ error: "Audience segment does not exist" });
         }
-        if (normalizedBody.excludeSegmentId && !foundSet.has(normalizedBody.excludeSegmentId)) {
+        if (requestedExcludeIds.some((id) => !foundSet.has(id))) {
           return res.status(400).json({ error: "Exclusion segment does not exist" });
         }
       }
@@ -1117,12 +1133,16 @@ export function registerCampaignRoutes(app: Express, helpers: {
         return;
       }
       delete data.segmentIds;
+      delete data.excludeSegmentIds;
        const campaign = await db.transaction(async (tx) => {
         const [created] = await tx.insert(campaigns).values(data).returning();
          if (requestedSegmentIds.length) {
            await tx.insert(campaignSegments).values(requestedSegmentIds.map((segmentId: string, position: number) => ({
              campaignId: created.id, segmentId, position,
            })));
+         }
+         if (requestedExcludeIds.length) {
+           await replaceCampaignExclusionSegments(tx, created.id, requestedExcludeIds);
          }
          let launched = created;
          if (created.status === "sending" || created.status === "scheduled") {
@@ -1146,7 +1166,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
       logger.info("Campaign created successfully:", campaign.id);
 
-       res.status(201).json({ ...campaign, segmentIds: requestedSegmentIds });
+       res.status(201).json({ ...campaign, segmentIds: requestedSegmentIds, excludeSegmentIds: requestedExcludeIds });
     } catch (error) {
       if (error instanceof z.ZodError) {
         logger.error("Campaign validation error:", error.errors);
@@ -1207,9 +1227,6 @@ export function registerCampaignRoutes(app: Express, helpers: {
         }
         if ('segmentId' in normalizedBody && !normalizedBody.segmentId) {
           normalizedBody.segmentId = null;
-        }
-        if ('excludeSegmentId' in normalizedBody && !normalizedBody.excludeSegmentId) {
-          normalizedBody.excludeSegmentId = null;
         }
         if ('replyEmail' in normalizedBody && !normalizedBody.replyEmail) {
           normalizedBody.replyEmail = null;
@@ -1298,28 +1315,39 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (effectiveStatus !== "draft" && effectiveSegmentIds.length === 0) {
         return res.status(400).json({ error: "At least one audience segment is required" });
       }
-      const effectiveExcludeId = ('excludeSegmentId' in normalizedBody ? normalizedBody.excludeSegmentId : existingCampaign.excludeSegmentId) ?? null;
+      // Exclusions: canonical `excludeSegmentIds[]` wins over the legacy
+      // single key; an absent key keeps the stored exclusions untouched.
+      const exclusionRequest = readExclusionSegmentIds(normalizedBody);
+      if (!exclusionRequest.ok) return res.status(400).json({ error: exclusionRequest.error });
+      const requestedExcludeIds = exclusionRequest.provided ? exclusionRequest.ids : undefined;
+      delete normalizedBody.excludeSegmentIds;
+      if (requestedExcludeIds !== undefined) {
+        normalizedBody.excludeSegmentId = requestedExcludeIds[0] ?? null;
+      }
+      const storedExcludeIds: string[] = (existingCampaign as any).excludeSegmentIds
+        ?? (existingCampaign.excludeSegmentId ? [existingCampaign.excludeSegmentId] : []);
+      const effectiveExcludeIds = requestedExcludeIds ?? storedExcludeIds;
       if (
         existingCampaign.prioritizeActiveClickers
         && (existingCampaign.startedAt || existingCampaign.warmPhase)
-        && (requestedSegmentIds !== undefined || 'segmentId' in normalizedBody || 'excludeSegmentId' in normalizedBody)
+        && (requestedSegmentIds !== undefined || 'segmentId' in normalizedBody || requestedExcludeIds !== undefined)
       ) {
         return res.status(409).json({ error: "Warm-start audience cannot be changed after campaign launch" });
       }
-       if (effectiveExcludeId && effectiveSegmentIds.includes(effectiveExcludeId)) {
+      if (exclusionAudienceOverlap(effectiveSegmentIds, effectiveExcludeIds).length) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
       // Task #138: existence check on whichever segment refs are being
       // changed in this PATCH. We only probe the fields the client sent
       // to avoid an extra DB round-trip on unrelated edits.
-       const idsToValidate = [...(requestedSegmentIds ?? []), ...(effectiveExcludeId ? [effectiveExcludeId] : [])];
+       const idsToValidate = [...new Set([...(requestedSegmentIds ?? []), ...effectiveExcludeIds])];
        if (idsToValidate.length) {
          const found = await storage.getSegmentsByIds(idsToValidate);
          const foundIds = new Set(found.map((segment) => segment.id));
          if ((requestedSegmentIds ?? []).some((id: string) => !foundIds.has(id))) {
            return res.status(400).json({ error: "Audience segment does not exist" });
          }
-         if (effectiveExcludeId && !foundIds.has(effectiveExcludeId)) {
+         if (effectiveExcludeIds.some((id) => !foundIds.has(id))) {
            return res.status(400).json({ error: "Exclusion segment does not exist" });
          }
       }
@@ -1332,6 +1360,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
           .from(campaignSegments).where(eq(campaignSegments.campaignId, locked.id))
           .orderBy(campaignSegments.position);
         const lockedIds = lockedAudienceRows.map((row) => row.segmentId);
+        const lockedExcludeIds = await getCampaignExclusionSegmentIds(tx, locked);
         const executionBegun = !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status);
         const launchedWarm = locked.prioritizeActiveClickers && (
           !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status)
@@ -1340,21 +1369,28 @@ export function registerCampaignRoutes(app: Express, helpers: {
           && normalizedBody.prioritizeActiveClickers !== locked.prioritizeActiveClickers;
         const audienceChanged = requestedSegmentIds !== undefined
           && !sameIds(requestedSegmentIds, lockedIds.length ? lockedIds : (locked.segmentId ? [locked.segmentId] : []));
-        const exclusionChanged = "excludeSegmentId" in normalizedBody
-          && (normalizedBody.excludeSegmentId ?? null) !== (locked.excludeSegmentId ?? null);
+        const exclusionChanged = requestedExcludeIds !== undefined
+          && !sameIdSets(requestedExcludeIds, lockedExcludeIds);
         if ((executionBegun && toggleChanged) || (launchedWarm && (audienceChanged || exclusionChanged))) {
           throw new WarmCampaignImmutableError("Warm-start audience and toggle are frozen after launch");
+        }
+        // Re-validate self-exclusion against the LOCKED rows: the pre-lock
+        // check used a snapshot that a concurrent PATCH may have changed on
+        // the side this request does not touch.
+        const effectiveLockedIds = requestedSegmentIds
+          ?? (lockedIds.length ? lockedIds : (locked.segmentId ? [locked.segmentId] : []));
+        const effectiveLockedExcludeIds = requestedExcludeIds ?? lockedExcludeIds;
+        if (exclusionAudienceOverlap(effectiveLockedIds, effectiveLockedExcludeIds).length) {
+          throw new ExclusionOverlapError("Exclusion segment cannot be the same as the audience segment");
         }
         if (locked.status !== "sending" && normalizedBody.status === "sending" && executionBegun) {
           normalizedBody.stepExecutionVersion = sql`${campaigns.stepExecutionVersion} + 1`;
         }
         const targetStatus = normalizedBody.status ?? locked.status;
         if (targetStatus === "sending" || targetStatus === "scheduled") {
-          const effectiveLockedIds = requestedSegmentIds
-            ?? (lockedIds.length ? lockedIds : (locked.segmentId ? [locked.segmentId] : []));
           const snapshotSegmentIds = [...new Set([
             ...effectiveLockedIds,
-            ...(effectiveExcludeId ? [effectiveExcludeId] : []),
+            ...effectiveLockedExcludeIds,
           ])];
           const shouldBuildSnapshot = locked.similaritySnapshot === null
             || locked.similaritySnapshot === undefined
@@ -1382,6 +1418,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
               })));
             }
          }
+         if (requestedExcludeIds !== undefined) {
+           await replaceCampaignExclusionSegments(tx, updated.id, requestedExcludeIds);
+         }
         if (locked.status !== "sending" && updated.status === "sending") {
           logger.info(`Starting campaign ${updated.id} via PATCH - queueing for processing`);
           await tx.insert(campaignJobs).values({
@@ -1403,10 +1442,17 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
       }
 
-       res.json({ ...campaign, segmentIds: requestedSegmentIds ?? (existingCampaign as any).segmentIds ?? (campaign.segmentId ? [campaign.segmentId] : []) });
+       res.json({
+         ...campaign,
+         segmentIds: requestedSegmentIds ?? (existingCampaign as any).segmentIds ?? (campaign.segmentId ? [campaign.segmentId] : []),
+         excludeSegmentIds: effectiveExcludeIds,
+       });
     } catch (error) {
       if (error instanceof WarmCampaignImmutableError) {
         return res.status(409).json({ error: error.message });
+      }
+      if (error instanceof ExclusionOverlapError) {
+        return res.status(400).json({ error: error.message });
       }
       if (error instanceof z.ZodError) {
         logger.error("Campaign PATCH validation error:", error.errors);
@@ -2233,19 +2279,25 @@ export function registerCampaignRoutes(app: Express, helpers: {
           new Set(selectedSegmentIds).size !== selectedSegmentIds.length) {
         return res.status(400).json({ error: "segmentIds must be a unique non-empty list" });
       }
-      const effectiveExcludeId = Object.prototype.hasOwnProperty.call(updateData, "excludeSegmentId")
-        ? (updateData.excludeSegmentId || null)
-        : existingCampaign.excludeSegmentId;
-      if (effectiveExcludeId && selectedSegmentIds.includes(effectiveExcludeId)) {
+      const exclusionRequest = readExclusionSegmentIds(updateData);
+      if (!exclusionRequest.ok) return res.status(400).json({ error: exclusionRequest.error });
+      delete updateData.excludeSegmentIds;
+      delete updateData.excludeSegmentId;
+      const effectiveExcludeIds: string[] = exclusionRequest.provided
+        ? exclusionRequest.ids
+        : ((existingCampaign as any).excludeSegmentIds
+          ?? (existingCampaign.excludeSegmentId ? [existingCampaign.excludeSegmentId] : []));
+      const effectiveExcludeId = effectiveExcludeIds[0] ?? null;
+      if (exclusionAudienceOverlap(selectedSegmentIds, effectiveExcludeIds).length) {
         return res.status(400).json({ error: "Exclusion segment cannot be the same as the audience segment" });
       }
-      const segmentRefs = [...selectedSegmentIds, ...(effectiveExcludeId ? [effectiveExcludeId] : [])];
+      const segmentRefs = [...new Set([...selectedSegmentIds, ...effectiveExcludeIds])];
       const selectedSegments = await storage.getSegmentsByIds(segmentRefs);
       const selectedSegmentSet = new Set(selectedSegments.map((segment) => segment.id));
       if (selectedSegmentIds.some((id: string) => !selectedSegmentSet.has(id))) {
         return res.status(400).json({ error: "Selected segment not found" });
       }
-      if (effectiveExcludeId && !selectedSegmentSet.has(effectiveExcludeId)) {
+      if (effectiveExcludeIds.some((id) => !selectedSegmentSet.has(id))) {
         return res.status(400).json({ error: "Exclusion segment does not exist" });
       }
 
@@ -2282,7 +2334,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.error(`[CAMPAIGN_SEND] ${timestamp} - MTA is not active: ${mta.name}`);
         return res.status(400).json({ error: "Selected MTA server is not active" });
       }
-      const subscriberCount = await storage.countSubscribersForSegments(selectedSegmentIds, effectiveExcludeId ?? undefined);
+      const subscriberCount = await storage.countSubscribersForSegments(selectedSegmentIds, effectiveExcludeIds);
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - ${selectedSegmentIds.length} selected segment(s) have ${subscriberCount} subscribers`);
       
       if (subscriberCount === 0) {
@@ -2302,16 +2354,26 @@ export function registerCampaignRoutes(app: Express, helpers: {
           .from(campaignSegments).where(eq(campaignSegments.campaignId, campaignId))
           .orderBy(campaignSegments.position);
         const lockedIds = lockedAudienceRows.map((row) => row.segmentId);
+        const lockedExcludeIds = await getCampaignExclusionSegmentIds(tx, locked);
         const executionBegun = !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status);
         const launchedWarm = locked.prioritizeActiveClickers && (
           !!locked.startedAt || !!locked.warmPhase || WARM_EXECUTION_STATUSES.has(locked.status)
         );
         const audienceChanged = !sameIds(selectedSegmentIds, lockedIds.length ? lockedIds : (locked.segmentId ? [locked.segmentId] : []));
-        const exclusionChanged = (effectiveExcludeId ?? null) !== (locked.excludeSegmentId ?? null);
+        const exclusionChanged = !sameIdSets(effectiveExcludeIds, lockedExcludeIds);
         const toggleChanged = Object.prototype.hasOwnProperty.call(updateData, "prioritizeActiveClickers")
           && updateData.prioritizeActiveClickers !== locked.prioritizeActiveClickers;
         if ((executionBegun && toggleChanged) || (launchedWarm && (audienceChanged || exclusionChanged))) {
           throw new WarmCampaignImmutableError("Warm-start audience and toggle are frozen after launch");
+        }
+        // Audience/exclusions the request did NOT specify were resolved from
+        // the pre-lock row and are rewritten below; if a concurrent edit
+        // moved them meanwhile, launching would silently revert that edit
+        // (and could launch a self-excluding audience the preflight never
+        // saw). Ask the client to reload and retry instead.
+        if ((!hasCanonicalSegments && !hasLegacySegment && audienceChanged)
+          || (!exclusionRequest.provided && exclusionChanged)) {
+          throw new CampaignLaunchConflictError("Campaign audience changed while launch was being prepared; please reload and retry");
         }
         // Freeze canonical ref resolutions under the same campaign row lock and
         // transaction that publishes either an immediate or scheduled launch.
@@ -2341,6 +2403,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
         await tx.insert(campaignSegments).values(
           selectedSegmentIds.map((segmentId: string, position: number) => ({ campaignId, segmentId, position })),
         );
+        await replaceCampaignExclusionSegments(tx, campaignId, effectiveExcludeIds);
         if (!isScheduled) {
           await tx.insert(campaignJobs).values({
             campaignId: updated.id,
@@ -2364,7 +2427,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} ${isScheduled ? "scheduled" : "started"} successfully`);
       res.json({ 
         success: true, 
-        campaign: { ...updatedCampaign, segmentIds: selectedSegmentIds },
+        campaign: { ...updatedCampaign, segmentIds: selectedSegmentIds, excludeSegmentIds: effectiveExcludeIds },
         message: `Campaign ${isScheduled ? "scheduled for" : "started with"} ${subscriberCount} subscribers`
       });
       

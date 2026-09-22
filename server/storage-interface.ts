@@ -57,9 +57,9 @@ export interface IStorage {
   getSubscribersForSegment(segmentId: string, limit?: number, offset?: number): Promise<Subscriber[]>;
   getSubscribersForSegmentCursor(segmentId: string, limit: number, afterId?: string, excludeSegmentId?: string): Promise<Subscriber[]>;
   countSubscribersForSegment(segmentId: string, excludeSegmentId?: string): Promise<number>;
-  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentId?: string, includeTemporarilySuppressed?: boolean, excludeWarmCampaignId?: string, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<Subscriber[]>;
-  countSubscribersForSegments(segmentIds: string[], excludeSegmentId?: string, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<number>;
-  planCampaignWarmStart(campaignId: string, segmentIds: string[], excludeSegmentId: string | undefined, expectedStepExecutionVersion: number, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<import("./repositories/subscriber-repository").CampaignWarmStartPlan>;
+  getSubscribersForSegmentsCursor(segmentIds: string[], limit: number, afterId?: string, excludeSegmentIds?: string[] | string, includeTemporarilySuppressed?: boolean, excludeWarmCampaignId?: string, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<Subscriber[]>;
+  countSubscribersForSegments(segmentIds: string[], excludeSegmentIds?: string[] | string, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<number>;
+  planCampaignWarmStart(campaignId: string, segmentIds: string[], excludeSegmentIds: string[] | string | undefined, expectedStepExecutionVersion: number, similaritySnapshot?: Record<string, import("@shared/schema").SegmentSimilarity[]>): Promise<import("./repositories/subscriber-repository").CampaignWarmStartPlan>;
   getCampaignWarmRecipientsCursor(campaignId: string, limit: number, afterId?: string): Promise<Subscriber[]>;
   checkpointCampaignWarmStart(campaignId: string, cursorId: string | null, phase: "warm" | "normal", expectedStepExecutionVersion: number, stepProcessedCount?: number): Promise<boolean>;
   markCampaignWarmAudienceExhausted(campaignId: string, expectedStepExecutionVersion: number, stepProcessedCount: number, stepCursorId: string | null): Promise<boolean>;

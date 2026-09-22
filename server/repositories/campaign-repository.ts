@@ -9,6 +9,7 @@ import {
   mtas,
   segments,
   campaignSegments,
+  campaignExclusionSegments,
   type Campaign,
   type CampaignListItem,
   type CampaignCalendarItem,
@@ -50,14 +51,80 @@ const USE_BULLMQ = process.env.USE_BULLMQ === "true";
 // CAMPAIGN MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
-export type CampaignWithSegmentIds = Campaign & { segmentIds: string[] };
+export type CampaignWithSegmentIds = Campaign & { segmentIds: string[]; excludeSegmentIds: string[] };
 
-async function attachSegmentIds<T extends Campaign>(rows: T[]): Promise<(T & { segmentIds: string[] })[]> {
-  if (!rows.length) return rows.map((row) => ({ ...row, segmentIds: row.segmentId ? [row.segmentId] : [] }));
+type DbExecutor = Pick<typeof db, "select" | "insert" | "delete" | "update" | "execute">;
+
+/** Ordered exclusion ids per campaign from the canonical association table. */
+async function loadExclusionSegmentIds(
+  executor: DbExecutor,
+  campaignIds: string[],
+): Promise<Map<string, string[]>> {
+  const grouped = new Map<string, string[]>();
+  if (!campaignIds.length) return grouped;
+  const rows = await executor.select({
+    campaignId: campaignExclusionSegments.campaignId,
+    segmentId: campaignExclusionSegments.segmentId,
+  }).from(campaignExclusionSegments)
+    .where(inArray(campaignExclusionSegments.campaignId, campaignIds))
+    .orderBy(campaignExclusionSegments.campaignId, campaignExclusionSegments.position);
+  for (const row of rows) {
+    const values = grouped.get(row.campaignId) ?? [];
+    values.push(row.segmentId);
+    grouped.set(row.campaignId, values);
+  }
+  return grouped;
+}
+
+/** Effective exclusion list of one campaign: canonical rows, else the legacy
+ * single-column mirror for a row that predates the exclusion bootstrap. */
+export function resolveExclusionSegmentIds(
+  campaign: { excludeSegmentId?: string | null; excludeSegmentIds?: string[] | null },
+  canonical?: string[],
+): string[] {
+  const rows = canonical ?? campaign.excludeSegmentIds ?? undefined;
+  if (rows !== undefined) return [...rows];
+  return campaign.excludeSegmentId ? [campaign.excludeSegmentId] : [];
+}
+
+/** Ordered exclusion ids of one campaign, read inside the caller's transaction
+ * (used under the campaign row lock by the launch/PATCH paths). */
+export async function getCampaignExclusionSegmentIds(
+  executor: DbExecutor,
+  campaign: { id: string; excludeSegmentId?: string | null },
+): Promise<string[]> {
+  const grouped = await loadExclusionSegmentIds(executor, [campaign.id]);
+  const rows = grouped.get(campaign.id);
+  return rows ?? (campaign.excludeSegmentId ? [campaign.excludeSegmentId] : []);
+}
+
+/** Replaces the exclusion rows of a campaign (order = position). Callers must
+ * ALSO write `campaigns.exclude_segment_id = ids[0] ?? null` in the same
+ * transaction so the legacy mirror never disagrees with the canonical rows. */
+export async function replaceCampaignExclusionSegments(
+  executor: DbExecutor,
+  campaignId: string,
+  segmentIds: string[],
+): Promise<void> {
+  const ids = [...new Set(segmentIds.filter(Boolean))];
+  await executor.delete(campaignExclusionSegments)
+    .where(eq(campaignExclusionSegments.campaignId, campaignId));
+  if (ids.length) {
+    await executor.insert(campaignExclusionSegments).values(
+      ids.map((segmentId, position) => ({ campaignId, segmentId, position })),
+    );
+  }
+}
+
+async function attachSegmentIds<T extends Campaign>(rows: T[]): Promise<(T & { segmentIds: string[]; excludeSegmentIds: string[] })[]> {
+  if (!rows.length) return [];
   const ids = rows.map((row) => row.id);
-  const relationRows = await db.select().from(campaignSegments)
-    .where(inArray(campaignSegments.campaignId, ids))
-    .orderBy(campaignSegments.campaignId, campaignSegments.position);
+  const [relationRows, exclusionGrouped] = await Promise.all([
+    db.select().from(campaignSegments)
+      .where(inArray(campaignSegments.campaignId, ids))
+      .orderBy(campaignSegments.campaignId, campaignSegments.position),
+    loadExclusionSegmentIds(db, ids),
+  ]);
   const grouped = new Map<string, string[]>();
   for (const row of relationRows) {
     const values = grouped.get(row.campaignId) ?? [];
@@ -65,8 +132,12 @@ async function attachSegmentIds<T extends Campaign>(rows: T[]): Promise<(T & { s
     grouped.set(row.campaignId, values);
   }
   // A legacy row can predate bootstrap; exposing its legacy primary is the
-  // compatibility fallback until bootstrap backfills it.
-  return rows.map((row) => ({ ...row, segmentIds: grouped.get(row.id) ?? (row.segmentId ? [row.segmentId] : []) }));
+  // compatibility fallback until bootstrap backfills it (same for exclusions).
+  return rows.map((row) => ({
+    ...row,
+    segmentIds: grouped.get(row.id) ?? (row.segmentId ? [row.segmentId] : []),
+    excludeSegmentIds: resolveExclusionSegmentIds(row, exclusionGrouped.get(row.id)),
+  }));
 }
 
 export async function getCampaigns(): Promise<CampaignWithSegmentIds[]> {
@@ -965,10 +1036,11 @@ export async function freezeCampaignSimilaritySnapshot(
     const canonicalAudienceIds = audienceRows.length
       ? audienceRows.map((row) => row.segmentId)
       : campaignRow.segment_id ? [campaignRow.segment_id] : [];
-    const uniqueIds = [...new Set([
-      ...canonicalAudienceIds,
-      ...(campaignRow.exclude_segment_id ? [campaignRow.exclude_segment_id] : []),
-    ])];
+    const exclusionIds = await getCampaignExclusionSegmentIds(tx, {
+      id: campaignId,
+      excludeSegmentId: campaignRow.exclude_segment_id,
+    });
+    const uniqueIds = [...new Set([...canonicalAudienceIds, ...exclusionIds])];
     const segmentRows = uniqueIds.length
       ? await tx.select({ id: segments.id, rules: segments.rules })
         .from(segments).where(inArray(segments.id, uniqueIds))
@@ -1071,12 +1143,15 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
     // moment of the copy (operator request 2026-08-09).
     scheduledAt: _sched,
     segmentIds: _segmentIds,
+    excludeSegmentIds: _excludeSegmentIds,
     ...copyData
   } = original;
+  const sourceExcludeSegmentIds = resolveExclusionSegmentIds(original);
   const copied = await db.transaction(async (tx) => {
     const [campaign] = await tx.insert(campaigns).values({
       ...copyData,
       segmentId: sourceSegmentIds[0] ?? null,
+      excludeSegmentId: sourceExcludeSegmentIds[0] ?? null,
       scheduledAt: new Date(),
       // Keep the operator's original campaign name unchanged. The duplicate is
       // already identifiable as a distinct draft by its own ID and creation
@@ -1093,6 +1168,9 @@ export async function copyCampaign(id: string): Promise<Campaign | undefined> {
           position,
         })),
       );
+    }
+    if (sourceExcludeSegmentIds.length) {
+      await replaceCampaignExclusionSegments(tx, campaign.id, sourceExcludeSegmentIds);
     }
     return campaign;
   });
