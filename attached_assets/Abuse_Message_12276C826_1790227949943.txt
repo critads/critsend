@@ -1,0 +1,1206 @@
+[ SpamCop V5.5.0 ]
+This message is brief for your comfort.  Please use links below for details.
+
+Email from 159.69.239.236 / Tue, 22 Sep 2026 06:22:21 +0200
+https://www.spamcop.net/w3m?i=z7409484045z33ee3ccd33425897f012b30b76b3b355z
+
+[ Offending message ]
+X-Me-Spamwebmail: SPAM-FROM
+Return-Path: <contact@rndaserver.com>
+Received: from opme11d1d05aub.bagnolet.francetelecom.fr ([10.79.3.106])
+	by opme11d1b28aub.bagnolet.francetelecom.fr with LMTP
+	id aB7nGbTcsWqHVDoAjkG97g:T2410:P1:P1
+	(envelope-from <contact@rndaserver.com>); Tue, 22 Sep 2026 06:22:21 +0200
+Received: from opme11ppr42aub.idf.fr.intraorange ([10.79.3.106])
+	by opme11d1d05aub.bagnolet.francetelecom.fr with LMTP
+	id aB7nGbTcsWqHVDoAjkG97g:T2410:P1
+	(envelope-from <contact@rndaserver.com>)
+	for <MELOFR-200-rIgUFr0NEHcw5owne/2H9RvOCMhteTwL0rWu86LiU/o=>; Tue, 22 Sep 2026 06:22:21 +0200
+Received: from opmta1mti23aub ([10.79.3.106])
+	by opme11ppr42aub.idf.fr.intraorange with LMTP
+	id aB7nGbTcsWqHVDoAjkG97g:T2410
+	(envelope-from <contact@rndaserver.com>)
+	for <x>; Tue, 22 Sep 2026 06:22:21 +0200
+Received: from mta1.rndaserver.com ([159.69.239.236])
+	by smtp.orange.fr with ESMTPS
+	id 8s1Nx30xtrB0Q8s1NxwKHM; Tue, 22 Sep 2026 06:22:21 +0200
+X-ME-Srv: default;10025
+X-bcc: x
+X-ME-bounce-domain: orange.fr
+X-ME-engine: default
+X-me-spamcause: (17)(0000)dmFkZTF6l3Gz9/GVcZK9y1CMFcRCmwCaoe9SkjFceOrolw37OyksFOcV8O701Qwt5Jts47J63PApQbHIaPM6a0aCrefJODR3R4DniQQjHCKINeb0jdbb5d1pNxkGM04w67jZEIhAYfGQ4ZLWEq+16TcLLZ3/rfPV7VbyLoMep3c44GBYF14fyv6HGaldORybzr4I/OpFR2GDZv03S8hhvIgrQ6X+3RL7y182cpvoPc3A1dew5fo0gZT+ArcTllv5R8G0u1q2JdDq269TutZDb1j8qYTV0y+sA7Mvgyrtj4tgAHwZuM9IUubTk3eddeQZ99MtR/uiHFqDewSbF9MBB0arrpRHXzRxil4WwD786PBfhxeJjztu8iN+mwCZGvqKaYXS8LExNs51lBGtnUefsJv2+kgduZQWYIEvWzQY57zfE0b3avlWs3fZfdWDf61VhkgVvlV6DSrez9NKwL8SfNsu7NyRlfDaI0Fx6ta795RoYlt02W/Ehp8AnkDXzacwMqcBD27GdvROeC/JYaiTszAry3o5dkTiku6Yg0MgPOMWvNiqLyS4rq3RINl6f6TD5pF7SMbKQaN5si5CcweTb02N30AyR2ugzynM9QHoINInlUYvbETx4IOCmG+eD2Ig/27PIV4xcCyfdxSCYoqFCmmn5j+cggOs3BQ0LgOpkcuP8ZSGOw
+X-me-spamlevel: not-spam
+ARC-Seal: i=1; a=rsa-sha256; d=orange.fr; s=t20230301; t=1790050941; cv=none;
+	b=teUIBSU1wQBBzGgyioLP+Q3VvxmJuZ20rUIKwG+Jbh4X3zImufSR7DqAbGWoQ+NqNBILsJPEN3hwjhKV1n8RyWEdfZaI+BfaGANyXsEWbjjY+4HN/pkH3CXlr8O36upUdmVx9G4eCsI5QHqE94Wt9cHumRwj1d9haSbuOOUYbzKAbQ/OjTeob6FJdCES6Ko7GVtzSF5KaoIXKLFTmBIAlWblba1DwQQca4H/yRxbdbBZIDPPmUrGxvKT2OcK1c3kfaV1hlgQvgeN1Ab2qR0hva59ozOrtOJ7EVHEHE7BMOK3eWx/h+hHsoeMHyJcrJmnuhF+Mu/v/4lmRaee5EDpjg==
+ARC-Message-Signature: i=1; a=rsa-sha256; d=orange.fr; s=t20230301;
+	t=1790050941; c=relaxed/simple;
+	bh=+e7WDD3PVlSWsDm9J3zPH6ZvI2qmhQYHw/0VCutHwHo=; h=From:To:Subject;
+	b=MeD5ScQIbTiDfiFJsvbq5QE5rTaTL80z2h9bcoXvz+TkBdrmgIKSVkFylZb+mbtyu/IbYFsAs6uVxhEWkOZ5R3doxnL/5qoijhqI7JvN0sf27Td2NKLYcsQzp4uLMlL2wLbAU6URb86TaOrDm8YKNr6rbEImCYPMIy2q/gmTV52yLbz45i0I8RvauwT27kuCLTJbvrCnDC5MiV1BQXyvYLX1HL3naPhpDU81vqiibhXKoAL+yI26uabD7XWX3iWzNPbzqkp60U9Q0SwqMkvTIMIhWk10tp5aQPhFBFerl5Qkoa307X3657eoiSnLpRfxtUn8vfDdsKG0N5Uoax7zGg==
+ARC-Authentication-Results: i=1; opmta1mti23aub; spf=pass (opmta1mti23aub: domain of contact@rndaserver.com designates 159.69.239.236 as permited sender) smtp.mailfrom=contact@rndaserver.com;
+	arc=none;
+	dkim=pass header.d=rndaserver.com header.i=contact@rndaserver.com header.b=qllmL5ep;
+	dmarc=pass header.from=rndaserver.com
+X-ME-Marketing: true
+X-ME-Helo: mta1.rndaserver.com
+X-ME-IP: 159.69.239.236
+Authentication-Results: opmta1mti23aub;
+	arc=none;
+	dkim=pass header.d=rndaserver.com header.i=contact@rndaserver.com
+ header.b=qllmL5ep
+X-ME-Entity: ofr
+DKIM-Signature: v=1; a=rsa-sha1; c=relaxed/relaxed; s=key1; d=rndaserver.com;
+ h=List-Unsubscribe:From:To:Reply-To:Subject:Message-ID:Content-Transfer-Encoding:Date:MIME-Version:Content-Type; i=contact@rndaserver.com;
+ bh=yE5oqKEBZW3ZKmwHa1O+k3Z/mgE=;
+ b=qllmL5epCGw8di7PT8xe8ljTbMdTP3YQq2HHmMOkG7CTKRQnWIiH1I6CGKUmZzAo2d7Vo6Xj9szT
+   GrE6ic9enm0hOm//puWe4d/iS8onvaCdvwuslWI4fUJeP4YjS0CkETxndmAid8mtvKJFH2FaYbfF
+   cLcqU9MlZfP2wtbarzs=
+DomainKey-Signature: a=rsa-sha1; c=nofws; q=dns; s=key1; d=rndaserver.com;
+ b=JGG7k/XUBw2o0RjCKzJv5v5CRU7lwOdYRfVqh9eA2LGH56uE039seK59CJOaugW21Gzbop0s2CU/
+   9ubjFCBxlzEFHs5Z75guzZOQXoKVoS//yagwZ5cSM8LFYzP7ALKo+B6EfHvmN6LnPROJ66nm+tsk
+   Uo6gJkvgyjY75Hvtzqs=;
+Received: from [127.0.0.1] (37.27.117.222) by mta1.rndaserver.com id hm81d00001ce for <x>; Mon, 21 Sep 2026 18:00:16 +0200 (envelope-from <contact@rndaserver.com>)
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+X-Mailer: Critelab pte ltd
+List-Unsubscribe: https://critsender.rndaserver.com/u/pZIwN6cZ
+From: Critelab presente <contact@rndaserver.com>
+To: x
+Reply-To: contact@rndaserver.com
+Subject: [Belambra] Vacances au Ski !
+Message-ID: <c60e____________________________8fe5@rndaserver.com>
+Content-Transfer-Encoding: quoted-printable
+Date: Mon, 21 Sep 2026 15:58:53 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<span style=3D"display:none;font-size:1px;color:#ffffff;line-height:1px;max=
+-height:0px;max-width:0px;opacity:0;overflow:hidden;">Jusqu'=C3=A0 -15%* =
+sur vos vacances de fin d'ann=C3=A9e au ski</span><html lang=3D"fr"><head>
+<meta charset=3D"UTF-8" />
+<meta name=3D"viewport" content=3D"width=3Ddevic=
+e-width, initial-scale=3D1.0" /><title>Belambra</title>
+=09
+	<style>
+		.ReadMsgBody {
+			width: 100%;
+		}
+		body {
+			width: 100% !important;
+			-webkit-text-size-adjust: 100%;
+			-ms-text-size-adjust: 100%;
+			margin: 0 !important;
+			padding: 0 !important;
+		}
+		.ExternalClass {
+			width: 100%;
+		}
+		.ExternalClass,
+		.ExternalClass p,
+		.ExternalClass a,
+		.ExternalClass span,
+		.ExternalClass font,
+		.ExternalClass td,
+		.ExternalClass div {
+			line-height: 100%;
+		}
+		img {
+			outline: none;
+			text-decoration: none;
+			-ms-interpolation-mode: bicubic;
+		}
+		table {
+			border-collapse: =
+collapse !important;
+			mso-table-lspace: 0pt;
+			mso-table-rspace: 0pt;
+			border-spacing: 0px;
+		}
+		@media screen and (max-width: 480px) {
+			.hide {
+				display: none !important;
+			}
+			.resize {
+				width: 320px !important;
+				display: block !important;
+				height: auto !important;
+			}
+			.resize10 {
+				width: 10px !=
+important;
+				height: 10px !important;
+			}
+			.resize100 {
+				width: 100px !important;
+				height: auto !important;
+				font-size: 10px !important;
+				line-height: 10px !important;
+				text-align: center !important;
+				border-radius: 15px !important;
+			}
+			.resize155 {
+				width: 155px !important;
+				height: auto !important;
+				display: block !important;
+				font-size: 10px !important;
+				line-height: 12px !important;
+				text-align: center !important;
+				border-radius: 15px !important;
+			}
+			.resizeMenu {
+				font-size: 12px !important;
+			}
+			.text {
+				width: 320px !=
+important;
+				height: auto !important;
+				text-align: center !important;
+				padding-top: 10px !important;
+				padding-bottom: 10px !important;
+				font-size: 12px !important;
+				display: block !important;
+			}
+			.titre {
+				width: 320px !important;
+				height: auto !important;
+				text-align: center !important;
+				padding-top: 10px !important;
+				padding-bottom: 10px !important;
+				font-size: 16px !important;
+				display: block !important;
+			}
+			.textph {
+				width: 320px !=
+important;
+				height: auto !important;
+				text-align: center !important;
+				font-size: 10px !important;
+				padding-top: 10px !important;
+				padding-bottom: 10px !important;
+				display: block !important;
+			}
+			.showMobile {
+				display: block !important;
+				max-height: none !=
+important;
+				line-height: 100% !important;
+			}
+		}
+		@media screen yahoo {
+			.showMobile {
+				display: none !important;
+			}
+		}
+	</style>
+
+<style>
+/* Ajout=C3=A9 par la r=C3=A9paration Orange =
+=E2=80=94 visuels uniques toujours visibles et fluides */
+.orangeFluid { height: auto !important; }
+img.orangeFluid { width: 100% !=
+important; height: auto !important; }
+@media only screen and (max-width: =
+480px) {
+  .orangeFluid { width: 100% !important; height: auto !important; =
+}
+}
+</style></head>
+<body>
+	<center>
+		<table align=3D"center" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0" width=3D"100%" bgcolor=3D"#ffffff" =
+style=3D"max-width:640px">
+			<tbody><tr>
+				<td width=3D"100%">
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"640" height=3D"40" align=3D"center" class=3D"textph" =
+style=3D"color:#757c8a;font-size:12px;font-family:'Montserrat', Arial, =
+Helvetica, sans-serif">
+								<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/ss6KOmVk" =
+style=3D"text-decoration:none;color:#757c8a">
+									Jusqu'=C3=A0 -20%* =
+sur vos vacances d'hiver 2027
+								</a>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"230" height=3D"84" align=3D"center" =
+class=3D"resize">
+								<a target=3D"_blank" href=3D"https://critsender.=
+rndaserver.com/c/6sx76TFK" style=3D"text-decoration:none;color:#ffffff">
+									<img src=3D"https://critsender.rndaserver.com/campaigns/2026/09/d8=
+c38d20-d0e7-4b68-9a39-8f68f10e5b66/img-0.png" width=3D"230" height=3D"84" =
+alt=3D"Belambra" title=3D"Belambra" style=3D"display:block" border=3D"0" =
+/></a>
+							</td>
+							<td width=3D"90" height=3D"84" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"320" height=3D"84" class=3D"resize">
+								<table width=3D"320" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0" align=3D"center" class=3D"resize">
+									<tbody><tr>
+										<td width=3D"320" height=3D"34" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"320" height=3D"50" class=3D"resize">
+											<table width=3D"320" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0" align=3D"center">
+												<tbody><tr>
+													<td width=3D"107" height=3D"50" class=3D"resizeMenu" =
+align=3D"center" valign=3D"middle" style=3D"color:#2e4941;font-size:15px;fo=
+nt-family:'Montserrat', Arial, Helvetica, sans-serif">
+														<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/Chen88gH" style=3D"text-decoration:none;color:#2e4941">
+															Destinations
+														</a>
+													</td>
+													<td width=3D"106" height=3D"50" class=3D"resizeMenu" =
+align=3D"center" valign=3D"middle" style=3D"color:#2e4941;font-size:15px;fo=
+nt-family:'Montserrat', Arial, Helvetica, sans-serif">
+														<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/4SW09Ek8" style=3D"text-decoration:none;color:#2e4941">
+															Inspirations
+														</a>
+													</td>
+													<td width=3D"107" height=3D"50" class=3D"resizeMenu" =
+align=3D"center" valign=3D"middle" style=3D"color:#f28705;font-size:15px;fo=
+nt-family:'Montserrat', Arial, Helvetica, sans-serif">
+														<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/bdYz9tvs" style=3D"text-decoration:none;color:#f28705">
+															<b>Bons plans</b>
+														</a>
+													</td>
+												</tr>
+											</tbody></table>
+										</td>
+									</tr>
+								</tbody></table>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center" class=3D"hide">
+						<tbody><tr>
+							<td width=3D"640" height=3D"20" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+						</tr>
+					</tbody></table>
+									=09
+				=09
+				=09
+					<table =
+width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"orangeFluid">
+						<tbody><tr>
+							<td width=3D"640" class=3D"orangeFluid">
+								<a =
+target=3D"_blank" href=3D"https://critsender.rndaserver.com/c/orX2A6o0" =
+style=3D"text-decoration:none;color:#ffffff">
+								<img =
+src=3D"https://critsender.rndaserver.com/campaigns/2026/09/d8c38d20-d0e7-4b=
+68-9a39-8f68f10e5b66/kv2.jpg" width=3D"640" alt=3D"Jusqu'=C3=A0 moins vingt=
+ pourcent sur votre s=C3=A9jour au ski" title=3D"Jusqu'=C3=A0 moins vingt =
+pourcent sur votre s=C3=A9jour au ski" style=3D"display:block;border-radius=
+:10px 10px 0 0;width:100%;max-width:640px;height:auto;display:block" =
+border=3D"0" class=3D"orangeFluid" /></a>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center" class=3D"resize" =
+style=3D"background-color:#fff9f2 !important">
+						<tbody><tr>
+							<td width=3D"320" height=3D"20" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"320" height=3D"20" style=3D"font-size:1px;line-height:1=
+px">=C2=A0</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640"=
+ border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize" style=3D"background-color:#fff9f2 !important">
+						<tbody><tr>
+							<td width=3D"20" class=3D"resize10" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"200" align=3D"center" class=3D"resize100" =
+valign=3D"top">
+								<table width=3D"200" border=3D"0" cellpadding=3D"0"=
+ cellspacing=3D"0" align=3D"center" class=3D"resize100">
+									<tbody><tr>
+										<td width=3D"200" height=3D"81" =
+align=3D"center" class=3D"resize100">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/BP6rPAaO">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/picto1.jpg" =
+width=3D"200" height=3D"81" alt=3D"France" title=3D"France" border=3D"0" =
+class=3D"resize100" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" height=3D"75" align=3D"center" =
+valign=3D"top" class=3D"resize100" style=3D"color:#2e4941;font-size:13px;fo=
+nt-family:'Montserrat', Arial, Helvetica, sans-serif;font-weight:500;line-h=
+eight:15px">
+											<a target=3D"_blank" href=3D"https://critsender.=
+rndaserver.com/c/VGmZZFyX" style=3D"text-decoration:none;color:#2e4941 !=
+important">
+												<br />AU C=C5=92UR DES PLUS BEAUX<br class=3D"hide"=
+ />ENDROITS DE FRANCE
+											</a>
+										</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"200" =
+align=3D"center" class=3D"resize100" valign=3D"top">
+								<table width=3D"200" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0" align=3D"center" class=3D"resize100">
+									<tbody><tr>
+										<td width=3D"200" height=3D"81" =
+align=3D"center" class=3D"resize100">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/vgjLmBTH">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/picto2.jpg" =
+width=3D"200" height=3D"81" alt=3D"C=C5=93ur" title=3D"C=C5=93ur" =
+border=3D"0" class=3D"resize100" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" height=3D"75" =
+align=3D"center" valign=3D"top" class=3D"resize100" style=3D"color:#2e4941 =
+!important;font-size:13px;font-family:'Montserrat', Arial, Helvetica, =
+sans-serif;line-height:15px;font-weight:500">
+											<a =
+target=3D"_blank" href=3D"https://critsender.rndaserver.com/c/kkuXa2as" =
+style=3D"text-decoration:none;color:#2e4941 !important"><br />
+												SE RETROUVER<br />ET JUSTE PROFITER
+											</a>
+										</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"200" align=3D"center" class=3D"resize100" =
+valign=3D"top">
+								<table width=3D"200" border=3D"0" cellpadding=3D"0"=
+ cellspacing=3D"0" align=3D"center" class=3D"resize100">
+									<tbody><tr>
+										<td width=3D"200" height=3D"81" =
+align=3D"center" class=3D"resize100">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/KeEBhzVo">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/picto3.jpg" =
+width=3D"200" height=3D"81" alt=3D"=C3=89quipes" title=3D"=C3=89quipes" =
+class=3D"resize100" border=3D"0" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" height=3D"75" =
+align=3D"center" valign=3D"top" class=3D"resize100" style=3D"color:#2e4941 =
+!important;font-size:13px;font-family:'Montserrat', Arial, Helvetica, =
+sans-serif;line-height:15px;font-weight:500">
+											<a =
+target=3D"_blank" href=3D"https://critsender.rndaserver.com/c/2BMTynY4" =
+style=3D"text-decoration:none;color:#2e4941 !important"><br />
+												SE FAIRE CHOUCHOUTER<br /> PAR NOS =C3=89QUIPES
+											</a>
+										</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"20" class=3D"hide" style=3D"font-size:1px;line-height:1=
+px">=C2=A0</td>
+						</tr>
+					</tbody></table>
+				=09
+				=09
+				=09
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize" style=3D"border-radius:0 0 30px =
+30px;background-color:#fff9f2 !important">
+						<tbody><tr>
+							<td bgcolor=3D"#2e4941" width=3D"640" height=3D"45" align=3D"center"=
+ valign=3D"middle" class=3D"text" style=3D"color:#ffffff;font-size:14px;lin=
+e-height:20px;font-family:'Montserrat', Arial, Helvetica, =
+sans-serif;border-radius:30px">
+								<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/GMdaCuUn" =
+style=3D"text-decoration:none;color:#ffffff">
+									<b>50=E2=82=AC =
+OFFERTS SUR VOTRE S=C3=89JOUR</b> EN VOUS INSCRIVANT =C3=80 LA NEWSLETTER =
+=E2=86=92
+								</a>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"320" height=3D"20" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"320" height=3D"20" style=3D"font-size:1px;line-height:1=
+px">=C2=A0</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640"=
+ border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize">
+						<tbody><tr>
+							<td width=3D"640" height=3D"359"=
+ class=3D"resize">
+								<a target=3D"_blank" href=3D"https://critsender.=
+rndaserver.com/c/6EGahGdJ">
+									<img src=3D"https://critsender.=
+rndaserver.com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/allin=
+clusive.png" width=3D"640" height=3D"359" alt=3D"All inclusive" =
+title=3D"All inclusive" style=3D"display:block" border=3D"0" =
+class=3D"resize" />
+								</a>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"640" height=3D"90" align=3D"center" =
+style=3D"color:#0e837c !important;font-size:20px;font-family:'Montserrat', =
+Arial, Helvetica, sans-serif" class=3D"titre">
+								<a target=3D"_blank"=
+ href=3D"https://critsender.rndaserver.com/c/xpJcUpoG" =
+style=3D"text-decoration:none;color:#0e837c !important">
+									<b>R=C3=A9servez vos vacances d'hiver <u>=C3=A0 la =
+montagne</u></b><br />
+									<span style=3D"font-family:'Montserrat', =
+Arial, Helvetica, sans-serif;font-size:14px;color:#2e4941;mso-line-height-r=
+ule:exactly;line-height:20px;font-weight:normal">Profitez d'un s=C3=A9jour =
+dans l'un de nos clubs :</span><br />
+								</a>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"210" align=3D"center" =
+class=3D"resize">
+								<table width=3D"210" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center">
+									<tbody><tr>
+										<td width=3D"210" height=3D"132">
+											<a target=3D"_blank"=
+ href=3D"https://critsender.rndaserver.com/c/Ce3kQmIj">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/c101.jpg" =
+width=3D"210" height=3D"132" alt=3D"Flaine" title=3D"Flaine" =
+style=3D"display:block;border-radius:10px 10px 0px 0px" border=3D"0" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"210" height=3D"132">
+											<a target=3D"_blank"=
+ href=3D"https://critsender.rndaserver.com/c/5AneWQoa">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/c102.jpg" =
+width=3D"210" height=3D"132" alt=3D"Club Panorama" title=3D"Club Panorama" =
+style=3D"display:block;border-radius:0px 0px 10px 10px" border=3D"0" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"210" height=3D"20" style=3D"font-size:1px;line-heigh=
+t:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"5" class=3D"hide" style=3D"font-size:1px;line-height:1p=
+x">=C2=A0</td>
+							<td width=3D"210" align=3D"center" class=3D"resize">
+								<table width=3D"210" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0" align=3D"center">
+									<tbody><tr>
+										<td width=3D"210" height=3D"132">
+											<a target=3D"_blank"=
+ href=3D"https://critsender.rndaserver.com/c/g8v7FyCb">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/c201.jpg" =
+width=3D"210" height=3D"132" alt=3D"Les Deux Alpes" title=3D"Les Deux =
+Alpes" style=3D"display:block;border-radius:10px 10px 0px 0px" border=3D"0"=
+ />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"210" height=3D"132">
+											<a target=3D"_blank"=
+ href=3D"https://critsender.rndaserver.com/c/HhD8qaCG">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/c202.jpg" =
+width=3D"210" height=3D"132" alt=3D"Les Cr=C3=AAtes" title=3D"Les =
+Cr=C3=AAtes" style=3D"display:block;border-radius:0px 0px 10px 10px" =
+border=3D"0" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"210" height=3D"20" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"5" class=3D"hide"=
+ style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"210" align=3D"center" class=3D"resize">
+								<table width=3D"210" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0" align=3D"center">
+									<tbody><tr>
+										<td width=3D"210" height=3D"132">
+											<a target=3D"_blank"=
+ href=3D"https://critsender.rndaserver.com/c/fb2F2eFQ">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/c301.jpg" =
+width=3D"210" height=3D"132" alt=3D"Avoriaz" title=3D"Avoriaz" =
+style=3D"display:block;border-radius:10px 10px 0px 0px" border=3D"0" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"210" height=3D"132">
+											<a target=3D"_blank"=
+ href=3D"https://critsender.rndaserver.com/c/Ltc5TMcQ">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/c302.jpg" =
+width=3D"210" height=3D"132" alt=3D"Les Cimes du Soleil" title=3D"Les Cimes=
+ du Soleil" style=3D"display:block;border-radius:0px 0px 10px 10px" =
+border=3D"0" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"210" height=3D"20" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"640" height=3D"60" align=3D"center" =
+style=3D"color:#0e837c;font-size:20px;font-family:'Montserrat', Arial, =
+Helvetica, sans-serif" class=3D"titre">
+								<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/hSujJTby" =
+style=3D"text-decoration:none;color:#0e837c !important">
+									<b>Des vacances type avec Belambra=C2=A0:</b>
+								</a>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize" bgcolor=3D"#ffffff">
+						<tbody><tr>
+							<td width=3D"310" class=3D"resize155">
+								<table width=3D"310" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize155">
+									<tbody><tr>
+										<td width=3D"310" =
+height=3D"180" class=3D"resize155">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/hFJYaPDp">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/a1.jpg" =
+width=3D"310" height=3D"180" alt=3D"CLUB ENFANTS" title=3D"CLUB ENFANTS" =
+style=3D"display:block;border-radius:30px" border=3D"0" class=3D"resize155"=
+ />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"10" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"40" class=3D"resize155"=
+ valign=3D"middle" align=3D"center" style=3D"font-family:'Montserrat', =
+Arial, Helvetica, sans-serif;font-size:14px;color:#2e4941;mso-line-height-r=
+ule:exactly;line-height:20px;font-weight:normal">
+											<a =
+target=3D"_blank" href=3D"https://critsender.rndaserver.com/c/Korh97Qv" =
+style=3D"width:310px;height:40px;color:#2e4941;text-decoration:none;display=
+:table-cell;text-align:center;vertical-align:middle">
+												On s'habitue vite<br class=3D"hide" /> =C3=A0 les voir partir =
+sans se retourner =E2=86=92
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"20" class=3D"resize10" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"20" =
+class=3D"resize10" style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"310" class=3D"resize155">
+								<table width=3D"310" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize155">
+									<tbody><tr>
+										<td width=3D"310" =
+height=3D"180" align=3D"center" class=3D"resize155">
+											<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/elg77dy4">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/a2.jpg" =
+width=3D"310" height=3D"180" alt=3D"ACTIVIT=C3=89S" =
+title=3D"ACTIVIT=C3=89S" style=3D"display:block;border-radius:30px" =
+border=3D"0" class=3D"resize155" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"10" =
+class=3D"hide" style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"40" =
+class=3D"resize155" valign=3D"middle" align=3D"center" =
+style=3D"font-family:'Montserrat', Arial, Helvetica, =
+sans-serif;font-size:14px;color:#2e4941;mso-line-height-rule:exactly;line-h=
+eight:20px;font-weight:normal">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/XtgDgYvL" =
+style=3D"width:310px;height:40px;color:#2e4941;text-decoration:none;display=
+:table-cell;text-align:center;vertical-align:middle">
+												On s'habitue vite <br />=C3=A0 appuyer sur pause =E2=86=92
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"20" class=3D"resize10" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize" bgcolor=3D"#ffffff">
+						<tbody><tr>
+							<td width=3D"310" class=3D"resize155">
+								<table width=3D"310" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize155">
+									<tbody><tr>
+										<td width=3D"310" =
+height=3D"180" align=3D"center" class=3D"resize155">
+											<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/Pa2KA0Fv">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/a3.jpg" =
+width=3D"310" height=3D"180" alt=3D"RESTAURANTS" title=3D"RESTAURANTS" =
+style=3D"display:block;border-radius:30px" border=3D"0" class=3D"resize155"=
+ />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"10" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"40" class=3D"resize155"=
+ valign=3D"middle" align=3D"center" style=3D"font-family:'Montserrat', =
+Arial, Helvetica, sans-serif;font-size:14px;color:#2e4941;mso-line-height-r=
+ule:exactly;line-height:20px;font-weight:normal">
+											<a =
+target=3D"_blank" href=3D"https://critsender.rndaserver.com/c/xzDE2E1U" =
+style=3D"width:310px;height:40px;color:#2e4941;text-decoration:none;display=
+:table-cell;text-align:center;vertical-align:middle">
+												On s'habitue vite <br />=C3=A0 se resservir =E2=86=92
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"20" class=3D"resize10" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"20" =
+class=3D"resize10" style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"310" class=3D"resize155">
+								<table width=3D"310" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize155">
+									<tbody><tr>
+										<td width=3D"310" =
+height=3D"180" align=3D"center" class=3D"resize155">
+											<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/lHjYUvFm">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/a4.jpg" =
+width=3D"310" height=3D"180" alt=3D"BIEN-=C3=8ATRE" =
+title=3D"BIEN-=C3=8ATRE" style=3D"display:block;border-radius:30px" =
+border=3D"0" class=3D"resize155" />
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"10" =
+class=3D"hide" style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"40" =
+class=3D"resize155" valign=3D"middle" align=3D"center" =
+style=3D"font-family:'Montserrat', Arial, Helvetica, =
+sans-serif;font-size:14px;color:#2e4941;mso-line-height-rule:exactly;line-h=
+eight:20px;font-weight:normal">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/fgpA3AMu" =
+style=3D"width:310px;height:40px;color:#2e4941;text-decoration:none;display=
+:table-cell;text-align:center;vertical-align:middle">
+												On s'habitue vite =C3=A0 =C3=AAtre<br /> entre de bonnes mains =
+=E2=86=92
+											</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"310" height=3D"20" class=3D"resize10" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"320" height=3D"20" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"320" height=3D"20" style=3D"font-size:1px;line-height:1=
+px">=C2=A0</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640"=
+ border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize">
+						<tbody><tr>
+							<td width=3D"640" height=3D"60" =
+align=3D"center" style=3D"color:#0e837c;font-size:20px;font-family:'Montser=
+rat', Arial, Helvetica, sans-serif" class=3D"titre">
+								<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/nURlPahs" style=3D"text-decoration:none;color:#0e837c !=
+important"><b>Ils y sont all=C3=A9s, ils en parlent=C2=A0:</b></a>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize" style=3D"background-color:#fff9f2 !=
+important;border-radius:30px">
+						<tbody><tr>
+							<td width=3D"20" =
+class=3D"hide" height=3D"20" style=3D"font-size:1px;line-height:1px">=C2=A0=
+</td>
+							<td width=3D"200" align=3D"center" valign=3D"top" =
+class=3D"resize">
+								<table width=3D"200" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center" class=3D"resize">
+									<tbody><tr>
+										<td width=3D"200" height=3D"20" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"200" align=3D"center" valign=3D"top" =
+style=3D"color:#f28705;font-size:15px;font-family:'Montserrat', Arial, =
+Helvetica, sans-serif;mso-line-height-rule:exactly;line-height:18px">
+											=E2=98=85=E2=98=85=E2=98=85=E2=98=85=E2=98=85 <span =
+style=3D"color:#2e4941;font-size:12px">5/5</span>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" align=3D"center" =
+valign=3D"top" style=3D"color:#2e4941;font-size:12px;font-family:'Montserra=
+t', Arial, Helvetica, sans-serif;mso-line-height-rule:exactly;line-height:1=
+7px">
+											<br />=C2=AB=C2=A0Club tout neuf, skis aux pieds <br />et =
+formule tout compris au top, on n'a manqu=C3=A9 de rien.=C2=A0=C2=BB<br =
+/><br />
+											<a target=3D"_blank" href=3D"https://critsender.=
+rndaserver.com/c/cklFV6ab" style=3D"text-decoration:none;color:#2e4941 !=
+important"><b>Camille</b> =E2=80=93 Flaine =E2=86=92</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" height=3D"20" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"200" =
+align=3D"center" valign=3D"top" class=3D"resize">
+								<table =
+width=3D"200" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize">
+									<tbody><tr>
+										<td width=3D"200" height=3D"20" style=3D"font-size:1px;line-heigh=
+t:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"200"=
+ align=3D"center" valign=3D"top" style=3D"color:#f28705;font-size:15px;font=
+-family:'Montserrat', Arial, Helvetica, sans-serif;mso-line-height-rule:exa=
+ctly;line-height:18px">
+											=E2=98=85=E2=98=85=E2=98=85=E2=98=85=
+=E2=98=85 <span style=3D"color:#2e4941;font-size:12px">5/5</span>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" =
+align=3D"center" valign=3D"top" style=3D"color:#2e4941;font-size:12px;font-=
+family:'Montserrat', Arial, Helvetica, sans-serif;mso-line-height-rule:exac=
+tly;line-height:17px">
+											<br />=C2=AB=C2=A0Superbe club =
+r=C3=A9cent, la piscine chauff=C3=A9e et le all inclusive ont <br />fait =
+l'unanimit=C3=A9 en famille.=C2=A0=C2=BB<br /><br />
+											<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/xbcOJRHb" style=3D"text-decoration:none;color:#2e4941 !=
+important"><b>Thomas</b> =E2=80=93 Les Deux Alpes =E2=86=92</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" =
+height=3D"20" style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"200" align=3D"center" valign=3D"top" class=3D"resize">
+								<table width=3D"200" border=3D"0" cellpadding=3D"0" =
+cellspacing=3D"0" align=3D"center" class=3D"resize">
+									<tbody><tr>
+										<td width=3D"200" height=3D"20" style=3D"font-size:1px;line-heigh=
+t:1px">=C2=A0</td>
+									</tr>
+									<tr>
+										<td width=3D"200"=
+ align=3D"center" valign=3D"top" style=3D"color:#f28705;font-size:15px;font=
+-family:'Montserrat', Arial, Helvetica, sans-serif;mso-line-height-rule:exa=
+ctly;line-height:18px">
+											=E2=98=85=E2=98=85=E2=98=85=E2=98=85<spa=
+n style=3D"color:#d9d9d9">=E2=98=85</span> <span style=3D"color:#2e4941;fon=
+t-size:12px">4/5</span>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" align=3D"center" valign=3D"top" =
+style=3D"color:#2e4941;font-size:12px;font-family:'Montserrat', Arial, =
+Helvetica, sans-serif;mso-line-height-rule:exactly;line-height:17px">
+											<br />=C2=AB=C2=A0Vue magnifique, terrasse plein soleil et =
+d=C3=A9part skis aux pieds, <br />un s=C3=A9jour parfait.=C2=A0=C2=BB<br =
+/><br />
+											<a target=3D"_blank" href=3D"https://critsender.=
+rndaserver.com/c/wkjVavh9" style=3D"text-decoration:none;color:#2e4941 !=
+important"><b>Laure</b> =E2=80=93 Avoriaz =E2=86=92</a>
+										</td>
+									</tr>
+									<tr>
+										<td width=3D"200" height=3D"20" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"20" =
+class=3D"hide" height=3D"20" style=3D"font-size:1px;line-height:1px">=C2=A0=
+</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize">
+						<tbody><tr>
+							<td width=3D"640" height=3D"30" =
+align=3D"center" valign=3D"middle" class=3D"text" style=3D"color:#757c8a;fo=
+nt-size:10px;font-family:'Montserrat', Arial, Helvetica, sans-serif">
+								Avis clients publi=C3=A9s sur belambra.fr =E2=80=93 notes =
+TripAdvisor
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize">
+						<tbody><tr>
+							<td width=3D"320" height=3D"10" class=3D"hide" =
+style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"320" height=3D"10" style=3D"font-size:1px;line-height:1=
+px">=C2=A0</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640"=
+ border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize" style=3D"background-color:#fff9f2 !important">
+						<tbody><tr>
+							<td width=3D"320" align=3D"center" =
+class=3D"resize">
+								<table width=3D"320" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center" class=3D"resize" =
+style=3D"border-radius:10px">
+									<tbody><tr>
+										<td =
+width=3D"160" align=3D"center">
+											<table width=3D"160" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center">
+												<tbody><tr>
+													<td width=3D"160" height=3D"50" =
+align=3D"center">
+														<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/ahzGXJ0G">
+															<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/rea1.png" =
+width=3D"160" height=3D"50" alt=3D"PAIEMENT EN 2 FOIS" title=3D"PAIEMENT EN=
+ 2 FOIS" style=3D"display:block" border=3D"0" />
+														</a>
+													</td>
+												</tr>
+												<tr>
+													<td width=3D"160" height=3D"40" valign=3D"top" =
+align=3D"center" style=3D"color:#1d2a30;font-size:10px;font-family:'Montser=
+rat', Arial, Helvetica, sans-serif;font-weight:500">
+														<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/XODHycl9" style=3D"text-decoration:none;color:#1d2a30 !=
+important;display:block">
+															PAIEMENT EN 2 FOIS
+														</a>
+													</td>
+												</tr>
+											</tbody></table>
+										</td>
+										<td width=3D"160" =
+align=3D"center">
+											<table width=3D"160" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center">
+												<tbody><tr>
+													<td width=3D"160" height=3D"50" =
+align=3D"center">
+														<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/KxnHq66c">
+															<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/rea2.png" =
+width=3D"160" height=3D"50" alt=3D"OPTIONS DISPONIBLES" title=3D"OPTIONS =
+DISPONIBLES" style=3D"display:block" border=3D"0" />
+														</a>
+													</td>
+												</tr>
+												<tr>
+													<td width=3D"160" height=3D"40" valign=3D"top" =
+align=3D"center" style=3D"color:#1d2a30;font-size:10px;font-family:'Montser=
+rat', Arial, Helvetica, sans-serif;font-weight:500">
+														<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/F59ULJJd" style=3D"text-decoration:none;color:#1d2a30 !=
+important;display:block">
+															OPTIONS DISPONIBLES
+														</a>
+													</td>
+												</tr>
+											</tbody></table>
+										</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"320" =
+align=3D"center" class=3D"resize">
+								<table width=3D"320" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize">
+									<tbody><tr>
+										<td width=3D"160" =
+align=3D"center">
+											<table width=3D"160" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center">
+												<tbody><tr>
+													<td width=3D"160" height=3D"50" =
+align=3D"center">
+														<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/KsOBK1qz">
+															<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/rea3.png" =
+width=3D"160" height=3D"50" alt=3D"PAIEMENT EN CH=C3=88QUE-VACANCES =
+CONNECT" title=3D"PAIEMENT EN CH=C3=88QUE-VACANCES CONNECT" =
+style=3D"display:block" border=3D"0" />
+														</a>
+													</td>
+												</tr>
+												<tr>
+													<td width=3D"160" height=3D"40" valign=3D"top" =
+align=3D"center" style=3D"color:#1d2a30;font-size:10px;font-family:'Montser=
+rat', Arial, Helvetica, sans-serif;font-weight:500">
+														<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/LXvGJb3c" style=3D"text-decoration:none;color:#1d2a30 !=
+important;display:block">
+															PAIEMENT EN CH=C3=88QUE-VACANCES =
+CONNECT
+														</a>
+													</td>
+												</tr>
+											</tbody></table>
+										</td>
+										<td width=3D"160" =
+align=3D"center">
+											<table width=3D"160" border=3D"0" =
+cellpadding=3D"0" cellspacing=3D"0" align=3D"center">
+												<tbody><tr>
+													<td width=3D"160" height=3D"50" =
+align=3D"center">
+														<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/c84AvcKU">
+															<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/rea4.png" =
+width=3D"160" height=3D"50" alt=3D"PAIEMENT EN 4 FOIS PAR CARTE BANCAIRE" =
+title=3D"PAIEMENT EN 4 FOIS PAR CARTE BANCAIRE" style=3D"display:block" =
+border=3D"0" />
+														</a>
+													</td>
+												</tr>
+												<tr>
+													<td width=3D"160" height=3D"40" =
+valign=3D"top" align=3D"center" style=3D"color:#1d2a30;font-size:10px;font-=
+family:'Montserrat', Arial, Helvetica, sans-serif;font-weight:500">
+														<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/1IT7NjaK" style=3D"text-decoration:none;color:#1d2a30 !=
+important;display:block">
+															PAIEMENT EN 4X FOIS<br />PAR CARTE=
+ BANCAIRE
+														</a>
+													</td>
+												</tr>
+											</tbody></table>
+										</td>
+									</tr>
+								</tbody></table>
+							</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+align=3D"center" class=3D"resize" style=3D"background-color:#2e4941 !=
+important">
+						<tbody><tr>
+							<td width=3D"160" height=3D"60" =
+class=3D"hide" style=3D"font-size:1px;line-height:1px">=C2=A0</td>
+							<td width=3D"320" class=3D"resize">
+								<table width=3D"320" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center">
+									<tbody><tr>
+										<td width=3D"90" height=3D"60">
+											<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/InW2lTFt" style=3D"text-decoration:none;color:#007096">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/facebook.png" =
+width=3D"90" height=3D"60" alt=3D"Facebook" title=3D"Facebook" =
+style=3D"display:block" border=3D"0" />
+											</a>
+										</td>
+										<td width=3D"50" height=3D"60">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/LfMKPaYC" =
+style=3D"text-decoration:none;color:#007096">
+												<img =
+src=3D"https://critsender.rndaserver.com/campaigns/2026/09/d8c38d20-d0e7-4b=
+68-9a39-8f68f10e5b66/instagram.png" width=3D"50" height=3D"60" =
+alt=3D"Instagram" title=3D"Instagram" style=3D"display:block" border=3D"0" =
+/>
+											</a>
+										</td>
+										<td width=3D"40" =
+height=3D"60">
+											<a target=3D"_blank" href=3D"https://critsender.=
+rndaserver.com/c/6FocvToP" style=3D"text-decoration:none;color:#007096">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/pinterest.png" =
+width=3D"40" height=3D"60" alt=3D"Pinterest" title=3D"Pinterest" =
+style=3D"display:block" border=3D"0" />
+											</a>
+										</td>
+										<td width=3D"50" height=3D"60">
+											<a target=3D"_blank" =
+href=3D"https://critsender.rndaserver.com/c/5FNIT2YL" =
+style=3D"text-decoration:none;color:#007096">
+												<img =
+src=3D"https://critsender.rndaserver.com/campaigns/2026/09/d8c38d20-d0e7-4b=
+68-9a39-8f68f10e5b66/youtube.png" width=3D"50" height=3D"60" =
+alt=3D"YouTube" title=3D"YouTube" style=3D"display:block" border=3D"0" />
+											</a>
+										</td>
+										<td width=3D"90" height=3D"60">
+											<a target=3D"_blank" href=3D"https://critsender.rndaserver.=
+com/c/lfOKQJ6Y" style=3D"text-decoration:none;color:#007096">
+												<img src=3D"https://critsender.rndaserver.=
+com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/twitter.png" =
+width=3D"90" height=3D"60" alt=3D"X" title=3D"X" style=3D"display:block" =
+border=3D"0" />
+											</a>
+										</td>
+									</tr>
+								</tbody></table>
+							</td>
+							<td width=3D"160" =
+height=3D"60" class=3D"hide" style=3D"font-size:1px;line-height:1px">=C2=A0=
+</td>
+						</tr>
+					</tbody></table>
+					<table width=3D"640" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" =
+class=3D"resize">
+						<tbody><tr>
+							<td width=3D"640" =
+align=3D"center" class=3D"text" style=3D"color:#2e4941;font-size:11px;line-=
+height:13px;font-family:'Montserrat', Arial, Helvetica, sans-serif">
+								<br />
+								*Voir les conditions de l'offre sur le site.<br =
+/><br />
+							</td>
+						</tr>
+					</tbody></table>
+				</td>
+			</tr>
+		</tbody></table>
+		<img src=3D"1x1.b?ept-publisher=3Dqwamplify&amp;ept-na=
+me=3Dqwamplify-email-vacanceshiver-08-2026_V2&amp;gdpr=3D%24{GDPR}&amp;gdpr=
+_pd=3D%24{GDPR_PD}&amp;gdpr_consent=3D%24{GDPR_CONSENT_STRING}&amp;ea-rnd=
+=3DRANDOM" width=3D"1" height=3D"1" alt=3D"" border=3D"0" =
+style=3D"display:none" />
+	</center>
+<img src=3D"https://critsender.=
+rndaserver.com/campaigns/2026/09/d8c38d20-d0e7-4b68-9a39-8f68f10e5b66/8JTO4=
+UTM__AN0ITN.jpg" alt=3D"" width=3D"1" height=3D"1" />
+
+<img src=3D"https://critsender.rndaserver.com/o/87b95f70-9616-4d20-b481-e58=
+c16c4fab7/b619a68e-b15c-48db-81d6-c074605b9657/p.gif?=
+sig=3Df191fc6e32defc84a43332fb927c1d8a17a6f1d24d6f2da691845537d938902a&mid=
+=3D2c2253b5-07fa-4c27-99be-c8a6d5c22e2b" width=3D"1" height=3D"1" alt=3D"" =
+border=3D"0" style=3D"width:1px;height:1px;border:0;outline:none;text-decor=
+ation:none;display:block;opacity:0;max-width:1px;max-height:1px;" />
+<div style=3D"margin-top:30px;padding-top:20px;border-top:1px solid =
+#eee;text-align:center;font-size:12px;color:#666;"><div =
+style=3D"margin-top:4px;"><a href=3D"https://critsender.rndaserver.=
+com/u/pZIwN6cZ" style=3D"color:#666;text-decoration:underline;">Si vous ne =
+souhaitez pas recevoir d'emails de ce type, vous pouvez vous =
+d=C3=A9sinscrire</a></div><div style=3D"margin-top:4px;"><span =
+style=3D"color:#888;">Critelab pte ltd - 986 Upper Serangoon Road #09-22 =
+Stars of Kovan Singapore 534732</span></div></div></body></html>
+
+
+
