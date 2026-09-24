@@ -7,15 +7,18 @@ import { logger } from "../logger";
 import {
   smartSegmentAnalysisRequestSchema,
   smartSegmentMaterializeRequestSchema,
+  smartSegmentOutcomesRequestSchema,
   smartSegmentResolveRequestSchema,
   smartSegmentSimilarBrandsRequestSchema,
   type SmartSegmentSimilarBrandsResponse,
   type SmartSegmentFeatureStatus,
+  type SmartSegmentOutcomesResponse,
   type SmartSegmentResolveResponse,
 } from "@shared/smart-segment";
 import { smartSegmentFeatureStatus } from "../config/smart-segment";
 import { SmartSegmentError } from "../services/smart-segment-evidence";
 import { resolveSmartSegmentContext } from "../services/smart-segment-brand";
+import { listSmartSegmentOutcomes } from "../services/smart-segment-outcomes";
 import { lookupSimilarBrands } from "../services/smart-segment-similar";
 import {
   getSmartSegmentAnalysis,
@@ -104,6 +107,28 @@ export function registerSmartSegmentRoutes(app: Express): void {
     }
   });
 
+  // « Projeté vs réel » panel: projections of the brand's recent analyses next
+  // to the cached counters of the campaigns that used their segments.
+  app.get("/api/smart-segments/outcomes", resolveLimiter, async (req: Request, res: Response) => {
+    try {
+      const rawOverride = typeof req.query.brandOverride === "string" && req.query.brandOverride.trim()
+        ? JSON.parse(req.query.brandOverride)
+        : null;
+      const body = smartSegmentOutcomesRequestSchema.parse({ campaignName: req.query.campaignName, brandOverride: rawOverride });
+      const result: SmartSegmentOutcomesResponse = await listSmartSegmentOutcomes({
+        campaignName: body.campaignName,
+        brandOverride: body.brandOverride ?? null,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        res.status(400).json({ error: "Paramètres invalides", code: "VALIDATION" });
+        return;
+      }
+      sendError(res, error, "outcomes");
+    }
+  });
+
   app.post("/api/smart-segments/analyses", analysisLimiter, async (req: Request, res: Response) => {
     try {
       const params = smartSegmentAnalysisRequestSchema.parse(req.body ?? {});
@@ -132,6 +157,7 @@ export function registerSmartSegmentRoutes(app: Express): void {
       const result = await materializeSmartSegmentProposal(id, {
         campaignId: body.campaignId ?? null,
         proposalIndexes: body.proposalIndexes,
+        attach: body.attach,
       });
       res.status(201).json(result);
     } catch (error) {

@@ -818,11 +818,14 @@ export default function CampaignEdit() {
               campaignId={campaignId || null}
               mtaId={formData.mtaId || null}
               selectedSegmentIds={segmentIds}
-              onSegmentsCreated={(createdSegments) => {
+              onSegmentsCreated={(createdSegments, { detachSegmentIds }) => {
                 setFormData((old: any) => {
                   const current: string[] = old.segmentIds ?? (old.segmentId ? [old.segmentId] : []);
                   const createdIds = createdSegments.map((segment) => segment.id);
-                  const next = [...current, ...createdIds.filter((id) => !current.includes(id))];
+                  // Exclusive choice among the nested proposals of one analysis:
+                  // the previously chosen one leaves the audience.
+                  const kept = current.filter((id) => !detachSegmentIds.includes(id));
+                  const next = [...kept, ...createdIds.filter((id) => !kept.includes(id))];
                   return {
                     ...old,
                     segmentIds: next,

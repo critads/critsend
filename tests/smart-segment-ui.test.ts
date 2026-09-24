@@ -100,10 +100,33 @@ describe("Smart segment source wiring", () => {
     expect(component).not.toContain("candidate.lift");
   });
 
-  it("labels proposals by their server-derived kind and offers a bulk create for two or three", () => {
+  it("labels proposals by their server-derived kind and attaches ONE nested proposal at a time (no bulk create)", () => {
     expect(component).toContain("SMART_SEGMENT_PROPOSAL_KIND_LABELS[segment.kind]");
-    expect(component).toContain("analysis.proposal.segments.length >= 2 && createdIndexes.length === 0");
-    expect(component).toContain('Créer les {analysis.proposal.segments.length === 2 ? "deux" : "trois"}');
+    // Nested audiences: one exclusive « Utiliser » per card, plus « Créer sans attacher ».
+    expect(component).toContain("materializeMutation.mutate({ index, attach: true })");
+    expect(component).toContain("materializeMutation.mutate({ index, attach: false })");
+    expect(component).toContain('data-testid={`button-smart-segment-create-only-${index}`}');
+    expect(component).toContain('{attachedIndex !== null ? "Utiliser ce segment à la place" : createdEntry ? "Attacher ce segment" : "Utiliser ce segment"}');
+    expect(component).not.toContain("button-smart-segment-create-all");
+    expect(component).not.toContain("Créer les {");
+    // The request carries the attach flag; the wizard mirrors the server's exclusivity.
+    expect(component).toMatch(/proposalIndexes: \[index\],\s+attach,/);
+    expect(component).toContain("const detachSegmentIds = createdEntries.map((entry) => entry.id).filter((id) => !attachedIds.has(id));");
+    expect(component).toContain("onSegmentsCreated(data.segments, { detachSegmentIds });");
+    expect(component).toContain("const attachedIndex = createdEntries.find((entry) => selectedSegmentIds.includes(entry.id))?.index ?? null;");
+  });
+
+  it("renders the « Projeté vs réel » panel for the resolved brand", () => {
+    const panel = readFileSync(new URL("../client/src/components/campaign-wizard/smart-segment-outcomes.tsx", import.meta.url), "utf8");
+    expect(component).toContain("<SmartSegmentOutcomesPanel campaignName={debouncedName} brandOverride={override} enabled={configured && brandReady} />");
+    expect(panel).toContain('queryKey: ["/api/smart-segments/outcomes", campaignName, brandOverride]');
+    expect(panel).toContain("/api/smart-segments/outcomes?");
+    expect(panel).toContain("staleTime:");
+  });
+
+  it.each([newPage, editPage])("drops the detached sibling from the wizard selection when a proposal is swapped", (source) => {
+    expect(source).toContain("onSegmentsCreated={(createdSegments, { detachSegmentIds }) => {");
+    expect(source).toContain("const kept = current.filter((id) => !detachSegmentIds.includes(id));");
   });
 
   it("polls analyses and posts materialization", () => {
@@ -117,20 +140,26 @@ describe("Smart segment source wiring", () => {
     // target, cap, override) — never from the debounced name.
     expect(component).toContain("const requestKey = analysisIdentity(requestBody)");
     expect(component).toContain("...(similarRefs.length > 0 ? { similarRefs } : {})");
-    expect(component).toMatch(/campaignName: campaignName\.trim\(\),\s+campaignId,\s+mtaId,\s+family,\s+targetClicks: Math\.max\(50, Math\.round\(targetClicks\)\),\s+complaintCap: clampComplaintCapPercent\(complaintCapPercent\) \/ 100,\s+brandOverride: override,/);
+    // The cap is rounded at the identity's precision (0,45 / 100 ≠ 0,0045 in floating point).
+    expect(component).toMatch(/campaignName: campaignName\.trim\(\),\s+campaignId,\s+mtaId,\s+family,\s+targetClicks: Math\.max\(50, Math\.round\(targetClicks\)\),\s+(\/\/[^\n]*\n\s+)*complaintCap: normalizeComplaintCap\(clampComplaintCapPercent\(complaintCapPercent\) \/ 100\),\s+brandOverride: override,/);
     // Reset on any change, fence for late responses, materialisation gated.
     expect(component).toContain("if (key !== currentRequestKey.current) return;");
     expect(component).toContain("const analysisMatchesInputs = !!analysis && analysisIdentity(analysis.params) === requestKey;");
-    expect(component.match(/disabled=\{materializeMutation\.isPending \|\| !analysisMatchesInputs\}/g)).toHaveLength(2);
+    expect(component).toContain("const busy = materializeMutation.isPending || !analysisMatchesInputs;");
+    expect(component.match(/disabled=\{busy\}/g)).toHaveLength(2);
   });
 });
 
 describe("smartSegmentAnalysisIdentity", () => {
   it("normalises exactly what the server de-duplicates on, and nothing else", () => {
     const base = { campaignName: " Air France 21/09 ", campaignId: "camp-1", mtaId: "mta-a", family: "fai_fr" as const, targetClicks: 500, complaintCap: 0.0045, brandOverride: { name: " Air France ", ref: "4af" } };
-    const same = smartSegmentAnalysisIdentity({ ...base, campaignName: "air france 21/09", mtaId: "mta-b", brandOverride: { name: "air france", ref: "4AF" } });
+    const same = smartSegmentAnalysisIdentity({ ...base, campaignName: "air france 21/09", mtaId: " mta-a ", brandOverride: { name: "air france", ref: "4AF" } });
     expect(smartSegmentAnalysisIdentity(base)).toBe(same);
+    // The cap is compared at 1e-6: 0,45 / 100 and 0,0045 are the same request.
+    expect(smartSegmentAnalysisIdentity({ ...base, complaintCap: 0.45 / 100 })).toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, complaintCap: 0.006 })).not.toBe(same);
+    // The sending MTA changes the calibration (complaint capture): part of the identity.
+    expect(smartSegmentAnalysisIdentity({ ...base, mtaId: "mta-b" })).not.toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, targetClicks: 501 })).not.toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, campaignId: null })).not.toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, brandOverride: null })).not.toBe(same);

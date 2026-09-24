@@ -45,6 +45,13 @@ function handleQuery(text: string, params: unknown[] = []): { rows: Row[]; rowCo
     const count = [...table.values()].filter((row) => ["queued", "running"].includes(row.status) && fresh(row, ms(params[0]))).length;
     return { rows: [{ count: String(count) }], rowCount: 1 };
   }
+  if (sql.includes("evidence->>'evidenceKey' = $1")) {
+    const rows = [...table.values()]
+      .filter((row) => row.evidence?.evidenceKey === params[0] && !row.evidence?.reusedFrom)
+      .filter((row) => clock() - row.created_at.getTime() <= ms(params[1]) && row.id !== params[2])
+      .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    return { rows: rows.slice(0, 1).map((row) => ({ id: row.id, evidence: row.evidence })), rowCount: rows.length ? 1 : 0 };
+  }
   if (sql.includes("FROM smart_segment_analyses WHERE id = $1")) {
     const row = table.get(params[0] as string);
     return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
@@ -94,9 +101,18 @@ function handleQuery(text: string, params: unknown[] = []): { rows: Row[]; rowCo
     campaignSegments.push({ campaignId: params[0] as string, segmentId: params[1] as string, position: params[2] as number });
     return { rows: [], rowCount: 1 };
   }
-  if (sql.startsWith("UPDATE campaigns SET segment_id")) {
+  if (sql.startsWith("DELETE FROM campaign_segments")) {
+    const ids = params[1] as string[];
+    const removed = campaignSegments.filter((entry) => entry.campaignId === params[0] && ids.includes(entry.segmentId));
+    for (const entry of removed) campaignSegments.splice(campaignSegments.indexOf(entry), 1);
+    return { rows: removed.map((entry) => ({ segment_id: entry.segmentId })), rowCount: removed.length };
+  }
+  if (sql.startsWith("UPDATE campaigns SET segment_id = (SELECT")) {
     const campaign = campaigns.get(params[0] as string);
-    if (campaign) campaign.segment_id = campaign.segment_id ?? params[1];
+    if (campaign) {
+      const lowest = campaignSegments.filter((entry) => entry.campaignId === params[0]).sort((a, b) => a.position - b.position)[0];
+      campaign.segment_id = lowest?.segmentId ?? null;
+    }
     return { rows: [], rowCount: campaign ? 1 : 0 };
   }
   throw new Error(`unhandled query: ${sql}`);
@@ -128,11 +144,13 @@ vi.mock("../server/services/smart-segment-brand", () => ({
 }));
 
 const buildEvidence = vi.fn();
+const reuseEvidence = vi.fn();
 vi.mock("../server/services/smart-segment-evidence", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../server/services/smart-segment-evidence")>();
   return {
     ...actual,
     buildSmartSegmentEvidence: (...args: unknown[]) => buildEvidence(...args),
+    reuseSmartSegmentEvidence: (...args: unknown[]) => reuseEvidence(...args),
     createTransactionRunner: () => ({
       open: async () => {},
       close: async () => {},
@@ -153,7 +171,7 @@ vi.mock("../server/services/smart-segment-proposal", async (importOriginal) => {
   return { ...actual, generateSmartSegmentProposal: (...args: unknown[]) => generateProposal(...args) };
 });
 
-import type { SmartSegmentAnalysisRequest } from "../shared/smart-segment";
+import { smartSegmentEvidenceIdentity, type SmartSegmentAnalysisRequest } from "../shared/smart-segment";
 import { getSmartSegmentConfig } from "../server/config/smart-segment";
 import {
   analysisFingerprint,
@@ -213,6 +231,7 @@ beforeEach(() => {
     return evidence;
   });
   generateProposal.mockResolvedValue(proposal);
+  reuseEvidence.mockImplementation(async (source: Row, from: { analysisId: string }) => ({ ...source, reusedFrom: { analysisId: from.analysisId, generatedAt: source.generatedAt } }));
   campaigns.set("camp-draft", { id: "camp-draft", status: "draft", segment_id: null });
 });
 
@@ -256,6 +275,9 @@ describe("startSmartSegmentAnalysis", () => {
     expect(done?.stage).toBe("done");
     expect(done?.progress).toBe(100);
     expect(done?.evidence?.calibrationLevel).toBe("brand");
+    expect(done?.evidence?.evidenceKey).toBe(smartSegmentEvidenceIdentity(params));
+    expect(done?.evidence?.reusedFrom).toBeUndefined();
+    expect(reuseEvidence).not.toHaveBeenCalled();
     expect(done?.proposal?.segments).toHaveLength(2);
     expect(done?.createdSegments).toEqual([]);
     expect(buildEvidence).toHaveBeenCalledWith(
@@ -272,6 +294,7 @@ describe("startSmartSegmentAnalysis", () => {
       total: 1_234,
       tierCounts: { "6+": 1_000, "2-3": 200, "0": 34 },
       recencyCounts: {},
+      orangeWanadooCount: 0,
     });
   });
 
@@ -318,6 +341,48 @@ describe("startSmartSegmentAnalysis", () => {
     await waitForSmartSegmentAnalysis(replacesStale.view.id);
   });
 
+  it("reuses a fresh dossier for a param-only re-run (target / cap), never across refresh, family or MTA changes", async () => {
+    const first = await startSmartSegmentAnalysis(params, "user-1", { config, callModel });
+    await waitForSmartSegmentAnalysis(first.view.id);
+    expect(buildEvidence).toHaveBeenCalledTimes(1);
+
+    const retargeted = await startSmartSegmentAnalysis({ ...params, targetClicks: 2_000, complaintCap: 0.003 }, "user-1", { config, callModel });
+    expect(retargeted.created).toBe(true);
+    await waitForSmartSegmentAnalysis(retargeted.view.id);
+    expect(buildEvidence).toHaveBeenCalledTimes(1);
+    expect(reuseEvidence).toHaveBeenCalledTimes(1);
+    expect(reuseEvidence.mock.calls[0][1]).toEqual({ analysisId: first.view.id });
+    const reused = await getSmartSegmentAnalysis(retargeted.view.id);
+    expect(reused?.status).toBe("succeeded");
+    expect(reused?.evidence?.reusedFrom).toEqual({ analysisId: first.view.id, generatedAt: evidence.generatedAt });
+    expect(reused?.evidence?.evidenceKey).toBe(smartSegmentEvidenceIdentity(params));
+
+    // A reused dossier is never itself a source: a third re-run still goes back to the original.
+    const third = await startSmartSegmentAnalysis({ ...params, targetClicks: 3_000 }, "user-1", { config, callModel });
+    await waitForSmartSegmentAnalysis(third.view.id);
+    expect(reuseEvidence.mock.calls[1][1]).toEqual({ analysisId: first.view.id });
+
+    // « Actualiser », another family and another MTA all rebuild.
+    for (const overrides of [{ refresh: true }, { family: "webmail_fr" as const }, { mtaId: "mta-2" }]) {
+      const rebuilt = await startSmartSegmentAnalysis({ ...params, ...overrides }, "user-1", { config, callModel });
+      await waitForSmartSegmentAnalysis(rebuilt.view.id);
+    }
+    expect(buildEvidence).toHaveBeenCalledTimes(4);
+    expect(reuseEvidence).toHaveBeenCalledTimes(2);
+
+    // Outside the reuse window the dossier is rebuilt.
+    clock = () => Date.now() + config.evidenceReuseWindowMs + 1_000;
+    const late = await startSmartSegmentAnalysis({ ...params, targetClicks: 4_000 }, "user-1", { config, callModel });
+    await waitForSmartSegmentAnalysis(late.view.id);
+    expect(buildEvidence).toHaveBeenCalledTimes(5);
+
+    // A disabled window never reuses.
+    const disabled = { ...config, evidenceReuseWindowMs: 0 };
+    const never = await startSmartSegmentAnalysis({ ...params, targetClicks: 5_000 }, "user-1", { config: disabled, callModel });
+    await waitForSmartSegmentAnalysis(never.view.id);
+    expect(buildEvidence).toHaveBeenCalledTimes(6);
+  });
+
   it("persists an explicit failure with its code and never leaves the row running", async () => {
     buildEvidence.mockRejectedValueOnce(new SmartSegmentError("NO_CALIBRATION", "Aucun envoi terminé.", 422));
     const { view } = await startSmartSegmentAnalysis(params, null, { config, callModel });
@@ -348,6 +413,8 @@ describe("startSmartSegmentAnalysis", () => {
     let release: () => void = () => {};
     buildEvidence.mockImplementation(() => new Promise<typeof evidence>((resolve) => { release = () => resolve(evidence); }));
     const { view } = await startSmartSegmentAnalysis({ ...params, campaignName: "Gelée 21/09" }, null, { config, callModel });
+    // The job reaches the evidence stage a tick after start() returns (reuse lookup first).
+    await vi.waitFor(() => expect(buildEvidence).toHaveBeenCalled());
     table.get(view.id)!.heartbeat_at = new Date(Date.now() - STALE_HEARTBEAT_MS - 5);
     expect(await sweepStaleSmartSegmentAnalyses()).toBe(1);
     release();
@@ -387,14 +454,14 @@ describe("materializeSmartSegmentProposal", () => {
     expect(segmentsTable).toHaveLength(1);
     expect(segmentsTable[0]).toMatchObject({ name: "Smart · Air France · 21/09 · FR", cached_count: 2_800, rules: proposal.segments[0].rules });
     expect(segmentsTable[0].description).toContain("claude-test");
-    expect(result).toEqual({ segments: [{ index: 0, id: "seg-1", name: "Smart · Air France · 21/09 · FR" }], attached: true, createdSegmentIds: ["seg-1"] });
+    expect(result).toEqual({ segments: [{ index: 0, id: "seg-1", name: "Smart · Air France · 21/09 · FR" }], attached: true, createdSegmentIds: ["seg-1"], detachedSegmentIds: [] });
     expect(statements()).toEqual([
       "BEGIN",
       "SELECT id, fingerprint,", // analysis row locked FOR UPDATE
       "INSERT INTO segments",
       "UPDATE smart_segment_analyses SET",
       "SELECT id, status", // campaign locked FOR UPDATE
-      "SELECT COALESCE(MAX(position) +",
+      "SELECT COALESCE(MAX(position) +", // no sibling created yet: nothing to detach
       "INSERT INTO campaign_segments",
       "UPDATE campaigns SET",
       "COMMIT",
@@ -424,6 +491,54 @@ describe("materializeSmartSegmentProposal", () => {
     clientQueries.length = 0;
     await materializeSmartSegmentProposal(id, { campaignId: null, proposalIndexes: [0, 1] }, { now });
     expect(statements()).toEqual(["BEGIN", "SELECT id, fingerprint,", "COMMIT"]);
+    // Attaching two nested proposals at once is refused before any write.
+    await expect(materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0, 1], attach: true }, { now }))
+      .rejects.toMatchObject({ code: "ATTACH_ONE", status: 400 });
+    expect(campaignSegments).toHaveLength(0);
+  });
+
+  it("attaches one proposal at a time: choosing another one detaches the previous choice and keeps the legacy column on the lowest position", async () => {
+    const id = await succeededAnalysis();
+    const now = () => new Date("2026-09-21T10:00:00.000Z");
+    // A hand-picked segment is already in the draft: it stays.
+    campaignSegments.push({ campaignId: "camp-draft", segmentId: "seg-manual", position: 0 });
+    campaigns.get("camp-draft")!.segment_id = "seg-manual";
+    const first = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0], attach: true }, { now });
+    expect(first).toMatchObject({ attached: true, detachedSegmentIds: [] });
+    expect(campaignSegments).toEqual([
+      { campaignId: "camp-draft", segmentId: "seg-manual", position: 0 },
+      { campaignId: "camp-draft", segmentId: "seg-1", position: 1 },
+    ]);
+    // « Créer sans attacher » on the sibling: created, audience untouched.
+    const createdOnly = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1], attach: false }, { now });
+    expect(createdOnly).toMatchObject({ attached: false, detachedSegmentIds: [], segments: [{ index: 1, id: "seg-2" }] });
+    expect(campaignSegments.map((entry) => entry.segmentId)).toEqual(["seg-manual", "seg-1"]);
+    // « Utiliser ce segment à la place »: the recommendation leaves, the variant enters.
+    clientQueries.length = 0;
+    const swapped = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1], attach: true }, { now });
+    expect(swapped).toMatchObject({ attached: true, detachedSegmentIds: ["seg-1"], segments: [{ index: 1, id: "seg-2" }] });
+    // The freed position is reused (MAX + 1 after the detach); readers order by position.
+    expect(campaignSegments).toEqual([
+      { campaignId: "camp-draft", segmentId: "seg-manual", position: 0 },
+      { campaignId: "camp-draft", segmentId: "seg-2", position: 1 },
+    ]);
+    expect(campaigns.get("camp-draft")!.segment_id).toBe("seg-manual");
+    expect(statements()).toEqual([
+      "BEGIN",
+      "SELECT id, fingerprint,",
+      "SELECT id, status",
+      "DELETE FROM campaign_segments",
+      "SELECT COALESCE(MAX(position) +",
+      "INSERT INTO campaign_segments",
+      "UPDATE campaigns SET",
+      "COMMIT",
+    ]);
+    expect(segmentsTable).toHaveLength(2);
+    // Swapping back when the chosen one held the lowest position moves the legacy column.
+    campaignSegments.splice(0, 1);
+    const back = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0], attach: true }, { now });
+    expect(back.detachedSegmentIds).toEqual(["seg-2"]);
+    expect(campaigns.get("camp-draft")!.segment_id).toBe("seg-1");
   });
 
   it("does not attach to a campaign that is no longer a draft, and rejects unfinished analyses", async () => {

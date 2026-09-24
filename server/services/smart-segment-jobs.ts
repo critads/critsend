@@ -30,11 +30,18 @@ import {
   type SmartSegmentStage,
   type SmartSegmentStatus,
   smartSegmentAnalysisIdentity,
+  smartSegmentEvidenceIdentity,
 } from "@shared/smart-segment";
 import { getSmartSegmentConfig, SMART_SEGMENT_PROMPT_VERSION, type SmartSegmentConfig } from "../config/smart-segment";
 import { resolveSmartSegmentBrand } from "./smart-segment-brand";
 import { validateSimilarRefs, withSimilarRefs } from "./smart-segment-similar";
-import { buildSmartSegmentEvidence, createTransactionRunner, measureAudienceWith, SmartSegmentError } from "./smart-segment-evidence";
+import {
+  buildSmartSegmentEvidence,
+  createTransactionRunner,
+  measureAudienceWith,
+  reuseSmartSegmentEvidence,
+  SmartSegmentError,
+} from "./smart-segment-evidence";
 import { defaultModelCaller, generateSmartSegmentProposal, type ModelCaller } from "./smart-segment-proposal";
 import type { AudienceMeasure } from "./smart-segment-projection";
 import { extractCampaignBrand } from "./tag-suggestions";
@@ -172,6 +179,28 @@ async function measureAudienceIsolated(rules: SegmentRulesV2, config: SmartSegme
   }
 }
 
+/**
+ * Most recent dossier of the same evidence identity, built within the reuse
+ * window by another analysis (whatever its final status: a dossier is only
+ * persisted once complete). Older rows carry no evidenceKey and never match.
+ */
+async function findReusableEvidence(evidenceKey: string, excludeId: string, config: SmartSegmentConfig): Promise<{ id: string; evidence: SmartSegmentEvidence } | null> {
+  if (config.evidenceReuseWindowMs <= 0) return null;
+  const result = await pool.query<{ id: string; evidence: SmartSegmentEvidence }>(
+    `SELECT id, evidence FROM smart_segment_analyses
+      WHERE evidence IS NOT NULL
+        AND evidence->>'evidenceKey' = $1
+        AND evidence->>'reusedFrom' IS NULL
+        AND created_at >= NOW() - ($2::int * INTERVAL '1 millisecond')
+        AND id <> $3
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [evidenceKey, config.evidenceReuseWindowMs, excludeId],
+  );
+  const row = result.rows[0];
+  return row?.evidence ? { id: row.id, evidence: row.evidence } : null;
+}
+
 function startHeartbeat(id: string): () => void {
   const timer = setInterval(() => {
     pool.query(
@@ -202,11 +231,21 @@ async function runAnalysis(id: string, params: SmartSegmentAnalysisRequest, deps
     // Selection already validated at start; re-validated here so a persisted
     // row can never smuggle the brand's own refs into the « similar » pool.
     const brand = withSimilarRefs(resolved, validateSimilarRefs(params.similarRefs, resolved).similarRefs);
-    const evidence = await buildSmartSegmentEvidence(
-      { campaignName: params.campaignName, excludeCampaignId: params.campaignId ?? null, brand, family: params.family },
-      (stage, progress) => updateProgress(id, stage, progress),
-      { config },
-    );
+    const evidenceInput = { campaignName: params.campaignName, excludeCampaignId: params.campaignId ?? null, brand, family: params.family, mtaId: params.mtaId ?? null };
+    // Param-only re-runs (target / cap) reuse a fresh dossier of the same
+    // evidence identity instead of scanning the calibration sends again;
+    // « Actualiser » (refresh) always rebuilds.
+    const evidenceKey = smartSegmentEvidenceIdentity(params);
+    const reusable = params.refresh ? null : await findReusableEvidence(evidenceKey, id, config);
+    let evidence: SmartSegmentEvidence;
+    if (reusable) {
+      await updateProgress(id, "reservoirs", 70);
+      evidence = await reuseSmartSegmentEvidence(reusable.evidence, { analysisId: reusable.id }, evidenceInput, { config });
+      logger.info("[SMART_SEGMENT] evidence reused", { id, from: reusable.id });
+    } else {
+      const built = await buildSmartSegmentEvidence(evidenceInput, (stage, progress) => updateProgress(id, stage, progress), { config });
+      evidence = { ...built, evidenceKey };
+    }
     await pool.query(
       `UPDATE smart_segment_analyses
           SET evidence = $2::jsonb, stage = 'ai_proposal', progress = 80, heartbeat_at = NOW(), updated_at = NOW()
@@ -357,45 +396,68 @@ function brandLabelFor(params: SmartSegmentAnalysisRequest, evidence: SmartSegme
   return (fromName || params.campaignName.trim()).slice(0, 60);
 }
 
-async function attachToDraft(client: PoolClient, campaignId: string, created: SmartSegmentCreatedSegment[]): Promise<boolean> {
-  // Row lock: the campaign cannot leave 'draft' while positions are appended.
+/**
+ * Attaches ONE segment of an analysis to a draft, exclusively: the other
+ * segments created from the same analysis are nested audiences of the same
+ * proposal (recommendation ⊂ « with similar brands »), so attaching two of
+ * them would double the overlap for nothing — the previous choice is
+ * detached. Returns null when the campaign is not a draft any more (a live
+ * audience is never changed here).
+ */
+async function attachExclusively(
+  client: PoolClient,
+  campaignId: string,
+  segmentId: string,
+  siblings: SmartSegmentCreatedSegment[],
+): Promise<{ detachedSegmentIds: string[] } | null> {
+  // Row lock: the campaign cannot leave 'draft' while positions change.
   const campaign = await client.query<{ id: string; status: string }>(
     `SELECT id, status FROM campaigns WHERE id = $1 FOR UPDATE`,
     [campaignId],
   );
-  if (!campaign.rows[0] || campaign.rows[0].status !== "draft") return false;
+  if (!campaign.rows[0] || campaign.rows[0].status !== "draft") return null;
+  const siblingIds = siblings.map((entry) => entry.id).filter((other) => other !== segmentId);
+  const detached = siblingIds.length
+    ? await client.query<{ segment_id: string }>(
+      `DELETE FROM campaign_segments WHERE campaign_id = $1 AND segment_id = ANY($2::varchar[]) RETURNING segment_id`,
+      [campaignId, siblingIds],
+    )
+    : null;
   const positions = await client.query<{ next: string }>(
     `SELECT COALESCE(MAX(position) + 1, 0)::text AS next FROM campaign_segments WHERE campaign_id = $1`,
     [campaignId],
   );
-  let next = Number(positions.rows[0]?.next ?? 0);
-  for (const entry of created) {
-    const inserted = await client.query(
-      `INSERT INTO campaign_segments (campaign_id, segment_id, position)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (campaign_id, segment_id) DO NOTHING`,
-      [campaignId, entry.id, next],
-    );
-    if (inserted.rowCount) next += 1;
-  }
-  // Keep the legacy single-segment column coherent for older readers.
   await client.query(
-    `UPDATE campaigns SET segment_id = COALESCE(segment_id, $2) WHERE id = $1`,
-    [campaignId, created[0]?.id ?? null],
+    `INSERT INTO campaign_segments (campaign_id, segment_id, position)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (campaign_id, segment_id) DO NOTHING`,
+    [campaignId, segmentId, Number(positions.rows[0]?.next ?? 0)],
   );
-  return true;
+  // The legacy single-segment column mirrors position 0 of the relation for
+  // older readers; recomputed because the detached segment may have held it.
+  await client.query(
+    `UPDATE campaigns
+        SET segment_id = (SELECT cs.segment_id FROM campaign_segments cs WHERE cs.campaign_id = $1 ORDER BY cs.position ASC LIMIT 1)
+      WHERE id = $1`,
+    [campaignId],
+  );
+  return { detachedSegmentIds: detached?.rows.map((row) => row.segment_id) ?? [] };
 }
 
 /**
  * Creates the segments of a validated proposal and, for an existing draft,
- * attaches them — all in ONE short transaction: the analysis row is locked so
- * two clicks (or two instances) cannot create the same proposal twice, and
- * the campaign is locked so it cannot start sending between the status check
- * and the attach. The segments are never left half-created.
+ * attaches the chosen one — all in ONE short transaction: the analysis row is
+ * locked so two clicks (or two instances) cannot create the same proposal
+ * twice, and the campaign is locked so it cannot start sending between the
+ * status check and the attach. The segments are never left half-created.
+ *
+ * `attach` (default: true for a single index, false otherwise) binds at most
+ * one proposal to the campaign; the other segments of the same analysis are
+ * detached from it, since the proposals are nested audiences.
  */
 export async function materializeSmartSegmentProposal(
   id: string,
-  input: { campaignId?: string | null; proposalIndexes?: number[] },
+  input: { campaignId?: string | null; proposalIndexes?: number[]; attach?: boolean },
   deps: { now?: () => Date } = {},
 ): Promise<SmartSegmentMaterializeResponse> {
   const client = await pool.connect();
@@ -427,6 +489,10 @@ export async function materializeSmartSegmentProposal(
     const requested = (input.proposalIndexes?.length ? input.proposalIndexes : proposal.segments.map((_, index) => index))
       .filter((index, position, all) => Number.isInteger(index) && index >= 0 && index < proposal.segments.length && all.indexOf(index) === position);
     if (!requested.length) throw new SmartSegmentError("BAD_INDEX", "Indice de proposition invalide.", 400);
+    const attach = input.attach ?? requested.length === 1;
+    if (attach && requested.length > 1) {
+      throw new SmartSegmentError("ATTACH_ONE", "Une seule proposition peut être attachée à la campagne : les propositions d'une même analyse sont des audiences imbriquées.", 400);
+    }
 
     const existing: SmartSegmentCreatedSegment[] = Array.isArray(row.created_segments) ? [...row.created_segments] : [];
     const created: SmartSegmentCreatedSegment[] = [];
@@ -474,9 +540,14 @@ export async function materializeSmartSegmentProposal(
     // Server-side attach only for an existing draft: appending positions to a
     // campaign that is sending would change a live audience. Other cases are
     // attached by the wizard through its normal save path.
-    const attached = bindable ? await attachToDraft(client, analysedCampaignId, created) : false;
+    const attachment = attach && bindable ? await attachExclusively(client, analysedCampaignId, created[0].id, existing) : null;
     await client.query("COMMIT");
-    return { segments: created, attached, createdSegmentIds: created.map((entry) => entry.id) };
+    return {
+      segments: created,
+      attached: attachment !== null,
+      createdSegmentIds: created.map((entry) => entry.id),
+      detachedSegmentIds: attachment?.detachedSegmentIds ?? [],
+    };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     if (error instanceof SmartSegmentError) throw error;

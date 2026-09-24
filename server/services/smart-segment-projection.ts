@@ -10,9 +10,12 @@ import {
   type DomainFamilyId,
   type SmartSegmentBlock,
   type SmartSegmentBrandResolution,
+  type SmartSegmentMtaComplaintCapture,
+  type SmartSegmentOrangeWanadooProjection,
   type RecencyBand,
   type RefRelation,
   NON_ACTIVE_RECENCY_BANDS,
+  ORANGE_WANADOO_COHORT,
   RECENCY_BAND_LABELS,
   SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS,
   refRecencyCohort,
@@ -46,6 +49,30 @@ export const PROJECTION_RANGE = { low: 0.7, high: 1.15 };
 /** Cohorts thinner than this fall back to the axis-wide rate. */
 export const MIN_RELIABLE_COHORT_DELIVERED = 1_000;
 
+/**
+ * Rule of three: a cohort with k < 3 observed complaints among N observed
+ * recipients is projected at 3 / N (the 95 % upper bound of a zero-event
+ * sample), never at its face value. Field result: a 0-complaint history is
+ * unmeasured, not safe.
+ */
+export const RULE_OF_THREE_EVENTS = 3;
+export function ruleOfThreeRate(complaintRate: number, observed: number): number {
+  if (observed <= 0) return complaintRate;
+  return Math.max(complaintRate, RULE_OF_THREE_EVENTS / observed);
+}
+
+/**
+ * Complaint capture of an MTA, judged on its own recent history (all brands):
+ * an MTA that delivered a lot and reported almost nothing does not receive
+ * the feedback loops — its sends cannot calibrate a complaint rate.
+ */
+export const MTA_CAPTURE_MIN_DELIVERED = 100_000;
+export const MTA_BLIND_COMPLAINT_RATE = 0.0001;
+export function classifyMtaComplaintCapture(delivered: number, complaints: number): SmartSegmentMtaComplaintCapture {
+  if (delivered < MTA_CAPTURE_MIN_DELIVERED) return "unknown";
+  return complaints / delivered < MTA_BLIND_COMPLAINT_RATE ? "blind" : "capturing";
+}
+
 export type RawCohortRow = {
   axis: CohortAxis;
   cohort: string;
@@ -53,58 +80,94 @@ export type RawCohortRow = {
   humanClickers: number;
   botClickers: number;
   complaints: number;
-  /** Un-scaled recipients behind a sampled row (recency axes). */
+  /** Unsubscribes recorded on the send for this cohort (absent on older fixtures). */
+  unsubscribes?: number;
+  /** Un-scaled recipients behind a sampled row (rule of three and recency reliability). */
   observed?: number;
 };
 
 export function aggregateCohortRates(rows: RawCohortRow[]): CohortRate[] {
-  const merged = new Map<string, RawCohortRow>();
+  const merged = new Map<string, RawCohortRow & { observedTotal: number }>();
   for (const row of rows) {
     const key = `${row.axis}\u0000${row.cohort}`;
-    const current = merged.get(key) ?? { axis: row.axis, cohort: row.cohort, delivered: 0, humanClickers: 0, botClickers: 0, complaints: 0 };
+    const current = merged.get(key) ?? { axis: row.axis, cohort: row.cohort, delivered: 0, humanClickers: 0, botClickers: 0, complaints: 0, observedTotal: 0 };
     current.delivered += row.delivered;
     current.humanClickers += row.humanClickers;
     current.botClickers += row.botClickers;
     current.complaints += row.complaints;
+    if (row.unsubscribes !== undefined) current.unsubscribes = (current.unsubscribes ?? 0) + row.unsubscribes;
     if (row.observed !== undefined) current.observed = (current.observed ?? 0) + row.observed;
+    // Rule-of-three support: recipients actually observed (a sampled row
+    // counts its sample, an exact row its delivered).
+    current.observedTotal += row.observed ?? row.delivered;
     merged.set(key, current);
   }
   return [...merged.values()]
     .sort((a, b) => a.axis.localeCompare(b.axis) || a.cohort.localeCompare(b.cohort))
-    .map((row) => ({
-      ...row,
-      humanCtr: row.delivered > 0 ? row.humanClickers / row.delivered : 0,
-      complaintRate: row.delivered > 0 ? row.complaints / row.delivered : 0,
-    }));
+    .map(({ observedTotal, ...row }) => {
+      const complaintRate = row.delivered > 0 ? row.complaints / row.delivered : 0;
+      return {
+        ...row,
+        humanCtr: row.delivered > 0 ? row.humanClickers / row.delivered : 0,
+        complaintRate,
+        complaintRateBound: row.delivered > 0 ? ruleOfThreeRate(complaintRate, observedTotal) : 0,
+        ...(row.unsubscribes !== undefined ? { unsubscribeRate: row.delivered > 0 ? row.unsubscribes / row.delivered : 0 } : {}),
+      };
+    });
 }
 
-function axisTotals(rates: CohortRate[], axis: CohortAxis): { humanCtr: number; complaintRate: number; delivered: number } {
-  let delivered = 0, clickers = 0, complaints = 0;
+/** Complaint rate retained for projection (older dossiers carry no bound). */
+function boundOf(rate: Pick<CohortRate, "complaintRate" | "complaintRateBound">): number {
+  return rate.complaintRateBound ?? rate.complaintRate;
+}
+
+type AxisRate = { humanCtr: number; complaintRate: number; complaintRateBound: number; unsubscribeRate: number | null; delivered: number };
+
+function axisTotals(rates: CohortRate[], axis: CohortAxis): AxisRate {
+  let delivered = 0, clickers = 0, complaints = 0, observed = 0, unsubscribes = 0;
+  let unsubscribesMeasured = false;
   for (const rate of rates) {
     if (rate.axis !== axis) continue;
     delivered += rate.delivered;
     clickers += rate.humanClickers;
     complaints += rate.complaints;
+    observed += rate.observed ?? rate.delivered;
+    if (rate.unsubscribes !== undefined) {
+      unsubscribes += rate.unsubscribes;
+      unsubscribesMeasured = true;
+    }
   }
+  const complaintRate = delivered > 0 ? complaints / delivered : 0;
   return {
     delivered,
     humanCtr: delivered > 0 ? clickers / delivered : 0,
-    complaintRate: delivered > 0 ? complaints / delivered : 0,
+    complaintRate,
+    complaintRateBound: delivered > 0 ? ruleOfThreeRate(complaintRate, observed) : 0,
+    unsubscribeRate: unsubscribesMeasured && delivered > 0 ? unsubscribes / delivered : null,
   };
 }
 
 /**
  * Measured rate for a cohort; thin cohorts inherit the axis-wide rate so a
- * handful of recipients never drives a projection.
+ * handful of recipients never drives a projection. `complaintRateBound` is
+ * the rate to project with (rule of three applied), `complaintRate` the
+ * face value for display.
  */
 export function rateFor(
   rates: CohortRate[],
   axis: CohortAxis,
   cohort: string,
-): { humanCtr: number; complaintRate: number; delivered: number; reliable: boolean } {
+): AxisRate & { reliable: boolean } {
   const exact = rates.find((rate) => rate.axis === axis && rate.cohort === cohort);
   if (exact && exact.delivered >= MIN_RELIABLE_COHORT_DELIVERED) {
-    return { humanCtr: exact.humanCtr, complaintRate: exact.complaintRate, delivered: exact.delivered, reliable: true };
+    return {
+      humanCtr: exact.humanCtr,
+      complaintRate: exact.complaintRate,
+      complaintRateBound: boundOf(exact),
+      unsubscribeRate: exact.unsubscribeRate ?? null,
+      delivered: exact.delivered,
+      reliable: true,
+    };
   }
   const totals = axisTotals(rates, axis);
   return { ...totals, reliable: false };
@@ -118,8 +181,11 @@ export function rateFor(
  */
 export const FAMILY_BOUND_COHORT = "family/in_family";
 export function familyComplaintBound(rates: CohortRate[]): number {
-  return rateFor(rates, "family", "in_family").complaintRate;
+  return rateFor(rates, "family", "in_family").complaintRateBound;
 }
+
+/** Cohort label of the baseline floor when it is the binding bound of a cell. */
+export const COMPLAINT_FLOOR_COHORT = "plancher/calibrage aveugle";
 
 /**
  * Rate of a non-active recency band: the recency × ref-relation cross cohort
@@ -132,18 +198,22 @@ export function recencyRateFor(
   rates: CohortRate[],
   band: RecencyBand,
   refRelation?: RefRelation,
-): { humanCtr: number; complaintRate: number; delivered: number; cohort: string } | null {
+): { humanCtr: number; complaintRate: number; complaintRateBound: number; unsubscribeRate: number | null; delivered: number; cohort: string } | null {
+  const pick = (rate: CohortRate, cohort: string) => ({
+    humanCtr: rate.humanCtr,
+    complaintRate: rate.complaintRate,
+    complaintRateBound: boundOf(rate),
+    unsubscribeRate: rate.unsubscribeRate ?? null,
+    delivered: rate.delivered,
+    cohort,
+  });
   if (refRelation) {
     const cohort = refRecencyCohort(refRelation, band);
     const cross = rates.find((rate) => rate.axis === "ref_recency" && rate.cohort === cohort);
-    if (cross && reliableSupport(cross)) {
-      return { humanCtr: cross.humanCtr, complaintRate: cross.complaintRate, delivered: cross.delivered, cohort: `ref_recency/${cohort}` };
-    }
+    if (cross && reliableSupport(cross)) return pick(cross, `ref_recency/${cohort}`);
   }
   const marginal = rates.find((rate) => rate.axis === "recency" && rate.cohort === band);
-  if (marginal && reliableSupport(marginal)) {
-    return { humanCtr: marginal.humanCtr, complaintRate: marginal.complaintRate, delivered: marginal.delivered, cohort: `recency/${band}` };
-  }
+  if (marginal && reliableSupport(marginal)) return pick(marginal, `recency/${band}`);
   return null;
 }
 
@@ -457,6 +527,7 @@ export function projectBlock(
   level: CalibrationLevel,
   tierCounts: TierCounts,
   recencyLevel: CalibrationLevel = level,
+  complaintFloor = 0,
 ): SmartSegmentBlock {
   const band = blockRecencyBand(definition);
   const adjustments = CALIBRATION_ADJUSTMENTS[band ? recencyLevel : level];
@@ -470,8 +541,8 @@ export function projectBlock(
     // (core / similar / vertical), exactly like the ref blocks it derives from.
     const relation = definition.calibration.refRelation;
     complaintRate = relation && relation !== "none"
-      ? Math.max(rate.complaintRate, rateFor(cohortRates, "ref_relation", relation).complaintRate)
-      : rate.complaintRate;
+      ? Math.max(rate.complaintRateBound, rateFor(cohortRates, "ref_relation", relation).complaintRateBound)
+      : rate.complaintRateBound;
   } else if (definition.tiers && definition.tiers.some((tier) => (tierCounts[tier] ?? 0) > 0)) {
     let weight = 0, clicks = 0, complaints = 0;
     for (const tier of definition.tiers) {
@@ -480,17 +551,17 @@ export function projectBlock(
       const rate = rateFor(cohortRates, "clicker_tier", tier);
       weight += count;
       clicks += count * rate.humanCtr;
-      complaints += count * rate.complaintRate;
+      complaints += count * rate.complaintRateBound;
     }
     humanCtr = weight ? clicks / weight : 0;
     complaintRate = weight ? complaints / weight : 0;
   } else {
     const rate = rateFor(cohortRates, definition.calibration.axis, definition.calibration.cohort);
     humanCtr = rate.humanCtr;
-    complaintRate = rate.complaintRate;
+    complaintRate = rate.complaintRateBound;
   }
   const expectedCtr = humanCtr * adjustments.discount;
-  const expectedComplaintRate = Math.max(complaintRate, familyComplaintBound(cohortRates)) * adjustments.complaintMarkup;
+  const expectedComplaintRate = Math.max(complaintRate, familyComplaintBound(cohortRates), complaintFloor) * adjustments.complaintMarkup;
   const point = available * expectedCtr;
   return {
     id: definition.id,
@@ -513,6 +584,8 @@ export type AudienceMeasure = {
   tierCounts: TierCounts;
   /** Recency partition of the same audience (last open/click), when measured. */
   recencyCounts?: Partial<Record<RecencyBand, number>>;
+  /** Orange/Wanadoo recipients of the same audience, when measured. */
+  orangeWanadooCount?: number;
 };
 
 export type TierProjection = {
@@ -524,6 +597,8 @@ export type TierProjection = {
   complaintRate: number;
   /** Cohort whose complaint rate was retained for this cell (worst implicated). */
   complaintCohort: string;
+  /** Unsubscribe rate of the cell's own cohort (null when the dossier did not measure unsubscribes). */
+  unsubscribeRate: number | null;
 };
 
 export type CompositionProjection = {
@@ -539,7 +614,20 @@ export type CompositionProjection = {
   tiers: TierProjection[];
   /** Subscribers the tier partition did not account for (count drift): projected at the worst cell. */
   unattributedCount: number;
+  /** Unsubscribes projected from each cell's own cohort (null when not measured). */
+  projectedUnsubscribeRate: number | null;
+  projectedUnsubscribes: number | null;
+  /** Orange/Wanadoo exposure (null when the audience measure or the dossier lacks it). */
+  orangeWanadoo: SmartSegmentOrangeWanadooProjection | null;
 };
+
+/** Same thresholds as the campaign list badge and the Orange/Wanadoo risk policy. */
+export function orangeWanadooStatus(rate: number, count: number): SmartSegmentOrangeWanadooProjection["status"] {
+  if (count <= 0) return "unknown";
+  if (rate < 0.004) return "green";
+  if (rate <= 0.006) return "orange";
+  return "red";
+}
 
 /**
  * Projects a proposal from the EXACT recount of its final rules, partitioned
@@ -559,6 +647,7 @@ export function projectComposition(
   cohortRates: CohortRate[],
   level: CalibrationLevel,
   recencyLevel: CalibrationLevel = level,
+  options: { complaintFloor?: number } = {},
 ): CompositionProjection {
   const used = blocks.filter((block) => blockIds.includes(block.id));
   const adjustments = CALIBRATION_ADJUSTMENTS[level];
@@ -571,15 +660,20 @@ export function projectComposition(
     return block.calibration.refRelation && block.calibration.refRelation !== "none" ? [block.calibration.refRelation] : [];
   }))];
   const refCohorts: string[] = bandRelations;
+  // Every rate below is the rule-of-three bound of its cohort. The baseline
+  // floor (calibration sends blind to complaints) is one more bound.
+  const complaintFloor = Math.max(0, options.complaintFloor ?? 0);
   const bounds = [
     { cohort: FAMILY_BOUND_COHORT, rate: familyComplaintBound(cohortRates) },
-    ...refCohorts.map((cohort) => ({ cohort: `ref_relation/${cohort}`, rate: rateFor(cohortRates, "ref_relation", cohort).complaintRate })),
+    ...refCohorts.map((cohort) => ({ cohort: `ref_relation/${cohort}`, rate: rateFor(cohortRates, "ref_relation", cohort).complaintRateBound })),
+    ...(complaintFloor > 0 ? [{ cohort: COMPLAINT_FLOOR_COHORT, rate: complaintFloor }] : []),
   ];
   const worstBound = (candidates: Array<{ cohort: string; rate: number }>, initial: { cohort: string; rate: number }) => {
     let worst = initial;
     for (const bound of candidates) if (bound.rate > worst.rate) worst = bound;
     return worst;
   };
+  const boundOfRate = (rate: Pick<CohortRate, "complaintRate" | "complaintRateBound">) => rate.complaintRateBound ?? rate.complaintRate;
 
   // Non-active cells carved out of tier "0": each band is projected at its own
   // recency cohort — never at the tier-0 openers' rate. CTR = the LOWEST
@@ -588,21 +682,23 @@ export function projectComposition(
   // usual bounds. A band without any reliable rate is still carved out, at a
   // zero CTR and the worst complaint rate measured anywhere (fail closed).
   const nonActiveCells: TierProjection[] = [];
-  const worstMeasuredAnywhere = cohortRates.reduce((max, row) => Math.max(max, row.complaintRate), 0);
+  const worstMeasuredAnywhere = cohortRates.reduce((max, row) => Math.max(max, boundOfRate(row)), complaintFloor);
   for (const band of NON_ACTIVE_RECENCY_BANDS) {
     const count = Math.max(0, Math.round(measure.recencyCounts?.[band] ?? 0));
     if (!count) continue;
     const rate = recencyRateFor(cohortRates, band);
     if (!rate) {
       const worst = worstBound(bounds, { cohort: `non calibré/${band}`, rate: worstMeasuredAnywhere });
-      nonActiveCells.push({ tier: "0", band, count, ctr: 0, complaintRate: worst.rate * recencyAdjustments.complaintMarkup, complaintCohort: worst.cohort });
+      nonActiveCells.push({ tier: "0", band, count, ctr: 0, complaintRate: worst.rate * recencyAdjustments.complaintMarkup, complaintCohort: worst.cohort, unsubscribeRate: null });
       continue;
     }
     const crosses = bandRelations
       .map((relation) => recencyRateFor(cohortRates, band, relation))
       .filter((cross): cross is NonNullable<typeof cross> => !!cross && cross.cohort.startsWith("ref_recency/"));
     const lowestCtr = crosses.reduce((min, cross) => Math.min(min, cross.humanCtr), rate.humanCtr);
-    const worst = worstBound([...bounds, ...crosses.map((cross) => ({ cohort: cross.cohort, rate: cross.complaintRate }))], { cohort: rate.cohort, rate: rate.complaintRate });
+    const worst = worstBound([...bounds, ...crosses.map((cross) => ({ cohort: cross.cohort, rate: cross.complaintRateBound }))], { cohort: rate.cohort, rate: rate.complaintRateBound });
+    // Unsubscribes: the highest rate among the same cohorts (worst implicated).
+    const unsubscribeRate = [rate, ...crosses].reduce<number | null>((max, cross) => (cross.unsubscribeRate === null ? max : Math.max(max ?? 0, cross.unsubscribeRate)), null);
     nonActiveCells.push({
       tier: "0",
       band,
@@ -610,6 +706,7 @@ export function projectComposition(
       ctr: lowestCtr * recencyAdjustments.discount,
       complaintRate: worst.rate * recencyAdjustments.complaintMarkup,
       complaintCohort: worst.cohort,
+      unsubscribeRate,
     });
   }
   const carvedOut = nonActiveCells.reduce((sum, cell) => sum + cell.count, 0);
@@ -618,15 +715,17 @@ export function projectComposition(
   let attributed = 0;
   let clicks = 0;
   let complaints = 0;
+  let unsubscribes = 0;
+  let unsubscribesMeasured = true;
   for (const tier of CLICKER_TIERS) {
     let count = Math.max(0, Math.round(measure.tierCounts[tier] ?? 0));
     if (tier === "0") count = Math.max(0, count - carvedOut);
     if (!count) continue;
     const rate = rateFor(cohortRates, "clicker_tier", tier);
-    const worst = worstBound(bounds, { cohort: `clicker_tier/${tier}`, rate: rate.complaintRate });
+    const worst = worstBound(bounds, { cohort: `clicker_tier/${tier}`, rate: rate.complaintRateBound });
     const ctr = rate.humanCtr * adjustments.discount;
     const complaintRate = worst.rate * adjustments.complaintMarkup;
-    tiers.push({ tier, count, ctr, complaintRate, complaintCohort: worst.cohort });
+    tiers.push({ tier, count, ctr, complaintRate, complaintCohort: worst.cohort, unsubscribeRate: rate.unsubscribeRate });
     attributed += count;
     clicks += count * ctr;
     complaints += count * complaintRate;
@@ -637,6 +736,10 @@ export function projectComposition(
     clicks += cell.count * cell.ctr;
     complaints += cell.count * cell.complaintRate;
   }
+  for (const cell of tiers) {
+    if (cell.unsubscribeRate === null) unsubscribesMeasured = false;
+    else unsubscribes += cell.count * cell.unsubscribeRate;
+  }
   // Drift between the total and its partition (counts taken at slightly
   // different instants) is charged to the worst cell — or, without any cell,
   // to the worst complaint rate measured anywhere with the 0-click CTR.
@@ -644,16 +747,40 @@ export function projectComposition(
   const unattributedCount = Math.max(0, total - attributed);
   if (unattributedCount > 0) {
     const zero = rateFor(cohortRates, "clicker_tier", "0");
-    const worstMeasured = cohortRates.reduce((max, row) => Math.max(max, row.complaintRate), zero.complaintRate);
+    const worstMeasured = cohortRates.reduce((max, row) => Math.max(max, boundOfRate(row)), Math.max(zero.complaintRateBound, complaintFloor));
     const worstCell = tiers.reduce<TierProjection | null>((acc, cell) => (!acc || cell.complaintRate > acc.complaintRate ? cell : acc), null);
     const ctr = worstCell ? Math.min(worstCell.ctr, zero.humanCtr * adjustments.discount) : zero.humanCtr * adjustments.discount;
     const complaintRate = Math.max(worstCell?.complaintRate ?? 0, worstMeasured * adjustments.complaintMarkup);
     clicks += unattributedCount * ctr;
     complaints += unattributedCount * complaintRate;
+    const worstUnsubscribe = tiers.reduce<number | null>((max, cell) => (cell.unsubscribeRate === null ? max : Math.max(max ?? 0, cell.unsubscribeRate)), zero.unsubscribeRate);
+    if (worstUnsubscribe === null) unsubscribesMeasured = false;
+    else unsubscribes += unattributedCount * worstUnsubscribe;
   }
   const denominator = Math.max(total, attributed);
   const weightedCtr = denominator ? clicks / denominator : 0;
   const projectedComplaintRate = denominator ? complaints / denominator : 0;
+  const projectedUnsubscribeRate = unsubscribesMeasured && denominator ? unsubscribes / denominator : null;
+
+  // Orange/Wanadoo: the ISP that actually blocks. Its recipients are projected
+  // at the WORST of the audience's own rate and the Orange/Wanadoo cohort of
+  // the calibration sends (bounded, floored, marked up like every cell).
+  let orangeWanadoo: SmartSegmentOrangeWanadooProjection | null = null;
+  const owCohort = cohortRates.find((rate) => rate.axis === "domain_group" && rate.cohort === ORANGE_WANADOO_COHORT);
+  if (measure.orangeWanadooCount !== undefined && owCohort) {
+    const count = Math.max(0, Math.min(denominator, Math.round(measure.orangeWanadooCount)));
+    const cohortReliable = owCohort.delivered >= MIN_RELIABLE_COHORT_DELIVERED;
+    const cohortRate = cohortReliable ? Math.max(boundOfRate(owCohort), complaintFloor) * adjustments.complaintMarkup : 0;
+    const rate = Math.max(projectedComplaintRate, cohortRate);
+    orangeWanadoo = {
+      count,
+      share: denominator ? count / denominator : 0,
+      projectedComplaintRate: rate,
+      projectedComplaints: Math.round(count * rate),
+      status: orangeWanadooStatus(rate, count),
+      cohortReliable,
+    };
+  }
   return {
     projectedClicks: { low: Math.round(clicks * PROJECTION_RANGE.low), high: Math.round(clicks * PROJECTION_RANGE.high) },
     projectedComplaintRate,
@@ -664,6 +791,9 @@ export function projectComposition(
     familyComplaintBound: bounds[0].rate,
     tiers,
     unattributedCount,
+    projectedUnsubscribeRate,
+    projectedUnsubscribes: projectedUnsubscribeRate === null ? null : Math.round(unsubscribes),
+    orangeWanadoo,
   };
 }
 

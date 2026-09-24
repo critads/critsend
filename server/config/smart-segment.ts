@@ -45,6 +45,12 @@ export function getSmartSegmentConfig() {
     /** Refuse to start when the main pool is this saturated (matches backgroundQuery's guard). */
     poolSaturationLimit: 0.6,
     reuseWindowMs: SMART_SEGMENT_REUSE_WINDOW_MS,
+    /**
+     * A dossier built for the same brand / family / MTA / similar refs within
+     * this window is copied instead of rebuilt when only the target or the cap
+     * changes (« Actualiser » bypasses it). 0 disables the reuse.
+     */
+    evidenceReuseWindowMs: envInt("SMART_SEGMENT_EVIDENCE_REUSE_WINDOW_MS", 2 * 60 * 60 * 1000, 0, 24 * 60 * 60 * 1000),
     complaintHardCap: SMART_SEGMENT_COMPLAINT_HARD_CAP,
     complaintTarget: SMART_SEGMENT_COMPLAINT_TARGET,
     /** Recipients of brand sends newer than this are excluded from proposals. */

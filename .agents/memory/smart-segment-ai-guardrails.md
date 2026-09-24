@@ -51,13 +51,39 @@ legit run alive across a PM2 reload overlap; worst-case visibility of an interru
 Rule: server-side attach only when the analysis was computed for the exact same non-null
 campaign id; unbound analysis ⇒ segments created, `attached:false`, wizard attaches through its
 own save path; two different ids ⇒ 409. The wizard ties the shown proposal to the shared
-`smartSegmentAnalysisIdentity` (immediate name, campaign, family, target, cap, override — not
-MTA), resets on change, drops late responses, disables « Créer » unless params still match. A
+`smartSegmentAnalysisIdentity` (immediate name, campaign, MTA, family, target, cap rounded at
+1e-6, override, similar refs), resets on change, drops late responses, disables the create
+buttons unless params still match. The MTA IS part of the identity since complaint capture
+depends on the sending MTA (calibration sends are ranked by it). A
 hand-typed brand must stay editable and is dropped when the campaign name changes (otherwise it
 silently keeps precedence over detection with stale refs/tags/history).
 
 **Why:** an analysis made for another name/cap/pre-draft context could otherwise be attached to
 the current draft (500 ms debounce + un-fenced mutation results made this reachable).
+
+## 3a. Proposals of one analysis are NESTED audiences: attach one, never several
+Rule: the 2–3 proposals overlap (recommended ⊂ wider ⊂ with similar brands), so a campaign holds
+at most ONE of them. `materialize` takes `attach` + exactly one index (2+ with attach ⇒ 400);
+server-side attach on a draft detaches the analysis' sibling segments in the same transaction
+under the campaign row lock and re-mirrors the legacy `campaigns.segment_id` to the
+lowest-position row; the response lists `detachedSegmentIds`; « Créer sans attacher » only
+creates. The wizard mirrors this itself (drops the other created siblings from its selection)
+because for a new/unsaved campaign the server cannot attach at all.
+
+**Why:** the first « Créer les deux/trois » button attached nested segments together; the
+campaign then sent to the union (= the widest one) while the operator believed the recommended
+one was in use, and the badge counters/projection comparison were meaningless.
+
+## 3b. Evidence cache lives inside the evidence JSON (no migration)
+Rule: the dossier carries `evidenceKey` = `smartSegmentEvidenceIdentity` (brand/family/similar
+refs/excluded campaign/MTA + a FORMAT tag) and, when reused, `reusedFrom`. A param-only re-run
+(target/cap) within the reuse window copies the latest ORIGINAL dossier (`reusedFrom IS NULL` —
+a copy is never a source, so chains cannot outlive the window) and re-queries only the recent
+brand sends; `refresh` always rebuilds. Bump the format tag whenever the dossier's shape or a
+measurement changes, or stale dossiers keep being served for the whole window.
+
+**Why:** a cap/target tweak re-scanned the calibration sends (minutes of campaign_sends work)
+for a result whose evidence part is identical; operators re-ran 3–4 times per campaign.
 
 ## 5. Non-active (lapsed / dormant) contacts are never projected at the actives' rates
 Rule: a non-active band (no open/click in 60 days) is projected only from a reliable recency
@@ -74,6 +100,22 @@ source, and the pool is best-effort under the evidence budget (omit, never fail 
 **How to apply:** audience recency = live `last_engaged_at` bands; calibration recency = last
 activity BEFORE the send. Similar-brand refs are an operator selection validated server-side,
 part of the analysis identity, and removed from the vertical pool (no double counting).
+
+## 5a. Complaint calibration is MTA-aware; thin cohorts use the rule of three
+Rule: every MTA is classified on its 90-day cached counters (delivered < 100 000 ⇒ unknown,
+complaint rate < 0,01 % ⇒ blind, else capturing). Blind-MTA sends never calibrate complaints
+while a capturing (or unknown) send exists — and that ranking must happen BEFORE any recency
+cap (brand history 6, fallback 8), on a cheap `campaigns.mta_id` lookup, within the same
+180-day horizon as the floor. When every calibration send is blind, a floor measured on
+capturing MTAs (brand → vertical → global, 180 d, cached counters) bounds every projected cell.
+A cohort with 0 (or few) observed complaints is bounded by 3 / observed recipients (observed =
+un-rescaled sampled rows). The Orange/Wanadoo cohort (`domain_group` axis) gets its own
+projected complaint rate; a red OW rate on ≥ 1 000 OW recipients rejects the proposal.
+
+**Why:** the first production week calibrated a brand on Kammaspeed sends (0 complaints on
+8 M delivered = blind), projected 0,000 % and sent; the real complaints were only visible once
+the same audience went through a capturing MTA. Old capturing sends beyond 180 d are not
+preferred: they would calibrate clicks on stale behaviour, and the floor uses the same horizon.
 
 ## 6. Raw SQL statements: every bound parameter must be referenced
 Rule: a hand-written statement run through the evidence runner must reference every `$n` it

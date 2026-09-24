@@ -8,17 +8,23 @@ import {
   clickerTierFor,
   condition,
   ensureMandatoryExclusions,
+  classifyMtaComplaintCapture,
+  COMPLAINT_FLOOR_COHORT,
   exceedsComplaintCap,
   group,
   mandatoryExclusions,
   MIN_RELIABLE_COHORT_DELIVERED,
+  MTA_CAPTURE_MIN_DELIVERED,
+  orangeWanadooStatus,
   projectBlock,
   projectComposition,
   rateFor,
+  ruleOfThreeRate,
   sampleDivisorFor,
   recencyRateFor,
   splitProjectableBlocks,
 } from "../server/services/smart-segment-projection";
+import { ORANGE_WANADOO_COHORT } from "../shared/smart-segment";
 import { BOT_OPENER_REF } from "../server/config/suppression";
 
 const brand: SmartSegmentBrandResolution = {
@@ -437,7 +443,98 @@ describe("smart segment projection — non-active recency blocks (Task #311)", (
     const projection = projectComposition(measure, ["brand_core_refs"], blocks, table, "brand");
     const lapsed = projection.tiers.find((cell) => cell.band === "opened_61_180d")!;
     expect(lapsed.ctr).toBeCloseTo(4 / 2_000);
-    expect(lapsed.complaintCohort).toBe("recency/opened_61_180d");
+    // Complaints: the cross has ONE complaint among 2,000 → rule of three
+    // (3 / 2,000 = 0,15 %) beats the marginal's measured 4 / 5,000 = 0,08 %.
+    expect(lapsed.complaintCohort).toBe("ref_recency/core|opened_61_180d");
+    expect(lapsed.complaintRate).toBeCloseTo((3 / 2_000) * CALIBRATION_ADJUSTMENTS.brand.complaintMarkup);
+  });
+});
+
+describe("smart segment projection — complaint calibration (rule of three, MTA capture, floor)", () => {
+  it("bounds thin cohorts by the rule of three and never lowers a measured rate", () => {
+    expect(ruleOfThreeRate(0, 10_000)).toBeCloseTo(3 / 10_000);
+    expect(ruleOfThreeRate(2 / 10_000, 10_000)).toBeCloseTo(3 / 10_000);
+    expect(ruleOfThreeRate(5 / 10_000, 10_000)).toBeCloseTo(5 / 10_000);
+    expect(ruleOfThreeRate(0.001, 0)).toBe(0.001);
+    // Bound is computed on the OBSERVED rows of a sampled cohort, not the rescaled ones.
+    const table = aggregateCohortRates([
+      { axis: "clicker_tier", cohort: "6+", delivered: 40_000, humanClickers: 4_000, botClickers: 0, complaints: 0, observed: 4_000 },
+      { axis: "clicker_tier", cohort: "1", delivered: 40_000, humanClickers: 400, botClickers: 0, complaints: 80, observed: 4_000 },
+    ]);
+    expect(table.find((row) => row.cohort === "6+")!.complaintRateBound).toBeCloseTo(3 / 4_000);
+    expect(table.find((row) => row.cohort === "1")!.complaintRateBound).toBeCloseTo(80 / 40_000);
+  });
+
+  it("classifies an MTA's complaint capture on its own 90-day history only once it delivered enough", () => {
+    expect(classifyMtaComplaintCapture(MTA_CAPTURE_MIN_DELIVERED - 1, 0)).toBe("unknown");
+    expect(classifyMtaComplaintCapture(5_000_000, 0)).toBe("blind");
+    expect(classifyMtaComplaintCapture(5_000_000, 400)).toBe("blind"); // 0,008 % < 0,01 %
+    expect(classifyMtaComplaintCapture(5_000_000, 600)).toBe("capturing");
+  });
+
+  it("applies the baseline floor to every cell (including the cohort bound of Orange/Wanadoo) when the calibration is blind", () => {
+    const table = rates([
+      ["clicker_tier", "6+", 20_000, 2_400, 0],
+      ["clicker_tier", "0", 100_000, 500, 0],
+      ["ref_relation", "core", 120_000, 2_900, 0],
+      ["family", "in_family", 120_000, 2_900, 0],
+      ["domain_group", ORANGE_WANADOO_COHORT, 30_000, 600, 0],
+      ["domain_group", "other", 90_000, 2_300, 0],
+    ]);
+    const definitions = buildBlockLibrary(brand);
+    const blocks = [projectBlock(definitions.find((d) => d.id === "clickers_6plus")!, 20_000, table, "brand", {})];
+    const measure = { total: 10_000, tierCounts: { "6+": 10_000 }, recencyCounts: {}, orangeWanadooCount: 2_500 };
+    const unfloored = projectComposition(measure, ["clickers_6plus"], blocks, table, "brand");
+    // Blind history: 0 complaints everywhere → the rule of three alone (3 / 20,000 on the tier).
+    expect(unfloored.tiers[0].complaintRate).toBeCloseTo((3 / 20_000) * CALIBRATION_ADJUSTMENTS.brand.complaintMarkup);
+    const floored = projectComposition(measure, ["clickers_6plus"], blocks, table, "brand", "brand", { complaintFloor: 0.002 });
+    expect(floored.tiers[0].complaintCohort).toBe(COMPLAINT_FLOOR_COHORT);
+    expect(floored.tiers[0].complaintRate).toBeCloseTo(0.002 * CALIBRATION_ADJUSTMENTS.brand.complaintMarkup);
+    expect(floored.projectedComplaintRate).toBeCloseTo(0.002 * CALIBRATION_ADJUSTMENTS.brand.complaintMarkup);
+    expect(floored.projectedComplaints).toBe(Math.round(10_000 * 0.002 * CALIBRATION_ADJUSTMENTS.brand.complaintMarkup));
+    expect(floored.orangeWanadoo).toMatchObject({ count: 2_500, share: 0.25, cohortReliable: true });
+    expect(floored.orangeWanadoo!.projectedComplaintRate).toBeCloseTo(0.002 * CALIBRATION_ADJUSTMENTS.brand.complaintMarkup);
+  });
+
+  it("projects unsubscribes from the cells' cohorts and Orange/Wanadoo at the worst of the audience and its cohort", () => {
+    const table = aggregateCohortRates([
+      { axis: "clicker_tier", cohort: "6+", delivered: 20_000, humanClickers: 2_400, botClickers: 0, complaints: 10, unsubscribes: 100 },
+      { axis: "clicker_tier", cohort: "1", delivered: 50_000, humanClickers: 1_000, botClickers: 0, complaints: 50, unsubscribes: 500 },
+      { axis: "clicker_tier", cohort: "0", delivered: 100_000, humanClickers: 500, botClickers: 0, complaints: 60, unsubscribes: 800 },
+      { axis: "ref_relation", cohort: "core", delivered: 170_000, humanClickers: 3_900, botClickers: 0, complaints: 120, unsubscribes: 1_400 },
+      { axis: "family", cohort: "in_family", delivered: 170_000, humanClickers: 3_900, botClickers: 0, complaints: 120, unsubscribes: 1_400 },
+      { axis: "domain_group", cohort: ORANGE_WANADOO_COHORT, delivered: 40_000, humanClickers: 800, botClickers: 0, complaints: 200, unsubscribes: 400 },
+      { axis: "domain_group", cohort: "other", delivered: 130_000, humanClickers: 3_100, botClickers: 0, complaints: 20, unsubscribes: 1_000 },
+    ]);
+    const definitions = buildBlockLibrary(brand);
+    const blocks = [projectBlock(definitions.find((d) => d.id === "clickers_1plus")!, 70_000, table, "brand", {})];
+    const measure = { total: 10_000, tierCounts: { "6+": 4_000, "1": 6_000 }, recencyCounts: {}, orangeWanadooCount: 3_000 };
+    const projection = projectComposition(measure, ["clickers_1plus"], blocks, table, "brand");
+    // Unsubscribes: 4,000 × 0,5 % + 6,000 × 1 % = 80 → 0,8 %.
+    expect(projection.projectedUnsubscribeRate).toBeCloseTo(0.008);
+    expect(projection.projectedUnsubscribes).toBe(80);
+    // Orange/Wanadoo: the cohort's 0,5 % (marked up) is worse than the audience's own projection.
+    const markup = CALIBRATION_ADJUSTMENTS.brand.complaintMarkup;
+    expect(projection.orangeWanadoo).toMatchObject({ count: 3_000, share: 0.3, cohortReliable: true });
+    expect(projection.orangeWanadoo!.projectedComplaintRate).toBeCloseTo(0.005 * markup);
+    expect(projection.orangeWanadoo!.projectedComplaints).toBe(Math.round(3_000 * 0.005 * markup));
+    expect(projection.orangeWanadoo!.status).toBe(orangeWanadooStatus(0.005 * markup, 3_000));
+    expect(projection.orangeWanadoo!.projectedComplaintRate).toBeGreaterThan(projection.projectedComplaintRate);
+    // Thresholds of the campaign-list badge; no recipient → unknown.
+    expect(orangeWanadooStatus(0.0039, 10)).toBe("green");
+    expect(orangeWanadooStatus(0.006, 10)).toBe("orange");
+    expect(orangeWanadooStatus(0.0061, 10)).toBe("red");
+    expect(orangeWanadooStatus(0.01, 0)).toBe("unknown");
+    // A thin Orange/Wanadoo cohort is not trusted: the audience's own rate applies.
+    const thin = aggregateCohortRates(table.map((row) => (row.axis === "domain_group" ? { ...row, delivered: 500, observed: 500, complaints: 5 } : row)) as never);
+    const thinProjection = projectComposition(measure, ["clickers_1plus"], blocks, thin, "brand");
+    expect(thinProjection.orangeWanadoo).toMatchObject({ cohortReliable: false, projectedComplaintRate: thinProjection.projectedComplaintRate });
+    // Dossiers without the Orange/Wanadoo axis or without the count carry no projection.
+    expect(projectComposition({ total: 10_000, tierCounts: { "6+": 10_000 } }, ["clickers_1plus"], blocks, table, "brand").orangeWanadoo).toBeNull();
+    expect(projection.tiers.every((cell) => cell.unsubscribeRate !== null)).toBe(true);
+    const noUnsub = projectComposition(measure, ["clickers_1plus"], blocks, rates([["clicker_tier", "6+", 20_000, 2_400, 10], ["clicker_tier", "1", 50_000, 1_000, 50], ["family", "in_family", 70_000, 3_400, 60]]), "brand");
+    expect(noUnsub.projectedUnsubscribeRate).toBeNull();
+    expect(noUnsub.projectedUnsubscribes).toBeNull();
   });
 
   it("judges the reliability of a recency band on observed recipients, not on the re-scaled effectives", () => {

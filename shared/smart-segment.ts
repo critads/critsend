@@ -87,21 +87,50 @@ export const smartSegmentAnalysisRequestSchema = z.object({
 });
 export type SmartSegmentAnalysisRequest = z.infer<typeof smartSegmentAnalysisRequestSchema>;
 
+/** Complaint caps are compared at this precision everywhere (identity, cap check). */
+export function normalizeComplaintCap(cap: number): number {
+  return Number(cap.toFixed(6));
+}
+
 /**
  * Canonical identity of an analysis request: every input that changes the
  * result, normalised the way the server de-duplicates (reuse window). The
- * MTA is deliberately absent — it only pre-selects the domain family, which
- * is an explicit input. Server: hashed into the row fingerprint. Client: a
- * displayed proposal may only be materialised while its params still carry
- * this exact identity.
+ * MTA is part of it: complaint capture depends on the sending MTA, so the
+ * calibration sends are ranked by it. Server: hashed into the row
+ * fingerprint. Client: a displayed proposal may only be materialised while
+ * its params still carry this exact identity.
  */
-export function smartSegmentAnalysisIdentity(params: Omit<SmartSegmentAnalysisRequest, "refresh" | "mtaId"> & { mtaId?: unknown; refresh?: unknown }): string {
+export function smartSegmentAnalysisIdentity(params: Omit<SmartSegmentAnalysisRequest, "refresh"> & { refresh?: unknown }): string {
   return JSON.stringify({
     campaignName: params.campaignName.trim().toLowerCase(),
     campaignId: params.campaignId ?? null,
+    mtaId: params.mtaId?.trim() || null,
     family: params.family,
     targetClicks: params.targetClicks,
-    complaintCap: Number(params.complaintCap.toFixed(6)),
+    complaintCap: normalizeComplaintCap(params.complaintCap),
+    brandOverride: params.brandOverride
+      ? { name: params.brandOverride.name.trim().toLowerCase(), ref: params.brandOverride.ref.trim().toUpperCase() }
+      : null,
+    similarRefs: normalizeSimilarRefs(params.similarRefs),
+  });
+}
+
+/**
+ * Identity of the EVIDENCE part of an analysis: the inputs that change the
+ * dossier (brand, family, similar refs, excluded campaign, MTA) — not the
+ * target nor the cap, which only steer the model and the validation. A
+ * re-run that changes only those reuses a fresh dossier instead of scanning
+ * the calibration sends again.
+ */
+/** Bumped whenever the dossier's shape or measurement changes, so older dossiers are rebuilt rather than reused. */
+export const SMART_SEGMENT_EVIDENCE_FORMAT = 2;
+export function smartSegmentEvidenceIdentity(params: Pick<SmartSegmentAnalysisRequest, "campaignName" | "campaignId" | "mtaId" | "family" | "brandOverride" | "similarRefs">): string {
+  return JSON.stringify({
+    format: SMART_SEGMENT_EVIDENCE_FORMAT,
+    campaignName: params.campaignName.trim().toLowerCase(),
+    campaignId: params.campaignId ?? null,
+    mtaId: params.mtaId?.trim() || null,
+    family: params.family,
     brandOverride: params.brandOverride
       ? { name: params.brandOverride.name.trim().toLowerCase(), ref: params.brandOverride.ref.trim().toUpperCase() }
       : null,
@@ -118,6 +147,19 @@ export const smartSegmentResolveRequestSchema = z.object({
 export const smartSegmentMaterializeRequestSchema = z.object({
   campaignId: campaignReferenceIdSchema.nullable().optional(),
   proposalIndexes: z.array(z.number().int().min(0).max(SMART_SEGMENT_MAX_PROPOSALS - 1)).min(1).max(SMART_SEGMENT_MAX_PROPOSALS).optional(),
+  /**
+   * Proposals of one analysis are nested audiences (recommendation ⊂ « with
+   * similar brands »): at most ONE of them is attached to the campaign, and
+   * attaching it detaches the others created from the same analysis. false =
+   * create the segments only. Default true (one index) for older clients.
+   */
+  attach: z.boolean().optional(),
+});
+export type SmartSegmentMaterializeRequest = z.infer<typeof smartSegmentMaterializeRequestSchema>;
+
+export const smartSegmentOutcomesRequestSchema = z.object({
+  campaignName: z.string().trim().min(1).max(500),
+  brandOverride: smartSegmentBrandOverrideSchema.nullable().optional(),
 });
 
 export type SmartSegmentStatus = "queued" | "running" | "succeeded" | "failed";
@@ -206,9 +248,66 @@ export type SmartSegmentBrandSend = {
   /** false when campaigns.sent_count has not reached its campaign_sends rows. */
   finished: boolean;
   usedForCalibration: boolean;
+  /** Sending MTA (absent on analyses stored before MTA-aware calibration). */
+  mtaId?: string | null;
+  mtaName?: string | null;
+  /** What that MTA's own history says about its complaint capture. */
+  mtaComplaintCapture?: SmartSegmentMtaComplaintCapture;
 };
 
-export type CohortAxis = "clicker_tier" | "ref_relation" | "family" | "recency" | "ref_recency";
+/**
+ * Whether an MTA's feedback loops reach the tracker: "blind" MTAs report
+ * (almost) no complaint whatever the audience, so their sends cannot
+ * calibrate a complaint rate. Judged on the MTA's last 90 days, all brands.
+ */
+export type SmartSegmentMtaComplaintCapture = "capturing" | "blind" | "unknown";
+export const SMART_SEGMENT_MTA_CAPTURE_LABELS: Record<SmartSegmentMtaComplaintCapture, string> = {
+  capturing: "remonte les plaintes",
+  blind: "ne remonte pas les plaintes",
+  unknown: "capture des plaintes non établie",
+};
+
+export type SmartSegmentMtaEvidence = {
+  id: string;
+  name: string | null;
+  capture: SmartSegmentMtaComplaintCapture;
+  /** 90-day figures of every finished send on this MTA (all brands). */
+  observedDelivered: number;
+  observedComplaintRate: number | null;
+  /** Calibration sends that went through this very MTA. */
+  calibrationSendsOnMta: number;
+};
+
+/**
+ * Baseline complaint rate applied as a floor to EVERY projected cell when the
+ * calibration sends cannot measure complaints themselves (all on blind MTAs):
+ * the brand's sends on capturing MTAs, else the vertical's, else every brand's.
+ */
+export type SmartSegmentComplaintFloor = {
+  rate: number;
+  level: CalibrationLevel;
+  campaignIds: string[];
+  delivered: number;
+  complaints: number;
+  label: string;
+};
+
+/**
+ * What the calibration sends say about the brand, for the warnings that
+ * compare each proposal with the brand's usual audiences. Null figures =
+ * not measurable in this dossier.
+ */
+export type SmartSegmentBaselines = {
+  /** Calibration level the baselines come from (same as the cohorts). */
+  level: CalibrationLevel;
+  unsubscribeRate: number | null;
+  orangeWanadooShare: number | null;
+  orangeWanadooComplaintRate: number | null;
+};
+
+export type CohortAxis = "clicker_tier" | "ref_relation" | "family" | "recency" | "ref_recency" | "domain_group";
+/** Cohorts of the `domain_group` axis: Orange/Wanadoo recipients vs every other domain. */
+export const ORANGE_WANADOO_COHORT = "orange_wanadoo";
 /** Relation between a subscriber's refs and the brand (priority order: first match wins). */
 export type RefRelation = "core" | "extension" | "similar" | "vertical" | "none";
 export const REF_RELATIONS: readonly RefRelation[] = ["core", "extension", "similar", "vertical", "none"];
@@ -236,7 +335,18 @@ export type CohortRate = {
   botClickers: number;
   complaints: number;
   humanCtr: number;
+  /** Measured complaint rate (for display and history). */
   complaintRate: number;
+  /**
+   * Complaint rate retained for projection: the measured rate floored by the
+   * rule of three (3 / observed recipients) so a cohort with 0–2 observed
+   * complaints is never projected at its face value. Absent on older dossiers
+   * (then equal to `complaintRate`).
+   */
+  complaintRateBound?: number;
+  /** Unsubscribes recorded on the calibration send(s) for this cohort (absent on older dossiers). */
+  unsubscribes?: number;
+  unsubscribeRate?: number;
 };
 
 export type CalibrationLevel = "brand" | "vertical" | "global";
@@ -284,6 +394,30 @@ export type SmartSegmentEvidence = {
   mandatoryExclusions: string[];
   budget: { elapsedMs: number; queries: number; sampledCampaigns: Array<{ campaignId: string; divisor: number }> };
   notes: string[];
+  /** Sending MTA of the campaign and its complaint capture (absent on older dossiers / no MTA chosen). */
+  mta?: SmartSegmentMtaEvidence | null;
+  /** Baseline floor applied to every projected complaint rate; null when the calibration sends measure complaints themselves. */
+  complaintFloor?: SmartSegmentComplaintFloor | null;
+  /** Brand baselines the proposals are compared with (absent on older dossiers). */
+  baselines?: SmartSegmentBaselines;
+  /** Identity of the inputs this dossier was built from (evidence reuse across param-only re-runs). */
+  evidenceKey?: string;
+  /** Set when the dossier was copied from an earlier analysis instead of rebuilt. */
+  reusedFrom?: { analysisId: string; generatedAt: string };
+};
+
+export type SmartSegmentOrangeWanadooProjection = {
+  /** Orange/Wanadoo recipients in the proposed audience (exact count). */
+  count: number;
+  /** Their share of the audience. */
+  share: number;
+  /** Complaint rate projected on them: the worst of the audience's own projection and the Orange/Wanadoo cohort's rate. */
+  projectedComplaintRate: number;
+  projectedComplaints: number;
+  /** Same thresholds as the campaign list badge (green < 0,4 %, orange ≤ 0,6 %, red beyond). */
+  status: "green" | "orange" | "red" | "unknown";
+  /** false when the Orange/Wanadoo cohort was too thin to measure: the audience's own rate is used. */
+  cohortReliable: boolean;
 };
 
 export type SmartSegmentProposalSegment = {
@@ -297,9 +431,60 @@ export type SmartSegmentProposalSegment = {
   projectedClicks: { low: number; high: number };
   projectedComplaintRate: number;
   projectedComplaints: number;
+  /** Unsubscribes projected from the calibration cohorts (null when not measured in the dossier). */
+  projectedUnsubscribeRate?: number | null;
+  projectedUnsubscribes?: number | null;
+  /** Orange/Wanadoo exposure of the audience (null on older analyses). */
+  orangeWanadoo?: SmartSegmentOrangeWanadooProjection | null;
   rationale: string;
   warnings: string[];
   injectedExclusions: string[];
+};
+
+/** Actual figures of a campaign that used a segment created by an analysis. */
+export type SmartSegmentOutcomeCampaign = {
+  campaignId: string;
+  name: string;
+  status: string;
+  mtaName: string | null;
+  firstSendAt: string | null;
+  /** Segments attached to that campaign (> 1: the figures cover the whole campaign, not the segment alone). */
+  segmentCount: number;
+  sentCount: number;
+  /** Cached campaign counter: unique clicks, bots included. */
+  uniqueClicks: number;
+  complaintsCount: number;
+  unsubscribesCount: number;
+  orangeWanadooSentCount: number;
+  orangeWanadooComplaintsCount: number;
+  finished: boolean;
+};
+
+export type SmartSegmentOutcome = {
+  analysisId: string;
+  analysedAt: string;
+  campaignName: string;
+  family: DomainFamilyId;
+  mtaName: string | null;
+  index: number;
+  segmentId: string;
+  segmentName: string;
+  kind: SmartSegmentProposalKind | null;
+  projected: {
+    audienceCount: number;
+    clicks: { low: number; high: number };
+    complaintRate: number;
+    complaints: number;
+    unsubscribeRate: number | null;
+    orangeWanadooShare: number | null;
+    orangeWanadooComplaintRate: number | null;
+  };
+  campaigns: SmartSegmentOutcomeCampaign[];
+};
+
+export type SmartSegmentOutcomesResponse = {
+  brandName: string | null;
+  outcomes: SmartSegmentOutcome[];
 };
 
 export type SmartSegmentProposal = {
@@ -317,6 +502,8 @@ export type SmartSegmentMaterializeResponse = {
   segments: SmartSegmentCreatedSegment[];
   attached: boolean;
   createdSegmentIds: string[];
+  /** Segments of the same analysis the server detached from the draft (exclusive attach); absent on older servers. */
+  detachedSegmentIds?: string[];
 };
 
 export type SmartSegmentAnalysisView = {

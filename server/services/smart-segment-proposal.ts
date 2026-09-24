@@ -444,11 +444,60 @@ export function serverRationale(
 ): string {
   const tiers = projection.tiers.map((cell) => `${cell.band ? `0 clic, ${RECENCY_BAND_LABELS[cell.band]}` : cell.tier === "0" ? "0 clic" : `${cell.tier} campagne(s) cliquée(s)`} : ${cell.count.toLocaleString("fr-FR")} abonnés, plaintes ≈ ${pct(cell.complaintRate)}`);
   const level = evidence.calibrationLevel === "brand" ? "la marque" : evidence.calibrationLevel === "vertical" ? "la verticale" : "l'historique global";
+  const floor = evidence.complaintFloor
+    ? ` Plancher de plaintes ${pct(evidence.complaintFloor.rate)} appliqué à chaque tranche (${evidence.complaintFloor.label}).`
+    : "";
+  const unsubscribes = projection.projectedUnsubscribeRate !== null && projection.projectedUnsubscribes !== null
+    ? ` Désabonnements ≈ ${projection.projectedUnsubscribes.toLocaleString("fr-FR")} (${pct(projection.projectedUnsubscribeRate)})${evidence.baselines?.unsubscribeRate != null ? `, historique de la marque ${pct(evidence.baselines.unsubscribeRate)}` : ""}.`
+    : "";
+  const ow = projection.orangeWanadoo
+    ? ` Orange/Wanadoo : ${projection.orangeWanadoo.count.toLocaleString("fr-FR")} abonnés (${pct(projection.orangeWanadoo.share)} de l'audience${evidence.baselines?.orangeWanadooShare != null ? `, ${pct(evidence.baselines.orangeWanadooShare)} dans l'historique` : ""}), plaintes projetées ≈ ${pct(projection.orangeWanadoo.projectedComplaintRate)}${projection.orangeWanadoo.cohortReliable ? "" : " (cohorte Orange/Wanadoo trop mince : taux de l'audience appliqué)"}.`
+    : "";
   return [
-    `Chiffres serveur — blocs : ${compositionLabel(blocksUsed, evidence)}. Calibrage sur ${level} (${evidence.calibrationCampaignIds.length} envoi(s)).`,
+    `Chiffres serveur — blocs : ${compositionLabel(blocksUsed, evidence)}. Calibrage sur ${level} (${evidence.calibrationCampaignIds.length} envoi(s)).${floor}`,
     tiers.length ? `Répartition de l'audience recomptée par tranche de cliqueurs (60 j) — ${tiers.join(" ; ")}.` : "",
-    `Projection : ${projection.projectedClicks.low.toLocaleString("fr-FR")} – ${projection.projectedClicks.high.toLocaleString("fr-FR")} clics humains, taux de plaintes ≈ ${pct(projection.projectedComplaintRate)}.`,
+    `Projection : ${projection.projectedClicks.low.toLocaleString("fr-FR")} – ${projection.projectedClicks.high.toLocaleString("fr-FR")} clics humains, taux de plaintes ≈ ${pct(projection.projectedComplaintRate)}.${unsubscribes}${ow}`,
   ].filter(Boolean).join(" ");
+}
+
+/** Unsubscribe rate at or above this multiple of the brand baseline is flagged. */
+export const UNSUBSCRIBE_WARNING_RATIO = 1.5;
+/** Orange/Wanadoo share this many points above the brand baseline is flagged. */
+export const ORANGE_WANADOO_SHARE_WARNING_POINTS = 0.15;
+/** Below this many Orange/Wanadoo recipients the cap is not enforced on them (too few to matter or to measure). */
+export const ORANGE_WANADOO_MIN_ENFORCED = 1_000;
+
+/**
+ * Warnings comparing a proposal with the brand's usual audiences and the
+ * dossier's blind spots. Every figure is server-computed; the model never
+ * sees or writes these lines.
+ */
+export function comparisonWarnings(
+  projection: ReturnType<typeof projectComposition>,
+  evidence: SmartSegmentEvidence,
+): string[] {
+  const warnings: string[] = [];
+  const baselines = evidence.baselines;
+  if (projection.projectedUnsubscribeRate !== null && baselines?.unsubscribeRate != null && baselines.unsubscribeRate > 0
+    && projection.projectedUnsubscribeRate >= baselines.unsubscribeRate * UNSUBSCRIBE_WARNING_RATIO) {
+    warnings.push(`Désabonnements projetés ${pct(projection.projectedUnsubscribeRate)} : au moins ${UNSUBSCRIBE_WARNING_RATIO.toLocaleString("fr-FR")} × l'historique de la marque (${pct(baselines.unsubscribeRate)}) — audience plus éloignée de ses abonnés habituels.`);
+  }
+  const ow = projection.orangeWanadoo;
+  if (ow && baselines?.orangeWanadooShare != null && ow.share >= baselines.orangeWanadooShare + ORANGE_WANADOO_SHARE_WARNING_POINTS) {
+    warnings.push(`Part Orange/Wanadoo ${pct(ow.share)} contre ${pct(baselines.orangeWanadooShare)} dans l'historique de la marque : exposition accrue au FAI qui bloque.`);
+  }
+  if (ow && ow.status === "red") {
+    warnings.push(`Plaintes projetées sur Orange/Wanadoo ${pct(ow.projectedComplaintRate)} (${ow.count.toLocaleString("fr-FR")} abonnés) : au-dessus du seuil rouge de 0,6 %.`);
+  } else if (ow && ow.status === "orange") {
+    warnings.push(`Plaintes projetées sur Orange/Wanadoo ${pct(ow.projectedComplaintRate)} (${ow.count.toLocaleString("fr-FR")} abonnés) : zone orange (0,4 – 0,6 %).`);
+  }
+  if (evidence.mta?.capture === "blind") {
+    warnings.push(`Le MTA choisi (${evidence.mta.name ?? evidence.mta.id}) ne remonte pas les plaintes : le taux réel ne sera pas mesurable sur cet envoi, la projection s'appuie sur les MTA qui les remontent.`);
+  }
+  if (evidence.complaintFloor) {
+    warnings.push(`Les envois de calibrage ne mesurent pas les plaintes : plancher ${pct(evidence.complaintFloor.rate)} appliqué (${evidence.complaintFloor.label}).`);
+  }
+  return warnings;
 }
 
 /** Blocks built from the operator's similar-brand selection (see smart-segment-projection). */
@@ -517,6 +566,15 @@ export async function validateProposal(
   const required = mandatoryExclusions(evidence.brand, evidence.family, evidence.recentBrandCampaignIds);
   const segments: SmartSegmentProposalSegment[] = [];
   const rejections: string[] = [];
+  type Candidate = {
+    index: number;
+    segment: SmartSegmentModelOutput["segments"][number];
+    blocksUsed: string[];
+    declaredOnly: string[];
+    rules: SegmentRulesV2;
+    injected: string[];
+  };
+  const candidates: Candidate[] = [];
   for (const [index, segment] of output.segments.entries()) {
     const audit = auditModelRules(segment.rules, evidence);
     if (audit.length) {
@@ -536,15 +594,38 @@ export async function validateProposal(
     }
     const declaredOnly = segment.blocksUsed.filter((id) => !blocksUsed.includes(id));
     const { rules, injected } = ensureMandatoryExclusions(segment.rules, required);
-    const measure = await measureAudience(rules);
+    candidates.push({ index, segment, blocksUsed, declaredOnly, rules, injected });
+  }
+  // The exact recounts dominate the validation time and are independent
+  // (each opens its own read-only transaction), so the audited proposals are
+  // recounted together instead of one after the other.
+  const measures = await Promise.all(candidates.map((candidate) => measureAudience(candidate.rules)));
+  const complaintFloor = evidence.complaintFloor?.rate ?? 0;
+  for (const [position, { index, segment, blocksUsed, declaredOnly, rules, injected }] of candidates.entries()) {
+    const measure = measures[position];
     const audienceCount = measure.total;
-    const projection = projectComposition(measure, blocksUsed, evidence.blocks, evidence.cohortRates, evidence.calibrationLevel, evidence.recencyCalibration?.level ?? evidence.calibrationLevel);
+    const projection = projectComposition(
+      measure,
+      blocksUsed,
+      evidence.blocks,
+      evidence.cohortRates,
+      evidence.calibrationLevel,
+      evidence.recencyCalibration?.level ?? evidence.calibrationLevel,
+      { complaintFloor },
+    );
     if (audienceCount === 0) {
       rejections.push(`segment ${index + 1} : effectif nul après exclusions obligatoires`);
       continue;
     }
     if (exceedsComplaintCap(projection.projectedComplaintRate, params.complaintCap)) {
       rejections.push(`segment ${index + 1} : taux de plaintes projeté ${pct(projection.projectedComplaintRate)} > plafond ${pct(params.complaintCap)} — retire les blocs les plus risqués`);
+      continue;
+    }
+    // Orange/Wanadoo is the ISP that blocks: its own projected rate must hold
+    // the cap too, once the exposure is large enough to matter.
+    const ow = projection.orangeWanadoo;
+    if (ow && ow.count >= ORANGE_WANADOO_MIN_ENFORCED && exceedsComplaintCap(ow.projectedComplaintRate, params.complaintCap)) {
+      rejections.push(`segment ${index + 1} : taux de plaintes projeté sur Orange/Wanadoo ${pct(ow.projectedComplaintRate)} (${ow.count.toLocaleString("fr-FR")} abonnés) > plafond ${pct(params.complaintCap)} — retire les blocs les plus risqués (leurs abonnés Orange/Wanadoo sont projetés au pire taux mesuré)`);
       continue;
     }
     // Operator-facing text: nothing numeric may come from the model. Its
@@ -571,6 +652,7 @@ export async function validateProposal(
     if (projection.projectedClicks.high < params.targetClicks) {
       warnings.push(`Objectif de ${params.targetClicks.toLocaleString("fr-FR")} clics probablement hors de portée sous ce plafond (fourchette ${projection.projectedClicks.low.toLocaleString("fr-FR")} – ${projection.projectedClicks.high.toLocaleString("fr-FR")}).`);
     }
+    warnings.push(...comparisonWarnings(projection, evidence));
     segments.push({
       name: text.name,
       rules,
@@ -580,6 +662,9 @@ export async function validateProposal(
       projectedClicks: projection.projectedClicks,
       projectedComplaintRate: projection.projectedComplaintRate,
       projectedComplaints: projection.projectedComplaints,
+      projectedUnsubscribeRate: projection.projectedUnsubscribeRate,
+      projectedUnsubscribes: projection.projectedUnsubscribes,
+      orangeWanadoo: projection.orangeWanadoo,
       rationale: [text.rationale, serverRationale(projection, blocksUsed, evidence)].filter(Boolean).join("\n\n"),
       warnings,
       injectedExclusions: injected,

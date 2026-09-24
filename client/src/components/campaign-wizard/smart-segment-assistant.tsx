@@ -19,12 +19,16 @@ import {
   parseSmartSegmentApiError,
   validateManualSimilarRef,
 } from "@/lib/smart-segment-ui";
+import { SmartSegmentOutcomesPanel } from "@/components/campaign-wizard/smart-segment-outcomes";
 import {
   DOMAIN_FAMILIES,
+  ORANGE_WANADOO_COHORT,
   RECENCY_BAND_LABELS,
   SMART_SEGMENT_MAX_SIMILAR_REFS,
+  SMART_SEGMENT_MTA_CAPTURE_LABELS,
   SMART_SEGMENT_PROPOSAL_KIND_LABELS,
   SMART_SEGMENT_STAGE_LABELS,
+  normalizeComplaintCap,
   normalizeSimilarRefs,
   type DomainFamilyId,
   type SmartSegmentAnalysisRequest,
@@ -40,8 +44,15 @@ type Props = {
   campaignName: string;
   campaignId: string | null;
   mtaId: string | null;
+  /** Current audience of the wizard: tells which created proposal (if any) is the attached one. */
   selectedSegmentIds: string[];
-  onSegmentsCreated: (segments: Array<{ id: string; name: string }>) => void;
+  /**
+   * The operator chose a proposal for the campaign: `segments` join the
+   * audience and `detachSegmentIds` (the other proposals created from the
+   * same analysis — nested audiences) leave it. Not called for « Créer sans
+   * attacher ».
+   */
+  onSegmentsCreated: (segments: Array<{ id: string; name: string }>, change: { detachSegmentIds: string[] }) => void;
 };
 
 type BrandOverride = { name: string; ref: string };
@@ -59,8 +70,12 @@ const axisLabel = (value: string) => ({
   family: "famille",
   recency: "Récence (dernière activité)",
   ref_recency: "Récence × relation aux refs",
+  domain_group: "Orange/Wanadoo vs autres domaines",
 }[value] ?? value);
+const owStatusColor = (status: string) => ({ green: "text-green-600", orange: "text-amber-600", red: "text-red-600" }[status] ?? "");
 const cohortLabel = (value: string) => {
+  if (value === ORANGE_WANADOO_COHORT) return "Orange / Wanadoo";
+  if (value === "other") return "Autres domaines";
   if (value in RECENCY_BAND_LABELS) return RECENCY_BAND_LABELS[value as keyof typeof RECENCY_BAND_LABELS];
   const [relation, band] = value.split("|");
   if (band && band in RECENCY_BAND_LABELS) return `${relation} · ${RECENCY_BAND_LABELS[band as keyof typeof RECENCY_BAND_LABELS]}`;
@@ -71,7 +86,7 @@ export function SmartSegmentAssistant({
   campaignName,
   campaignId,
   mtaId,
-  selectedSegmentIds: _selectedSegmentIds,
+  selectedSegmentIds,
   onSegmentsCreated,
 }: Props) {
   const [debouncedName, setDebouncedName] = useState("");
@@ -85,8 +100,7 @@ export function SmartSegmentAssistant({
   const [analysis, setAnalysis] = useState<SmartSegmentAnalysisView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [proofsOpen, setProofsOpen] = useState(false);
-  const [createdIndexes, setCreatedIndexes] = useState<number[]>([]);
-  const [successNames, setSuccessNames] = useState<string[]>([]);
+  const [sessionCreated, setSessionCreated] = useState<Array<{ index: number; id: string; name: string }>>([]);
   const [checkedSimilarRefs, setCheckedSimilarRefs] = useState<string[]>([]);
   const [manualSimilarRefs, setManualSimilarRefs] = useState<string[]>([]);
   const [manualSimilarInput, setManualSimilarInput] = useState("");
@@ -199,7 +213,9 @@ export function SmartSegmentAssistant({
     mtaId,
     family,
     targetClicks: Math.max(50, Math.round(targetClicks)),
-    complaintCap: clampComplaintCapPercent(complaintCapPercent) / 100,
+    // Rounded at the precision the identity uses: 0,45 / 100 is not exactly
+    // 0,0045 in floating point, and the server compares caps at 1e-6.
+    complaintCap: normalizeComplaintCap(clampComplaintCapPercent(complaintCapPercent) / 100),
     brandOverride: override,
     ...(similarRefs.length > 0 ? { similarRefs } : {}),
   }), [campaignName, campaignId, mtaId, family, targetClicks, complaintCapPercent, override, similarRefs.join(",")]);
@@ -217,8 +233,7 @@ export function SmartSegmentAssistant({
     lastRequestKey.current = requestKey;
     setAnalysisId(null);
     setAnalysis(null);
-    setCreatedIndexes([]);
-    setSuccessNames([]);
+    setSessionCreated([]);
     setError(null);
     setProofsOpen(false);
   }, [requestKey]);
@@ -235,7 +250,7 @@ export function SmartSegmentAssistant({
       setError(null);
       setAnalysis(view);
       setAnalysisId(view.id);
-      setCreatedIndexes(view.createdSegments.map((segment) => segment.index));
+      setSessionCreated([]);
     },
     onMutate: () => ({ key: currentRequestKey.current }),
     onError: (cause, _refresh, context) => {
@@ -248,23 +263,42 @@ export function SmartSegmentAssistant({
   // inputs exactly (a reused analysis carries the params it was computed with).
   const analysisMatchesInputs = !!analysis && analysisIdentity(analysis.params) === requestKey;
 
+  // Segments created from the displayed analysis: those the server already
+  // knows plus those created in this session (the view is not refetched).
+  const createdEntries = useMemo(() => {
+    const byIndex = new Map<number, { index: number; id: string; name: string }>();
+    for (const entry of analysis?.createdSegments ?? []) byIndex.set(entry.index, entry);
+    for (const entry of sessionCreated) byIndex.set(entry.index, entry);
+    return [...byIndex.values()].sort((a, b) => a.index - b.index);
+  }, [analysis?.createdSegments, sessionCreated]);
+  // The proposals of one analysis are nested audiences: at most one of them
+  // sits in the campaign. Which one is read from the wizard's own selection.
+  const attachedIndex = createdEntries.find((entry) => selectedSegmentIds.includes(entry.id))?.index ?? null;
+
   const materializeMutation = useMutation({
-    mutationFn: async (proposalIndexes: number[]) => {
+    mutationFn: async ({ index, attach }: { index: number; attach: boolean }) => {
       if (!analysis) throw new Error("Aucune analyse disponible.");
       if (analysisIdentity(analysis.params) !== currentRequestKey.current) {
         throw new Error("Les paramètres ont changé depuis l'analyse : relancez l'analyse avant de créer le segment.");
       }
       const response = await apiRequest("POST", `/api/smart-segments/analyses/${analysis.id}/materialize`, {
         campaignId,
-        proposalIndexes,
+        proposalIndexes: [index],
+        attach,
       });
-      return { data: await response.json() as MaterializeResponse, proposalIndexes };
+      return { data: await response.json() as MaterializeResponse, index, attach };
     },
-    onSuccess: ({ data, proposalIndexes }) => {
-      onSegmentsCreated(data.segments);
-      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
-      setCreatedIndexes((current) => [...new Set([...current, ...proposalIndexes])]);
-      setSuccessNames((current) => [...new Set([...current, ...data.segments.map((segment) => segment.name)])]);
+    onSuccess: ({ data, index, attach }) => {
+      const wasCreated = createdEntries.some((entry) => entry.index === index);
+      setSessionCreated((current) => [...current.filter((entry) => entry.index !== index), ...data.segments]);
+      if (attach) {
+        // Exclusive: the other proposals of this analysis leave the audience
+        // (the server did the same on a saved draft; the wizard mirrors it).
+        const attachedIds = new Set(data.segments.map((segment) => segment.id));
+        const detachSegmentIds = createdEntries.map((entry) => entry.id).filter((id) => !attachedIds.has(id));
+        onSegmentsCreated(data.segments, { detachSegmentIds });
+      }
+      if (!wasCreated) queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
       setError(null);
     },
     onError: (cause) => setError(parseSmartSegmentApiError(cause).message),
@@ -479,39 +513,56 @@ export function SmartSegmentAssistant({
       {analysis?.status === "succeeded" && analysis.proposal && (
         <div className="space-y-4">
           {analysis.proposal.segments.map((segment, index) => {
-            const created = createdIndexes.includes(index) || analysis.createdSegments.some((entry) => entry.index === index);
+            const createdEntry = createdEntries.find((entry) => entry.index === index) ?? null;
+            const attached = attachedIndex === index;
             const kindLabel = segment.kind ? SMART_SEGMENT_PROPOSAL_KIND_LABELS[segment.kind] : null;
+            const busy = materializeMutation.isPending || !analysisMatchesInputs;
+            const ow = segment.orangeWanadoo ?? null;
             return <div key={`${segment.name}-${index}`} className="rounded-lg border bg-background p-4 space-y-3" data-testid={`smart-segment-proposal-${index}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <h4 className="font-semibold">{segment.name}</h4>
                 {kindLabel && <Badge variant={segment.kind === "similar_brands" ? "default" : "secondary"}>{kindLabel}</Badge>}
+                {attached && <Badge variant="outline" className="border-green-600 text-green-700" data-testid={`badge-smart-segment-attached-${index}`}>Attaché à la campagne</Badge>}
               </div>
               <pre className="whitespace-pre-wrap font-sans text-sm">{segment.readableRules.join("\n")}</pre>
               <div className="grid gap-1 text-sm sm:grid-cols-3">
                 <p><span className="font-medium">Effectif réel :</span> {integer.format(segment.audienceCount)}</p>
                 <p><span className="font-medium">Clics humains projetés :</span> {integer.format(segment.projectedClicks.low)} – {integer.format(segment.projectedClicks.high)}</p>
                 <p className={complaintRateColor(segment.projectedComplaintRate)}><span className="font-medium">Taux de plaintes projeté :</span> {formatSmartSegmentPercent(segment.projectedComplaintRate)} %</p>
+                {segment.projectedUnsubscribeRate != null && <p data-testid={`text-smart-segment-unsubscribes-${index}`}><span className="font-medium">Désabonnements projetés :</span> {formatSmartSegmentPercent(segment.projectedUnsubscribeRate)} %{segment.projectedUnsubscribes != null && <> (≈ {integer.format(segment.projectedUnsubscribes)})</>}{evidence?.baselines?.unsubscribeRate != null && <span className="text-muted-foreground"> · marque {formatSmartSegmentPercent(evidence.baselines.unsubscribeRate)} %</span>}</p>}
+                {ow && <p className="sm:col-span-2" data-testid={`text-smart-segment-orange-wanadoo-${index}`}><span className="font-medium">Orange/Wanadoo :</span> {integer.format(ow.count)} abonnés ({formatSmartSegmentPercent(ow.share, 0)} %{evidence?.baselines?.orangeWanadooShare != null && <span className="text-muted-foreground"> · marque {formatSmartSegmentPercent(evidence.baselines.orangeWanadooShare, 0)} %</span>}), plaintes projetées <span className={owStatusColor(ow.status)}>{formatSmartSegmentPercent(ow.projectedComplaintRate, 3)} %</span>{!ow.cohortReliable && <span className="text-muted-foreground"> (cohorte Orange/Wanadoo trop mince : taux de l'audience)</span>}</p>}
               </div>
               <div className="flex flex-wrap gap-1">{segment.blocksUsed.map((block) => <Badge key={block} variant="outline">{block}</Badge>)}</div>
               <p className="text-sm whitespace-pre-line">{segment.rationale}</p>
               {segment.warnings.length > 0 && <ul className="space-y-1 text-sm text-amber-700">{segment.warnings.map((warning) => <li key={warning} className="flex gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{warning}</li>)}</ul>}
               {segment.injectedExclusions.length > 0 && <p className="text-sm"><span className="font-medium">Exclusions ajoutées par le serveur :</span> {segment.injectedExclusions.join(", ")}</p>}
-              {created ? <p className="text-sm font-medium text-green-700">Segment créé : {segment.name}</p> : (
-                <Button type="button" size="sm" disabled={materializeMutation.isPending || !analysisMatchesInputs} onClick={() => materializeMutation.mutate([index])} data-testid={index === 0 ? "button-smart-segment-create" : `button-smart-segment-create-${index}`}>Créer ce segment et l&apos;attacher</Button>
-              )}
+              {createdEntry && <p className="text-sm font-medium text-green-700" data-testid={`text-smart-segment-created-${index}`}>Segment créé : {createdEntry.name}</p>}
+              <div className="flex flex-wrap gap-2">
+                {!attached && (
+                  <Button type="button" size="sm" disabled={busy} onClick={() => materializeMutation.mutate({ index, attach: true })} data-testid={index === 0 ? "button-smart-segment-create" : `button-smart-segment-create-${index}`}>
+                    {attachedIndex !== null ? "Utiliser ce segment à la place" : createdEntry ? "Attacher ce segment" : "Utiliser ce segment"}
+                  </Button>
+                )}
+                {!createdEntry && (
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => materializeMutation.mutate({ index, attach: false })} data-testid={`button-smart-segment-create-only-${index}`}>Créer sans attacher</Button>
+                )}
+              </div>
             </div>;
           })}
-          {analysis.proposal.segments.length >= 2 && createdIndexes.length === 0 && analysis.createdSegments.length === 0 && <Button type="button" variant="outline" disabled={materializeMutation.isPending || !analysisMatchesInputs} onClick={() => materializeMutation.mutate(analysis.proposal!.segments.map((_, index) => index))} data-testid="button-smart-segment-create-all">Créer les {analysis.proposal.segments.length === 2 ? "deux" : "trois"}</Button>}
-          {successNames.map((name) => <p key={name} className="text-sm font-medium text-green-700">Segment créé : {name}</p>)}
+          {analysis.proposal.segments.length >= 2 && <p className="text-xs text-muted-foreground">Les propositions d'une même analyse sont des audiences imbriquées : une seule est attachée à la campagne, en choisir une autre détache la précédente.</p>}
 
           {evidence && <div className="rounded-lg border bg-background">
             <Button type="button" variant="ghost" className="w-full justify-between" onClick={() => setProofsOpen((open) => !open)}>Preuves {proofsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>
             {proofsOpen && <div className="space-y-5 overflow-x-auto p-4 text-sm">
+              {evidence.reusedFrom && <p className="text-muted-foreground" data-testid="text-smart-segment-evidence-reused">Dossier de preuves repris de l'analyse du {new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(new Date(evidence.reusedFrom.generatedAt))} (mêmes marque, famille et MTA) ; exclusions d'envois récents recalculées.</p>}
+              {evidence.mta && <p data-testid="text-smart-segment-mta"><span className="font-medium">MTA de l'envoi :</span> {evidence.mta.name ?? evidence.mta.id} — {SMART_SEGMENT_MTA_CAPTURE_LABELS[evidence.mta.capture]}{evidence.mta.observedComplaintRate !== null && <> ({formatSmartSegmentPercent(evidence.mta.observedComplaintRate, 3)} % de plaintes sur {integer.format(evidence.mta.observedDelivered)} envoyés en 90 j)</>}{evidence.mta.calibrationSendsOnMta > 0 && <> · {integer.format(evidence.mta.calibrationSendsOnMta)} envoi(s) de calibrage sur ce MTA</>}</p>}
+              {evidence.complaintFloor && <p data-testid="text-smart-segment-complaint-floor"><span className="font-medium">Plancher de plaintes :</span> {formatSmartSegmentPercent(evidence.complaintFloor.rate, 3)} % ({evidence.complaintFloor.label} — {integer.format(evidence.complaintFloor.complaints)} plainte(s) sur {integer.format(evidence.complaintFloor.delivered)} envoyés, {evidence.complaintFloor.campaignIds.length} envoi(s))</p>}
+              {evidence.baselines && <p data-testid="text-smart-segment-baselines"><span className="font-medium">Repères de la marque (envois de calibrage) :</span> désabonnements {evidence.baselines.unsubscribeRate === null ? "non mesurés" : `${formatSmartSegmentPercent(evidence.baselines.unsubscribeRate)} %`} · part Orange/Wanadoo {evidence.baselines.orangeWanadooShare === null ? "non mesurée" : `${formatSmartSegmentPercent(evidence.baselines.orangeWanadooShare, 0)} %`} · plaintes Orange/Wanadoo {evidence.baselines.orangeWanadooComplaintRate === null ? "non mesurables" : `${formatSmartSegmentPercent(evidence.baselines.orangeWanadooComplaintRate, 3)} %`}</p>}
               {!!evidence.similarBrands?.length && <p><span className="font-medium">Marques similaires retenues :</span> {evidence.similarBrands.map((item) => `${item.brandName ?? item.ref} (${item.ref})`).join(", ")}</p>}
               {evidence.recencyCalibration && <p><span className="font-medium">Cohortes de récence :</span> calibrage {recencyCalibrationLabel(evidence.recencyCalibration.level)} sur {integer.format(evidence.recencyCalibration.campaignIds.length)} envoi(s)</p>}
               {evidence.recencyCalibration === null && <p className="text-muted-foreground">Blocs non actifs indisponibles (aucune cohorte de récence fiable)</p>}
-              <div><h5 className="mb-2 font-medium">Envois de la marque</h5><Table><TableHeader><TableRow><TableHead>Nom / date</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes</TableHead><TableHead>Terminé / calibration</TableHead></TableRow></TableHeader><TableBody>{evidence.brandSends.map((send) => <TableRow key={send.campaignId}><TableCell>{send.name}<br /><span className="text-xs text-muted-foreground">{date(send.firstSendAt)}</span></TableCell><TableCell>{integer.format(send.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(send.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(send.complaintRate)} %</TableCell><TableCell>{send.finished ? "Oui" : "Non"} / {send.usedForCalibration ? "Oui" : "Non"}</TableCell></TableRow>)}</TableBody></Table></div>
-              {[...groupedCohorts.entries()].map(([axis, rows]) => <div key={axis}><h5 className="mb-2 font-medium">Cohortes — {axisLabel(axis)}</h5><Table><TableHeader><TableRow><TableHead>Cohorte</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={`${axis}-${row.cohort}`}><TableCell>{cohortLabel(row.cohort)}</TableCell><TableCell>{integer.format(row.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(row.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(row.complaintRate)} %</TableCell></TableRow>)}</TableBody></Table></div>)}
+              <div><h5 className="mb-2 font-medium">Envois de la marque</h5><Table><TableHeader><TableRow><TableHead>Nom / date</TableHead><TableHead>MTA</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes</TableHead><TableHead>Désabo.</TableHead><TableHead>Terminé / calibration</TableHead></TableRow></TableHeader><TableBody>{evidence.brandSends.map((send) => <TableRow key={send.campaignId}><TableCell>{send.name}<br /><span className="text-xs text-muted-foreground">{date(send.firstSendAt)}</span></TableCell><TableCell>{send.mtaName ?? send.mtaId ?? "—"}{send.mtaComplaintCapture === "blind" && <><br /><span className="text-xs text-amber-700">ne remonte pas les plaintes</span></>}</TableCell><TableCell>{integer.format(send.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(send.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(send.complaintRate)} %</TableCell><TableCell>{send.delivered > 0 ? `${formatSmartSegmentPercent(send.unsubscribes / send.delivered)} %` : "—"}</TableCell><TableCell>{send.finished ? "Oui" : "Non"} / {send.usedForCalibration ? "Oui" : "Non"}</TableCell></TableRow>)}</TableBody></Table></div>
+              {[...groupedCohorts.entries()].map(([axis, rows]) => <div key={axis}><h5 className="mb-2 font-medium">Cohortes — {axisLabel(axis)}</h5><Table><TableHeader><TableRow><TableHead>Cohorte</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes (retenu)</TableHead><TableHead>Désabo.</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={`${axis}-${row.cohort}`}><TableCell>{cohortLabel(row.cohort)}</TableCell><TableCell>{integer.format(row.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(row.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(row.complaintRate, 3)} %{row.complaintRateBound !== undefined && row.complaintRateBound > row.complaintRate && <span className="text-muted-foreground"> ({formatSmartSegmentPercent(row.complaintRateBound, 3)} %)</span>}</TableCell><TableCell>{row.unsubscribeRate === undefined ? "—" : `${formatSmartSegmentPercent(row.unsubscribeRate)} %`}</TableCell></TableRow>)}</TableBody></Table></div>)}
               <div><h5 className="mb-2 font-medium">Blocs</h5><Table><TableHeader><TableRow><TableHead>Libellé</TableHead><TableHead>Disponible</TableHead><TableHead>CTR attendu</TableHead><TableHead>Clics projetés</TableHead><TableHead>Calibration / décote</TableHead></TableRow></TableHeader><TableBody>{evidence.blocks.map((block) => <TableRow key={block.id}><TableCell>{block.label}</TableCell><TableCell>{integer.format(block.available)}</TableCell><TableCell>{formatSmartSegmentPercent(block.expectedCtr)} %</TableCell><TableCell>{integer.format(block.projectedClicks.low)} – {integer.format(block.projectedClicks.high)}</TableCell><TableCell>{calibrationLabel(block.calibration.level)} / {formatSmartSegmentPercent(block.calibration.discount)} %</TableCell></TableRow>)}</TableBody></Table></div>
               {evidence.omittedBlocks?.map((block) => <p key={block.id} className="text-muted-foreground">Bloc non proposé : {block.label} — {block.reason}</p>)}
               <p><span className="font-medium">Niveau de calibration :</span> {calibrationLabel(evidence.calibrationLevel)}</p>
@@ -521,6 +572,7 @@ export function SmartSegmentAssistant({
           <p className="text-sm italic text-muted-foreground">{analysis.proposal.disclaimer}</p>
         </div>
       )}
+      <SmartSegmentOutcomesPanel campaignName={debouncedName} brandOverride={override} enabled={configured && brandReady} />
     </div>
   );
 }
