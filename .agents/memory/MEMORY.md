@@ -33,5 +33,6 @@
 - [Ref conventions & in-flight counters](subscriber-ref-conventions.md) — ref prefix = vertical (4 = travel), US/E prefixes, U-tags; campaign_sends 'sent' = reservation, trust campaigns.sent_count while delivering.
 - [Naive timestamp parse shift](naive-timestamp-parse-shift.md) — raw db.execute rows return naive `timestamp` columns shifted by the prod process TZ (−2 h CEST); use `AT TIME ZONE 'UTC'` or Drizzle-typed selects.
 - [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — inclusions only via block macros; recount × worst cohort; raw SQL bind-check on real DB; similar-brands lookup = one deadline < proxy, strict shape.
+- [Smart segment field results](smart-segment-field-results.md) — complaint capture is MTA-dependent (Kammaspeed ≈ blind); a 0-complaint history is unmeasured, not safe; smart audiences skew Orange and unsubscribe 2–5× more.
 - [Pinned DNS lookup on Node ≥ 20](pinned-lookup-node20.md) — custom http.request lookup must honour options.all (array shape) or every real download fails; fixtures need a non-IP hostname.
 - [Campaign exclusion segments](campaign-exclusion-segments.md) — canonical array table, legacy column is a mirror of position 0; FK RESTRICT; re-validate overlap under the row lock; bootstrap rollout.
