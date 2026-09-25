@@ -116,9 +116,14 @@ attributed to every selected send and contradict the UI banner.
 brand recency probe; the cheap `campaign_unsubscribed` CTE was suspected but EXPLAIN showed the
 lateral MAX dominates. Raising the timeout is refused (protects sending).
 
-**How to apply:** the durable fix is a prod index `campaign_stats (subscriber_id, "timestamp")`
-built CONCURRENTLY (then drop the redundant subscriber-only index) — needs owner consent and a
-disk check on the multi-GB table. Never switch recency to clicks-only without approval.
+**How to apply:** the durable fix — prod index `campaign_stats_subscriber_ts_idx (subscriber_id,
+"timestamp")` — was built CONCURRENTLY on 2026-09-25 (5 GB, ~2 min, owner consent given). Measured
+on prod: the real-sample probe went from >30 s (timeout) to ~0.4 s because the planner turns the
+lateral MAX into `Index Scan Backward + Limit 1` (98 % of stats rows are open/click, so the first
+row matches). Any future query needing "latest event of a subscriber" must keep using that index
+shape; a subscriber-only index cannot answer it. `campaign_stats_subscriber_idx` (841 MB) and
+`campaign_stats_campaign_idx` (540 MB, ~0 scans) are now redundant candidates for a later DROP —
+owner decision. Never switch recency to clicks-only without approval.
 
 ## 5a. Complaint calibration is MTA-aware; thin cohorts use the rule of three
 Rule: every MTA is classified on its 90-day cached counters (delivered < 100 000 ⇒ unknown,

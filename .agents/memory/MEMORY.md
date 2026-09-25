@@ -21,7 +21,7 @@
 - [Segment SHA-256 exclusions](segment-sha256-exclusions.md) — hashes use UTF-8 lower(trim(email)); enforce exclusions in each segment branch, including real campaign cursors.
 - [Calendar live-interval semantics](calendar-live-intervals.md) — sending stays open through one server asOf instant; paused ends at its last actual send so idle MTAs are not shown as busy.
 - [Campaign IDs are opaque](campaign-id-compatibility.md) — legacy campaign IDs are not guaranteed to be UUIDs despite the current DB default; validate them as bounded opaque varchar values.
-- [Production DB exploration](production-db-exploration.md) — query live critsend through the dedicated read-only explorer settings; never use app credentials or the stale Neon database.
+- [Production DB exploration](production-db-exploration.md) — read-only explorer only (never app creds/Neon); validate index ideas with hypopg on Neon; owner DDL files go in /tmp under nohup.
 - [Orange/Wanadoo risk rollout](orange-wanadoo-risk-rollout.md) — production enforcement uses 10% deterministic probation after historical calibration; baseline 15-day cooling remains active.
 - [Campaign badge counter backfills](campaign-badge-counter-backfills.md) — never reconstruct Orange/Wanadoo counters in list/search requests; zero is valid, not an initialization marker.
 - [Campaign warm-start invariants](campaign-warm-start.md) — freeze the clicker snapshot/order; fence resumes by generation; never complete before durable audience exhaustion.
@@ -32,7 +32,7 @@
 - [PM2 .env overrides vs code defaults](pm2-env-overrides.md) — prod `.env` wins over env-overridable defaults; tell operators to SET (not delete) the line; deploy.sh greps need `|| true` under pipefail.
 - [Ref conventions & in-flight counters](subscriber-ref-conventions.md) — ref prefix = vertical (4 = travel), US/E prefixes, U-tags; campaign_sends 'sent' = reservation, trust campaigns.sent_count while delivering.
 - [Naive timestamp parse shift](naive-timestamp-parse-shift.md) — raw db.execute rows return naive `timestamp` columns shifted by the prod process TZ (−2 h CEST); use `AT TIME ZONE 'UTC'` or Drizzle-typed selects.
-- [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — inclusions only via block macros; recount × worst cohort; MTA-aware complaints; recency probe = timeout hotspot (best-effort, degraded flag, never cached).
+- [Smart segment AI guardrails](smart-segment-ai-guardrails.md) — inclusions only via block macros; recount × worst cohort; MTA-aware complaints; recency probe needs the prod (subscriber_id, timestamp) index + best-effort/degraded path.
 - [Smart segment field results](smart-segment-field-results.md) — complaint capture is MTA-dependent (Kammaspeed ≈ blind); a 0-complaint history is unmeasured, not safe; smart audiences skew Orange and unsubscribe 2–5× more.
 - [Pinned DNS lookup on Node ≥ 20](pinned-lookup-node20.md) — custom http.request lookup must honour options.all (array shape) or every real download fails; fixtures need a non-IP hostname.
 - [Campaign exclusion segments](campaign-exclusion-segments.md) — canonical array table, legacy column is a mirror of position 0; FK RESTRICT; re-validate overlap under the row lock; bootstrap rollout.
