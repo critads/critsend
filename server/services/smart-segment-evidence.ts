@@ -72,6 +72,8 @@ export class SmartSegmentError extends Error {
 const dialect = new PgDialect();
 const MAX_BRAND_SENDS = 6;
 const MAX_CALIBRATION_SENDS = 3;
+/** Sample reduction applied to the recency probes after a first statement timeout. */
+export const RECENCY_TIMEOUT_SAMPLE_SCALE = 4;
 const MIN_CALIBRATION_DELIVERED = 5_000;
 const FINISHED_TOLERANCE_ABS = 5;
 const FINISHED_TOLERANCE_REL = 0.002;
@@ -509,10 +511,17 @@ export function createTransactionRunner(config: SmartSegmentConfig): { runner: E
       if (!client) throw new SmartSegmentError("EVIDENCE_NOT_OPEN", "Transaction d'analyse non ouverte.");
       checkBudget(label);
       queries += 1;
+      // Each statement runs under a savepoint: a statement_timeout (or any
+      // other error) would otherwise abort the whole read-only transaction,
+      // and a best-effort stage (recency) could not continue on the same
+      // snapshot after dropping the failed measurement.
+      await client.query("SAVEPOINT evidence_query");
       try {
         const result = await client.query(text, params);
+        await client.query("RELEASE SAVEPOINT evidence_query");
         return result.rows as never;
       } catch (error) {
+        await client.query("ROLLBACK TO SAVEPOINT evidence_query").catch(() => {});
         return translate(label, error);
       }
     },
@@ -979,9 +988,52 @@ export async function buildSmartSegmentEvidence(
       const rates = aggregateCohortRates(rows);
       return NON_ACTIVE_RECENCY_BANDS.filter((band) => recencyRateFor(rates, band) !== null);
     };
+    // Recency is the one measurement that costs a campaign_stats probe per
+    // sampled recipient (every open/click row of the subscriber is visited:
+    // no (subscriber, timestamp) index), so on a loaded database it is the
+    // statement that exceeds the per-query timeout. The stage is best-effort:
+    // after a first timeout the sample is reduced once (same statement, ×4
+    // divisor); a second timeout marks recency as unmeasured — remaining
+    // probes and the pool (same statement shape, same fate) are skipped — and
+    // the analysis still delivers the active blocks (non-active blocks are
+    // then omitted, fail closed) instead of failing outright.
+    const recencyTimeoutScale = RECENCY_TIMEOUT_SAMPLE_SCALE;
+    let recencySampleScale = 1;
+    let recencyMeasuredSends = 0;
+    let recencyTimedOut: { label: string; message: string } | null = null;
+    // Read through a function: the flag is assigned inside the closure below,
+    // which control-flow narrowing does not see.
+    const recencyTimeout = () => recencyTimedOut;
+    const isQueryTimeout = (error: unknown) => error instanceof SmartSegmentError && error.code === "QUERY_TIMEOUT";
+    const recencyQueryBestEffort = async (campaignId: string, firstSendAt: string, delivered: number, target: number, label: string): Promise<RawCohortRow[]> => {
+      if (recencyTimedOut) return [];
+      const scaledTarget = () => Math.max(1, Math.ceil(target / recencySampleScale));
+      const measure = async () => {
+        const rows = await recencyQuery(campaignId, firstSendAt, delivered, scaledTarget(), label);
+        recencyMeasuredSends += 1;
+        return rows;
+      };
+      try {
+        return await measure();
+      } catch (error) {
+        if (!isQueryTimeout(error)) throw error;
+        if (recencySampleScale === 1) {
+          recencySampleScale = recencyTimeoutScale;
+          try {
+            return await measure();
+          } catch (retryError) {
+            if (!isQueryTimeout(retryError)) throw retryError;
+            recencyTimedOut = { label, message: (retryError as SmartSegmentError).message };
+            return [];
+          }
+        }
+        recencyTimedOut = { label, message: (error as SmartSegmentError).message };
+        return [];
+      }
+    };
     const brandRecencyRows: RawCohortRow[] = [];
     for (const [index, send] of calibrationSends.entries()) {
-      brandRecencyRows.push(...await recencyQuery(send.campaignId, send.firstSendAt, send.delivered, config.recencySampleTarget, send.name));
+      brandRecencyRows.push(...await recencyQueryBestEffort(send.campaignId, send.firstSendAt, send.delivered, config.recencySampleTarget, send.name));
       await onProgress("cohorts", 40 + Math.round(((index + 1) / calibrationSends.length) * 5));
     }
     let recencyRows = brandRecencyRows;
@@ -989,12 +1041,26 @@ export async function buildSmartSegmentEvidence(
       level: calibrationLevel,
       campaignIds: calibrationSends.map((send) => send.campaignId),
     };
+    let degraded: SmartSegmentEvidence["degraded"];
     // The pool is a best-effort refinement: when the budget left would not
     // also cover block sizing and the recount, the non-active blocks are
     // omitted (fail closed) instead of failing the whole analysis.
     const RECENCY_POOL_BUDGET_RESERVE_MS = 90_000;
     const poolBudgetLeft = config.evidenceBudgetMs - runner.elapsedMs() > RECENCY_POOL_BUDGET_RESERVE_MS;
-    if (bandsReliable(brandRecencyRows).length < NON_ACTIVE_RECENCY_BANDS.length && !poolBudgetLeft) {
+    // A timeout leaves recency unmeasured as a whole: rows measured before it
+    // are discarded rather than attributed to a calibration on every selected
+    // send, so the dossier states exactly what the banner says (no non-active
+    // block) instead of a partial calibration nobody can audit.
+    const recencyUnmeasured = (timedOut: { label: string; message: string }, scope: string) => {
+      recencyRows = [];
+      recencyCalibration = null;
+      degraded = [{ stage: "recency", label: timedOut.label, message: timedOut.message }];
+      notes.push(`Calibrage de la récence ${scope}interrompu : la requête « récence « ${timedOut.label} » » a dépassé le délai de ${Math.round(config.queryTimeoutMs / 1000)} s, même sur un échantillon réduit (1/${recencyTimeoutScale}). Aucune bande de récence n'est retenue : les blocs sans activité 60 j ne sont pas proposés et les contacts sans activité des autres blocs sont comptés à CTR 0. Relancez avec « Actualiser » quand la base est moins chargée pour les mesurer.`);
+    };
+    const brandTimeout = recencyTimeout();
+    if (brandTimeout) {
+      recencyUnmeasured(brandTimeout, "");
+    } else if (bandsReliable(brandRecencyRows).length < NON_ACTIVE_RECENCY_BANDS.length && !poolBudgetLeft) {
       recencyRows = bandsReliable(brandRecencyRows).length ? brandRecencyRows : [];
       recencyCalibration = recencyRows.length ? recencyCalibration : null;
       notes.push("Budget d'analyse insuffisant pour calibrer la récence sur les envois récents toutes marques : les blocs sans activité 60 j non calibrés ne sont pas proposés.");
@@ -1009,16 +1075,21 @@ export async function buildSmartSegmentEvidence(
       const poolRows = poolCandidates
         .filter((row) => isFinishedSend(row.status, Number(row.sent_count), Number(row.delivered_rows)) && Number(row.delivered_rows) >= MIN_CALIBRATION_DELIVERED)
         .slice(0, config.recencyPoolMaxCampaigns);
+      // The per-send target already takes the timeout scale into account
+      // through recencyQueryBestEffort; a timeout inside the pool stops it.
       const poolTarget = Math.max(2_000, Math.ceil(config.recencyPoolSampleTarget / Math.max(1, poolRows.length)));
       const pooled: RawCohortRow[] = [];
       for (const [index, row] of poolRows.entries()) {
         const firstSendAt = row.first_send_at instanceof Date ? row.first_send_at.toISOString() : String(row.first_send_at);
-        pooled.push(...await recencyQuery(row.id, firstSendAt, Number(row.sent_count), poolTarget, row.name));
+        pooled.push(...await recencyQueryBestEffort(row.id, firstSendAt, Number(row.sent_count), poolTarget, row.name));
         campaignNames[row.id] = row.name;
         await onProgress("cohorts", 45 + Math.round(((index + 1) / poolRows.length) * 5));
       }
-      const poolBands = bandsReliable(pooled);
-      if (poolBands.length) {
+      const poolTimeout = recencyTimeout();
+      const poolBands = poolTimeout ? [] : bandsReliable(pooled);
+      if (poolTimeout) {
+        recencyUnmeasured(poolTimeout, "sur les envois récents toutes marques ");
+      } else if (poolBands.length) {
         recencyRows = pooled;
         recencyCalibration = { level: "global", campaignIds: poolRows.map((row) => row.id) };
         notes.push(`Cohortes de récence (${poolBands.map((band) => RECENCY_BAND_LABELS[band]).join(", ")}) calibrées sur ${poolRows.length} envois récents toutes marques (repli global : CTR ×0,65, plaintes ×1,5) : les envois de la marque ne touchent pas assez de contacts sans activité 60 j.`);
@@ -1027,6 +1098,9 @@ export async function buildSmartSegmentEvidence(
         recencyCalibration = recencyRows.length ? recencyCalibration : null;
         notes.push("Aucun envoi récent ne touche assez de contacts sans activité 60 j : les blocs « ouverts 61–180 j » et « dormants » ne sont pas proposés.");
       }
+    }
+    if (recencySampleScale > 1 && recencyMeasuredSends && !degraded) {
+      notes.push(`Récence mesurée sur un échantillon réduit (1/${recencyTimeoutScale} de l'échantillon habituel) après un dépassement de délai : les bandes sans activité 60 j atteignent moins souvent le seuil de fiabilité.`);
     }
     rawRows.push(...recencyRows);
     const cohortRates = aggregateCohortRates(rawRows);
@@ -1106,6 +1180,7 @@ export async function buildSmartSegmentEvidence(
       mta: mtaEvidence,
       complaintFloor,
       baselines,
+      ...(degraded ? { degraded } : {}),
     };
   } catch (error) {
     if (error instanceof SmartSegmentError) throw error;

@@ -182,7 +182,9 @@ async function measureAudienceIsolated(rules: SegmentRulesV2, config: SmartSegme
 /**
  * Most recent dossier of the same evidence identity, built within the reuse
  * window by another analysis (whatever its final status: a dossier is only
- * persisted once complete). Older rows carry no evidenceKey and never match.
+ * persisted once complete). Older rows carry no evidenceKey and never match;
+ * a degraded dossier (a best-effort measurement dropped on timeout) is never
+ * a source either — the next analysis must measure again.
  */
 async function findReusableEvidence(evidenceKey: string, excludeId: string, config: SmartSegmentConfig): Promise<{ id: string; evidence: SmartSegmentEvidence } | null> {
   if (config.evidenceReuseWindowMs <= 0) return null;
@@ -191,6 +193,7 @@ async function findReusableEvidence(evidenceKey: string, excludeId: string, conf
       WHERE evidence IS NOT NULL
         AND evidence->>'evidenceKey' = $1
         AND evidence->>'reusedFrom' IS NULL
+        AND evidence->'degraded' IS NULL
         AND created_at >= NOW() - ($2::int * INTERVAL '1 millisecond')
         AND id <> $3
       ORDER BY created_at DESC

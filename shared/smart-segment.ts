@@ -404,6 +404,13 @@ export type SmartSegmentEvidence = {
   evidenceKey?: string;
   /** Set when the dossier was copied from an earlier analysis instead of rebuilt. */
   reusedFrom?: { analysisId: string; generatedAt: string };
+  /**
+   * Measurements dropped because a statement exceeded the per-query timeout
+   * (best-effort stages only — today the recency probes). Such a dossier is
+   * complete but weaker (non-active blocks omitted) and is never reused as
+   * the evidence source of a later analysis.
+   */
+  degraded?: Array<{ stage: "recency"; label: string; message: string }>;
 };
 
 export type SmartSegmentOrangeWanadooProjection = {

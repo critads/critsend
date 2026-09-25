@@ -512,6 +512,13 @@ export function SmartSegmentAssistant({
 
       {analysis?.status === "succeeded" && analysis.proposal && (
         <div className="space-y-4">
+          {!!evidence?.degraded?.length && (
+            <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="text-smart-segment-degraded">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="flex-1">Proposition incomplète : la mesure de la récence a dépassé le délai de la base ({evidence.degraded.map((entry) => entry.label).join(", ")}). Les blocs sans activité 60 j ne sont pas proposés ; relancez quand la base est moins chargée pour les obtenir.</p>
+              <Button type="button" variant="outline" size="sm" disabled={analysisMutation.isPending} onClick={() => analysisMutation.mutate(true)} data-testid="button-smart-segment-degraded-refresh">Relancer la mesure</Button>
+            </div>
+          )}
           {analysis.proposal.segments.map((segment, index) => {
             const createdEntry = createdEntries.find((entry) => entry.index === index) ?? null;
             const attached = attachedIndex === index;

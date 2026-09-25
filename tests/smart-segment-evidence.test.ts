@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../server/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("../server/db", () => ({ pool: {}, db: {}, getPoolSaturation: () => 0 }));
+const poolConnect = vi.fn();
+vi.mock("../server/db", () => ({ pool: { connect: (...args: unknown[]) => poolConnect(...args) }, db: {}, getPoolSaturation: () => 0 }));
 
 const historyCandidates = vi.fn();
 vi.mock("../server/repositories/campaign-repository", () => ({
@@ -18,7 +19,9 @@ import {
   isFinishedSend,
   measureAudienceWith,
   SmartSegmentError,
+  createTransactionRunner,
   preferCapturingCandidates,
+  RECENCY_TIMEOUT_SAMPLE_SCALE,
   type EvidenceQueryRunner,
 } from "../server/services/smart-segment-evidence";
 import type { SegmentRulesV2 } from "../shared/schema";
@@ -502,6 +505,134 @@ describe("buildSmartSegmentEvidence", () => {
     expect(evidence.complaintFloor ?? null).toBeNull();
   });
 
+  it("reduces the recency sample once after a statement timeout, then marks recency as unmeasured and skips the pool", async () => {
+    const recencyRow = (cohort: string, delivered: number, clickers: number) =>
+      ({ axis: "recency", cohort, delivered: String(delivered), human_clickers: String(clickers), bot_clickers: "0", complaints: "0" });
+    const timeout = () => { throw new SmartSegmentError("QUERY_TIMEOUT", "Délai dépassé sur la requête « récence » (30 s).", 504); };
+
+    // First attempt (1/50 of 1 M) times out, the reduced retry (1/200) answers.
+    historyCandidates.mockResolvedValueOnce([{ campaignId: "camp-a", segmentName: "FR - Cliqueurs" }]);
+    const reduced = fakeRunner({
+      stats: (ids) => ids.map((id) => statsRow(id, "Air France 01/09", 1_000_000, 1_000_000)),
+      cohorts: (campaignId, divisor) => (campaignId === "camp-a" ? cohortRows(divisor) : []),
+      recency: (campaignId, divisor) => {
+        if (campaignId !== "camp-a") throw new Error(`unexpected recency query for ${campaignId}`);
+        if (divisor === 50) return timeout();
+        return [recencyRow("engaged_60d", 4_800, 60), recencyRow("opened_61_180d", 1_200, 2), recencyRow("dormant_180d", 1_000, 0)];
+      },
+      tiers: () => [{ tier: "1", count: "9000" }],
+      recencyMix: () => [],
+    });
+    const evidence = await buildSmartSegmentEvidence(
+      { campaignName: "Air France 21/09", excludeCampaignId: "camp-new", brand, family: "fai_fr" },
+      () => {},
+      { config, runner: reduced.runner },
+    );
+    const recencyQueries = reduced.recorded.filter((entry) => entry.label.startsWith("récence"));
+    expect(recencyQueries.map((entry) => entry.params[4])).toEqual([50, 50 * RECENCY_TIMEOUT_SAMPLE_SCALE]);
+    expect(evidence.degraded).toBeUndefined();
+    expect(evidence.recencyCalibration).toEqual({ level: "brand", campaignIds: ["camp-a"] });
+    const lapsed = evidence.cohortRates.find((rate) => rate.axis === "recency" && rate.cohort === "opened_61_180d")!;
+    expect(lapsed.observed).toBe(1_200);
+    expect(lapsed.delivered).toBe(1_200 * 200);
+    expect(evidence.notes.some((note) => note.startsWith("Récence mesurée sur un échantillon réduit"))).toBe(true);
+
+    // Both attempts time out: the analysis still succeeds without non-active
+    // blocks, the pool is not even attempted, and the dossier is flagged.
+    historyCandidates.mockResolvedValueOnce([{ campaignId: "camp-a", segmentName: "FR - Cliqueurs" }]);
+    const unmeasured = fakeRunner({
+      stats: (ids) => ids.map((id) => statsRow(id, "Air France 01/09", 1_000_000, 1_000_000)),
+      cohorts: (campaignId, divisor) => (campaignId === "camp-a" ? cohortRows(divisor) : []),
+      recency: () => timeout(),
+      recencyPool: () => { throw new Error("the pool must not run after a recency timeout"); },
+      tiers: () => [{ tier: "1", count: "9000" }],
+      recencyMix: () => [],
+    });
+    const degraded = await buildSmartSegmentEvidence(
+      { campaignName: "Air France 21/09", excludeCampaignId: "camp-new", brand, family: "fai_fr" },
+      () => {},
+      { config, runner: unmeasured.runner },
+    );
+    expect(unmeasured.recorded.filter((entry) => entry.label.startsWith("récence"))).toHaveLength(2);
+    expect(unmeasured.recorded.some((entry) => entry.label === "envois récents toutes marques (récence)")).toBe(false);
+    expect(degraded.degraded).toEqual([{ stage: "recency", label: "Air France 01/09", message: expect.stringContaining("Délai dépassé") }]);
+    expect(degraded.recencyCalibration).toBeNull();
+    expect(degraded.blocks.some((block) => block.id.endsWith("_lapsed") || block.id.endsWith("_dormant"))).toBe(false);
+    expect(degraded.blocks.length).toBeGreaterThan(0);
+    expect(degraded.notes.some((note) => note.includes("Calibrage de la récence interrompu"))).toBe(true);
+
+    // Any other failure of the recency statement still fails the analysis.
+    historyCandidates.mockResolvedValueOnce([{ campaignId: "camp-a", segmentName: "FR - Cliqueurs" }]);
+    const broken = fakeRunner({
+      stats: (ids) => ids.map((id) => statsRow(id, "Air France 01/09", 1_000_000, 1_000_000)),
+      cohorts: (campaignId, divisor) => (campaignId === "camp-a" ? cohortRows(divisor) : []),
+      recency: () => { throw new SmartSegmentError("EVIDENCE_QUERY_FAILED", "colonne inconnue", 500); },
+      tiers: () => [],
+    });
+    await expect(buildSmartSegmentEvidence(
+      { campaignName: "Air France 21/09", excludeCampaignId: "camp-new", brand, family: "fai_fr" },
+      () => {},
+      { config, runner: broken.runner },
+    )).rejects.toMatchObject({ code: "EVIDENCE_QUERY_FAILED" });
+  });
+
+  it("discards the bands measured before a recency timeout (brand send or pool) instead of attributing a partial calibration", async () => {
+    const recencyRow = (cohort: string, delivered: number, clickers: number) =>
+      ({ axis: "recency", cohort, delivered: String(delivered), human_clickers: String(clickers), bot_clickers: "0", complaints: "0" });
+    const reliable = [recencyRow("engaged_60d", 40_000, 500), recencyRow("opened_61_180d", 3_000, 6), recencyRow("dormant_180d", 2_000, 2)];
+    const timeout = () => { throw new SmartSegmentError("QUERY_TIMEOUT", "Délai dépassé sur la requête « récence » (30 s).", 504); };
+
+    // Second brand send times out twice after the first one measured reliable bands.
+    historyCandidates.mockResolvedValueOnce([{ campaignId: "camp-a", segmentName: "FR" }, { campaignId: "camp-b", segmentName: "FR" }]);
+    const brandCase = fakeRunner({
+      stats: (ids) => ids.map((id) => statsRow(id, id === "camp-a" ? "Air France 01/09" : "Air France 08/09", 50_000, 50_000)),
+      cohorts: (_campaignId, divisor) => cohortRows(divisor),
+      recency: (campaignId) => (campaignId === "camp-a" ? reliable : timeout()),
+      recencyPool: () => { throw new Error("the pool must not run after a recency timeout"); },
+      tiers: () => [{ tier: "1", count: "9000" }],
+      recencyMix: () => [],
+    });
+    const brandEvidence = await buildSmartSegmentEvidence(
+      { campaignName: "Air France 21/09", excludeCampaignId: "camp-new", brand, family: "fai_fr" },
+      () => {},
+      { config, runner: brandCase.runner },
+    );
+    expect(brandCase.recorded.filter((entry) => entry.label.startsWith("récence")).map((entry) => entry.params[0])).toEqual(["camp-a", "camp-b", "camp-b"]);
+    expect(brandEvidence.degraded?.[0]).toMatchObject({ stage: "recency", label: "Air France 08/09" });
+    expect(brandEvidence.recencyCalibration).toBeNull();
+    expect(brandEvidence.cohortRates.some((rate) => rate.axis === "recency")).toBe(false);
+    expect(brandEvidence.blocks.some((block) => block.id.endsWith("_lapsed") || block.id.endsWith("_dormant"))).toBe(false);
+    expect(brandEvidence.notes.filter((note) => note.includes("interrompu"))).toHaveLength(1);
+    expect(brandEvidence.notes.some((note) => note.startsWith("Récence mesurée sur un échantillon réduit"))).toBe(false);
+
+    // Second pool send times out twice after the first pool send measured reliable bands.
+    historyCandidates.mockResolvedValueOnce([{ campaignId: "camp-a", segmentName: "FR" }]);
+    const poolCase = fakeRunner({
+      stats: (ids) => ids.map((id) => statsRow(id, "Air France 01/09", 50_000, 50_000)),
+      cohorts: (_campaignId, divisor) => cohortRows(divisor),
+      recency: (campaignId) => campaignId === "camp-a"
+        ? [recencyRow("engaged_60d", 49_000, 500), recencyRow("opened_61_180d", 30, 0), recencyRow("dormant_180d", 10, 0)]
+        : campaignId === "pool-1" ? reliable : timeout(),
+      recencyPool: () => [
+        { id: "pool-1", name: "Autre 15/09", status: "completed", first_send_at: "2026-09-15T08:00:00.000Z", sent_count: "600000", delivered_rows: "600000" },
+        { id: "pool-2", name: "Autre 14/09", status: "completed", first_send_at: "2026-09-14T08:00:00.000Z", sent_count: "600000", delivered_rows: "600000" },
+      ],
+      tiers: () => [{ tier: "1", count: "9000" }],
+      recencyMix: () => [],
+    });
+    const poolEvidence = await buildSmartSegmentEvidence(
+      { campaignName: "Air France 21/09", excludeCampaignId: "camp-new", brand, family: "fai_fr" },
+      () => {},
+      { config: { ...config, recencyPoolSampleTarget: 20_000, recencyPoolMaxCampaigns: 12 }, runner: poolCase.runner },
+    );
+    expect(poolCase.recorded.filter((entry) => entry.label.startsWith("récence")).map((entry) => entry.params[0])).toEqual(["camp-a", "pool-1", "pool-2", "pool-2"]);
+    expect(poolEvidence.degraded?.[0]).toMatchObject({ stage: "recency", label: "Autre 14/09" });
+    expect(poolEvidence.recencyCalibration).toBeNull();
+    expect(poolEvidence.cohortRates.some((rate) => rate.axis === "recency")).toBe(false);
+    expect(poolEvidence.blocks.some((block) => block.id.endsWith("_lapsed") || block.id.endsWith("_dormant"))).toBe(false);
+    expect(poolEvidence.notes.some((note) => note.includes("envois récents toutes marques interrompu"))).toBe(true);
+  });
+
   it("propagates runner failures as SmartSegmentError", async () => {
     historyCandidates.mockResolvedValue([]);
     const runner: EvidenceQueryRunner = {
@@ -515,5 +646,38 @@ describe("buildSmartSegmentEvidence", () => {
       () => {},
       { config, runner },
     )).rejects.toMatchObject({ code: "QUERY_TIMEOUT" });
+  });
+});
+
+describe("createTransactionRunner", () => {
+  it("runs every statement under a savepoint so a statement timeout leaves the transaction usable", async () => {
+    const sent: string[] = [];
+    const client = {
+      query: vi.fn(async (text: string) => {
+        sent.push(text);
+        if (text.startsWith("SELECT slow")) throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+        return { rows: [{ ok: 1 }] };
+      }),
+      release: vi.fn(),
+    };
+    poolConnect.mockResolvedValueOnce(client);
+    const transaction = createTransactionRunner({ ...config, queryTimeoutMs: 30_000 });
+    await transaction.open();
+    await expect(transaction.runner.query("lente", "SELECT slow")).rejects.toMatchObject({ code: "QUERY_TIMEOUT", message: expect.stringContaining("30 s") });
+    await expect(transaction.runner.query("rapide", "SELECT 1")).resolves.toEqual([{ ok: 1 }]);
+    await transaction.close();
+    expect(sent).toEqual([
+      "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+      "SET LOCAL statement_timeout = '30000ms'",
+      "SAVEPOINT evidence_query",
+      "SELECT slow",
+      "ROLLBACK TO SAVEPOINT evidence_query",
+      "SAVEPOINT evidence_query",
+      "SELECT 1",
+      "RELEASE SAVEPOINT evidence_query",
+      "ROLLBACK",
+    ]);
+    expect(transaction.runner.queries()).toBe(2);
+    expect(client.release).toHaveBeenCalledTimes(1);
   });
 });

@@ -101,6 +101,25 @@ source, and the pool is best-effort under the evidence budget (omit, never fail 
 activity BEFORE the send. Similar-brand refs are an operator selection validated server-side,
 part of the analysis identity, and removed from the vertical pool (no double counting).
 
+## 5b. Recency probes are the timeout hotspot: best-effort, all-or-nothing, never cached
+Rule: the per-recipient recency statement (LATERAL `MAX(timestamp)` on campaign_stats per sampled
+subscriber) is the only evidence query that hits the 30 s statement timeout on the loaded prod DB
+(campaign_stats has no `(subscriber_id, timestamp)` index; the subscriber-only index visits every
+stats row of each subscriber). Handling: every evidence statement runs under a SAVEPOINT (a 57014
+must not abort the REPEATABLE READ transaction); the first timeout retries once at 1/4 sample; a
+second timeout ⇒ recency unmeasured as a WHOLE (rows measured before it are discarded,
+`recencyCalibration = null`, non-active blocks omitted), dossier flagged `evidence.degraded`, and
+a degraded dossier is never an evidence-reuse source. Do not keep partial bands: they would be
+attributed to every selected send and contradict the UI banner.
+
+**Why:** production analysis (Sept 2026) died at the « cohorte » stage with QUERY_TIMEOUT on one
+brand recency probe; the cheap `campaign_unsubscribed` CTE was suspected but EXPLAIN showed the
+lateral MAX dominates. Raising the timeout is refused (protects sending).
+
+**How to apply:** the durable fix is a prod index `campaign_stats (subscriber_id, "timestamp")`
+built CONCURRENTLY (then drop the redundant subscriber-only index) — needs owner consent and a
+disk check on the multi-GB table. Never switch recency to clicks-only without approval.
+
 ## 5a. Complaint calibration is MTA-aware; thin cohorts use the rule of three
 Rule: every MTA is classified on its 90-day cached counters (delivered < 100 000 ⇒ unknown,
 complaint rate < 0,01 % ⇒ blind, else capturing). Blind-MTA sends never calibrate complaints

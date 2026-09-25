@@ -47,7 +47,7 @@ function handleQuery(text: string, params: unknown[] = []): { rows: Row[]; rowCo
   }
   if (sql.includes("evidence->>'evidenceKey' = $1")) {
     const rows = [...table.values()]
-      .filter((row) => row.evidence?.evidenceKey === params[0] && !row.evidence?.reusedFrom)
+      .filter((row) => row.evidence?.evidenceKey === params[0] && !row.evidence?.reusedFrom && !row.evidence?.degraded)
       .filter((row) => clock() - row.created_at.getTime() <= ms(params[1]) && row.id !== params[2])
       .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
     return { rows: rows.slice(0, 1).map((row) => ({ id: row.id, evidence: row.evidence })), rowCount: rows.length ? 1 : 0 };
@@ -381,6 +381,24 @@ describe("startSmartSegmentAnalysis", () => {
     const never = await startSmartSegmentAnalysis({ ...params, targetClicks: 5_000 }, "user-1", { config: disabled, callModel });
     await waitForSmartSegmentAnalysis(never.view.id);
     expect(buildEvidence).toHaveBeenCalledTimes(6);
+  });
+
+  it("never reuses a degraded dossier (a measurement dropped on timeout is measured again)", async () => {
+    buildEvidence.mockResolvedValueOnce({ ...evidence, degraded: [{ stage: "recency", label: "Marque 01/09", message: "Délai dépassé" }] });
+    const weak = await startSmartSegmentAnalysis(params, "user-1", { config, callModel });
+    await waitForSmartSegmentAnalysis(weak.view.id);
+    expect((await getSmartSegmentAnalysis(weak.view.id))?.evidence?.degraded).toHaveLength(1);
+
+    const retargeted = await startSmartSegmentAnalysis({ ...params, targetClicks: 2_000 }, "user-1", { config, callModel });
+    await waitForSmartSegmentAnalysis(retargeted.view.id);
+    expect(reuseEvidence).not.toHaveBeenCalled();
+    expect(buildEvidence).toHaveBeenCalledTimes(2);
+    expect((await getSmartSegmentAnalysis(retargeted.view.id))?.evidence?.degraded).toBeUndefined();
+
+    // The complete dossier then serves the next param-only re-run.
+    const third = await startSmartSegmentAnalysis({ ...params, targetClicks: 3_000 }, "user-1", { config, callModel });
+    await waitForSmartSegmentAnalysis(third.view.id);
+    expect(reuseEvidence.mock.calls[0][1]).toEqual({ analysisId: retargeted.view.id });
   });
 
   it("persists an explicit failure with its code and never leaves the row running", async () => {
