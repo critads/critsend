@@ -98,10 +98,13 @@ class MemoryStore implements OrangeTestStore {
     }
     return n;
   }
-  async expireOverdue(now: Date) {
+  async expireOverdue(now: Date, graceMs: number) {
     let n = 0;
     for (const r of this.rows) {
       if (r.status !== "waiting" || !r.deadlineAt || r.deadlineAt > now) continue;
+      const checkedClean = Boolean(r.lastCheckAt && r.lastCheckAt >= r.deadlineAt && !r.lastCheckError);
+      const pastGrace = r.deadlineAt.getTime() <= now.getTime() - graceMs;
+      if (!checkedClean && !pastGrace) continue;
       Object.assign(r, { status: "not_received", verdict: "NOT_RECEIVED", finishedAt: now, nextPollAt: null });
       n++;
     }
@@ -165,7 +168,7 @@ function hitFor(reference: string, spamLevelRaw: string | null, folder: "inbox" 
   };
 }
 
-function harness(opts: { start?: Date; configOverrides?: Partial<OrangeTestConfig> } = {}) {
+function harness(opts: { start?: Date; configOverrides?: Partial<OrangeTestConfig>; acquireCheckerLease?: OrangeTestServiceDeps["acquireCheckerLease"] } = {}) {
   let now = opts.start ?? new Date("2026-09-28T10:00:00Z");
   const clock = () => new Date(now);
   const store = new MemoryStore(clock);
@@ -173,7 +176,10 @@ function harness(opts: { start?: Date; configOverrides?: Partial<OrangeTestConfi
   const lookupMailbox = vi.fn(async (): Promise<MailboxLookupResult> => ({ hits: new Map(), foldersSearched: ["INBOX", "Junk"], warnings: [] }));
   const cfg = config(opts.configOverrides);
   const getMta = vi.fn(async (id: string) => (id === MTA.id ? MTA : undefined));
-  const service = createOrangeTestService({ store, getMta, sendPlainTest: sendPlainTest as any, lookupMailbox: lookupMailbox as any, getConfig: () => cfg, now: clock });
+  const service = createOrangeTestService({
+    store, getMta, sendPlainTest: sendPlainTest as any, lookupMailbox: lookupMailbox as any, getConfig: () => cfg, now: clock,
+    acquireCheckerLease: opts.acquireCheckerLease,
+  });
   return {
     store, service, sendPlainTest, lookupMailbox, cfg,
     advance(ms: number) { now = new Date(now.getTime() + ms); },
@@ -328,14 +334,106 @@ describe("checker tick", () => {
     let row = (await h.service.getOrangeTest(test.id))!;
     expect(new Date(row.nextPollAt!).getTime() - h.now().getTime()).toBe(SLOW_POLL);
 
+    // Deadline reached: the row is NOT closed on the clock alone — it is
+    // polled one last time (a message can land in the final minutes)…
     h.advance(MAX_WAIT);
-    const stats = await h.service.runCheckerTick();
+    let stats = await h.service.runCheckerTick();
+    expect(stats.expired).toBe(0);
+    expect(stats.claimed).toBe(1);
+    row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.status).toBe("waiting");
+    expect(row.lastCheckAt).toBe(h.now().toISOString());
+
+    // …and only a clean look that started after the deadline closes it.
+    h.advance(15_000);
+    stats = await h.service.runCheckerTick();
     expect(stats.expired).toBe(1);
-    expect(stats.claimed).toBe(0);
     row = (await h.service.getOrangeTest(test.id))!;
     expect(row.status).toBe("not_received");
     expect(row.verdict).toBe("NOT_RECEIVED");
     expect(row.finishedAt).toBe(h.now().toISOString());
+  });
+
+  it("a message found by the final post-deadline check still wins (no NOT RECEIVED race)", async () => {
+    const h = harness();
+    const { test, completion } = await h.service.startOrangeTest("mta-1", null);
+    await completion;
+    h.advance(MAX_WAIT + 60_000);
+    h.lookupMailbox.mockResolvedValueOnce({
+      hits: new Map([[test.reference, hitFor(test.reference, "low", "junk", new Date(h.now().getTime() - 30_000))]]),
+      foldersSearched: ["INBOX", "Junk"], warnings: [],
+    });
+    const stats = await h.service.runCheckerTick();
+    expect(stats.expired).toBe(0);
+    expect(stats.found).toBe(1);
+    const row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.status).toBe("done");
+    expect(row.verdict).toBe("SPAM");
+  });
+
+  it("a look that STARTED before the deadline never counts as the final check", async () => {
+    const h = harness();
+    const { test, completion } = await h.service.startOrangeTest("mta-1", null);
+    await completion;
+    h.advance(FAST_PHASE + 1_000);
+    await h.service.runCheckerTick(); // enters the slow phase
+    // Move to 10 s before the deadline and make the poll due: the check starts before the deadline.
+    const row = h.store.rows.find((r) => r.id === test.id)!;
+    h.advance(MAX_WAIT - (FAST_PHASE + 1_000) - 10_000);
+    row.nextPollAt = h.now();
+    h.lookupMailbox.mockImplementationOnce(async () => {
+      h.advance(40_000); // the IMAP session straddles the deadline
+      return { hits: new Map(), foldersSearched: ["INBOX", "Junk"], warnings: [] };
+    });
+    let stats = await h.service.runCheckerTick();
+    expect(stats.claimed).toBe(1);
+    // Next tick: deadline passed, but the last look started 10 s BEFORE it → not closed yet.
+    h.advance(15_000);
+    stats = await h.service.runCheckerTick();
+    expect(stats.expired).toBe(0);
+    expect((await h.service.getOrangeTest(test.id))!.status).toBe("waiting");
+  });
+
+  it("closes overdue tests after the grace period even when the mailbox keeps failing", async () => {
+    const h = harness();
+    const { test, completion } = await h.service.startOrangeTest("mta-1", null);
+    await completion;
+    h.lookupMailbox.mockRejectedValue(new Error("IMAP authentication refused"));
+    h.advance(MAX_WAIT + 1_000);
+    let stats = await h.service.runCheckerTick();
+    expect(stats.error).toMatch(/authentication/);
+    expect(stats.expired).toBe(0);
+    h.advance(EXPIRY_GRACE_MS);
+    stats = await h.service.runCheckerTick();
+    expect(stats.expired).toBe(1);
+    const row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.status).toBe("not_received");
+    expect(row.lastCheckError).toMatch(/authentication/);
+  });
+
+  it("leaves the due rows alone when another instance holds the checker lease, and releases the lease after the session", async () => {
+    let held = true;
+    const release = vi.fn(async () => { held = false; });
+    const acquire = vi.fn(async () => (held ? null : { release }));
+    const h = harness({ acquireCheckerLease: acquire });
+    const { test, completion } = await h.service.startOrangeTest("mta-1", null);
+    await completion;
+    h.advance(FAST_POLL);
+    let stats = await h.service.runCheckerTick();
+    expect(stats.skipped).toBe(true);
+    expect(stats.leaseHeldElsewhere).toBe(true);
+    expect(stats.claimed).toBe(0);
+    expect(h.lookupMailbox).not.toHaveBeenCalled();
+    let row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.pollCount).toBe(0); // still due for the lease holder
+
+    held = false;
+    h.lookupMailbox.mockRejectedValueOnce(new Error("boom"));
+    stats = await h.service.runCheckerTick();
+    expect(stats.claimed).toBe(1);
+    expect(release).toHaveBeenCalledTimes(1); // released even when the session throws
+    row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.pollCount).toBe(1);
   });
 
   it("keeps listening after a mailbox failure and shows the error on the test", async () => {
@@ -370,16 +468,19 @@ describe("checker tick", () => {
     expect(new Date(row.deadlineAt!).getTime() - new Date(row.createdAt).getTime()).toBe(MAX_WAIT);
   });
 
-  it("skips the mailbox when the feature is disabled but still expires overdue tests", async () => {
+  it("skips the mailbox when the feature is disabled and still closes overdue tests once the grace period is over", async () => {
     const h = harness();
     const { test, completion } = await h.service.startOrangeTest("mta-1", null);
     await completion;
     (h.cfg as any).enabled = false;
     h.advance(MAX_WAIT + 1);
-    const stats = await h.service.runCheckerTick();
+    let stats = await h.service.runCheckerTick();
     expect(stats.skipped).toBe(true);
-    expect(stats.expired).toBe(1);
+    expect(stats.expired).toBe(0); // no check possible → wait for the grace period
     expect(h.lookupMailbox).not.toHaveBeenCalled();
+    h.advance(EXPIRY_GRACE_MS);
+    stats = await h.service.runCheckerTick();
+    expect(stats.expired).toBe(1);
     expect((await h.service.getOrangeTest(test.id))!.status).toBe("not_received");
   });
 });
@@ -398,6 +499,9 @@ describe("control values (MTA card)", () => {
     // so mimic the realistic path: A expires (window shortened) and B (29 Sept) is sent.
     const rowA = h.store.rows.find((r) => r.id === a.test.id)!;
     rowA.deadlineAt = h.now();
+    rowA.nextPollAt = h.now();
+    await h.service.runCheckerTick(); // final clean look after the deadline
+    h.advance(15_000);
     await h.service.runCheckerTick(); // A → NOT_RECEIVED
     h.advance(5 * 3600_000); // 29 Sept 09:00
     const b = await h.service.startOrangeTest("mta-1", null);

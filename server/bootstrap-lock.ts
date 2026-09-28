@@ -30,6 +30,9 @@ const ADVISORY_LOCK_KEY_CAMPAIGN_SENDING_DEADLINE = 900023;
 // worker overlap cannot execute the same batch concurrently without holding
 // an idle lock for the whole multi-table run.
 const ADVISORY_LOCK_KEY_MAINTENANCE = 900024;
+// Orange Test checker: transaction-scoped, held only while ONE web instance
+// runs the shared IMAP mailbox session (900027 is the risk-profile refresh).
+export const ADVISORY_LOCK_KEY_ORANGE_TEST_CHECKER = 900028;
 
 export const LOCK_KEYS = {
   TRACKING_TOKENS: ADVISORY_LOCK_KEY_TRACKING_TOKENS,
@@ -56,6 +59,7 @@ export const LOCK_KEYS = {
   CAMPAIGN_CALENDAR_INDEXES: ADVISORY_LOCK_KEY_CAMPAIGN_CALENDAR_INDEXES,
   CAMPAIGN_SENDING_DEADLINE: ADVISORY_LOCK_KEY_CAMPAIGN_SENDING_DEADLINE,
   MAINTENANCE: ADVISORY_LOCK_KEY_MAINTENANCE,
+  ORANGE_TEST_CHECKER: ADVISORY_LOCK_KEY_ORANGE_TEST_CHECKER,
 } as const;
 
 export type LockResult = "ran" | "skipped" | "error";

@@ -187,7 +187,7 @@ function classifyImapError(error: any, config: OrangeTestConfig): OrangeMailboxE
   if (error?.authenticationFailed || /authenticat|login failed|invalid credentials/i.test(message)) {
     return new OrangeMailboxError(
       "AUTH",
-      `IMAP authentication refused by ${config.imapHost} (${message}). Check ORANGE_TEST_IMAP_PASSWORD and, in the Orange webmail, that IMAP access is allowed for this mailbox and this server location.`,
+      `IMAP authentication refused by ${config.imapHost} (${message}). Check ORANGE_TEST_IMAP_PASSWORD; in the Orange webmail (gear icon → Tous les paramètres → Sécurité → Protocoles POP ou IMAP) make sure IMAP access is enabled, or generate a dedicated "mot de passe pour logiciels de messagerie" in the Espace client (Connexion et Sécurité) and use that one.`,
     );
   }
   const code = String(error?.code || "").toUpperCase();
@@ -350,7 +350,13 @@ async function runSession(
   const pending = new Map(requests.map((r) => [r.reference, r] as const));
   if (pending.size === 0) return result;
 
-  await client.connect();
+  try {
+    await client.connect();
+  } catch (error) {
+    // imapflow tears the socket down itself on a failed login, but do not rely on it.
+    try { client.close(); } catch { /* best effort */ }
+    throw error;
+  }
   try {
     const folders = await client.list();
     const inbox = folders.find((f) => f.path.toUpperCase() === "INBOX") ?? { path: "INBOX", name: "INBOX" };
@@ -393,12 +399,16 @@ export function lookupOrangeTests(
     if (!config.enabled) throw new OrangeMailboxError("AUTH", "Orange Test mailbox is not configured (no IMAP password).");
     const client = createClient(config);
     try {
-      return await withDeadline(
+      const result = await withDeadline(
         runSession(requests, config, client),
         config.sessionTimeoutMs,
         () => client.close(),
         "Orange mailbox session",
       );
+      // Warnings carry server error texts and end up in the logs: never let a
+      // credential slip through them either.
+      result.warnings = result.warnings.map((w) => scrub(w, config));
+      return result;
     } catch (error) {
       throw classifyImapError(error, config);
     }

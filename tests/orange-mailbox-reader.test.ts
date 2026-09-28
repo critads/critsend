@@ -223,7 +223,7 @@ describe("orange mailbox reader — lookup", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(OrangeMailboxError);
       expect((error as Error).message).not.toContain("hunter22");
-      expect((error as Error).message).toMatch(/webmail/i);
+      expect((error as Error).message).toMatch(/Protocoles POP ou IMAP/);
     }
   });
 

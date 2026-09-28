@@ -9,6 +9,7 @@
 // behaviour is unit-testable without SQL string matching.
 import { randomBytes } from "crypto";
 import { pool } from "../db";
+import { ADVISORY_LOCK_KEY_ORANGE_TEST_CHECKER } from "../bootstrap-lock";
 import { logger } from "../logger";
 import { storage } from "../storage";
 import type { Mta } from "@shared/schema";
@@ -109,8 +110,13 @@ export interface OrangeTestStore {
   markSendFailed(id: string, sendError: OrangeTestSendFailure, finishedAt: Date): Promise<boolean>;
   /** Rows stuck in `sending` since before `staleBefore` → waiting with a note. */
   releaseStaleSending(staleBefore: Date, note: string, now: Date, maxWaitMs: number, firstPollMs: number): Promise<number>;
-  /** waiting rows past their deadline → not_received. */
-  expireOverdue(now: Date): Promise<number>;
+  /**
+   * waiting rows past their deadline → not_received, but only once a mailbox
+   * check that started AFTER the deadline came back clean (so the last poll
+   * is always a real look, never a clock tick), or after `graceMs` past the
+   * deadline when the mailbox cannot be checked at all.
+   */
+  expireOverdue(now: Date, graceMs: number): Promise<number>;
   /** Atomically takes the waiting rows whose poll is due and schedules their next poll. */
   claimDue(now: Date, limit: number, intervals: ClaimIntervals): Promise<OrangeTestRecord[]>;
   /** waiting → done (only if still `waiting`). */
@@ -271,12 +277,16 @@ export class PgOrangeTestStore implements OrangeTestStore {
     return res.rowCount ?? 0;
   }
 
-  async expireOverdue(now: Date): Promise<number> {
+  async expireOverdue(now: Date, graceMs: number): Promise<number> {
     const res = await this.db.query(
       `UPDATE mta_orange_tests
        SET status = 'not_received', verdict = 'NOT_RECEIVED', finished_at = $1, next_poll_at = NULL, updated_at = now()
-       WHERE status = 'waiting' AND deadline_at IS NOT NULL AND deadline_at <= $1`,
-      [now],
+       WHERE status = 'waiting' AND deadline_at IS NOT NULL AND deadline_at <= $1::timestamptz
+         AND (
+           (last_check_at IS NOT NULL AND last_check_at >= deadline_at AND last_check_error IS NULL)
+           OR deadline_at <= $1::timestamptz - ($2::bigint * INTERVAL '1 millisecond')
+         )`,
+      [now, graceMs],
     );
     return res.rowCount ?? 0;
   }
@@ -401,6 +411,11 @@ export type MailboxLookup = (
   createClient?: ImapClientFactory,
 ) => Promise<MailboxLookupResult>;
 
+/** Exclusive right to run the mailbox part of a checker tick (one IMAP session across all instances). */
+export interface CheckerLease {
+  release(): Promise<void>;
+}
+
 export interface OrangeTestServiceDeps {
   store: OrangeTestStore;
   getMta: (id: string) => Promise<Mta | undefined | null>;
@@ -409,6 +424,8 @@ export interface OrangeTestServiceDeps {
   getConfig: () => OrangeTestConfig;
   now: () => Date;
   createImapClient?: ImapClientFactory;
+  /** Returns null when another instance holds the lease; omitted = single instance. */
+  acquireCheckerLease?: (budgetMs: number) => Promise<CheckerLease | null>;
 }
 
 export interface StartOrangeTestResult {
@@ -424,8 +441,17 @@ export interface CheckerTickStats {
   claimed: number;
   found: number;
   error: string | null;
+  /** Mailbox part not run: feature disabled, or another instance holds the lease. */
   skipped: boolean;
+  leaseHeldElsewhere: boolean;
 }
+
+/**
+ * Overdue tests are closed as NOT RECEIVED only after a clean mailbox check
+ * that started past the deadline; when the mailbox is unreachable (or the
+ * feature got disabled) this grace period bounds how long they linger.
+ */
+export const EXPIRY_GRACE_MS = 60 * 60 * 1000;
 
 export const STALE_SENDING_NOTE =
   "Send outcome unknown: the server restarted while the message was being handed to the MTA. Listening anyway in case it was sent.";
@@ -561,7 +587,7 @@ export function createOrangeTestService(deps: OrangeTestServiceDeps) {
   async function runCheckerTick(): Promise<CheckerTickStats> {
     const config = deps.getConfig();
     const now = deps.now();
-    const stats: CheckerTickStats = { released: 0, expired: 0, claimed: 0, found: 0, error: null, skipped: false };
+    const stats: CheckerTickStats = { released: 0, expired: 0, claimed: 0, found: 0, error: null, skipped: false, leaseHeldElsewhere: false };
 
     stats.released = await store.releaseStaleSending(
       new Date(now.getTime() - config.staleSendingMs),
@@ -572,7 +598,7 @@ export function createOrangeTestService(deps: OrangeTestServiceDeps) {
     );
     if (stats.released > 0) logger.warn(`[ORANGE_TEST] ${stats.released} test(s) stuck in 'sending' released to 'waiting'`);
 
-    stats.expired = await store.expireOverdue(now);
+    stats.expired = await store.expireOverdue(now, EXPIRY_GRACE_MS);
     if (stats.expired > 0) logger.info(`[ORANGE_TEST] ${stats.expired} test(s) closed as NOT RECEIVED (listening window over)`);
 
     if (!config.enabled) {
@@ -580,47 +606,67 @@ export function createOrangeTestService(deps: OrangeTestServiceDeps) {
       return stats;
     }
 
-    const due = await store.claimDue(now, config.checkerBatchSize, config);
-    stats.claimed = due.length;
-    if (due.length === 0) return stats;
-
-    const requests: MailboxLookupRequest[] = due.map((t) => ({
-      reference: t.reference,
-      messageId: t.messageId,
-      fromEmail: t.fromEmail,
-      sentAt: t.sentAt ?? t.createdAt,
-    }));
-    let result: MailboxLookupResult;
-    try {
-      result = await deps.lookupMailbox(requests, config, deps.createImapClient);
-    } catch (error: any) {
-      const message: string = error?.message || String(error);
-      stats.error = message;
-      logger.warn(`[ORANGE_TEST] Mailbox check failed for ${due.length} test(s): ${message}`);
-      await store.recordCheckOutcome(due.map((t) => t.id), deps.now(), message);
+    // The claim itself is atomic (SKIP LOCKED), but the mailbox session that
+    // follows is not: without the lease two web instances would open two IMAP
+    // sessions at once. Whoever misses the lease simply leaves the due rows
+    // for the holder (their poll time is untouched).
+    const lease = deps.acquireCheckerLease
+      ? await deps.acquireCheckerLease(config.sessionTimeoutMs + 30_000)
+      : { release: async () => undefined };
+    if (!lease) {
+      stats.skipped = true;
+      stats.leaseHeldElsewhere = true;
       return stats;
     }
-    for (const warning of result.warnings) logger.warn(`[ORANGE_TEST] Mailbox warning: ${warning}`);
 
-    const checkedAt = deps.now();
-    const missed: string[] = [];
-    for (const test of due) {
-      const hit = result.hits.get(test.reference);
-      if (!hit) {
-        missed.push(test.id);
-        continue;
+    try {
+      const due = await store.claimDue(now, config.checkerBatchSize, config);
+      stats.claimed = due.length;
+      if (due.length === 0) return stats;
+
+      const requests: MailboxLookupRequest[] = due.map((t) => ({
+        reference: t.reference,
+        messageId: t.messageId,
+        fromEmail: t.fromEmail,
+        sentAt: t.sentAt ?? t.createdAt,
+      }));
+      let result: MailboxLookupResult;
+      try {
+        result = await deps.lookupMailbox(requests, config, deps.createImapClient);
+      } catch (error: any) {
+        const message: string = error?.message || String(error);
+        stats.error = message;
+        logger.warn(`[ORANGE_TEST] Mailbox check failed for ${due.length} test(s): ${message}`);
+        await store.recordCheckOutcome(due.map((t) => t.id), deps.now(), message);
+        return stats;
       }
-      const input = hitToInput(hit, checkedAt);
-      const applied = await store.recordHit(test.id, input);
-      if (applied) {
-        stats.found += 1;
-        logger.info(
-          `[ORANGE_TEST] ${test.reference} found in ${hit.folder} (${hit.folderPath}) — X-me-spamlevel=${hit.spamLevelRaw ?? "absent"} → ${input.verdict}`,
-        );
+      for (const warning of result.warnings) logger.warn(`[ORANGE_TEST] Mailbox warning: ${warning}`);
+
+      const checkedAt = deps.now();
+      const missed: string[] = [];
+      for (const test of due) {
+        const hit = result.hits.get(test.reference);
+        if (!hit) {
+          missed.push(test.id);
+          continue;
+        }
+        const input = hitToInput(hit, checkedAt);
+        const applied = await store.recordHit(test.id, input);
+        if (applied) {
+          stats.found += 1;
+          logger.info(
+            `[ORANGE_TEST] ${test.reference} found in ${hit.folder} (${hit.folderPath}) — X-me-spamlevel=${hit.spamLevelRaw ?? "absent"} → ${input.verdict}`,
+          );
+        }
       }
+      // A clean miss is stamped with the time the look STARTED (the claim):
+      // expiry requires a look that started after the deadline, so a session
+      // that straddles the deadline never counts as the final check.
+      await store.recordCheckOutcome(missed, now, null);
+      return stats;
+    } finally {
+      await lease.release();
     }
-    await store.recordCheckOutcome(missed, checkedAt, null);
-    return stats;
   }
 
   return { startOrangeTest, getOrangeTest, listOrangeTests, getControlValues, runCheckerTick };
@@ -634,6 +680,45 @@ export type OrangeTestService = ReturnType<typeof createOrangeTestService>;
 
 let defaultService: OrangeTestService | null = null;
 
+/**
+ * Cross-instance lease = a transaction-scoped advisory lock held on a
+ * dedicated connection for the duration of the mailbox session. The
+ * transaction is idle while IMAP runs, so `idle_in_transaction_session_timeout`
+ * makes PostgreSQL itself drop the lock (and the backend) if this process
+ * ever hangs past the tick budget — no leaked lock can freeze the other
+ * instance's checker.
+ */
+export async function acquirePgCheckerLease(budgetMs: number): Promise<CheckerLease | null> {
+  const client = await pool.connect();
+  let released = false;
+  const release = async () => {
+    if (released) return;
+    released = true;
+    try {
+      await client.query("COMMIT");
+      client.release();
+    } catch (error: any) {
+      logger.warn(`[ORANGE_TEST] Checker lease release failed (${error?.message || error}) — dropping the connection`);
+      client.release(true);
+    }
+  };
+  try {
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL idle_in_transaction_session_timeout = ${Math.max(1000, Math.floor(budgetMs))}`);
+    const res = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_xact_lock($1) AS acquired`, [
+      ADVISORY_LOCK_KEY_ORANGE_TEST_CHECKER,
+    ]);
+    if (res.rows[0]?.acquired !== true) {
+      await release();
+      return null;
+    }
+    return { release };
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
+
 export function getOrangeTestService(): OrangeTestService {
   if (!defaultService) {
     defaultService = createOrangeTestService({
@@ -643,6 +728,7 @@ export function getOrangeTestService(): OrangeTestService {
       lookupMailbox: lookupOrangeTests,
       getConfig: getOrangeTestConfig,
       now: () => new Date(),
+      acquireCheckerLease: acquirePgCheckerLease,
     });
   }
   return defaultService;

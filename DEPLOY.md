@@ -342,11 +342,20 @@ curl -s -b cookies.txt https://your-domain/api/mtas/orange-test/config
 pm2 logs critsend-web --lines 50 | grep ORANGE_TEST
 ```
 
-If the checker logs an IMAP authentication error, the password is wrong **or
-Orange blocked the login from the server's IP**: sign in to the Orange webmail,
-authorise the new connection / enable IMAP access for the mailbox, then wait
-for the next poll (no restart needed). The password never appears in logs nor
-in any API response.
+If the checker logs an IMAP authentication error (`Authentication failed.`),
+the password is wrong **or IMAP access is disabled on the mailbox** (Orange
+disables it by default on new mailboxes and after a security block). Fix it
+from the Orange side, no restart needed — the next poll picks it up:
+
+1. Orange webmail → gear icon → *Tous les paramètres* → *Sécurité* →
+   *Protocoles POP ou IMAP* → *Modifier* → enable. Orange may require doing
+   this from the home Livebox connection.
+2. Preferably generate a dedicated *mot de passe pour logiciels et
+   applications de messagerie* (Espace client → *Connexion et Sécurité*); it
+   enables POP/IMAP automatically. Put that password in
+   `ORANGE_TEST_IMAP_PASSWORD` (and `pm2 restart` to reload the env).
+
+The password never appears in logs nor in any API response.
 
 ---
 

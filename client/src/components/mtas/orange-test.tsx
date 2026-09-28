@@ -167,6 +167,8 @@ export function OrangeTestCardBadge({ mtaId, value }: { mtaId: string; value: Or
     );
   }
   if (latest.status === "failed") {
+    // A refused hand-off is not a verdict: keep showing the last SENT test's verdict next to it.
+    const previous = latestVerdict && latestVerdict.id !== latest.id ? latestVerdict : null;
     return (
       <div className="text-sm flex items-center gap-2 flex-wrap" data-testid={`orange-test-card-${mtaId}`}>
         <span className="text-muted-foreground">Orange:</span>
@@ -175,6 +177,11 @@ export function OrangeTestCardBadge({ mtaId, value }: { mtaId: string; value: Or
           send failed
         </Badge>
         <span className="text-xs text-muted-foreground">{formatDateTime(latest.createdAt)}</span>
+        {previous && previous.verdict && (
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            · last sent test: <OrangeVerdictBadge verdict={previous.verdict} testId={`orange-test-card-previous-${mtaId}`} />
+          </span>
+        )}
       </div>
     );
   }
@@ -269,16 +276,20 @@ export function OrangeTestDialog({ mta, config, onClose }: OrangeTestDialogProps
       const res = await apiRequest("POST", `/api/mtas/${id}/orange-test`);
       return res.json() as Promise<StartResponse>;
     },
-    onSuccess: (data) => {
+    // Cache writes are keyed on the MTA the request was made FOR (`requestedMtaId`),
+    // never on the MTA currently shown: the dialog may have switched meanwhile.
+    onSuccess: (data, requestedMtaId) => {
+      queryClient.setQueryData(["/api/mtas", requestedMtaId, "orange-tests", data.test.id], data.test);
+      queryClient.invalidateQueries({ queryKey: ["/api/mtas/orange-test/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/mtas", requestedMtaId, "orange-tests"] });
+      if (requestedMtaId !== mtaId) return;
       setStartError(null);
       setShowRawError(false);
       setShowHeaders(false);
-      queryClient.setQueryData(["/api/mtas", mtaId, "orange-tests", data.test.id], data.test);
       setActiveTestId(data.test.id);
-      queryClient.invalidateQueries({ queryKey: ["/api/mtas/orange-test/summary"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/mtas", mtaId, "orange-tests"] });
     },
-    onError: (error: unknown) => {
+    onError: (error: unknown, requestedMtaId) => {
+      if (requestedMtaId !== mtaId) return;
       if (error instanceof ApiError) {
         const detail = error.body?.error;
         setStartError(typeof detail === "string" ? detail : `Request failed (${error.status})`);
@@ -376,7 +387,13 @@ export function OrangeTestDialog({ mta, config, onClose }: OrangeTestDialogProps
                     <dt className="text-muted-foreground">Next mailbox check</dt>
                     <dd data-testid="orange-test-next-poll">{nextPollMs === null ? "—" : nextPollMs <= 0 ? "now" : `in ${formatDuration(nextPollMs)}`}</dd>
                     <dt className="text-muted-foreground">Gives up</dt>
-                    <dd data-testid="orange-test-deadline">{deadlineMs === null ? "—" : `in ${formatDuration(deadlineMs)} (${formatDateTime(test.deadlineAt)})`}</dd>
+                    <dd data-testid="orange-test-deadline">
+                      {deadlineMs === null
+                        ? "—"
+                        : deadlineMs <= 0
+                          ? `after one last mailbox check (window closed ${formatDateTime(test.deadlineAt)})`
+                          : `in ${formatDuration(deadlineMs)} (${formatDateTime(test.deadlineAt)})`}
+                    </dd>
                     <dt className="text-muted-foreground">Checks so far</dt>
                     <dd>{test.pollCount}{test.lastCheckAt ? ` · last ${formatDateTime(test.lastCheckAt)}` : ""}</dd>
                   </dl>
