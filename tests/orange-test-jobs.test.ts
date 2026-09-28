@@ -16,10 +16,15 @@ import {
   createOrangeTestService,
   EXPIRY_GRACE_MS,
   generateOrangeTestReference,
+  MAILBOX_WARN_INTERVAL_MS,
   OrangeTestError,
   STALE_SENDING_NOTE,
   type ClaimIntervals,
   type HitInput,
+  type MailboxFailureInput,
+  type MailboxFailureOutcome,
+  type MailboxHealthRecord,
+  type MailboxSuccessOutcome,
   type MarkSentInput,
   type NewOrangeTest,
   type OrangeTestRecord,
@@ -27,7 +32,7 @@ import {
   type OrangeTestStore,
 } from "../server/services/orange-test-jobs";
 import { nextPollDelayMs, type OrangeTestConfig } from "../server/config/orange-test";
-import type { MailboxLookupHit, MailboxLookupResult } from "../server/services/orange-mailbox-reader";
+import type { MailboxLookupHit, MailboxLookupRequest, MailboxLookupResult } from "../server/services/orange-mailbox-reader";
 import type { OrangeTestControlValue, OrangeTestSendFailure } from "../shared/orange-test";
 import { toOrangeTestView } from "../server/services/orange-test-jobs";
 
@@ -102,14 +107,24 @@ class MemoryStore implements OrangeTestStore {
     }
     return n;
   }
-  async expireOverdue(now: Date, graceMs: number) {
+  private checkedClean(r: OrangeTestRecord) {
+    return Boolean(r.lastCheckAt && r.deadlineAt && r.lastCheckAt >= r.deadlineAt && !r.lastCheckError);
+  }
+  async expireOverdue(now: Date) {
     let n = 0;
     for (const r of this.rows) {
-      if (r.status !== "waiting" || !r.deadlineAt || r.deadlineAt > now) continue;
-      const checkedClean = Boolean(r.lastCheckAt && r.lastCheckAt >= r.deadlineAt && !r.lastCheckError);
-      const pastGrace = r.deadlineAt.getTime() <= now.getTime() - graceMs;
-      if (!checkedClean && !pastGrace) continue;
+      if (r.status !== "waiting" || !r.deadlineAt || r.deadlineAt > now || !this.checkedClean(r)) continue;
       Object.assign(r, { status: "not_received", verdict: "NOT_RECEIVED", finishedAt: now, nextPollAt: null });
+      n++;
+    }
+    return n;
+  }
+  async closeUnchecked(now: Date, graceMs: number) {
+    let n = 0;
+    for (const r of this.rows) {
+      if (r.status !== "waiting" || !r.deadlineAt || r.deadlineAt.getTime() > now.getTime() - graceMs) continue;
+      if (this.checkedClean(r)) continue;
+      Object.assign(r, { status: "not_checked", finishedAt: now, nextPollAt: null });
       n++;
     }
     return n;
@@ -140,6 +155,35 @@ class MemoryStore implements OrangeTestStore {
     for (const r of this.rows) {
       if (ids.includes(r.id) && r.status === "waiting") Object.assign(r, { lastCheckAt: at, lastCheckError: error });
     }
+  }
+
+  health = new Map<string, MailboxHealthRecord>();
+  async getMailboxHealth(mailbox: string) {
+    const h = this.health.get(mailbox);
+    return h ? { ...h } : null;
+  }
+  async recordMailboxSuccess(mailbox: string, at: Date): Promise<MailboxSuccessOutcome> {
+    const prev = this.health.get(mailbox);
+    const next: MailboxHealthRecord = {
+      mailbox, lastSuccessAt: at, lastFailureAt: prev?.lastFailureAt ?? null, lastErrorClass: prev?.lastErrorClass ?? null,
+      lastErrorMessage: prev?.lastErrorMessage ?? null, failingSince: null, consecutiveFailures: 0, lastWarnedAt: null, updatedAt: at,
+    };
+    this.health.set(mailbox, next);
+    return {
+      health: { ...next },
+      recoveredFrom: prev?.failingSince ? { failingSince: prev.failingSince, consecutiveFailures: prev.consecutiveFailures } : null,
+    };
+  }
+  async recordMailboxFailure(input: MailboxFailureInput): Promise<MailboxFailureOutcome> {
+    const prev = this.health.get(input.mailbox);
+    const warnDue = !prev?.lastWarnedAt || prev.lastWarnedAt.getTime() <= input.at.getTime() - input.warnIntervalMs;
+    const next: MailboxHealthRecord = {
+      mailbox: input.mailbox, lastSuccessAt: prev?.lastSuccessAt ?? null, lastFailureAt: input.at, lastErrorClass: input.errorClass,
+      lastErrorMessage: input.message, failingSince: prev?.failingSince ?? input.at, consecutiveFailures: (prev?.consecutiveFailures ?? 0) + 1,
+      lastWarnedAt: warnDue ? input.at : prev!.lastWarnedAt, updatedAt: input.at,
+    };
+    this.health.set(input.mailbox, next);
+    return { health: { ...next }, warnDue };
   }
 }
 
@@ -177,7 +221,7 @@ function harness(opts: { start?: Date; configOverrides?: Partial<OrangeTestConfi
   const clock = () => new Date(now);
   const store = new MemoryStore(clock);
   const sendPlainTest = vi.fn(async () => ({ success: true, connectionTimeMs: 12, messageId: "<x>" }));
-  const lookupMailbox = vi.fn(async (): Promise<MailboxLookupResult> => ({ hits: new Map(), foldersSearched: ["INBOX", "Junk"], warnings: [] }));
+  const lookupMailbox = vi.fn(async (): Promise<MailboxLookupResult> => ({ hits: new Map(), foldersSearched: ["INBOX", "Junk"], incomplete: new Map(), warnings: [] }));
   const cfg = config(opts.configOverrides);
   const getMta = vi.fn(async (id: string) => (id === MTA.id ? MTA : undefined));
   const service = createOrangeTestService({
@@ -296,7 +340,7 @@ describe("checker tick", () => {
 
     const receivedAt = new Date(h.now().getTime() + 5_000);
     h.advance(FAST_POLL);
-    h.lookupMailbox.mockResolvedValueOnce({ hits: new Map([[test.reference, hitFor(test.reference, "low", "junk", receivedAt)]]), foldersSearched: ["INBOX", "Junk"], warnings: [] });
+    h.lookupMailbox.mockResolvedValueOnce({ hits: new Map([[test.reference, hitFor(test.reference, "low", "junk", receivedAt)]]), foldersSearched: ["INBOX", "Junk"], incomplete: new Map(), warnings: [] });
     stats = await h.service.runCheckerTick();
     expect(stats.found).toBe(1);
     row = (await h.service.getOrangeTest(test.id))!;
@@ -321,7 +365,7 @@ describe("checker tick", () => {
       const { test, completion } = await h.service.startOrangeTest("mta-1", null);
       await completion;
       h.advance(FAST_POLL);
-      h.lookupMailbox.mockResolvedValueOnce({ hits: new Map([[test.reference, hitFor(test.reference, raw)]]), foldersSearched: [], warnings: [] });
+      h.lookupMailbox.mockResolvedValueOnce({ hits: new Map([[test.reference, hitFor(test.reference, raw)]]), foldersSearched: [], incomplete: new Map(), warnings: [] });
       await h.service.runCheckerTick();
       const row = (await h.service.getOrangeTest(test.id))!;
       expect(row.verdict).toBe(expected);
@@ -365,7 +409,7 @@ describe("checker tick", () => {
     h.advance(MAX_WAIT + 60_000);
     h.lookupMailbox.mockResolvedValueOnce({
       hits: new Map([[test.reference, hitFor(test.reference, "low", "junk", new Date(h.now().getTime() - 30_000))]]),
-      foldersSearched: ["INBOX", "Junk"], warnings: [],
+      foldersSearched: ["INBOX", "Junk"], incomplete: new Map(), warnings: [],
     });
     const stats = await h.service.runCheckerTick();
     expect(stats.expired).toBe(0);
@@ -387,7 +431,7 @@ describe("checker tick", () => {
     row.nextPollAt = h.now();
     h.lookupMailbox.mockImplementationOnce(async () => {
       h.advance(40_000); // the IMAP session straddles the deadline
-      return { hits: new Map(), foldersSearched: ["INBOX", "Junk"], warnings: [] };
+      return { hits: new Map(), foldersSearched: ["INBOX", "Junk"], incomplete: new Map(), warnings: [] };
     });
     let stats = await h.service.runCheckerTick();
     expect(stats.claimed).toBe(1);
@@ -398,21 +442,208 @@ describe("checker tick", () => {
     expect((await h.service.getOrangeTest(test.id))!.status).toBe("waiting");
   });
 
-  it("closes overdue tests after the grace period even when the mailbox keeps failing", async () => {
+  it("closes overdue tests as NOT CHECKED (no verdict) after the grace period when the mailbox keeps failing", async () => {
     const h = harness();
     const { test, completion } = await h.service.startOrangeTest("mta-1", null);
     await completion;
-    h.lookupMailbox.mockRejectedValue(new Error("IMAP authentication refused"));
+    h.lookupMailbox.mockRejectedValue(Object.assign(new Error("IMAP authentication refused"), { code: "AUTH" }));
     h.advance(MAX_WAIT + 1_000);
     let stats = await h.service.runCheckerTick();
     expect(stats.error).toMatch(/authentication/);
     expect(stats.expired).toBe(0);
+    expect(stats.notChecked).toBe(0);
     h.advance(EXPIRY_GRACE_MS);
     stats = await h.service.runCheckerTick();
+    expect(stats.expired).toBe(0);
+    expect(stats.notChecked).toBe(1);
+    const row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.status).toBe("not_checked");
+    expect(row.verdict).toBeNull();
+    expect(row.finishedAt).not.toBeNull();
+    expect(row.nextPollAt).toBeNull();
+    expect(row.lastCheckError).toMatch(/authentication/);
+    // The card keeps showing the last real verdict: a NOT CHECKED test carries none.
+    const values = await h.service.getControlValues(["mta-1"]);
+    expect(values["mta-1"].latest?.status).toBe("not_checked");
+    expect(values["mta-1"].latestVerdict).toBeNull();
+    const health = await h.service.getMailboxHealth();
+    expect(health.state).toBe("failing");
+    expect(health.lastErrorClass).toBe("AUTH");
+  });
+
+  it("a clean look that straddles the grace boundary still ends as NOT RECEIVED, never NOT CHECKED", async () => {
+    const h = harness();
+    const { test, completion } = await h.service.startOrangeTest("mta-1", null);
+    await completion;
+    h.lookupMailbox.mockRejectedValue(new Error("boom"));
+    h.advance(MAX_WAIT + 1_000);
+    await h.service.runCheckerTick(); // failed look after the deadline
+    h.lookupMailbox.mockResolvedValue({ hits: new Map(), foldersSearched: ["INBOX"], incomplete: new Map(), warnings: [] });
+    h.advance(SLOW_POLL); // still inside the grace period → the due poll succeeds (clean)
+    let stats = await h.service.runCheckerTick();
+    expect(stats.claimed).toBe(1);
+    expect(stats.error).toBeNull();
+    expect(stats.notChecked).toBe(0);
+    expect((await h.service.getOrangeTest(test.id))!.status).toBe("waiting"); // closed by the NEXT tick
+    h.advance(EXPIRY_GRACE_MS); // next tick happens to be past the grace boundary
+    stats = await h.service.runCheckerTick();
     expect(stats.expired).toBe(1);
+    expect(stats.notChecked).toBe(0);
     const row = (await h.service.getOrangeTest(test.id))!;
     expect(row.status).toBe("not_received");
-    expect(row.lastCheckError).toMatch(/authentication/);
+    expect(row.verdict).toBe("NOT_RECEIVED");
+  });
+
+  it("tracks the mailbox health: failure streak with an hourly warning, then recovery", async () => {
+    const h = harness();
+    const { completion } = await h.service.startOrangeTest("mta-1", null);
+    await completion;
+    expect((await h.service.getMailboxHealth()).state).toBe("unknown");
+
+    h.lookupMailbox.mockRejectedValue(Object.assign(new Error("connect ETIMEDOUT imap.orange.fr"), { code: "NETWORK" }));
+    h.advance(FAST_POLL);
+    let stats = await h.service.runCheckerTick();
+    expect(stats.mailboxWarned).toBe(true); // first failure of the streak
+    let health = await h.service.getMailboxHealth();
+    expect(health.state).toBe("failing");
+    expect(health.lastErrorClass).toBe("NETWORK");
+    expect(health.lastErrorMessage).toMatch(/ETIMEDOUT/);
+    expect(health.consecutiveFailures).toBe(1);
+    expect(health.failingSince).toBe(h.now().toISOString());
+    expect(health.lastSuccessAt).toBeNull();
+    const failingSince = health.failingSince;
+
+    // Keeps failing every poll: the streak grows, the warning is throttled.
+    for (let i = 0; i < 3; i++) {
+      h.advance(FAST_POLL);
+      stats = await h.service.runCheckerTick();
+      expect(stats.claimed).toBe(1);
+      expect(stats.mailboxWarned).toBe(false);
+    }
+    health = await h.service.getMailboxHealth();
+    expect(health.consecutiveFailures).toBe(4);
+    expect(health.failingSince).toBe(failingSince);
+
+    h.advance(MAILBOX_WARN_INTERVAL_MS);
+    stats = await h.service.runCheckerTick();
+    expect(stats.mailboxWarned).toBe(true); // one hour later → warned again
+
+    // A session completes: streak over, last success recorded, last error kept for reference.
+    h.lookupMailbox.mockResolvedValue({ hits: new Map(), foldersSearched: ["INBOX", "Junk"], incomplete: new Map(), warnings: [] });
+    h.advance(SLOW_POLL);
+    stats = await h.service.runCheckerTick();
+    expect(stats.claimed).toBe(1);
+    expect(stats.error).toBeNull();
+    health = await h.service.getMailboxHealth();
+    expect(health.state).toBe("ok");
+    expect(health.lastSuccessAt).toBe(h.now().toISOString());
+    expect(health.failingSince).toBeNull();
+    expect(health.consecutiveFailures).toBe(0);
+    expect(health.lastErrorClass).toBe("NETWORK");
+
+    // A new streak warns immediately again (the throttle was reset by the success).
+    h.lookupMailbox.mockRejectedValue(new Error("weird"));
+    h.advance(SLOW_POLL);
+    stats = await h.service.runCheckerTick();
+    expect(stats.mailboxWarned).toBe(true);
+    health = await h.service.getMailboxHealth();
+    expect(health.lastErrorClass).toBe("UNKNOWN"); // error without a reader code
+    expect(health.consecutiveFailures).toBe(1);
+  });
+
+  it("does not touch the mailbox health when no session ran", async () => {
+    const h = harness();
+    await h.service.runCheckerTick(); // nothing due
+    expect((await h.service.getMailboxHealth()).state).toBe("unknown");
+    expect(h.lookupMailbox).not.toHaveBeenCalled();
+  });
+
+  it("a session whose searches were all refused is not a clean look: NOT CHECKED, never NOT RECEIVED, and the mailbox is failing", async () => {
+    const h = harness();
+    const { test, completion } = await h.service.startOrangeTest("mta-1", null);
+    await completion;
+    // Login works but the server rejects every search (header, text and fallback): empty hits, no information.
+    h.lookupMailbox.mockImplementation(async (requests: MailboxLookupRequest[]) => ({
+      hits: new Map(),
+      foldersSearched: ["INBOX", "Junk"],
+      incomplete: new Map(requests.map((r) => [r.reference, "INBOX: Message-ID search failed (BAD Command Argument Error)"])),
+      warnings: ["INBOX: Message-ID search failed (BAD Command Argument Error)", "INBOX: text search failed (BAD Command Argument Error)"],
+    }));
+    h.advance(FAST_POLL);
+    let stats = await h.service.runCheckerTick();
+    expect(stats.claimed).toBe(1);
+    expect(stats.unsearched).toBe(1);
+    expect(stats.error).toMatch(/every search was refused/);
+    expect(stats.mailboxWarned).toBe(true);
+    let row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.status).toBe("waiting");
+    expect(row.lastCheckError).toMatch(/search incomplete/);
+    let health = await h.service.getMailboxHealth();
+    expect(health.state).toBe("failing");
+    expect(health.lastErrorClass).toBe("IMAP");
+    expect(health.lastSuccessAt).toBeNull();
+
+    // Past the deadline the refused looks still never count as the final clean check…
+    h.advance(MAX_WAIT + 1_000);
+    stats = await h.service.runCheckerTick();
+    expect(stats.claimed).toBe(1);
+    expect(stats.expired).toBe(0);
+    expect((await h.service.getOrangeTest(test.id))!.status).toBe("waiting");
+    // …so the grace period ends in NOT CHECKED without a verdict.
+    h.advance(EXPIRY_GRACE_MS);
+    stats = await h.service.runCheckerTick();
+    expect(stats.expired).toBe(0);
+    expect(stats.notChecked).toBe(1);
+    row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.status).toBe("not_checked");
+    expect(row.verdict).toBeNull();
+    health = await h.service.getMailboxHealth();
+    expect(health.state).toBe("failing");
+    expect(health.consecutiveFailures).toBe(2);
+  });
+
+  it("a partially refused session keeps the mailbox readable but the unsearched test is never closed as NOT RECEIVED", async () => {
+    const h = harness();
+    const first = await h.service.startOrangeTest("mta-1", null);
+    await first.completion;
+    // Second MTA so two tests are due in the same session.
+    const MTA2: any = { ...MTA, id: "mta-2", name: "MTA Two", fromEmail: "promo@other.example.com" };
+    const service2 = createOrangeTestService({
+      store: h.store, getMta: async (id: string) => (id === "mta-2" ? MTA2 : id === MTA.id ? MTA : undefined),
+      sendPlainTest: h.sendPlainTest as any, lookupMailbox: h.lookupMailbox as any, getConfig: () => h.cfg, now: h.now,
+    });
+    const second = await service2.startOrangeTest("mta-2", null);
+    await second.completion;
+
+    // Only the second MTA's searches are refused; the first one is looked up and cleanly missed.
+    h.lookupMailbox.mockImplementation(async () => ({
+      hits: new Map(),
+      foldersSearched: ["INBOX", "Junk"],
+      incomplete: new Map([[second.test.reference, "INBOX: fallback search failed (NO search too complex)"]]),
+      warnings: ["INBOX: fallback search failed (NO search too complex)"],
+    }));
+    h.advance(MAX_WAIT + 1_000);
+    let stats = await service2.runCheckerTick();
+    expect(stats.claimed).toBe(2);
+    expect(stats.unsearched).toBe(1);
+    expect(stats.error).toBeNull();
+    expect((await service2.getMailboxHealth()).state).toBe("ok");
+    expect((await service2.getOrangeTest(second.test.id))!.lastCheckError).toMatch(/search incomplete/);
+
+    h.advance(SLOW_POLL);
+    stats = await service2.runCheckerTick();
+    expect(stats.expired).toBe(1); // the cleanly missed test
+    expect(stats.notChecked).toBe(0);
+    expect((await service2.getOrangeTest(first.test.id))!.status).toBe("not_received");
+    expect((await service2.getOrangeTest(second.test.id))!.status).toBe("waiting");
+
+    h.advance(EXPIRY_GRACE_MS);
+    stats = await service2.runCheckerTick();
+    expect(stats.expired).toBe(0);
+    expect(stats.notChecked).toBe(1);
+    const row = (await service2.getOrangeTest(second.test.id))!;
+    expect(row.status).toBe("not_checked");
+    expect(row.verdict).toBeNull();
   });
 
   it("leaves the due rows alone when another instance holds the checker lease, and releases the lease after the session", async () => {
@@ -472,7 +703,7 @@ describe("checker tick", () => {
     expect(new Date(row.deadlineAt!).getTime() - new Date(row.createdAt).getTime()).toBe(MAX_WAIT);
   });
 
-  it("skips the mailbox when the feature is disabled and still closes overdue tests once the grace period is over", async () => {
+  it("skips the mailbox when the feature is disabled and closes overdue tests as NOT CHECKED once the grace period is over", async () => {
     const h = harness();
     const { test, completion } = await h.service.startOrangeTest("mta-1", null);
     await completion;
@@ -481,11 +712,16 @@ describe("checker tick", () => {
     let stats = await h.service.runCheckerTick();
     expect(stats.skipped).toBe(true);
     expect(stats.expired).toBe(0); // no check possible → wait for the grace period
+    expect(stats.notChecked).toBe(0);
     expect(h.lookupMailbox).not.toHaveBeenCalled();
     h.advance(EXPIRY_GRACE_MS);
     stats = await h.service.runCheckerTick();
-    expect(stats.expired).toBe(1);
-    expect((await h.service.getOrangeTest(test.id))!.status).toBe("not_received");
+    expect(stats.expired).toBe(0);
+    expect(stats.notChecked).toBe(1);
+    const row = (await h.service.getOrangeTest(test.id))!;
+    expect(row.status).toBe("not_checked");
+    expect(row.verdict).toBeNull();
+    expect((await h.service.getMailboxHealth()).state).toBe("unknown"); // no session ever ran
   });
 });
 
@@ -523,7 +759,7 @@ describe("control values (MTA card)", () => {
     h.advance(FAST_POLL);
     h.lookupMailbox.mockResolvedValueOnce({
       hits: new Map([[a.test.reference, hitFor(a.test.reference, "not-spam")], [b.test.reference, hitFor(b.test.reference, "med")]]),
-      foldersSearched: [], warnings: [],
+      foldersSearched: [], incomplete: new Map(), warnings: [],
     });
     await h.service.runCheckerTick();
     values = await h.service.getControlValues(["mta-1"]);
@@ -561,7 +797,7 @@ describe("views", () => {
     await completion;
     h.advance(FAST_POLL);
     const receivedAt = new Date(h.now().getTime() - 10_000);
-    h.lookupMailbox.mockResolvedValueOnce({ hits: new Map([[test.reference, hitFor(test.reference, "not-spam", "inbox", receivedAt)]]), foldersSearched: [], warnings: [] });
+    h.lookupMailbox.mockResolvedValueOnce({ hits: new Map([[test.reference, hitFor(test.reference, "not-spam", "inbox", receivedAt)]]), foldersSearched: [], incomplete: new Map(), warnings: [] });
     await h.service.runCheckerTick();
     const view = (await h.service.getOrangeTest(test.id))!;
     expect(JSON.stringify(view)).not.toContain('"pw"');

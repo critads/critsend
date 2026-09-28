@@ -14,9 +14,13 @@ export type OrangeTestVerdict = (typeof ORANGE_TEST_VERDICTS)[number];
  *                  message shows up or the listening window closes
  *   done         → found in the mailbox, verdict derived from the header
  *   failed       → the MTA refused the message (SMTP error, see sendError)
- *   not_received → listening window closed without the message (verdict NOT_RECEIVED)
+ *   not_received → a mailbox check made after the window closed came back
+ *                  clean: the message never arrived (verdict NOT_RECEIVED)
+ *   not_checked  → the window closed but the mailbox could not be read
+ *                  after it (IMAP failure, feature disabled, checker down):
+ *                  nothing is known about the delivery, so NO verdict
  */
-export const ORANGE_TEST_STATUSES = ["sending", "waiting", "done", "failed", "not_received"] as const;
+export const ORANGE_TEST_STATUSES = ["sending", "waiting", "done", "failed", "not_received", "not_checked"] as const;
 export type OrangeTestStatus = (typeof ORANGE_TEST_STATUSES)[number];
 
 export const ORANGE_TEST_PENDING_STATUSES: readonly OrangeTestStatus[] = ["sending", "waiting"];
@@ -25,6 +29,11 @@ export function isOrangeTestPending(status: OrangeTestStatus): boolean {
   return ORANGE_TEST_PENDING_STATUSES.includes(status);
 }
 
+/**
+ * Why a mailbox session failed, as classified by the IMAP reader. `UNKNOWN`
+ * covers errors raised outside the reader (should not happen in practice).
+ */
+export const ORANGE_MAILBOX_ERROR_CLASSES = ["AUTH", "NETWORK", "TIMEOUT", "IMAP", "UNKNOWN"] as const;
 /** Header Orange writes on delivered mail; case-insensitive on the wire. */
 export const ORANGE_SPAM_LEVEL_HEADER = "x-me-spamlevel";
 
@@ -109,13 +118,20 @@ export interface OrangeTestView {
 /**
  * What the MTA card shows. `latest` is the most recently SENT test whatever
  * its state; `latestVerdict` is the most recently sent test that already
- * carries a verdict. Both are ordered by send time, never by the time the
- * verdict was obtained: a slow test from the 28th that lands after a test
- * from the 29th never overrides the 29th.
+ * carries a verdict (`failed` and `not_checked` tests carry none, so they
+ * never hide the last real verdict). Both are ordered by send time, never by
+ * the time the verdict was obtained: a slow test from the 28th that lands
+ * after a test from the 29th never overrides the 29th.
  */
 export interface OrangeTestControlValue {
   latest: OrangeTestView | null;
   latestVerdict: OrangeTestView | null;
+}
+
+/** GET /api/mtas/orange-test/summary */
+export interface OrangeTestSummaryResponse {
+  values: Record<string, OrangeTestControlValue>;
+  mailbox: OrangeMailboxHealthView;
 }
 
 /**
@@ -213,4 +229,36 @@ export function assessOrangeControlValue(
     ageMs,
     warn: !stale && ORANGE_LAUNCH_WARNING_VERDICTS.includes(verdict),
   };
+}
+
+/**
+ * Health of the Orange mailbox connection as seen by the checker. Updated
+ * after every IMAP session (the checker only opens one when a test is due):
+ *   unknown → no session recorded yet
+ *   ok      → the last session succeeded (whether or not it found anything)
+ *   failing → the last session failed; pending tests are NOT being checked
+ *             and tests reaching the end of their window close as not_checked
+ */
+export type OrangeMailboxHealthState = "unknown" | "ok" | "failing";
+
+export interface OrangeMailboxHealthView {
+  mailbox: string;
+  state: OrangeMailboxHealthState;
+  /** Last IMAP session that completed (ISO). */
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastErrorClass: OrangeMailboxErrorClass | null;
+  /** Scrubbed error text of the last failure (never contains credentials). */
+  lastErrorMessage: string | null;
+  /** Start of the current failure streak (null while healthy). */
+  failingSince: string | null;
+  consecutiveFailures: number;
+}
+
+export type OrangeMailboxErrorClass = (typeof ORANGE_MAILBOX_ERROR_CLASSES)[number];
+
+export function toOrangeMailboxErrorClass(code: unknown): OrangeMailboxErrorClass {
+  return typeof code === "string" && (ORANGE_MAILBOX_ERROR_CLASSES as readonly string[]).includes(code)
+    ? (code as OrangeMailboxErrorClass)
+    : "UNKNOWN";
 }

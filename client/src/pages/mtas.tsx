@@ -37,6 +37,7 @@ import {
   useOrangeTestConfig,
   useOrangeTestSummary,
 } from "@/components/mtas/orange-test";
+import { OrangeMailboxHealthBanner } from "@/components/mtas/orange-mailbox-health";
 
 interface SmtpTestResult {
   success: boolean;
@@ -130,6 +131,7 @@ export default function MTAs() {
   const { data: orangeConfig } = useOrangeTestConfig();
   const visibleMtaIds = useMemo(() => (mtas ?? []).map((m) => m.id), [mtas]);
   const { data: orangeSummary } = useOrangeTestSummary(visibleMtaIds, true);
+  const orangeMailbox = orangeSummary?.mailbox;
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/mtas/${id}`),
@@ -249,6 +251,8 @@ export default function MTAs() {
           </Button>
         </div>
       </div>
+
+      <OrangeMailboxHealthBanner config={orangeConfig} health={orangeMailbox} />
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -372,7 +376,7 @@ export default function MTAs() {
                     <span className="font-mono text-xs">{mta.openTrackingDomain}</span>
                   </div>
                 )}
-                <OrangeTestCardBadge mtaId={mta.id} value={orangeSummary?.values?.[mta.id]} />
+                <OrangeTestCardBadge mtaId={mta.id} value={orangeSummary?.values?.[mta.id]} mailbox={orangeMailbox} />
               </CardContent>
             </Card>
           ))}
@@ -897,6 +901,7 @@ export default function MTAs() {
       <OrangeTestDialog
         mta={orangeTestMta}
         config={orangeConfig}
+        mailbox={orangeMailbox}
         onClose={() => setOrangeTestMta(null)}
       />
     </div>

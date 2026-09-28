@@ -16,6 +16,9 @@ import type { Mta } from "@shared/schema";
 import {
   mapSpamLevelToVerdict,
   ORANGE_TEST_REFERENCE_PREFIX,
+  toOrangeMailboxErrorClass,
+  type OrangeMailboxErrorClass,
+  type OrangeMailboxHealthView,
   type OrangeTestControlValue,
   type OrangeTestSendFailure,
   type OrangeTestStatus,
@@ -97,6 +100,41 @@ export interface ClaimIntervals {
   slowPollMs: number;
 }
 
+/** One row of mta_orange_mailbox_health: how the last IMAP sessions went. */
+export interface MailboxHealthRecord {
+  mailbox: string;
+  lastSuccessAt: Date | null;
+  lastFailureAt: Date | null;
+  lastErrorClass: OrangeMailboxErrorClass | null;
+  lastErrorMessage: string | null;
+  /** Start of the current failure streak; null while healthy. */
+  failingSince: Date | null;
+  consecutiveFailures: number;
+  lastWarnedAt: Date | null;
+  updatedAt: Date;
+}
+
+export interface MailboxFailureInput {
+  mailbox: string;
+  at: Date;
+  errorClass: OrangeMailboxErrorClass;
+  message: string;
+  /** Minimum delay between two "still failing" warnings (`warnDue`). */
+  warnIntervalMs: number;
+}
+
+export interface MailboxFailureOutcome {
+  health: MailboxHealthRecord;
+  /** True when this failure should be logged as a warning (first of a streak, then at most every `warnIntervalMs`). */
+  warnDue: boolean;
+}
+
+export interface MailboxSuccessOutcome {
+  health: MailboxHealthRecord;
+  /** Set when this session ended a failure streak. */
+  recoveredFrom: { failingSince: Date; consecutiveFailures: number } | null;
+}
+
 export interface OrangeTestStore {
   /** Inserts a `sending` row; returns `null` when another test of the MTA is already pending. */
   insertPending(input: NewOrangeTest): Promise<OrangeTestRecord | null>;
@@ -111,17 +149,28 @@ export interface OrangeTestStore {
   /** Rows stuck in `sending` since before `staleBefore` → waiting with a note. */
   releaseStaleSending(staleBefore: Date, note: string, now: Date, maxWaitMs: number, firstPollMs: number): Promise<number>;
   /**
-   * waiting rows past their deadline → not_received, but only once a mailbox
-   * check that started AFTER the deadline came back clean (so the last poll
-   * is always a real look, never a clock tick), or after `graceMs` past the
-   * deadline when the mailbox cannot be checked at all.
+   * waiting rows past their deadline → not_received (verdict NOT_RECEIVED),
+   * but only once a mailbox check that started AFTER the deadline came back
+   * clean: the last poll is always a real look, never a clock tick.
    */
-  expireOverdue(now: Date, graceMs: number): Promise<number>;
+  expireOverdue(now: Date): Promise<number>;
+  /**
+   * waiting rows more than `graceMs` past their deadline that still have no
+   * clean post-deadline check → not_checked (NO verdict): the mailbox was
+   * failing, the feature disabled or the checker down, so nothing is known
+   * about the delivery. Bounds how long such tests linger.
+   */
+  closeUnchecked(now: Date, graceMs: number): Promise<number>;
   /** Atomically takes the waiting rows whose poll is due and schedules their next poll. */
   claimDue(now: Date, limit: number, intervals: ClaimIntervals): Promise<OrangeTestRecord[]>;
   /** waiting → done (only if still `waiting`). */
   recordHit(id: string, hit: HitInput): Promise<boolean>;
   recordCheckOutcome(ids: string[], at: Date, error: string | null): Promise<void>;
+  getMailboxHealth(mailbox: string): Promise<MailboxHealthRecord | null>;
+  /** A mailbox session completed: ends any failure streak. */
+  recordMailboxSuccess(mailbox: string, at: Date): Promise<MailboxSuccessOutcome>;
+  /** A mailbox session failed: extends (or starts) the failure streak and decides whether to warn. */
+  recordMailboxFailure(input: MailboxFailureInput): Promise<MailboxFailureOutcome>;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +182,12 @@ const COLUMNS = `
   matched_by, raw_headers, mailbox, from_email, requested_by, send_error, send_note,
   last_check_error, last_check_at, poll_count, created_at, sent_at, next_poll_at, deadline_at,
   received_at, finished_at, updated_at`;
+
+const HEALTH_COLUMNS = `
+  mailbox, last_success_at, last_failure_at, last_error_class, last_error_message,
+  failing_since, consecutive_failures, last_warned_at, updated_at`;
+
+const MAILBOX_ERROR_MESSAGE_MAX = 2000;
 
 function toDateOrNull(value: unknown): Date | null {
   if (value === null || value === undefined) return null;
@@ -277,15 +332,27 @@ export class PgOrangeTestStore implements OrangeTestStore {
     return res.rowCount ?? 0;
   }
 
-  async expireOverdue(now: Date, graceMs: number): Promise<number> {
+  async expireOverdue(now: Date): Promise<number> {
     const res = await this.db.query(
       `UPDATE mta_orange_tests
        SET status = 'not_received', verdict = 'NOT_RECEIVED', finished_at = $1, next_poll_at = NULL, updated_at = now()
        WHERE status = 'waiting' AND deadline_at IS NOT NULL AND deadline_at <= $1::timestamptz
-         AND (
-           (last_check_at IS NOT NULL AND last_check_at >= deadline_at AND last_check_error IS NULL)
-           OR deadline_at <= $1::timestamptz - ($2::bigint * INTERVAL '1 millisecond')
-         )`,
+         AND last_check_at IS NOT NULL AND last_check_at >= deadline_at AND last_check_error IS NULL`,
+      [now],
+    );
+    return res.rowCount ?? 0;
+  }
+
+  async closeUnchecked(now: Date, graceMs: number): Promise<number> {
+    // The clean-check exclusion is re-evaluated inside the UPDATE so a row
+    // that another instance just checked clean is closed as NOT RECEIVED by
+    // the next expireOverdue, never as NOT CHECKED here.
+    const res = await this.db.query(
+      `UPDATE mta_orange_tests
+       SET status = 'not_checked', finished_at = $1, next_poll_at = NULL, updated_at = now()
+       WHERE status = 'waiting' AND deadline_at IS NOT NULL
+         AND deadline_at <= $1::timestamptz - ($2::bigint * INTERVAL '1 millisecond')
+         AND NOT (last_check_at IS NOT NULL AND last_check_at >= deadline_at AND last_check_error IS NULL)`,
       [now, graceMs],
     );
     return res.rowCount ?? 0;
@@ -345,6 +412,82 @@ export class PgOrangeTestStore implements OrangeTestStore {
       [ids, at, error],
     );
   }
+
+  async getMailboxHealth(mailbox: string): Promise<MailboxHealthRecord | null> {
+    const res = await this.db.query(
+      `SELECT ${HEALTH_COLUMNS} FROM mta_orange_mailbox_health WHERE mailbox = $1`,
+      [mailbox],
+    );
+    return res.rows[0] ? rowToHealth(res.rows[0]) : null;
+  }
+
+  async recordMailboxSuccess(mailbox: string, at: Date): Promise<MailboxSuccessOutcome> {
+    // `prev` reads the row as it was before this statement, so the caller can
+    // log "readable again" exactly once, when a failure streak ends.
+    const res = await this.db.query(
+      `WITH prev AS (
+         SELECT failing_since, consecutive_failures FROM mta_orange_mailbox_health WHERE mailbox = $1
+       )
+       INSERT INTO mta_orange_mailbox_health (mailbox, last_success_at, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (mailbox) DO UPDATE
+         SET last_success_at = EXCLUDED.last_success_at,
+             failing_since = NULL, consecutive_failures = 0, last_warned_at = NULL, updated_at = now()
+       RETURNING ${HEALTH_COLUMNS},
+         (SELECT failing_since FROM prev) AS prev_failing_since,
+         (SELECT consecutive_failures FROM prev) AS prev_consecutive_failures`,
+      [mailbox, at],
+    );
+    const row = res.rows[0];
+    const prevFailingSince = toDateOrNull(row.prev_failing_since);
+    return {
+      health: rowToHealth(row),
+      recoveredFrom: prevFailingSince
+        ? { failingSince: prevFailingSince, consecutiveFailures: Number(row.prev_consecutive_failures ?? 0) }
+        : null,
+    };
+  }
+
+  async recordMailboxFailure(input: MailboxFailureInput): Promise<MailboxFailureOutcome> {
+    // last_warned_at is bumped in the same statement that records the
+    // failure, so two instances can never both decide to warn.
+    const res = await this.db.query(
+      `INSERT INTO mta_orange_mailbox_health
+         (mailbox, last_failure_at, last_error_class, last_error_message, failing_since, consecutive_failures, last_warned_at, updated_at)
+       VALUES ($1, $2, $3, $4, $2, 1, $2, now())
+       ON CONFLICT (mailbox) DO UPDATE
+         SET last_failure_at = EXCLUDED.last_failure_at,
+             last_error_class = EXCLUDED.last_error_class,
+             last_error_message = EXCLUDED.last_error_message,
+             failing_since = COALESCE(mta_orange_mailbox_health.failing_since, EXCLUDED.last_failure_at),
+             consecutive_failures = mta_orange_mailbox_health.consecutive_failures + 1,
+             last_warned_at = CASE
+               WHEN mta_orange_mailbox_health.last_warned_at IS NULL
+                 OR mta_orange_mailbox_health.last_warned_at <= EXCLUDED.last_failure_at - ($5::bigint * INTERVAL '1 millisecond')
+               THEN EXCLUDED.last_failure_at
+               ELSE mta_orange_mailbox_health.last_warned_at
+             END,
+             updated_at = now()
+       RETURNING ${HEALTH_COLUMNS}, (last_warned_at = $2::timestamptz) AS warn_due`,
+      [input.mailbox, input.at, input.errorClass, input.message.slice(0, MAILBOX_ERROR_MESSAGE_MAX), input.warnIntervalMs],
+    );
+    const row = res.rows[0];
+    return { health: rowToHealth(row), warnDue: Boolean(row.warn_due) };
+  }
+}
+
+function rowToHealth(row: any): MailboxHealthRecord {
+  return {
+    mailbox: row.mailbox,
+    lastSuccessAt: toDateOrNull(row.last_success_at),
+    lastFailureAt: toDateOrNull(row.last_failure_at),
+    lastErrorClass: row.last_error_class ? toOrangeMailboxErrorClass(row.last_error_class) : null,
+    lastErrorMessage: row.last_error_message ?? null,
+    failingSince: toDateOrNull(row.failing_since),
+    consecutiveFailures: Number(row.consecutive_failures ?? 0),
+    lastWarnedAt: toDateOrNull(row.last_warned_at),
+    updatedAt: toDateOrNull(row.updated_at) ?? new Date(0),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +525,25 @@ export function toOrangeTestView(record: OrangeTestRecord): OrangeTestView {
     finishedAt: iso(record.finishedAt),
     deliveryDelayMs:
       record.receivedAt && record.sentAt ? Math.max(0, record.receivedAt.getTime() - record.sentAt.getTime()) : null,
+  };
+}
+
+export function toMailboxHealthView(mailbox: string, record: MailboxHealthRecord | null): OrangeMailboxHealthView {
+  if (!record) {
+    return {
+      mailbox, state: "unknown", lastSuccessAt: null, lastFailureAt: null, lastErrorClass: null,
+      lastErrorMessage: null, failingSince: null, consecutiveFailures: 0,
+    };
+  }
+  return {
+    mailbox: record.mailbox,
+    state: record.failingSince ? "failing" : record.lastSuccessAt ? "ok" : "unknown",
+    lastSuccessAt: iso(record.lastSuccessAt),
+    lastFailureAt: iso(record.lastFailureAt),
+    lastErrorClass: record.lastErrorClass,
+    lastErrorMessage: record.lastErrorMessage,
+    failingSince: iso(record.failingSince),
+    consecutiveFailures: record.consecutiveFailures,
   };
 }
 
@@ -437,10 +599,17 @@ export interface StartOrangeTestResult {
 
 export interface CheckerTickStats {
   released: number;
+  /** Closed as NOT RECEIVED (clean look after the deadline). */
   expired: number;
+  /** Closed as NOT CHECKED (grace period over, no clean look — no verdict). */
+  notChecked: number;
   claimed: number;
   found: number;
+  /** Claimed tests whose lookup the server refused (recorded as failed checks, never as clean misses). */
+  unsearched: number;
   error: string | null;
+  /** A "mailbox unreadable" warning was logged this tick (first failure, then hourly). */
+  mailboxWarned: boolean;
   /** Mailbox part not run: feature disabled, or another instance holds the lease. */
   skipped: boolean;
   leaseHeldElsewhere: boolean;
@@ -449,9 +618,13 @@ export interface CheckerTickStats {
 /**
  * Overdue tests are closed as NOT RECEIVED only after a clean mailbox check
  * that started past the deadline; when the mailbox is unreachable (or the
- * feature got disabled) this grace period bounds how long they linger.
+ * feature got disabled) this grace period bounds how long they linger — they
+ * are then closed as NOT CHECKED, without a verdict.
  */
 export const EXPIRY_GRACE_MS = 60 * 60 * 1000;
+
+/** While the mailbox keeps failing, the warning is repeated at most this often (across instances). */
+export const MAILBOX_WARN_INTERVAL_MS = 60 * 60 * 1000;
 
 export const STALE_SENDING_NOTE =
   "Send outcome unknown: the server restarted while the message was being handed to the MTA. Listening anyway in case it was sent.";
@@ -583,11 +756,27 @@ export function createOrangeTestService(deps: OrangeTestServiceDeps) {
     };
   }
 
+  async function getMailboxHealth(): Promise<OrangeMailboxHealthView> {
+    const config = deps.getConfig();
+    return toMailboxHealthView(config.mailbox, await store.getMailboxHealth(config.mailbox));
+  }
+
+  function describeMailboxState(health: MailboxHealthRecord | null, config: OrangeTestConfig): string {
+    if (!config.enabled) return "Orange Test is disabled on this server";
+    if (health?.failingSince) {
+      return `mailbox ${config.mailbox} unreadable since ${health.failingSince.toISOString()} (${health.lastErrorClass ?? "UNKNOWN"}, ${health.consecutiveFailures} failed check(s))`;
+    }
+    return `no successful mailbox check after their deadline (checker down or mailbox ${config.mailbox} unreadable)`;
+  }
+
   /** One checker pass (bounded by the caller); safe to run on several instances. */
   async function runCheckerTick(): Promise<CheckerTickStats> {
     const config = deps.getConfig();
     const now = deps.now();
-    const stats: CheckerTickStats = { released: 0, expired: 0, claimed: 0, found: 0, error: null, skipped: false, leaseHeldElsewhere: false };
+    const stats: CheckerTickStats = {
+      released: 0, expired: 0, notChecked: 0, claimed: 0, found: 0, unsearched: 0, error: null,
+      mailboxWarned: false, skipped: false, leaseHeldElsewhere: false,
+    };
 
     stats.released = await store.releaseStaleSending(
       new Date(now.getTime() - config.staleSendingMs),
@@ -598,8 +787,16 @@ export function createOrangeTestService(deps: OrangeTestServiceDeps) {
     );
     if (stats.released > 0) logger.warn(`[ORANGE_TEST] ${stats.released} test(s) stuck in 'sending' released to 'waiting'`);
 
-    stats.expired = await store.expireOverdue(now, EXPIRY_GRACE_MS);
+    stats.expired = await store.expireOverdue(now);
     if (stats.expired > 0) logger.info(`[ORANGE_TEST] ${stats.expired} test(s) closed as NOT RECEIVED (listening window over)`);
+
+    stats.notChecked = await store.closeUnchecked(now, EXPIRY_GRACE_MS);
+    if (stats.notChecked > 0) {
+      const health = await store.getMailboxHealth(config.mailbox);
+      logger.warn(
+        `[ORANGE_TEST] ${stats.notChecked} test(s) closed as NOT CHECKED — no verdict: ${describeMailboxState(health, config)}`,
+      );
+    }
 
     if (!config.enabled) {
       stats.skipped = true;
@@ -630,24 +827,54 @@ export function createOrangeTestService(deps: OrangeTestServiceDeps) {
         fromEmail: t.fromEmail,
         sentAt: t.sentAt ?? t.createdAt,
       }));
+      // Mailbox-level bookkeeping: the failure streak feeds the /mtas
+      // indicator and the warning is throttled to once per hour (in the DB,
+      // so both web instances share the throttle). Intermediate failures
+      // stay at info.
+      const noteMailboxFailure = async (failedAt: Date, errorClass: OrangeMailboxErrorClass, message: string) => {
+        const { health, warnDue } = await store.recordMailboxFailure({
+          mailbox: config.mailbox,
+          at: failedAt,
+          errorClass,
+          message,
+          warnIntervalMs: MAILBOX_WARN_INTERVAL_MS,
+        });
+        stats.mailboxWarned = warnDue;
+        const streak = `${health.lastErrorClass ?? "UNKNOWN"}, ${health.consecutiveFailures} failed check(s) since ${(health.failingSince ?? failedAt).toISOString()}`;
+        if (warnDue) {
+          logger.warn(
+            `[ORANGE_TEST] Orange mailbox ${config.mailbox} unreadable (${streak}); ${due.length} pending test(s) NOT checked: ${message}` +
+              ` — tests reaching the end of their window while this lasts are closed as NOT CHECKED (no verdict).`,
+          );
+        } else {
+          logger.info(`[ORANGE_TEST] Mailbox check failed for ${due.length} test(s) (${streak}): ${message}`);
+        }
+      };
+
       let result: MailboxLookupResult;
       try {
         result = await deps.lookupMailbox(requests, config, deps.createImapClient);
       } catch (error: any) {
         const message: string = error?.message || String(error);
+        const failedAt = deps.now();
         stats.error = message;
-        logger.warn(`[ORANGE_TEST] Mailbox check failed for ${due.length} test(s): ${message}`);
-        await store.recordCheckOutcome(due.map((t) => t.id), deps.now(), message);
+        await store.recordCheckOutcome(due.map((t) => t.id), failedAt, message);
+        await noteMailboxFailure(failedAt, toOrangeMailboxErrorClass(error?.code), message);
         return stats;
       }
       for (const warning of result.warnings) logger.warn(`[ORANGE_TEST] Mailbox warning: ${warning}`);
 
       const checkedAt = deps.now();
       const missed: string[] = [];
+      const unsearched: Array<{ id: string; reason: string }> = [];
       for (const test of due) {
         const hit = result.hits.get(test.reference);
         if (!hit) {
-          missed.push(test.id);
+          // The server refused a search that could have found this test: the
+          // miss says nothing, so it must never become the final clean look.
+          const reason = result.incomplete.get(test.reference);
+          if (reason) unsearched.push({ id: test.id, reason });
+          else missed.push(test.id);
           continue;
         }
         const input = hitToInput(hit, checkedAt);
@@ -663,13 +890,38 @@ export function createOrangeTestService(deps: OrangeTestServiceDeps) {
       // expiry requires a look that started after the deadline, so a session
       // that straddles the deadline never counts as the final check.
       await store.recordCheckOutcome(missed, now, null);
+      // An incomplete lookup is recorded as a failed check (last_check_error
+      // set): expireOverdue ignores it and, if it lasts past the grace, the
+      // test closes as NOT CHECKED — never as NOT RECEIVED.
+      for (const { id, reason } of unsearched) {
+        await store.recordCheckOutcome([id], checkedAt, `Mailbox search incomplete — ${reason}`);
+      }
+      stats.unsearched = unsearched.length;
+
+      if (stats.found === 0 && missed.length === 0 && unsearched.length > 0) {
+        // Logged in, but not a single lookup completed: for the tests' purpose
+        // the mailbox is as unreadable as a refused login.
+        const message = `IMAP session opened but every search was refused (${unsearched[0].reason})`;
+        stats.error = message;
+        await noteMailboxFailure(checkedAt, "IMAP", message);
+        return stats;
+      }
+      const { recoveredFrom } = await store.recordMailboxSuccess(config.mailbox, checkedAt);
+      if (recoveredFrom) {
+        logger.info(
+          `[ORANGE_TEST] Orange mailbox ${config.mailbox} readable again after ${recoveredFrom.consecutiveFailures} failed check(s) since ${recoveredFrom.failingSince.toISOString()}`,
+        );
+      }
+      if (unsearched.length > 0) {
+        logger.warn(`[ORANGE_TEST] ${unsearched.length} of ${due.length} pending test(s) could not be looked up (search refused): ${unsearched[0].reason}`);
+      }
       return stats;
     } finally {
       await lease.release();
     }
   }
 
-  return { startOrangeTest, getOrangeTest, listOrangeTests, getControlValues, runCheckerTick };
+  return { startOrangeTest, getOrangeTest, listOrangeTests, getControlValues, getMailboxHealth, runCheckerTick };
 }
 
 export type OrangeTestService = ReturnType<typeof createOrangeTestService>;

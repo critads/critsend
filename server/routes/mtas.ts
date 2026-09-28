@@ -9,7 +9,7 @@ import { closeTransporter, resolveSmtpSecurity, invalidateDefaultHeadersCache } 
 import { classifySmtpError, sendPlainTestEmail } from "../services/plain-test-sender";
 import { getOrangeTestService, OrangeTestError } from "../services/orange-test-jobs";
 import { toPublicOrangeTestConfig } from "../config/orange-test";
-import { ORANGE_TEST_SUMMARY_MAX_IDS } from "@shared/orange-test";
+import { ORANGE_TEST_SUMMARY_MAX_IDS, type OrangeTestSummaryResponse } from "@shared/orange-test";
 import nodemailer from "nodemailer";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { Mta } from "@shared/schema";
@@ -192,7 +192,8 @@ export function registerMtaRoutes(app: Express, helpers: {
     res.json(toPublicOrangeTestConfig());
   });
 
-  // Control values for the MTA cards: ?ids=a,b,c → { values: { [mtaId]: { latest, latestVerdict } } }
+  // Control values for the MTA cards plus the mailbox connection health:
+  // ?ids=a,b,c → { values: { [mtaId]: { latest, latestVerdict } }, mailbox: { state, lastSuccessAt, ... } }
   app.get("/api/mtas/orange-test/summary", async (req: Request, res: Response) => {
     try {
       const raw = typeof req.query.ids === "string" ? req.query.ids : "";
@@ -200,8 +201,13 @@ export function registerMtaRoutes(app: Express, helpers: {
       if (ids.some((id) => !validateId(id))) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
-      const values = await getOrangeTestService().getControlValues(ids.slice(0, ORANGE_TEST_SUMMARY_MAX_IDS));
-      res.json({ values });
+      const service = getOrangeTestService();
+      const [values, mailbox] = await Promise.all([
+        service.getControlValues(ids.slice(0, ORANGE_TEST_SUMMARY_MAX_IDS)),
+        service.getMailboxHealth(),
+      ]);
+      const body: OrangeTestSummaryResponse = { values, mailbox };
+      res.json(body);
     } catch (error) {
       logger.error("Error loading Orange test summary:", error);
       res.status(500).json({ error: "Failed to load Orange test summary" });

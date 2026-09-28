@@ -179,6 +179,41 @@ describe("orange mailbox reader — lookup", () => {
     expect(result.hits.get(refBody)).toMatchObject({ folder: "junk", matchedBy: "fallback", spamLevelRaw: "med" });
     expect(result.foldersSearched).toEqual(["INBOX", "Junk"]);
     expect(result.warnings.some((w) => /text search failed/.test(w))).toBe(true);
+    // Both were found in the end: a refused intermediate search leaves no test incomplete.
+    expect(result.incomplete.size).toBe(0);
+  });
+
+  it("marks a test incomplete (not a clean miss) when a search that could have found it was refused", async () => {
+    const refused = "OT-20260928-55555555";
+    const clean = "OT-20260928-66666666";
+    const client = fakeClient(FOLDERS, [], {
+      onSearch: (query) => {
+        // The server rejects every search that concerns `refused` (header, text and the sender fallback);
+        // searches for `clean` run fine and legitimately find nothing.
+        const header = query.header && typeof query.header === "object" ? String((query.header as Record<string, string>)["message-id"]) : "";
+        if (header.includes(refused) || query.text === refused) throw new Error("BAD Command Argument Error");
+        if (typeof query.from === "string" && query.from === "spam@other.example.com") throw new Error("NO search too complex");
+      },
+    });
+    const requests = [request(refused), request(clean)];
+    requests[0].fromEmail = "spam@other.example.com";
+    const result = await lookupOrangeTests(requests, makeConfig(), () => client);
+    expect(result.hits.size).toBe(0);
+    expect(result.incomplete.has(refused)).toBe(true);
+    expect(result.incomplete.get(refused)).toMatch(/INBOX: Message-ID search failed/);
+    expect(result.incomplete.has(clean)).toBe(false);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("scrubs the password out of incomplete-lookup reasons", async () => {
+    const ref = "OT-20260928-77777777";
+    const client = fakeClient(FOLDERS, [], {
+      onSearch: () => { throw new Error("BAD hunter22 is not a valid search key"); },
+    });
+    const result = await lookupOrangeTests([request(ref)], makeConfig(), () => client);
+    expect(result.incomplete.get(ref)).toBeDefined();
+    expect(result.incomplete.get(ref)).not.toContain("hunter22");
+    expect(result.warnings.join(" ")).not.toContain("hunter22");
   });
 
   it("never attributes another test's message to a reference (different day, same sender)", async () => {

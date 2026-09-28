@@ -10,9 +10,10 @@
 // migrations/0009, and drops it afterwards — even when a test fails. The
 // store is handed a query adapter that schema-qualifies `mta_orange_tests`
 // in the SQL it receives, and refuses any SQL it could not qualify. The
-// sweep queries (releaseStaleSending / expireOverdue / claimDue) are
-// table-wide and the dev checker runs against public.mta_orange_tests every
-// 15 s, so the rows under test must live where neither can see the other.
+// sweep queries (releaseStaleSending / expireOverdue / closeUnchecked /
+// claimDue) are table-wide and the dev checker runs against
+// public.mta_orange_tests every 15 s, so the rows under test must live where
+// neither can see the other.
 // (A session-level `SET search_path` would not be a safe alternative:
 // NEON_DATABASE_URL is a PgBouncer transaction-pooling endpoint, where
 // session state is not guaranteed to follow the client between statements.)
@@ -448,7 +449,7 @@ describeWithDb("Orange test store — PostgreSQL behavior", () => {
     expect((await row(done.id)).verdict).toBe("SPAM");
   });
 
-  it("expireOverdue closes a waiting test only after a clean look that started past its deadline, or once the grace period is over", async () => {
+  it("expireOverdue closes a waiting test as NOT RECEIVED only after a clean look that started past its deadline; closeUnchecked closes the rest as NOT CHECKED once the grace period is over", async () => {
     const mtas = await newMtas(9, "expire");
     const deadline = at(-10 * MIN);
     const [clean, early, errored, unchecked, graceUnchecked, graceErrored, future] = await Promise.all([
@@ -472,10 +473,16 @@ describeWithDb("Orange test store — PostgreSQL behavior", () => {
       store.recordCheckOutcome([future.id], T0, null),
     ]);
 
-    expect(await store.expireOverdue(T0, GRACE)).toBe(3); // clean + the two past the grace period
-    for (const r of [clean, graceUnchecked, graceErrored]) {
+    // Only the clean post-deadline look yields a verdict …
+    expect(await store.expireOverdue(T0)).toBe(1);
+    const closedClean = await row(clean.id);
+    expect(closedClean).toMatchObject({ status: "not_received", verdict: "NOT_RECEIVED", nextPollAt: null });
+    expect(closedClean.finishedAt?.getTime()).toBe(T0.getTime());
+    // … the two past the grace period close WITHOUT one: nothing was ever seen after their window.
+    expect(await store.closeUnchecked(T0, GRACE)).toBe(2);
+    for (const r of [graceUnchecked, graceErrored]) {
       const cur = await row(r.id);
-      expect(cur).toMatchObject({ status: "not_received", verdict: "NOT_RECEIVED", nextPollAt: null });
+      expect(cur).toMatchObject({ status: "not_checked", verdict: null, nextPollAt: null });
       expect(cur.finishedAt?.getTime()).toBe(T0.getTime());
     }
     for (const r of [early, errored, unchecked, future, noDeadline]) {
@@ -486,17 +493,19 @@ describeWithDb("Orange test store — PostgreSQL behavior", () => {
       expect(cur.nextPollAt).not.toBeNull();
     }
     expect((await row(terminal.id)).status).toBe("done");
-    expect(await store.expireOverdue(T0, GRACE)).toBe(0);
+    expect(await store.expireOverdue(T0)).toBe(0);
+    expect(await store.closeUnchecked(T0, GRACE)).toBe(0);
 
-    // A clean look past the deadline now closes the straddled and the previously failing tests …
+    // A clean look past the deadline now closes the straddled and the previously failing tests as NOT RECEIVED …
     await store.recordCheckOutcome([early.id, errored.id], T0, null);
-    expect(await store.expireOverdue(at(SECOND), GRACE)).toBe(2);
-    expect((await row(early.id)).status).toBe("not_received");
-    expect((await row(errored.id)).status).toBe("not_received");
-    // … while a never-checked test only closes when the grace period is over (deadline + 1 h, inclusive).
-    expect(await store.expireOverdue(at(GRACE - 10 * MIN - SECOND), GRACE)).toBe(0);
-    expect(await store.expireOverdue(at(GRACE - 10 * MIN), GRACE)).toBe(1);
-    expect((await row(unchecked.id)).status).toBe("not_received");
+    expect(await store.expireOverdue(at(SECOND))).toBe(2);
+    expect((await row(early.id))).toMatchObject({ status: "not_received", verdict: "NOT_RECEIVED" });
+    expect((await row(errored.id))).toMatchObject({ status: "not_received", verdict: "NOT_RECEIVED" });
+    // … while a never-checked test only closes — as NOT CHECKED — when the grace period is over (deadline + 1 h, inclusive).
+    expect(await store.expireOverdue(at(GRACE - 10 * MIN))).toBe(0);
+    expect(await store.closeUnchecked(at(GRACE - 10 * MIN - SECOND), GRACE)).toBe(0);
+    expect(await store.closeUnchecked(at(GRACE - 10 * MIN), GRACE)).toBe(1);
+    expect((await row(unchecked.id))).toMatchObject({ status: "not_checked", verdict: null });
     expect((await row(unchecked.id)).finishedAt?.getTime()).toBe(at(GRACE - 10 * MIN).getTime());
     // `future` is overdue by then, but its only look started before its deadline and its grace is not over.
     expect((await row(future.id)).status).toBe("waiting");

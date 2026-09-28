@@ -39,6 +39,13 @@ export interface MailboxLookupHit {
 export interface MailboxLookupResult {
   hits: Map<string, MailboxLookupHit>;
   foldersSearched: string[];
+  /**
+   * Tests whose lookup could NOT be completed: at least one search that could
+   * have found them was refused by the server (reference → scrubbed reason).
+   * A test absent from `hits` but present here is NOT a clean miss — the
+   * caller must never read it as "not in the mailbox".
+   */
+  incomplete: Map<string, string>;
   /** Non-fatal problems met during the session (a search the server refused, …). */
   warnings: string[];
 }
@@ -267,6 +274,16 @@ async function searchFolder(
   result: MailboxLookupResult,
 ): Promise<void> {
   const lock = await client.getMailboxLock(target.info.path, { readOnly: true });
+  // A refused search is a warning for the session but makes the lookup of
+  // every test it could have found INCOMPLETE: a miss is only clean when all
+  // of its searches actually ran (the first reason is kept per test).
+  const searchFailed = (requests: MailboxLookupRequest[], what: string, error: any) => {
+    const reason = `${target.info.path}: ${what} failed (${error?.message || error})`;
+    result.warnings.push(reason);
+    for (const request of requests) {
+      if (!result.incomplete.has(request.reference)) result.incomplete.set(request.reference, reason);
+    }
+  };
   try {
     result.foldersSearched.push(target.info.path);
     // 1 + 2: per test, Message-ID header then reference text search.
@@ -277,14 +294,14 @@ async function searchFolder(
         uids = uidList(await client.search({ header: { "message-id": request.messageId } }, { uid: true }));
         if (uids.length > 0) matchedBy = "message-id";
       } catch (error: any) {
-        result.warnings.push(`${target.info.path}: Message-ID search failed (${error?.message || error})`);
+        searchFailed([request], "Message-ID search", error);
       }
       if (!matchedBy) {
         try {
           uids = uidList(await client.search({ text: request.reference }, { uid: true }));
           if (uids.length > 0) matchedBy = "text";
         } catch (error: any) {
-          result.warnings.push(`${target.info.path}: text search failed (${error?.message || error})`);
+          searchFailed([request], "text search", error);
         }
       }
       if (!matchedBy) continue;
@@ -299,6 +316,7 @@ async function searchFolder(
           || idHeader.toUpperCase().includes(request.reference.toUpperCase());
         if (!idMatches && !refMatches) continue;
         result.hits.set(request.reference, buildHit(request, target, matchedBy, fetched.message, fetched.parsed));
+        result.incomplete.delete(request.reference);
         pending.delete(request.reference);
         break;
       }
@@ -320,7 +338,7 @@ async function searchFolder(
       try {
         uids = uidList(await client.search({ from: sender, subject: PLAIN_TEST_SUBJECT, since }, { uid: true }));
       } catch (error: any) {
-        result.warnings.push(`${target.info.path}: fallback search failed (${error?.message || error})`);
+        searchFailed(requests, "fallback search", error);
         continue;
       }
       const wanted = new Map(requests.map((r) => [r.reference.toUpperCase(), r] as const));
@@ -332,6 +350,7 @@ async function searchFolder(
         const request = bodyRef ? wanted.get(bodyRef) : undefined;
         if (!request || !pending.has(request.reference)) continue;
         result.hits.set(request.reference, buildHit(request, target, "fallback", fetched.message, fetched.parsed));
+        result.incomplete.delete(request.reference);
         pending.delete(request.reference);
         wanted.delete(bodyRef!);
       }
@@ -346,7 +365,7 @@ async function runSession(
   config: OrangeTestConfig,
   client: ImapClientLike,
 ): Promise<MailboxLookupResult> {
-  const result: MailboxLookupResult = { hits: new Map(), foldersSearched: [], warnings: [] };
+  const result: MailboxLookupResult = { hits: new Map(), foldersSearched: [], incomplete: new Map(), warnings: [] };
   const pending = new Map(requests.map((r) => [r.reference, r] as const));
   if (pending.size === 0) return result;
 
@@ -387,8 +406,10 @@ let sessionChain: Promise<unknown> = Promise.resolve();
 /**
  * Looks every pending test up in the Orange mailbox within ONE IMAP session.
  * Resolves with the hits found (keyed by reference); tests that are absent
- * from the mailbox are simply missing from `hits`. Rejects with an
- * OrangeMailboxError when the session itself failed (auth, network, timeout).
+ * from the mailbox are simply missing from `hits` — unless they are listed in
+ * `incomplete`, in which case the server refused a search that could have
+ * found them and nothing is known. Rejects with an OrangeMailboxError when the
+ * session itself failed (auth, network, timeout).
  */
 export function lookupOrangeTests(
   requests: MailboxLookupRequest[],
@@ -405,9 +426,10 @@ export function lookupOrangeTests(
         () => client.close(),
         "Orange mailbox session",
       );
-      // Warnings carry server error texts and end up in the logs: never let a
-      // credential slip through them either.
+      // Warnings and incomplete-lookup reasons carry server error texts and
+      // end up in the logs / test rows: never let a credential slip through.
       result.warnings = result.warnings.map((w) => scrub(w, config));
+      result.incomplete = new Map([...result.incomplete].map(([ref, reason]) => [ref, scrub(reason, config)]));
       return result;
     } catch (error) {
       throw classifyImapError(error, config);

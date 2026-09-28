@@ -25,6 +25,7 @@ const service = {
   getOrangeTest: vi.fn(),
   listOrangeTests: vi.fn(),
   getControlValues: vi.fn(),
+  getMailboxHealth: vi.fn(),
   runCheckerTick: vi.fn(),
 };
 vi.mock("../server/services/orange-test-jobs", () => ({
@@ -101,13 +102,19 @@ describe("Orange test routes", () => {
     expect(result.body).not.toHaveProperty("imapPassword");
   });
 
-  it("returns control values for the requested ids and rejects malformed ids", async () => {
+  it("returns control values plus the mailbox health for the requested ids and rejects malformed ids", async () => {
     const app = await setup();
+    const mailbox = {
+      mailbox: "ianisbaulle@orange.fr", state: "failing", lastSuccessAt: "2026-09-27T10:00:00.000Z",
+      lastFailureAt: "2026-09-28T09:00:00.000Z", lastErrorClass: "AUTH", lastErrorMessage: "Authentication failed.",
+      failingSince: "2026-09-28T08:00:00.000Z", consecutiveFailures: 12,
+    };
     service.getControlValues.mockResolvedValue({ a: { latest: null, latestVerdict: null } });
+    service.getMailboxHealth.mockResolvedValue(mailbox);
     const ok = await call(app, "GET /api/mtas/orange-test/summary", { query: { ids: "a, b" } });
     expect(ok.statusCode).toBe(200);
     expect(service.getControlValues).toHaveBeenCalledWith(["a", "b"]);
-    expect(ok.body).toEqual({ values: { a: { latest: null, latestVerdict: null } } });
+    expect(ok.body).toEqual({ values: { a: { latest: null, latestVerdict: null } }, mailbox });
 
     const bad = await call(app, "GET /api/mtas/orange-test/summary", { query: { ids: "a,not valid!" } });
     expect(bad.statusCode).toBe(400);

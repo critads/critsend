@@ -14,17 +14,19 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   XCircle, Loader2, Lightbulb, ChevronDown, ChevronRight,
-  Clock, Inbox, ShieldAlert, ShieldCheck, ShieldOff, HelpCircle, MailX, Send, Info,
+  Clock, Inbox, ShieldAlert, ShieldCheck, ShieldOff, HelpCircle, MailX, MailQuestion, MailWarning, Send, Info,
 } from "lucide-react";
 import type { Mta } from "@shared/schema";
 import {
   isOrangeTestPending,
+  type OrangeMailboxHealthView,
   type OrangeTestControlValue,
   type OrangeTestPublicConfig,
+  type OrangeTestSummaryResponse,
   type OrangeTestVerdict,
   type OrangeTestView,
 } from "@shared/orange-test";
-import { fetchOrangeTestSummary, normalizeOrangeSummaryIds, type OrangeTestSummaryValues } from "@/lib/orange-test-summary";
+import { fetchOrangeTestSummaryResponse, normalizeOrangeSummaryIds } from "@/lib/orange-test-summary";
 
 // ---------------------------------------------------------------------------
 // Data hooks
@@ -37,9 +39,8 @@ export function useOrangeTestConfig() {
   });
 }
 
-export interface OrangeTestSummaryResponse {
-  values: OrangeTestSummaryValues;
-}
+// The response shape ({ values, mailbox }) lives in the shared contract; re-exported for the wizard.
+export type { OrangeTestSummaryResponse };
 
 export const ORANGE_TEST_SUMMARY_QUERY_KEY = "/api/mtas/orange-test/summary";
 
@@ -53,14 +54,15 @@ export interface UseOrangeTestSummaryOptions {
 
 /**
  * Control values for a list of MTAs (split into as many requests as the route
- * allows); polls every 30 s while any test is pending.
+ * allows) plus the mailbox connection health; polls every 30 s while any test
+ * is pending.
  */
 export function useOrangeTestSummary(mtaIds: string[], enabled: boolean, opts: UseOrangeTestSummaryOptions = {}) {
   const ids = useMemo(() => normalizeOrangeSummaryIds(mtaIds), [mtaIds]);
   const key = ids.join(",");
   return useQuery<OrangeTestSummaryResponse>({
     queryKey: [ORANGE_TEST_SUMMARY_QUERY_KEY, key],
-    queryFn: async ({ signal }) => ({ values: await fetchOrangeTestSummary(ids, { signal }) }),
+    queryFn: ({ signal }) => fetchOrangeTestSummaryResponse(ids, { signal }),
     enabled: enabled && key.length > 0,
     ...(opts.staleTime !== undefined ? { staleTime: opts.staleTime } : {}),
     ...(opts.refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus: opts.refetchOnWindowFocus } : {}),
@@ -110,7 +112,7 @@ const VERDICT_STYLE: Record<OrangeTestVerdict, { label: string; className: strin
   },
 };
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) ms = 0;
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s} s`;
@@ -122,7 +124,7 @@ function formatDuration(ms: number): string {
   return `${Math.floor(h / 24)} d ${h % 24} h`;
 }
 
-function formatDateTime(iso: string | null): string {
+export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
@@ -156,14 +158,26 @@ export function OrangeVerdictBadge({ verdict, testId, size = "sm" }: { verdict: 
   );
 }
 
+const NOT_CHECKED_HINT =
+  "The listening window closed but the Orange mailbox could not be read after it: nothing is known about this delivery (this is not a verdict).";
 /** Card badge: verdict of the most recently sent test, or its waiting state. */
-export function OrangeTestCardBadge({ mtaId, value }: { mtaId: string; value: OrangeTestControlValue | undefined }) {
+export function OrangeTestCardBadge({
+  mtaId,
+  value,
+  mailbox,
+}: {
+  mtaId: string;
+  value: OrangeTestControlValue | undefined;
+  /** Mailbox connection health from the summary; flags pending tests that are not actually being checked. */
+  mailbox?: OrangeMailboxHealthView;
+}) {
   const now = useNow(Boolean(value?.latest && isOrangeTestPending(value.latest.status)), 30_000);
   if (!value || !value.latest) return null;
   const { latest, latestVerdict } = value;
   if (isOrangeTestPending(latest.status)) {
     const since = latest.sentAt || latest.createdAt;
     const previous = latestVerdict && latestVerdict.id !== latest.id ? latestVerdict : null;
+    const unreadable = latest.status === "waiting" && mailbox?.state === "failing";
     return (
       <div className="text-sm flex items-center gap-2 flex-wrap" data-testid={`orange-test-card-${mtaId}`}>
         <span className="text-muted-foreground">Orange:</span>
@@ -171,9 +185,28 @@ export function OrangeTestCardBadge({ mtaId, value }: { mtaId: string; value: Or
           <Loader2 className="h-3 w-3 animate-spin" />
           {latest.status === "sending" ? "sending…" : `waiting for ${formatDuration(now - new Date(since).getTime())}`}
         </Badge>
+        {unreadable && mailbox && <MailboxUnreadableChip mailbox={mailbox} testId={`orange-test-card-unreadable-${mtaId}`} />}
         {previous && previous.verdict && (
           <span className="text-xs text-muted-foreground flex items-center gap-1">
             · previous: <OrangeVerdictBadge verdict={previous.verdict} testId={`orange-test-card-previous-${mtaId}`} />
+          </span>
+        )}
+      </div>
+    );
+  }
+  if (latest.status === "not_checked") {
+    // No verdict either: the window closed while the mailbox could not be read.
+    const previous = latestVerdict && latestVerdict.id !== latest.id ? latestVerdict : null;
+    return (
+      <div className="text-sm flex items-center gap-2 flex-wrap" data-testid={`orange-test-card-${mtaId}`}>
+        <span className="text-muted-foreground">Orange:</span>
+        <OrangeNotCheckedBadge testId={`orange-test-card-not-checked-${mtaId}`} />
+        <span className="text-xs text-muted-foreground" title={`Test ${latest.reference}`}>
+          {formatDateTime(latest.sentAt || latest.createdAt)}
+        </span>
+        {previous && previous.verdict && (
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            · last checked test: <OrangeVerdictBadge verdict={previous.verdict} testId={`orange-test-card-previous-${mtaId}`} />
           </span>
         )}
       </div>
@@ -226,10 +259,12 @@ interface StartResponse {
 export interface OrangeTestDialogProps {
   mta: Mta | null;
   config: OrangeTestPublicConfig | undefined;
+  /** Mailbox connection health (from the summary); explains a waiting test that is not being checked. */
+  mailbox?: OrangeMailboxHealthView;
   onClose: () => void;
 }
 
-export function OrangeTestDialog({ mta, config, onClose }: OrangeTestDialogProps) {
+export function OrangeTestDialog({ mta, config, mailbox, onClose }: OrangeTestDialogProps) {
   const mtaId = mta?.id ?? null;
   const [activeTestId, setActiveTestId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -413,11 +448,56 @@ export function OrangeTestDialog({ mta, config, onClose }: OrangeTestDialogProps
                   {test.sendNote && (
                     <p className="text-xs text-muted-foreground flex items-start gap-1.5"><Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />{test.sendNote}</p>
                   )}
+                  {mailbox?.state === "failing" && (
+                    <div className="flex items-start gap-2 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-200 text-xs" data-testid="orange-test-mailbox-unreadable">
+                      <MailWarning className="h-4 w-4 mt-0.5 shrink-0" />
+                      <span>
+                        <span className="font-medium">The Orange mailbox is unreadable</span> since {formatDateTime(mailbox.failingSince)}
+                        {" "}({mailbox.consecutiveFailures} failed check{mailbox.consecutiveFailures === 1 ? "" : "s"}
+                        {mailbox.lastErrorClass ? `, ${mailbox.lastErrorClass}` : ""}): this test is <span className="font-medium">not</span> being
+                        checked. If this lasts past the listening window, it closes as NOT CHECKED — not as a verdict.
+                      </span>
+                    </div>
+                  )}
                   {test.lastCheckError && (
                     <div className="p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-200 text-xs" data-testid="orange-test-check-error">
                       <span className="font-medium">Last mailbox check failed:</span> {test.lastCheckError}
                     </div>
                   )}
+                </div>
+              )}
+
+              {test.status === "not_checked" && (
+                <div className="space-y-3" data-testid="orange-test-not-checked">
+                  <div className={`flex items-center gap-3 p-4 rounded-lg border ${NOT_CHECKED_BADGE_CLASS}`}>
+                    <MailQuestion className="h-8 w-8 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-semibold flex items-center gap-2">
+                        Result: <OrangeNotCheckedBadge size="lg" testId="orange-test-not-checked-badge" />
+                      </p>
+                      <p className="text-sm opacity-90">
+                        The listening window closed but the Orange mailbox could not be read after it, so nothing is known about this
+                        delivery: the message is neither confirmed received nor missing. This is not an MTA verdict — run the test again
+                        once the mailbox is readable.
+                      </p>
+                    </div>
+                  </div>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                    <dt className="text-muted-foreground">Listened</dt>
+                    <dd>{formatDateTime(test.sentAt)} → {formatDateTime(test.finishedAt)} ({test.pollCount} check{test.pollCount === 1 ? "" : "s"})</dd>
+                    <dt className="text-muted-foreground">Sent</dt>
+                    <dd>{formatDateTime(test.sentAt)}</dd>
+                  </dl>
+                  <div className="p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-200 text-xs" data-testid="orange-test-check-error">
+                    {test.lastCheckError ? (
+                      <><span className="font-medium">Last mailbox check failed:</span> {test.lastCheckError}</>
+                    ) : (
+                      <>
+                        <span className="font-medium">No mailbox check could be made after the window closed</span> — Orange Test was
+                        disabled or the checker was not running at the time.
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -567,6 +647,8 @@ export function OrangeTestDialog({ mta, config, onClose }: OrangeTestDialogProps
                         <OrangeVerdictBadge verdict={h.verdict} />
                       ) : isOrangeTestPending(h.status) ? (
                         <Badge variant="outline" className="gap-1 text-xs"><Loader2 className="h-3 w-3 animate-spin" />pending</Badge>
+                      ) : h.status === "not_checked" ? (
+                        <OrangeNotCheckedBadge />
                       ) : (
                         <Badge variant="outline" className="gap-1 text-xs border-red-400 text-red-700 dark:text-red-400"><XCircle className="h-3 w-3" />failed</Badge>
                       )}
@@ -608,5 +690,37 @@ export function OrangeTestDialog({ mta, config, onClose }: OrangeTestDialogProps
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const NOT_CHECKED_BADGE_CLASS =
+  "bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700";
+
+export function OrangeNotCheckedBadge({ testId, size = "sm" }: { testId?: string; size?: "sm" | "lg" }) {
+  return (
+    <Badge
+      variant="outline"
+      className={`gap-1 ${NOT_CHECKED_BADGE_CLASS} ${size === "lg" ? "text-sm px-3 py-1" : "text-xs"}`}
+      title={NOT_CHECKED_HINT}
+      data-testid={testId}
+    >
+      <MailQuestion className={size === "lg" ? "h-4 w-4" : "h-3 w-3"} />
+      NOT CHECKED
+    </Badge>
+  );
+}
+
+/** Small chip shown next to a pending test while the checker cannot read the mailbox. */
+function MailboxUnreadableChip({ mailbox, testId }: { mailbox: OrangeMailboxHealthView; testId?: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={`gap-1 text-xs ${NOT_CHECKED_BADGE_CLASS}`}
+      title={`Orange mailbox unreadable since ${formatDateTime(mailbox.failingSince)} (${mailbox.lastErrorClass ?? "error"}): this test is not being checked.`}
+      data-testid={testId}
+    >
+      <MailWarning className="h-3 w-3" />
+      mailbox unreadable
+    </Badge>
   );
 }

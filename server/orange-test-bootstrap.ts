@@ -4,9 +4,10 @@ import { logger } from "./logger";
 let bootstrapPromise: Promise<void> | null = null;
 
 /**
- * Orange Test — mta_orange_tests. Mirrors migrations/0009 so a deployment
- * that missed the migration run still gets the table on next start (same
- * convention as the brands / smart-segment bootstraps).
+ * Orange Test — mta_orange_tests (migration 0009) and mta_orange_mailbox_health
+ * (migration 0010). Mirrors the migrations so a deployment that missed the
+ * migration run still gets the tables on next start (same convention as the
+ * brands / smart-segment bootstraps).
  */
 async function runOrangeTestBootstrap(): Promise<void> {
   const client = await pool.connect();
@@ -58,6 +59,19 @@ async function runOrangeTestBootstrap(): Promise<void> {
     await client.query(`
       CREATE INDEX IF NOT EXISTS mta_orange_tests_due_idx
       ON mta_orange_tests (next_poll_at) WHERE status IN ('sending', 'waiting')
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS mta_orange_mailbox_health (
+        mailbox varchar(255) PRIMARY KEY,
+        last_success_at timestamptz,
+        last_failure_at timestamptz,
+        last_error_class varchar(16),
+        last_error_message text,
+        failing_since timestamptz,
+        consecutive_failures integer NOT NULL DEFAULT 0,
+        last_warned_at timestamptz,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
     `);
     await client.query("COMMIT");
     logger.info("[ORANGE_TEST] Schema ready");

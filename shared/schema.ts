@@ -231,6 +231,28 @@ export const mtaOrangeTests = pgTable("mta_orange_tests", {
 
 export type MtaOrangeTestRow = typeof mtaOrangeTests.$inferSelect;
 
+// Orange Test — health of the Orange mailbox connection (one row per mailbox),
+// written by the checker after every IMAP session and shown on /mtas so an
+// unreadable mailbox is never mistaken for a blocked MTA. Mirrored in
+// migrations/0010_mta_orange_mailbox_health.sql and the startup bootstrap.
+export const mtaOrangeMailboxHealth = pgTable("mta_orange_mailbox_health", {
+  mailbox: varchar("mailbox", { length: 255 }).primaryKey(),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+  /** AUTH | NETWORK | TIMEOUT | IMAP | UNKNOWN */
+  lastErrorClass: varchar("last_error_class", { length: 16 }),
+  /** Scrubbed by the reader: never contains the password. */
+  lastErrorMessage: text("last_error_message"),
+  /** Start of the current failure streak; null while healthy. */
+  failingSince: timestamp("failing_since", { withTimezone: true }),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  /** Throttle of the "mailbox still failing" warning log (once per hour, all instances). */
+  lastWarnedAt: timestamp("last_warned_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type MtaOrangeMailboxHealthRow = typeof mtaOrangeMailboxHealth.$inferSelect;
+
 // Null-sink captures - logs emails captured during test campaigns
 export const nullsinkCaptures = pgTable("nullsink_captures", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

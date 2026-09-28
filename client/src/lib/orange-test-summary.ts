@@ -1,8 +1,14 @@
 // Client side of `GET /api/mtas/orange-test/summary` — control values for a
-// list of MTAs. The route accepts at most ORANGE_TEST_SUMMARY_MAX_IDS ids per
-// request and silently ignores the rest, so longer lists are split here;
-// callers always get an entry for every id the server knows about.
-import { ORANGE_TEST_SUMMARY_MAX_IDS, type OrangeTestControlValue } from "@shared/orange-test";
+// list of MTAs plus the mailbox connection health. The route accepts at most
+// ORANGE_TEST_SUMMARY_MAX_IDS ids per request and silently ignores the rest,
+// so longer lists are split here; callers always get an entry for every id the
+// server knows about.
+import {
+  ORANGE_TEST_SUMMARY_MAX_IDS,
+  type OrangeMailboxHealthView,
+  type OrangeTestControlValue,
+  type OrangeTestSummaryResponse,
+} from "@shared/orange-test";
 
 export type OrangeTestSummaryValues = Record<string, OrangeTestControlValue>;
 
@@ -25,24 +31,53 @@ export interface FetchOrangeTestSummaryOptions {
   chunkSize?: number;
 }
 
-/** Control values for `ids`, merged across as many requests as the route requires. */
-export async function fetchOrangeTestSummary(
-  ids: readonly string[],
-  { signal, fetchImpl, chunkSize = ORANGE_TEST_SUMMARY_MAX_IDS }: FetchOrangeTestSummaryOptions = {},
-): Promise<OrangeTestSummaryValues> {
-  const normalized = normalizeOrangeSummaryIds(ids);
-  if (normalized.length === 0) return {};
+interface OrangeTestSummaryPage {
+  values?: OrangeTestSummaryValues;
+  mailbox?: OrangeMailboxHealthView;
+}
+
+async function fetchSummaryPages(
+  chunks: readonly (readonly string[])[],
+  { signal, fetchImpl }: FetchOrangeTestSummaryOptions,
+): Promise<OrangeTestSummaryPage[]> {
   const doFetch = fetchImpl ?? fetch;
-  const pages = await Promise.all(
-    chunkOrangeSummaryIds(normalized, chunkSize).map(async (chunk) => {
+  return Promise.all(
+    chunks.map(async (chunk) => {
       const res = await doFetch(`/api/mtas/orange-test/summary?ids=${encodeURIComponent(chunk.join(","))}`, {
         credentials: "include",
         signal,
       });
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-      const body = (await res.json()) as { values?: OrangeTestSummaryValues };
-      return body.values ?? {};
+      return (await res.json()) as OrangeTestSummaryPage;
     }),
   );
-  return Object.assign({}, ...pages) as OrangeTestSummaryValues;
+}
+
+/** Control values for `ids`, merged across as many requests as the route requires. */
+export async function fetchOrangeTestSummary(
+  ids: readonly string[],
+  { chunkSize = ORANGE_TEST_SUMMARY_MAX_IDS, ...options }: FetchOrangeTestSummaryOptions = {},
+): Promise<OrangeTestSummaryValues> {
+  const normalized = normalizeOrangeSummaryIds(ids);
+  if (normalized.length === 0) return {};
+  const pages = await fetchSummaryPages(chunkOrangeSummaryIds(normalized, chunkSize), options);
+  return Object.assign({}, ...pages.map((p) => p.values ?? {})) as OrangeTestSummaryValues;
+}
+
+/**
+ * Same as `fetchOrangeTestSummary` but keeps the mailbox connection health
+ * the route returns alongside the values (the /mtas banner). Every page
+ * carries the same mailbox state, so the first one is kept; an empty id list
+ * still makes one request so the mailbox health is read.
+ */
+export async function fetchOrangeTestSummaryResponse(
+  ids: readonly string[],
+  { chunkSize = ORANGE_TEST_SUMMARY_MAX_IDS, ...options }: FetchOrangeTestSummaryOptions = {},
+): Promise<OrangeTestSummaryResponse> {
+  const normalized = normalizeOrangeSummaryIds(ids);
+  const chunks = normalized.length === 0 ? [[]] : chunkOrangeSummaryIds(normalized, chunkSize);
+  const pages = await fetchSummaryPages(chunks, options);
+  const mailbox = pages.find((p) => p.mailbox)?.mailbox;
+  if (!mailbox) throw new Error("Orange test summary response is missing the mailbox health");
+  return { values: Object.assign({}, ...pages.map((p) => p.values ?? {})) as OrangeTestSummaryValues, mailbox };
 }

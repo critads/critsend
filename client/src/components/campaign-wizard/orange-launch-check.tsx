@@ -120,7 +120,7 @@ export function useOrangeLaunchChecks(mtaIds: string[]): OrangeLaunchChecks {
             const values = await fetchOrangeTestSummary([id], { signal });
             // Keep the displayed chip / panel in step with what was just read.
             queryClient.setQueryData<OrangeTestSummaryResponse>([ORANGE_TEST_SUMMARY_QUERY_KEY, summaryKey], (old) =>
-              old ? { values: { ...old.values, ...values } } : old,
+              old ? { ...old, values: { ...old.values, ...values } } : old,
             );
             return values[id];
           },

@@ -328,6 +328,20 @@ survive restarts (pending rows are resumed, never closed at startup) and the
 MTA card shows the verdict of the most recently **sent** test — a late verdict
 for an older test never overrides a newer one.
 
+**Mailbox health / NOT CHECKED.** NOT RECEIVED is only recorded after a mailbox
+check made *after* the window closed came back clean. If the mailbox cannot be
+read at that point (password rotated, IMAP disabled again, network, or the
+server refusing the searches — a refused search is never a clean miss), the
+test closes one hour later as **NOT CHECKED** (status `not_checked`, amber
+badge, no verdict): it says nothing about the MTA. The checker records every IMAP session
+in `mta_orange_mailbox_health` (last successful read, last error class
+`AUTH` / `NETWORK` / `TIMEOUT` / `IMAP`, failure streak) — `/mtas` shows a
+banner while the mailbox is failing (and a « mailbox unreadable » chip on
+waiting tests), `GET /api/mtas/orange-test/summary` returns it as `mailbox`,
+and the log carries `[ORANGE_TEST] Orange mailbox … unreadable` (warn) at most
+once per hour — intermediate failures stay at info — then `readable again` on
+recovery.
+
 The campaign wizard reuses that control value: each server in the « Sending
 Server » list shows its latest verdict and age, the Schedule step repeats it
 for the selected server, and a recent SPAM / BLOCKED / NOT RECEIVED verdict
@@ -345,20 +359,24 @@ Orange check » and does not warn.
 # 1. Add the password (the mailbox / host default to the Orange values — see .env.example)
 printf 'ORANGE_TEST_IMAP_PASSWORD=...\n' >> .env
 
-# 2. Apply the schema (table mta_orange_tests — migration 0009). The web
-#    process also creates it idempotently at startup, so a plain redeploy is enough.
+# 2. Apply the schema (tables mta_orange_tests / mta_orange_mailbox_health —
+#    migrations 0009 / 0010). The web process also creates them idempotently at
+#    startup, so a plain redeploy is enough.
 bash deploy/deploy.sh
 
 # 3. Verify (authenticated session cookie required)
 curl -s -b cookies.txt https://your-domain/api/mtas/orange-test/config
 #    → {"enabled":true,"mailbox":"ianisbaulle@orange.fr","maxWaitHours":48,...}
 pm2 logs critsend-web --lines 50 | grep ORANGE_TEST
+curl -s -b cookies.txt 'https://your-domain/api/mtas/orange-test/summary?ids=<mta-id>' | jq .mailbox
+#    → {"state":"ok","lastSuccessAt":...} once a session ran; "failing" + lastErrorClass otherwise
 ```
 
-If the checker logs an IMAP authentication error (`Authentication failed.`),
-the password is wrong **or IMAP access is disabled on the mailbox** (Orange
-disables it by default on new mailboxes and after a security block). Fix it
-from the Orange side, no restart needed — the next poll picks it up:
+If the checker logs an IMAP authentication error (`Authentication failed.`,
+banner class `AUTH` on `/mtas`), the password is wrong **or IMAP access is
+disabled on the mailbox** (Orange disables it by default on new mailboxes and
+after a security block). Fix it from the Orange side, no restart needed — the
+next poll picks it up (the banner clears after the first successful session):
 
 1. Orange webmail → gear icon → *Tous les paramètres* → *Sécurité* →
    *Protocoles POP ou IMAP* → *Modifier* → enable. Orange may require doing

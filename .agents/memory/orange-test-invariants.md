@@ -5,13 +5,40 @@ description: Rules any change to the per-MTA Orange deliverability test (send + 
 
 ## NOT RECEIVED is never a clock decision
 A waiting test may only be closed as NOT RECEIVED after a mailbox check that
-*started* after its deadline came back clean, or after the grace period when
-the mailbox is unreachable/disabled. Any new closing path (manual "give up",
-worker-side sweep) must keep that gate.
+*started* after its deadline came back clean. If no clean post-deadline look
+exists once the grace period is over (mailbox unreadable, feature disabled,
+checker down) the test closes as `not_checked` — a terminal STATUS with a NULL
+verdict, deliberately not a verdict value, so verdict maps/stats stay untouched
+and "latest verdict" logic skips it. Any new closing path (manual "give up",
+worker-side sweep) must keep both gates.
 **Why:** Orange/MTA queues deliver hours late; an expiry that runs before the
-last look races a hit that is already in flight and records a false verdict.
+last look races a hit that is already in flight and records a false verdict —
+and a NOT RECEIVED recorded while nothing was checked reads as "MTA blocked"
+to operators (the incident that motivated the health indicator).
 **How to apply:** stamp clean misses with the claim time, not the session end;
-never expire on `deadline_at <= now` alone.
+never expire on `deadline_at <= now` alone; UI must present `not_checked` as
+"nothing known", never as a verdict.
+
+
+## A miss is only clean when every search for it actually ran
+The reader catches refused searches (Message-ID, text, sender fallback) as
+session warnings; a test that is absent from the hits because one of *its*
+searches failed is reported as incomplete and must be recorded as a failed
+check (with the reason), never as a clean look. A session in which no lookup
+completed at all counts as a mailbox failure (class IMAP) for the health row.
+**Why:** an IMAP server that accepts the login but rejects searches would
+otherwise look like a clean empty mailbox and close tests as NOT RECEIVED —
+the exact false verdict the health indicator exists to prevent (caught in
+review, not in production).
+
+## Mailbox health lives in the DB, keyed by the configured mailbox
+The checker records every IMAP session outcome (success / classified failure
+streak) in a row keyed by `config.mailbox`, and the hourly "unreadable" warn
+throttle is a compare-and-set on that row — not an in-process timer.
+**Why:** two PM2 web instances plus restarts; an in-memory throttle would warn
+twice per hour or forget the streak, and the /mtas banner must survive a
+redeploy. Only sessions that actually ran are recorded (a tick with nothing
+due says nothing about the mailbox).
 
 ## One IMAP session across all instances
 The claim (SKIP LOCKED) only serialises the row hand-out; the mailbox session
