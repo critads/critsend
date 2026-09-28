@@ -14,6 +14,7 @@ vi.mock("../server/services/orange-mailbox-reader", () => ({ lookupOrangeTests: 
 import {
   buildOrangeTestMessageId,
   createOrangeTestService,
+  EXPIRY_GRACE_MS,
   generateOrangeTestReference,
   OrangeTestError,
   STALE_SENDING_NOTE,
@@ -22,6 +23,7 @@ import {
   type MarkSentInput,
   type NewOrangeTest,
   type OrangeTestRecord,
+  type OrangeTestServiceDeps,
   type OrangeTestStore,
 } from "../server/services/orange-test-jobs";
 import { nextPollDelayMs, type OrangeTestConfig } from "../server/config/orange-test";
