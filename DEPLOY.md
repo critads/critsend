@@ -328,6 +328,19 @@ survive restarts (pending rows are resumed, never closed at startup) and the
 MTA card shows the verdict of the most recently **sent** test — a late verdict
 for an older test never overrides a newer one.
 
+The campaign wizard reuses that control value: each server in the « Sending
+Server » list shows its latest verdict and age, the Schedule step repeats it
+for the selected server, and a recent SPAM / BLOCKED / NOT RECEIVED verdict
+asks for an explicit « Launch anyway » before the send (a warning, never a
+block). The wizard re-reads the verdicts while it stays open (on focus, every
+minute, when the Schedule step opens) and once more, for the selected server
+only, right before the launch decision; if that read fails or takes more than
+a few seconds the launch goes on with the displayed value, and if the campaign
+or its server is changed while the read is running nothing is sent (Send must
+be pressed again). A verdict older
+than `ORANGE_TEST_STALE_VERDICT_DAYS` (default 7) is shown as « no recent
+Orange check » and does not warn.
+
 ```bash
 # 1. Add the password (the mailbox / host default to the Orange values — see .env.example)
 printf 'ORANGE_TEST_IMAP_PASSWORD=...\n' >> .env

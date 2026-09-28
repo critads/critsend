@@ -4,7 +4,7 @@
 // environment variables (documented in .env.example / DEPLOY.md). Locally the
 // password comes from a Replit secret. The feature is visible-but-disabled
 // while ORANGE_TEST_IMAP_PASSWORD is absent; nothing else depends on it.
-import type { OrangeTestPublicConfig } from "@shared/orange-test";
+import { ORANGE_TEST_DEFAULT_STALE_VERDICT_DAYS, type OrangeTestPublicConfig } from "@shared/orange-test";
 
 function envInt(name: string, fallback: number, min: number, max = Number.MAX_SAFE_INTEGER): number {
   const raw = process.env[name];
@@ -57,6 +57,11 @@ export function getOrangeTestConfig() {
     checkerBatchSize: envInt("ORANGE_TEST_CHECKER_BATCH_SIZE", 50, 1, 500),
     /** A row still `sending` after this long had its process die mid-send. */
     staleSendingMs: envInt("ORANGE_TEST_STALE_SENDING_MS", 10 * 60 * 1000, 60_000, 60 * 60 * 1000),
+    /**
+     * Campaign wizard: a verdict older than this is shown as "no recent Orange
+     * check" instead of a verdict (and never warns). Purely presentational.
+     */
+    staleVerdictDays: envInt("ORANGE_TEST_STALE_VERDICT_DAYS", ORANGE_TEST_DEFAULT_STALE_VERDICT_DAYS, 1, 365),
   };
 }
 
@@ -73,6 +78,7 @@ export function toPublicOrangeTestConfig(config: OrangeTestConfig = getOrangeTes
     fastPollSeconds: config.fastPollSeconds,
     fastPhaseMinutes: config.fastPhaseMinutes,
     slowPollMinutes: config.slowPollMinutes,
+    staleVerdictDays: config.staleVerdictDays,
   };
 }
 

@@ -76,6 +76,20 @@ describe("orange test config", () => {
     expect(JSON.stringify(pub)).not.toContain("s3cret-value");
   });
 
+  it("exposes the campaign-wizard stale window (default 7 days, bounded 1–365)", () => {
+    delete process.env.ORANGE_TEST_STALE_VERDICT_DAYS;
+    expect(getOrangeTestConfig().staleVerdictDays).toBe(7);
+    expect(toPublicOrangeTestConfig(getOrangeTestConfig()).staleVerdictDays).toBe(7);
+    process.env.ORANGE_TEST_STALE_VERDICT_DAYS = "3";
+    expect(toPublicOrangeTestConfig(getOrangeTestConfig()).staleVerdictDays).toBe(3);
+    process.env.ORANGE_TEST_STALE_VERDICT_DAYS = "0";
+    expect(getOrangeTestConfig().staleVerdictDays).toBe(1);
+    process.env.ORANGE_TEST_STALE_VERDICT_DAYS = "9999";
+    expect(getOrangeTestConfig().staleVerdictDays).toBe(365);
+    process.env.ORANGE_TEST_STALE_VERDICT_DAYS = "abc";
+    expect(getOrangeTestConfig().staleVerdictDays).toBe(7);
+  });
+
   it("polls every 30 s for 5 min, then every 5 min", () => {
     const config = { fastPollMs: 30_000, fastPhaseMs: 5 * 60_000, slowPollMs: 5 * 60_000 };
     expect(nextPollDelayMs(0, config)).toBe(30_000);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation, useRoute, Link } from "wouter";
@@ -59,6 +59,14 @@ import {
   MtaLowOpenWarning,
   MtaScheduledCampaigns,
 } from "@/components/campaign-wizard/mta-insights";
+import {
+  useOrangeLaunchChecks,
+  OrangeLaunchCheckChip,
+  OrangeLaunchCheckPanel,
+  OrangeLaunchConfirmDialog,
+} from "@/components/campaign-wizard/orange-launch-check";
+import { ORANGE_LAUNCH_ABANDONED_TOAST, runOrangeLaunchAttempt } from "@/lib/orange-launch-check";
+import type { OrangeLaunchCheck } from "@shared/orange-test";
 
 const sendingSpeeds = [
   { value: "drip", label: "Drip", description: "100 emails/min" },
@@ -256,6 +264,43 @@ export default function CampaignEdit() {
     queryKey: ["/api/mtas"],
   });
   const { data: mtaInsights, refetch: refetchMtaInsights } = useMtaScheduleInsights();
+
+  // Orange launch check (mirrors campaign-new): latest Orange Test verdict of
+  // every selectable server plus the campaign's current one, even if it has
+  // been deactivated since. A warned verdict only asks for an acknowledgement.
+  const orangeCheckMtaIds = useMemo(() => {
+    const ids = (mtas ?? []).filter((m) => m.isActive).map((m) => m.id);
+    if (formData.mtaId && !ids.includes(formData.mtaId)) ids.push(formData.mtaId);
+    return ids;
+  }, [mtas, formData.mtaId]);
+  const orangeChecks = useOrangeLaunchChecks(orangeCheckMtaIds);
+  const launchMta = useMemo(() => mtas?.find((m) => m.id === formData.mtaId) ?? null, [mtas, formData.mtaId]);
+  const launchOrangeCheck = formData.mtaId ? orangeChecks.checks?.[formData.mtaId] ?? null : null;
+  // A press of Send is bound to the form it was pressed on: the live form and
+  // step are read through refs after the pre-launch wait, and any change
+  // (other server, edited campaign, left the Schedule step) abandons the
+  // attempt instead of sending something that was not assessed.
+  const formDataRef = useRef(formData);
+  formDataRef.current = formData;
+  const currentStepRef = useRef(currentStep);
+  currentStepRef.current = currentStep;
+  const isLaunchCurrent = useCallback(
+    (form: CampaignFormData) => formDataRef.current === form && currentStepRef.current === 5,
+    [],
+  );
+  // The acknowledgement dialog: the check that opened it and the form snapshot
+  // it was read for (null = closed).
+  const [orangeConfirm, setOrangeConfirm] = useState<{ check: OrangeLaunchCheck; form: CampaignFormData } | null>(null);
+  const orangeConfirmMtaName = useMemo(
+    () => (orangeConfirm ? mtas?.find((m) => m.id === orangeConfirm.form.mtaId)?.name ?? null : null),
+    [mtas, orangeConfirm],
+  );
+  const { refresh: refreshOrangeChecks } = orangeChecks;
+  useEffect(() => {
+    // Schedule step: re-read the verdicts so the panel reflects tests that
+    // finished while the operator was filling in the earlier steps.
+    if (currentStep === 5) refreshOrangeChecks();
+  }, [currentStep, refreshOrangeChecks]);
 
   // Blocking safeguard (mirrors campaign-new, applies to copied campaigns too):
   // every absolute <img src> must use a domain attributed to the selected MTA.
@@ -529,8 +574,32 @@ export default function CampaignEdit() {
     updateMutation.mutate(formData);
   };
 
-  const handleSend = () => {
-    sendMutation.mutate(formData);
+  const handleSend = async () => {
+    if (orangeChecks.launchCheckPending || sendMutation.isPending) return;
+    // Re-read the selected server's Orange verdict right before deciding
+    // (bounded wait; a failure falls back to the displayed check). A warned
+    // verdict asks for an explicit "anyway" first — never a block: an
+    // unavailable or stale check launches straight away. The whole attempt
+    // is bound to this form snapshot (see runOrangeLaunchAttempt).
+    const outcome = await runOrangeLaunchAttempt({
+      form: formData,
+      assess: orangeChecks.assessBeforeLaunch,
+      isCurrent: isLaunchCurrent,
+      onWarn: (check, form) => setOrangeConfirm({ check, form }),
+      onLaunch: (form) => sendMutation.mutate(form),
+    });
+    if (outcome === "abandoned") toast(ORANGE_LAUNCH_ABANDONED_TOAST);
+  };
+
+  const confirmOrangeLaunch = () => {
+    const pending = orangeConfirm;
+    setOrangeConfirm(null);
+    if (!pending) return;
+    if (!isLaunchCurrent(pending.form)) {
+      toast(ORANGE_LAUNCH_ABANDONED_TOAST);
+      return;
+    }
+    sendMutation.mutate(pending.form);
   };
 
   if (loadingCampaign) {
@@ -687,6 +756,7 @@ export default function CampaignEdit() {
                               {mta.fromName}{mta.fromName && mta.fromEmail ? " · " : ""}{mta.fromEmail}
                             </p>
                           )}
+                          <OrangeLaunchCheckChip mtaId={mta.id} check={orangeChecks.checks?.[mta.id]} />
                         </div>
                         <div className="ml-auto flex items-center gap-2">
                           <MtaLowOpenWarning campaigns={mtaInsights?.[mta.id]?.lowOpen ?? []} mtaId={mta.id} />
@@ -1377,6 +1447,8 @@ export default function CampaignEdit() {
                 </CardContent>
               </Card>
             )}
+
+            <OrangeLaunchCheckPanel mta={launchMta} check={launchOrangeCheck} isError={orangeChecks.isError} />
           </div>
         );
 
@@ -1481,11 +1553,13 @@ export default function CampaignEdit() {
           ) : (
             <Button
               onClick={handleSend}
-              disabled={sendMutation.isPending || !isStepValid(currentStep) || processingImages}
+              disabled={sendMutation.isPending || !isStepValid(currentStep) || processingImages || orangeChecks.launchCheckPending}
               data-testid="button-send-campaign"
             >
               {sendMutation.isPending
                 ? "Starting..."
+                : orangeChecks.launchCheckPending
+                ? "Checking Orange..."
                 : formData.scheduledAt
                 ? "Schedule Campaign"
                 : "Send Now"}
@@ -1493,6 +1567,17 @@ export default function CampaignEdit() {
           )}
         </div>
       </div>
+
+      <OrangeLaunchConfirmDialog
+        open={orangeConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setOrangeConfirm(null);
+        }}
+        mtaName={orangeConfirmMtaName}
+        check={orangeConfirm?.check}
+        actionLabel={orangeConfirm?.form.scheduledAt ? "Schedule" : "Send now"}
+        onConfirm={confirmOrangeLaunch}
+      />
     </div>
   );
 }

@@ -37,6 +37,7 @@ function makeConfig(overrides: Partial<OrangeTestConfig> = {}): OrangeTestConfig
     checkerIntervalMs: 15_000,
     checkerBatchSize: 50,
     staleSendingMs: 600_000,
+    staleVerdictDays: 7,
     ...overrides,
   };
 }

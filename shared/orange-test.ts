@@ -118,6 +118,13 @@ export interface OrangeTestControlValue {
   latestVerdict: OrangeTestView | null;
 }
 
+/**
+ * Upper bound of MTA ids accepted by one `GET /api/mtas/orange-test/summary`
+ * request; clients must split longer lists into several requests (the route
+ * silently ignores ids past this bound).
+ */
+export const ORANGE_TEST_SUMMARY_MAX_IDS = 200;
+
 export interface OrangeTestPublicConfig {
   enabled: boolean;
   /** Human-readable reason when disabled (never contains credentials). */
@@ -127,4 +134,83 @@ export interface OrangeTestPublicConfig {
   fastPollSeconds: number;
   fastPhaseMinutes: number;
   slowPollMinutes: number;
+  /**
+   * Age (days) beyond which a verdict no longer counts as a recent check when
+   * an MTA is picked for a campaign (`ORANGE_TEST_STALE_VERDICT_DAYS`).
+   */
+  staleVerdictDays: number;
+}
+
+// ---------------------------------------------------------------------------
+// Campaign launch check
+// ---------------------------------------------------------------------------
+
+/** Default for `ORANGE_TEST_STALE_VERDICT_DAYS` (server) and the wizard fallback. */
+export const ORANGE_TEST_DEFAULT_STALE_VERDICT_DAYS = 7;
+
+/** Verdicts that warn (never block) before a campaign is launched on the MTA. */
+export const ORANGE_LAUNCH_WARNING_VERDICTS: readonly OrangeTestVerdict[] = ["SPAM", "BLOCKED", "NOT_RECEIVED"];
+
+/**
+ * What the campaign wizard shows next to an MTA, derived from its control
+ * value. `recent` = a verdict within the stale window, `stale` = the last
+ * verdict is older than the window, `none` = no test ever produced a verdict.
+ * Only a recent SPAM / BLOCKED / NOT_RECEIVED verdict sets `warn`.
+ */
+export interface OrangeLaunchCheck {
+  status: "recent" | "stale" | "none";
+  /** Last known verdict, also kept when stale so the operator sees history. */
+  verdict: OrangeTestVerdict | null;
+  /** Send time of the test that produced `verdict` (age is counted from it). */
+  verdictAt: string | null;
+  ageMs: number | null;
+  warn: boolean;
+  /** A newer test is still in progress (sending / waiting) since this time. */
+  pendingSince: string | null;
+  /** The most recently sent test was refused by the MTA (not a verdict). */
+  lastSendFailedAt: string | null;
+  staleAfterDays: number;
+}
+
+/**
+ * Pure: no clock access, `nowMs` is injected so the result is reproducible.
+ * The verdict comes from `latestVerdict` (most recently SENT test carrying a
+ * verdict) and never from a pending or failed newer test — the same rule as
+ * the /mtas card. Ages are counted from the send time, not from the moment
+ * the mailbox check landed, because a NOT_RECEIVED verdict is only reached
+ * hours after the send while it still describes that send.
+ */
+export function assessOrangeControlValue(
+  value: OrangeTestControlValue | null | undefined,
+  opts: { nowMs: number; staleAfterDays?: number },
+): OrangeLaunchCheck {
+  const staleAfterDays =
+    Number.isFinite(opts.staleAfterDays) && (opts.staleAfterDays as number) > 0
+      ? (opts.staleAfterDays as number)
+      : ORANGE_TEST_DEFAULT_STALE_VERDICT_DAYS;
+  const latest = value?.latest ?? null;
+  const latestVerdict = value?.latestVerdict ?? null;
+  const pendingSince = latest && isOrangeTestPending(latest.status) ? latest.sentAt || latest.createdAt : null;
+  const lastSendFailedAt = latest && latest.status === "failed" ? latest.createdAt : null;
+
+  const base = { pendingSince, lastSendFailedAt, staleAfterDays };
+  if (!latestVerdict || !latestVerdict.verdict) {
+    return { ...base, status: "none", verdict: null, verdictAt: null, ageMs: null, warn: false };
+  }
+  const verdictAt = latestVerdict.sentAt || latestVerdict.createdAt;
+  const sentMs = Date.parse(verdictAt);
+  if (!Number.isFinite(sentMs)) {
+    return { ...base, status: "none", verdict: null, verdictAt: null, ageMs: null, warn: false };
+  }
+  const ageMs = Math.max(0, opts.nowMs - sentMs);
+  const stale = ageMs > staleAfterDays * 24 * 60 * 60 * 1000;
+  const verdict = latestVerdict.verdict;
+  return {
+    ...base,
+    status: stale ? "stale" : "recent",
+    verdict,
+    verdictAt,
+    ageMs,
+    warn: !stale && ORANGE_LAUNCH_WARNING_VERDICTS.includes(verdict),
+  };
 }

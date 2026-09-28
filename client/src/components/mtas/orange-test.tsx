@@ -24,6 +24,7 @@ import {
   type OrangeTestVerdict,
   type OrangeTestView,
 } from "@shared/orange-test";
+import { fetchOrangeTestSummary, normalizeOrangeSummaryIds, type OrangeTestSummaryValues } from "@/lib/orange-test-summary";
 
 // ---------------------------------------------------------------------------
 // Data hooks
@@ -36,26 +37,38 @@ export function useOrangeTestConfig() {
   });
 }
 
-interface SummaryResponse {
-  values: Record<string, OrangeTestControlValue>;
+export interface OrangeTestSummaryResponse {
+  values: OrangeTestSummaryValues;
 }
 
-/** Control values for the visible MTA cards; polls while any test is pending. */
-export function useOrangeTestSummary(mtaIds: string[], enabled: boolean) {
-  const key = useMemo(() => [...mtaIds].sort().join(","), [mtaIds]);
-  return useQuery<SummaryResponse>({
-    queryKey: ["/api/mtas/orange-test/summary", key],
-    queryFn: async () => {
-      const res = await fetch(`/api/mtas/orange-test/summary?ids=${encodeURIComponent(key)}`, { credentials: "include" });
-      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-      return res.json();
-    },
+export const ORANGE_TEST_SUMMARY_QUERY_KEY = "/api/mtas/orange-test/summary";
+
+export interface UseOrangeTestSummaryOptions {
+  /** Defaults to the app-wide Infinity: the /mtas page invalidates on its own mutations. */
+  staleTime?: number;
+  refetchOnWindowFocus?: boolean;
+  /** Background refresh while nothing is pending (pending tests always poll every 30 s). */
+  idleRefetchIntervalMs?: number;
+}
+
+/**
+ * Control values for a list of MTAs (split into as many requests as the route
+ * allows); polls every 30 s while any test is pending.
+ */
+export function useOrangeTestSummary(mtaIds: string[], enabled: boolean, opts: UseOrangeTestSummaryOptions = {}) {
+  const ids = useMemo(() => normalizeOrangeSummaryIds(mtaIds), [mtaIds]);
+  const key = ids.join(",");
+  return useQuery<OrangeTestSummaryResponse>({
+    queryKey: [ORANGE_TEST_SUMMARY_QUERY_KEY, key],
+    queryFn: async ({ signal }) => ({ values: await fetchOrangeTestSummary(ids, { signal }) }),
     enabled: enabled && key.length > 0,
+    ...(opts.staleTime !== undefined ? { staleTime: opts.staleTime } : {}),
+    ...(opts.refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus: opts.refetchOnWindowFocus } : {}),
     refetchInterval: (query) => {
       const values = query.state.data?.values;
       if (!values) return false;
       const pending = Object.values(values).some((v) => v.latest && isOrangeTestPending(v.latest.status));
-      return pending ? 30_000 : false;
+      return pending ? 30_000 : opts.idleRefetchIntervalMs ?? false;
     },
   });
 }

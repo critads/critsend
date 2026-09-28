@@ -9,6 +9,7 @@ import { closeTransporter, resolveSmtpSecurity, invalidateDefaultHeadersCache } 
 import { classifySmtpError, sendPlainTestEmail } from "../services/plain-test-sender";
 import { getOrangeTestService, OrangeTestError } from "../services/orange-test-jobs";
 import { toPublicOrangeTestConfig } from "../config/orange-test";
+import { ORANGE_TEST_SUMMARY_MAX_IDS } from "@shared/orange-test";
 import nodemailer from "nodemailer";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { Mta } from "@shared/schema";
@@ -199,7 +200,7 @@ export function registerMtaRoutes(app: Express, helpers: {
       if (ids.some((id) => !validateId(id))) {
         return res.status(400).json({ error: "Invalid ID format" });
       }
-      const values = await getOrangeTestService().getControlValues(ids.slice(0, 200));
+      const values = await getOrangeTestService().getControlValues(ids.slice(0, ORANGE_TEST_SUMMARY_MAX_IDS));
       res.json({ values });
     } catch (error) {
       logger.error("Error loading Orange test summary:", error);

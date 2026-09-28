@@ -38,3 +38,4 @@
 - [Campaign exclusion segments](campaign-exclusion-segments.md) — canonical array table, legacy column is a mirror of position 0; FK RESTRICT; re-validate overlap under the row lock; bootstrap rollout.
 - [Nested heredocs in ShellExec](shell-heredoc-nesting.md) — same-delimiter heredoc inside a python3 heredoc executes the tail as shell (it ran deploy.sh once); dev app DB = NEON_DATABASE_URL.
 - [Orange Test invariants](orange-test-invariants.md) — NOT RECEIVED needs a clean post-deadline mailbox look; one IMAP session across instances via xact advisory lease; dev cannot use real MTAs.
+- [Checking client UI without a browser session](wizard-component-ssr-smoke.md) — screenshots stop at the password login; verify components via SSR render / Vite dev transform instead.

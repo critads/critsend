@@ -156,7 +156,7 @@ function config(overrides: Partial<OrangeTestConfig> = {}): OrangeTestConfig {
     imapUser: "ianisbaulle@orange.fr", imapPassword: "pw", enabled: true,
     maxWaitMs: MAX_WAIT, maxWaitHours: 48, fastPollMs: FAST_POLL, fastPhaseMs: FAST_PHASE, slowPollMs: SLOW_POLL,
     fastPollSeconds: 30, fastPhaseMinutes: 5, slowPollMinutes: 5,
-    imapTimeoutMs: 30_000, sessionTimeoutMs: 120_000, checkerIntervalMs: 15_000, checkerBatchSize: 50, staleSendingMs: 600_000,
+    imapTimeoutMs: 30_000, sessionTimeoutMs: 120_000, checkerIntervalMs: 15_000, checkerBatchSize: 50, staleSendingMs: 600_000, staleVerdictDays: 7,
     ...overrides,
   };
 }

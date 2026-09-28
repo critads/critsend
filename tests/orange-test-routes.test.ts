@@ -97,7 +97,7 @@ describe("Orange test routes", () => {
     const app = await setup();
     const result = await call(app, "GET /api/mtas/orange-test/config", {});
     expect(result.statusCode).toBe(200);
-    expect(result.body).toMatchObject({ enabled: false, mailbox: "ianisbaulle@orange.fr", maxWaitHours: 48 });
+    expect(result.body).toMatchObject({ enabled: false, mailbox: "ianisbaulle@orange.fr", maxWaitHours: 48, staleVerdictDays: 7 });
     expect(result.body).not.toHaveProperty("imapPassword");
   });
 
