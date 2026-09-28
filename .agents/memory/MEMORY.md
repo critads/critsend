@@ -36,3 +36,4 @@
 - [Smart segment field results](smart-segment-field-results.md) — complaint capture is MTA-dependent (Kammaspeed ≈ blind); a 0-complaint history is unmeasured, not safe; smart audiences skew Orange and unsubscribe 2–5× more.
 - [Pinned DNS lookup on Node ≥ 20](pinned-lookup-node20.md) — custom http.request lookup must honour options.all (array shape) or every real download fails; fixtures need a non-IP hostname.
 - [Campaign exclusion segments](campaign-exclusion-segments.md) — canonical array table, legacy column is a mirror of position 0; FK RESTRICT; re-validate overlap under the row lock; bootstrap rollout.
+- [Nested heredocs in ShellExec](shell-heredoc-nesting.md) — same-delimiter heredoc inside a python3 heredoc executes the tail as shell (it ran deploy.sh once); dev app DB = NEON_DATABASE_URL.

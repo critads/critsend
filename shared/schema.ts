@@ -179,6 +179,58 @@ export const mtas = pgTable("mtas", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Orange Test — one row per automated deliverability test of an MTA: the raw
+// Plain Test is sent to the Orange mailbox and the mailbox is polled (up to
+// the listening window) for the message, whose `X-me-spamlevel` header gives
+// the verdict. Also created idempotently at startup (server/orange-test-bootstrap.ts)
+// and mirrored in migrations/0009_mta_orange_tests.sql. timestamptz on
+// purpose: the rows are read back by raw SQL and by Drizzle alike.
+export const mtaOrangeTests = pgTable("mta_orange_tests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mtaId: varchar("mta_id").notNull().references(() => mtas.id, { onDelete: "cascade" }),
+  /** Unique reference written in the Message-ID and the `Ref:` body line. */
+  reference: varchar("reference", { length: 64 }).notNull(),
+  messageId: varchar("message_id", { length: 255 }).notNull(),
+  /** sending | waiting | done | failed | not_received */
+  status: varchar("status", { length: 16 }).notNull().default("sending"),
+  /** GOOD | SPAM | BLOCKED | UNKNOWN | NOT_RECEIVED — null while pending or failed. */
+  verdict: varchar("verdict", { length: 16 }),
+  spamLevelRaw: text("spam_level_raw"),
+  /** inbox | junk */
+  foundIn: varchar("found_in", { length: 16 }),
+  foundFolder: text("found_folder"),
+  /** message-id | text | fallback */
+  matchedBy: varchar("matched_by", { length: 16 }),
+  rawHeaders: jsonb("raw_headers"),
+  mailbox: varchar("mailbox", { length: 255 }).notNull(),
+  fromEmail: text("from_email").notNull(),
+  requestedBy: varchar("requested_by", { length: 255 }),
+  sendError: jsonb("send_error"),
+  sendNote: text("send_note"),
+  lastCheckError: text("last_check_error"),
+  lastCheckAt: timestamp("last_check_at", { withTimezone: true }),
+  pollCount: integer("poll_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  nextPollAt: timestamp("next_poll_at", { withTimezone: true }),
+  deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+  receivedAt: timestamp("received_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  referenceIdx: uniqueIndex("mta_orange_tests_reference_idx").on(table.reference),
+  mtaCreatedIdx: index("mta_orange_tests_mta_created_idx").on(table.mtaId, table.createdAt.desc()),
+  /** One pending test per MTA, enforced by the database. */
+  pendingPerMtaIdx: uniqueIndex("mta_orange_tests_pending_mta_idx")
+    .on(table.mtaId)
+    .where(sql`status IN ('sending', 'waiting')`),
+  dueIdx: index("mta_orange_tests_due_idx")
+    .on(table.nextPollAt)
+    .where(sql`status IN ('sending', 'waiting')`),
+}));
+
+export type MtaOrangeTestRow = typeof mtaOrangeTests.$inferSelect;
+
 // Null-sink captures - logs emails captured during test campaigns
 export const nullsinkCaptures = pgTable("nullsink_captures", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

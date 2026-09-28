@@ -6,8 +6,11 @@ import { logger } from "../logger";
 import { insertMtaSchema, insertEmailHeaderSchema } from "@shared/schema";
 import { z } from "zod";
 import { closeTransporter, resolveSmtpSecurity, invalidateDefaultHeadersCache } from "../email-service";
+import { classifySmtpError, sendPlainTestEmail } from "../services/plain-test-sender";
+import { getOrangeTestService, OrangeTestError } from "../services/orange-test-jobs";
+import { toPublicOrangeTestConfig } from "../config/orange-test";
 import nodemailer from "nodemailer";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { Mta } from "@shared/schema";
 
 interface SmtpTestResult {
@@ -19,110 +22,6 @@ interface SmtpTestResult {
   smtpCode?: number;
   suggestions?: string[];
   serverBanner?: string;
-}
-
-function classifySmtpError(error: any): { stage: string; suggestions: string[] } {
-  const msg = (error.message || "").toLowerCase();
-  const code = (error.code || "").toUpperCase();
-  const responseCode = error.responseCode;
-
-  if (code === "ENOTFOUND" || msg.includes("getaddrinfo") || msg.includes("dns")) {
-    return {
-      stage: "DNS Resolution",
-      suggestions: [
-        "Verify the hostname is spelled correctly",
-        "Confirm the hostname resolves in DNS (try: ping " + (error.hostname || "hostname") + ")",
-        "Try using the server's IP address instead of the hostname",
-      ],
-    };
-  }
-  if (code === "ECONNREFUSED") {
-    return {
-      stage: "TCP Connection",
-      suggestions: [
-        "The server actively refused the connection — check the port number",
-        "Common ports: 25 (unauthenticated), 465 (SSL), 587 (STARTTLS)",
-        "Verify no firewall or security group is blocking outbound SMTP",
-      ],
-    };
-  }
-  if (code === "ETIMEDOUT" || code === "ESOCKETTIMEDOUT" || msg.includes("timeout")) {
-    return {
-      stage: "Connection Timeout",
-      suggestions: [
-        "The server did not respond within the timeout window",
-        "A firewall may be silently dropping the connection (no RST packet)",
-        "Try a different port — some ISPs block port 25",
-        "Check whether the server is online and accepting connections",
-      ],
-    };
-  }
-  if (
-    code === "ESOCKET" ||
-    code === "CERT_HAS_EXPIRED" ||
-    code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-    msg.includes("tls") ||
-    msg.includes("ssl") ||
-    msg.includes("certificate") ||
-    msg.includes("handshake")
-  ) {
-    return {
-      stage: "TLS/SSL Handshake",
-      suggestions: [
-        "The server's TLS certificate may be self-signed or expired",
-        "Port 465 requires SSL from the start; port 587 uses STARTTLS after greeting",
-        "Temporarily set SMTP_SKIP_TLS_VERIFY=true to bypass cert validation (dev only)",
-        "If your provider uses STARTTLS, ensure you are NOT using secure:true (port 465 mode)",
-      ],
-    };
-  }
-  if (
-    code === "EAUTH" ||
-    (responseCode && responseCode === 535) ||
-    msg.includes("authentication") ||
-    msg.includes("credentials") ||
-    msg.includes("535") ||
-    msg.includes("username") ||
-    msg.includes("invalid login")
-  ) {
-    return {
-      stage: "Authentication",
-      suggestions: [
-        "Double-check the SMTP username and password",
-        "Some providers require an app-specific password when 2FA is enabled",
-        "Ensure SMTP authentication is enabled for this account",
-        "Gmail / Outlook may require OAuth2 instead of password auth",
-      ],
-    };
-  }
-  if (msg.includes("greeting") || msg.includes("banner") || msg.includes("ehlo") || msg.includes("helo")) {
-    return {
-      stage: "SMTP Greeting",
-      suggestions: [
-        "The server responded but rejected the EHLO/HELO greeting",
-        "Your server IP may be on a blocklist or rate-limited",
-        "Contact the SMTP provider for more detail on the rejection reason",
-      ],
-    };
-  }
-  if (code === "ECONNRESET" || msg.includes("connection reset") || msg.includes("socket hang up")) {
-    return {
-      stage: "Connection Reset",
-      suggestions: [
-        "The server closed the connection unexpectedly",
-        "Your IP may be blocked or rate-limited by the server",
-        "Try again in a few minutes",
-      ],
-    };
-  }
-  return {
-    stage: "SMTP Protocol",
-    suggestions: [
-      "An unexpected error occurred during the SMTP handshake",
-      "Check the raw error message below for more detail",
-      "Review your SMTP server's logs for the matching request",
-    ],
-  };
 }
 
 async function testSmtpConnection(mta: Mta): Promise<SmtpTestResult> {
@@ -178,128 +77,6 @@ async function testSmtpConnection(mta: Mta): Promise<SmtpTestResult> {
   }
 }
 
-interface PlainTestResult {
-  success: boolean;
-  connectionTimeMs: number;
-  messageId?: string;
-  accepted?: string[];
-  rejected?: string[];
-  from?: string;
-  to?: string;
-  stage?: string;
-  errorCode?: string;
-  errorMessage?: string;
-  smtpCode?: number;
-  suggestions?: string[];
-}
-
-const PLAIN_TEST_SUBJECT = "Hello moon";
-const PLAIN_TEST_BODY = "I'm the sun";
-
-/**
- * Sends a deliberately *raw* test email through the MTA, bypassing the entire
- * `prepareTrackedHtml` pipeline. NONE of our machinery is applied: no custom
- * email headers, no List-Unsubscribe / unsubscribe footer, no open-tracking
- * pixel, no click/link rewriting, no image rewriting, no preheader. Just the
- * MTA's own From, the recipient, subject "Hello moon" and a plain-text body
- * "I'm the sun". Useful for isolating raw deliverability of an MTA from any
- * tracking/header that content scanners might react to.
- *
- * A one-off, non-pooled transport is used on purpose so this manual test never
- * touches the production sending pool (`createTransporter`).
- */
-async function sendPlainTestEmail(
-  mta: Mta,
-  to: string,
-  headers?: Array<{ key: string; value: string }>,
-): Promise<PlainTestResult> {
-  const start = Date.now();
-
-  if ((mta as any).mode === "nullsink") {
-    return {
-      success: false,
-      connectionTimeMs: 0,
-      stage: "Not supported",
-      errorMessage: "Plain Test sends a real email and is not available for a nullsink (test mode) MTA.",
-      suggestions: ["Use a real SMTP MTA to send a plain test email."],
-    };
-  }
-
-  const fromEmail = (mta.fromEmail || "").trim();
-  if (!fromEmail) {
-    return {
-      success: false,
-      connectionTimeMs: 0,
-      stage: "Configuration",
-      errorMessage: "This MTA has no From email configured, so a plain test cannot set a sender.",
-      suggestions: ["Edit the MTA and set a From email (and optionally a From name)."],
-    };
-  }
-
-  const port = mta.port || 587;
-  const protocol = (mta as any).protocol || "STARTTLS";
-  const { secure, ignoreTLS } = resolveSmtpSecurity(protocol);
-
-  const transporter = nodemailer.createTransport({
-    host: mta.hostname || "localhost",
-    port,
-    secure,
-    ignoreTLS,
-    auth: mta.username && mta.password
-      ? { user: mta.username, pass: mta.password }
-      : undefined,
-    pool: false,
-    connectionTimeout: 15000,
-    greetingTimeout: 10000,
-    socketTimeout: 20000,
-    tls: {
-      rejectUnauthorized: process.env.SMTP_SKIP_TLS_VERIFY !== "true",
-    },
-  });
-
-  const fromName = (mta.fromName || "").trim();
-  const from = fromName ? { name: fromName, address: fromEmail } : fromEmail;
-
-  try {
-    // Raw on purpose: only From / To / Subject / plain-text body, plus any custom
-    // headers the operator added explicitly. No unsubscribe, no tracking, no
-    // footer — bypasses prepareTrackedHtml.
-    const info = await transporter.sendMail({
-      from,
-      to,
-      subject: PLAIN_TEST_SUBJECT,
-      text: PLAIN_TEST_BODY,
-      ...(headers && headers.length > 0 ? { headers } : {}),
-    });
-    const connectionTimeMs = Date.now() - start;
-    const normalizeAddrs = (arr: any[] | undefined): string[] =>
-      (arr || []).map((a) => (typeof a === "string" ? a : a?.address)).filter(Boolean);
-    return {
-      success: true,
-      connectionTimeMs,
-      messageId: info.messageId,
-      accepted: normalizeAddrs(info.accepted as any[]),
-      rejected: normalizeAddrs(info.rejected as any[]),
-      from: typeof from === "string" ? from : `${from.name} <${from.address}>`,
-      to,
-    };
-  } catch (error: any) {
-    const connectionTimeMs = Date.now() - start;
-    const { stage, suggestions } = classifySmtpError(error);
-    return {
-      success: false,
-      connectionTimeMs,
-      stage,
-      errorCode: error.code || undefined,
-      errorMessage: error.message || "Unknown error",
-      smtpCode: error.responseCode || undefined,
-      suggestions,
-    };
-  } finally {
-    transporter.close();
-  }
-}
-
 // Plain Test sends a REAL outbound email to an arbitrary recipient, so it gets a
 // strict per-user/IP limiter (well below the general /api 200/min) to bound abuse
 // if an operator account is compromised. Auth middleware runs first, so the
@@ -311,6 +88,18 @@ const plainTestLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req: Request) => (req.session?.userId as string) || req.ip || "anonymous",
   message: { error: "Plain test rate limit exceeded — 5 per minute" },
+});
+
+// Orange Test also sends a real email (to the fixed Orange mailbox) and each
+// start is idempotent per MTA, so the limiter mainly bounds accidental
+// hammering of many MTAs at once.
+const orangeTestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => (req.session?.userId as string) || (req.ip ? ipKeyGenerator(req.ip) : "anonymous"),
+  message: { error: "Orange test rate limit exceeded — 10 per minute" },
 });
 
 export function registerMtaRoutes(app: Express, helpers: {
@@ -393,6 +182,76 @@ export function registerMtaRoutes(app: Express, helpers: {
     } catch (error) {
       logger.error("Error building MTA schedule insights:", error);
       res.status(500).json({ error: "Failed to fetch MTA schedule insights" });
+    }
+  });
+
+  // --- Orange Test -------------------------------------------------------
+  // Static paths first so they are never read as an MTA id.
+  app.get("/api/mtas/orange-test/config", (_req: Request, res: Response) => {
+    res.json(toPublicOrangeTestConfig());
+  });
+
+  // Control values for the MTA cards: ?ids=a,b,c → { values: { [mtaId]: { latest, latestVerdict } } }
+  app.get("/api/mtas/orange-test/summary", async (req: Request, res: Response) => {
+    try {
+      const raw = typeof req.query.ids === "string" ? req.query.ids : "";
+      const ids = raw.split(",").map((v) => v.trim()).filter((v) => v.length > 0);
+      if (ids.some((id) => !validateId(id))) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const values = await getOrangeTestService().getControlValues(ids.slice(0, 200));
+      res.json({ values });
+    } catch (error) {
+      logger.error("Error loading Orange test summary:", error);
+      res.status(500).json({ error: "Failed to load Orange test summary" });
+    }
+  });
+
+  app.post("/api/mtas/:id/orange-test", orangeTestLimiter, async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const requestedBy = (req.session?.userId as string | undefined) || null;
+      const { test, reused } = await getOrangeTestService().startOrangeTest(req.params.id, requestedBy);
+      res.status(202).json({ test, reused });
+    } catch (error) {
+      if (error instanceof OrangeTestError) {
+        return res.status(error.httpStatus).json({ error: error.message, code: error.code });
+      }
+      logger.error("Error starting Orange test:", error);
+      res.status(500).json({ error: "Failed to start Orange test" });
+    }
+  });
+
+  app.get("/api/mtas/:id/orange-tests", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const parsedLimit = Number.parseInt(String(req.query.limit ?? "10"), 10);
+      const limit = Number.isFinite(parsedLimit) ? parsedLimit : 10;
+      const tests = await getOrangeTestService().listOrangeTests(req.params.id, limit);
+      res.json({ tests });
+    } catch (error) {
+      logger.error("Error listing Orange tests:", error);
+      res.status(500).json({ error: "Failed to list Orange tests" });
+    }
+  });
+
+  app.get("/api/mtas/:id/orange-tests/:testId", async (req: Request, res: Response) => {
+    try {
+      if (!validateId(req.params.id) || !validateId(req.params.testId)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+      const test = await getOrangeTestService().getOrangeTest(req.params.testId);
+      if (!test || test.mtaId !== req.params.id) {
+        return res.status(404).json({ error: "Orange test not found" });
+      }
+      res.json(test);
+    } catch (error) {
+      logger.error("Error fetching Orange test:", error);
+      res.status(500).json({ error: "Failed to fetch Orange test" });
     }
   });
 

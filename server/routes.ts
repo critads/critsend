@@ -40,6 +40,8 @@ import { ensureUnsubscribeContinueSchema } from "./unsubscribe-continue-bootstra
 import { ensureSmartSegmentSchema } from "./smart-segment-bootstrap";
 import { registerSmartSegmentRoutes } from "./routes/smart-segments";
 import { startSmartSegmentJanitor, sweepStaleSmartSegmentAnalyses } from "./services/smart-segment-jobs";
+import { ensureOrangeTestSchema } from "./orange-test-bootstrap";
+import { startOrangeTestChecker } from "./services/orange-test-jobs";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -53,6 +55,9 @@ export async function registerRoutes(
   await ensureSmartSegmentSchema();
   await sweepStaleSmartSegmentAnalyses();
   startSmartSegmentJanitor();
+  // Orange Test: pending tests are resumed by the checker, never closed here.
+  await ensureOrangeTestSchema();
+  startOrangeTestChecker();
 
   const generalLimiter = rateLimit({
     windowMs: 60 * 1000,

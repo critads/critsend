@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -28,9 +28,15 @@ import {
   Server, Plus, MoreVertical, Trash2, Edit2,
   CheckCircle2, XCircle, FlaskConical, Wifi, WifiOff, Loader2,
   Lightbulb, ChevronDown, ChevronRight, Clock, Search,
-  ChevronLeft, ChevronRight as ChevronRightIcon, Send, Mail,
+  ChevronLeft, ChevronRight as ChevronRightIcon, Send, Mail, Inbox,
 } from "lucide-react";
 import type { Mta } from "@shared/schema";
+import {
+  OrangeTestCardBadge,
+  OrangeTestDialog,
+  useOrangeTestConfig,
+  useOrangeTestSummary,
+} from "@/components/mtas/orange-test";
 
 interface SmtpTestResult {
   success: boolean;
@@ -78,6 +84,7 @@ export default function MTAs() {
   const [plainTestResult, setPlainTestResult] = useState<PlainTestResult | null>(null);
   const [showPlainRawError, setShowPlainRawError] = useState(false);
   const [plainTestHeaders, setPlainTestHeaders] = useState<Array<{ key: string; value: string }>>([]);
+  const [orangeTestMta, setOrangeTestMta] = useState<Mta | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -117,6 +124,12 @@ export default function MTAs() {
   const mtas = mtasData?.mtas;
   const totalPages = mtasData?.totalPages ?? 1;
   const totalMtas = mtasData?.total ?? 0;
+
+  // Orange Test: feature flag (visible-but-disabled when unconfigured) and the
+  // per-card control values (verdict of the most recently sent test).
+  const { data: orangeConfig } = useOrangeTestConfig();
+  const visibleMtaIds = useMemo(() => (mtas ?? []).map((m) => m.id), [mtas]);
+  const { data: orangeSummary } = useOrangeTestSummary(visibleMtaIds, true);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/mtas/${id}`),
@@ -307,6 +320,18 @@ export default function MTAs() {
                       <Send className="h-4 w-4 mr-2" />
                       Plain Test
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setOrangeTestMta(mta)}
+                      disabled={orangeConfig ? !orangeConfig.enabled : false}
+                      title={orangeConfig && !orangeConfig.enabled ? orangeConfig.disabledReason ?? undefined : undefined}
+                      data-testid={`button-orange-test-mta-${mta.id}`}
+                    >
+                      <Inbox className="h-4 w-4 mr-2 text-orange-500" />
+                      Orange Test
+                      {orangeConfig && !orangeConfig.enabled && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">not configured</span>
+                      )}
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       className="text-destructive"
@@ -347,6 +372,7 @@ export default function MTAs() {
                     <span className="font-mono text-xs">{mta.openTrackingDomain}</span>
                   </div>
                 )}
+                <OrangeTestCardBadge mtaId={mta.id} value={orangeSummary?.values?.[mta.id]} />
               </CardContent>
             </Card>
           ))}
@@ -867,6 +893,12 @@ export default function MTAs() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <OrangeTestDialog
+        mta={orangeTestMta}
+        config={orangeConfig}
+        onClose={() => setOrangeTestMta(null)}
+      />
     </div>
   );
 }

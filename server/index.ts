@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { startAllWorkers, stopAllBackgroundWorkers, startImportGuardian, stopImportGuardian, triggerGuardianPoll, startCampaignGuardian, stopCampaignGuardian, startMtaRecoveryChecker } from "./workers";
 import { registerMetricsRoute, metricsMiddleware, startMetricsCollector, stopMetricsCollector } from "./metrics";
+import { stopOrangeTestChecker } from "./services/orange-test-jobs";
 import { messageQueue } from "./message-queue";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -142,6 +143,9 @@ async function gracefulShutdown(signal: string) {
   }
   try { stopMetricsCollector(); } catch (err: any) {
     logger.warn(`[SHUTDOWN] stopMetricsCollector failed: ${err?.message || err}`);
+  }
+  try { stopOrangeTestChecker(); } catch (err: any) {
+    logger.warn(`[SHUTDOWN] stopOrangeTestChecker failed: ${err?.message || err}`);
   }
   logger.info('[SHUTDOWN] Background workers stopped');
 

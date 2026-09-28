@@ -310,6 +310,44 @@ runs in one read-only transaction with `SET LOCAL statement_timeout`
 when the pool is ≥ 60 % busy. Analyses left `running` by a restart are marked
 failed at startup (`INTERRUPTED`) and can simply be relaunched.
 
+### Orange Test (MTA deliverability verdict) — optional, needs the Orange mailbox password
+
+The « Orange Test » entry of each MTA menu on `/mtas` is **shown disabled until
+`ORANGE_TEST_IMAP_PASSWORD` is set** in `.env`. It sends the raw Plain Test
+(subject « Hello moon », body « I'm the sun » plus a `Ref: OT-…` line, no custom
+headers) to the Orange mailbox (`ORANGE_TEST_MAILBOX`, default
+`ianisbaulle@orange.fr`) and a background checker in the web process reads the
+mailbox back over IMAP (`imap.orange.fr:993`, read-only: nothing is marked read
+or deleted). Each test is found by its own reference (Message-ID → text search →
+subject/sender/date fallback with the reference read from the body) in the
+Inbox then the Junk folder; the `X-me-spamlevel` header gives the verdict:
+`not-spam` → GOOD, `low` → SPAM, `med` (or worse) → BLOCKED, header absent or
+unknown → UNKNOWN, nothing within the listening window (`ORANGE_TEST_MAX_WAIT_HOURS`,
+48 h) → NOT RECEIVED. Polling is every 30 s for 5 min, then every 5 min. Tests
+survive restarts (pending rows are resumed, never closed at startup) and the
+MTA card shows the verdict of the most recently **sent** test — a late verdict
+for an older test never overrides a newer one.
+
+```bash
+# 1. Add the password (the mailbox / host default to the Orange values — see .env.example)
+printf 'ORANGE_TEST_IMAP_PASSWORD=...\n' >> .env
+
+# 2. Apply the schema (table mta_orange_tests — migration 0009). The web
+#    process also creates it idempotently at startup, so a plain redeploy is enough.
+bash deploy/deploy.sh
+
+# 3. Verify (authenticated session cookie required)
+curl -s -b cookies.txt https://your-domain/api/mtas/orange-test/config
+#    → {"enabled":true,"mailbox":"ianisbaulle@orange.fr","maxWaitHours":48,...}
+pm2 logs critsend-web --lines 50 | grep ORANGE_TEST
+```
+
+If the checker logs an IMAP authentication error, the password is wrong **or
+Orange blocked the login from the server's IP**: sign in to the Orange webmail,
+authorise the new connection / enable IMAP access for the mailbox, then wait
+for the next poll (no restart needed). The password never appears in logs nor
+in any API response.
+
 ---
 
 ## Troubleshooting
