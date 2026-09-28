@@ -20,6 +20,17 @@ dedicated connection with `idle_in_transaction_session_timeout` = tick budget,
 so a hung process cannot keep the lock). The losing instance skips silently.
 **Why:** two PM2 web instances would otherwise open parallel sessions to the
 same mailbox and could re-claim a row while the first session is still open.
+The lease's checked-out pg client must own an `'error'` listener for its whole
+life: when the idle-in-transaction timeout fires, the client emits the FATAL
+and then a socket-end error, and an unlistened `'error'` is an uncaught
+exception — the safety net would hit the process instead of just the lease.
+`release()` after such a loss must discard the client (`release(true)`).
+
+## Claim order is a set, not a sequence
+`claimDue`'s `ORDER BY next_poll_at … LIMIT` decides which rows fit under the
+limit; `UPDATE … RETURNING` hands them back in planner order. Nothing may rely
+on the returned order (the in-memory mirror returning them sorted is a
+superset, not the contract).
 
 ## Control value = most recently SENT test
 Card badge and history are ordered by send time; a late verdict on an older

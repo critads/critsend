@@ -691,11 +691,29 @@ let defaultService: OrangeTestService | null = null;
 export async function acquirePgCheckerLease(budgetMs: number): Promise<CheckerLease | null> {
   const client = await pool.connect();
   let released = false;
+  // A checked-out pg client has no 'error' listener of its own. When the
+  // timeout above fires, PostgreSQL closes the backend and the client emits
+  // 'error' (the FATAL, then the socket end): without a listener that is an
+  // uncaught exception, i.e. the safety net would take the process down
+  // instead of just costing us the lease. Remember the loss for release().
+  let connectionLost: Error | null = null;
+  const onConnectionError = (error: Error) => {
+    if (connectionLost) return;
+    connectionLost = error;
+    logger.warn(`[ORANGE_TEST] Checker lease connection dropped by PostgreSQL (${error?.message || error}) — the lease is lost`);
+  };
+  client.on("error", onConnectionError);
   const release = async () => {
     if (released) return;
     released = true;
+    if (connectionLost) {
+      // Keep the listener: a destroyed client can still report the socket end.
+      client.release(true);
+      return;
+    }
     try {
       await client.query("COMMIT");
+      client.removeListener("error", onConnectionError);
       client.release();
     } catch (error: any) {
       logger.warn(`[ORANGE_TEST] Checker lease release failed (${error?.message || error}) — dropping the connection`);

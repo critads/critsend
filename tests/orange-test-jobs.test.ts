@@ -33,6 +33,8 @@ import { toOrangeTestView } from "../server/services/orange-test-jobs";
 
 // ---------------------------------------------------------------------------
 // In-memory store mirroring the SQL semantics (status guards, ordering by send time)
+// Keep in sync with tests/orange-test-jobs-postgres.test.ts, which pins the
+// real PgOrangeTestStore SQL against PostgreSQL.
 // ---------------------------------------------------------------------------
 
 class MemoryStore implements OrangeTestStore {
