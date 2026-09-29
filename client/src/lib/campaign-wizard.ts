@@ -1,5 +1,6 @@
 import { Mail, Users, FileText, Settings, Clock } from "lucide-react";
 import type { InsertCampaign, Mta } from "@shared/schema";
+import { apiRequest } from "./queryClient";
 
 /** Inject a <base href> into preview HTML so relative image URLs (/campaigns/...)
  *  resolve against the current server instead of about:srcdoc. */
@@ -194,7 +195,10 @@ export function normalizeForApi(data: Partial<InsertCampaign>) {
   };
 }
 
-// Shape returned by GET /api/campaigns/brand-unsub-check.
+// Shape returned by GET /api/campaigns/brand-unsub-check, and attached as
+// `brandGuard` to the success payload of the activation routes (create,
+// PATCH, resume, retry-failed, requeue, send) when the brand is above the
+// warning or alert threshold. Alert only: no status blocks anything.
 export type BrandUnsubResult = {
   brand: string | null;
   brandKey: string | null;
@@ -202,24 +206,66 @@ export type BrandUnsubResult = {
   warnThreshold: number;
   limit: number;
   windowDays: number;
-  status: "ok" | "warn" | "blocked";
+  status: "ok" | "warn" | "exceeded";
 };
 
-// French operator-facing message for the brand-unsubscribe safeguard. Counts
-// are formatted with French digit grouping (e.g. "2 134").
+// French operator-facing message for the brand-unsubscribe alert. Counts are
+// formatted with French digit grouping (e.g. "2 134").
 export function buildBrandMessage(data: BrandUnsubResult): string {
   const fmt = (n: number) => (n ?? 0).toLocaleString("fr-FR");
-  if (data.status === "blocked") {
-    return `La marque ${data.brand} a déjà généré ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (limite : ${fmt(data.limit)}). Impossible de continuer.`;
+  if (data.status === "exceeded") {
+    return `La marque ${data.brand} a dépassé le seuil d'alerte : ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (seuil : ${fmt(data.limit)}). L'envoi reste possible — à vous de décider.`;
   }
-  return `La marque ${data.brand} approche de sa limite : ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (limite : ${fmt(data.limit)}).`;
+  return `La marque ${data.brand} approche du seuil d'alerte : ${fmt(data.count)} désabonnés sur les ${data.windowDays} derniers jours (seuil : ${fmt(data.limit)}).`;
+}
+
+// Result of the wizard-side brand check (Content → Tracking). Purely
+// informational: the wizards display it until the launch and never stop on it.
+export type BrandUnsubNotices = {
+  alert: string | null;
+  warning: string | null;
+  unavailable: boolean;
+};
+
+export const EMPTY_BRAND_NOTICES: BrandUnsubNotices = { alert: null, warning: null, unavailable: false };
+
+export async function checkBrandUnsubscribes(campaignName: string): Promise<BrandUnsubNotices> {
+  try {
+    const res = await apiRequest(
+      "GET",
+      `/api/campaigns/brand-unsub-check?name=${encodeURIComponent(campaignName || "")}`,
+    );
+    const data = (await res.json()) as BrandUnsubResult;
+    if (data?.status === "exceeded") return { alert: buildBrandMessage(data), warning: null, unavailable: false };
+    if (data?.status === "warn") return { alert: null, warning: buildBrandMessage(data), unavailable: false };
+    return EMPTY_BRAND_NOTICES;
+  } catch (err) {
+    console.error("Brand unsubscribe check failed:", err);
+    return { alert: null, warning: null, unavailable: true };
+  }
+}
+
+// Notice carried by an activation response (`brandGuard`), or null when the
+// brand is fine / was not evaluated. Used by the list, detail and wizard
+// pages to show a toast after a resume / retry / requeue / launch.
+export function brandGuardNotice(body: unknown): BrandUnsubResult | null {
+  const guard = (body as { brandGuard?: BrandUnsubResult } | null | undefined)?.brandGuard;
+  if (!guard || (guard.status !== "warn" && guard.status !== "exceeded")) return null;
+  return guard;
+}
+
+export function brandGuardToast(guard: BrandUnsubResult): {
+  title: string;
+  description: string;
+  variant?: "destructive";
+} {
+  return guard.status === "exceeded"
+    ? { title: "Alerte désabonnements de la marque", description: buildBrandMessage(guard), variant: "destructive" }
+    : { title: "Désabonnements de la marque", description: buildBrandMessage(guard) };
 }
 
 export function campaignActionErrorMessage(error: unknown, fallback: string): string {
   const body = (error as { body?: any } | null)?.body;
-  if (body?.code === "BRAND_UNSUB_LIMIT_EXCEEDED" && body.brandGuard) {
-    return buildBrandMessage(body.brandGuard as BrandUnsubResult);
-  }
   if (typeof body?.error === "string" && body.error) return body.error;
   if (error instanceof Error && error.message) return error.message;
   return fallback;

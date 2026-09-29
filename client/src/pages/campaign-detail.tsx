@@ -34,7 +34,7 @@ import {
 import type { Campaign, CampaignWithSendState, Mta, Segment } from "@shared/schema";
 import { CampaignProgress, computeProgressBreakdown } from "@/components/campaign-progress";
 import { formatParisDateTime } from "@/lib/paris-time";
-import { campaignActionErrorMessage } from "@/lib/campaign-wizard";
+import { brandGuardNotice, brandGuardToast, campaignActionErrorMessage } from "@/lib/campaign-wizard";
 import { OrangeWanadooRiskSummary } from "@/components/orange-wanadoo-risk-summary";
 
 interface SnowballStatus {
@@ -341,6 +341,9 @@ export default function CampaignDetail() {
         title: "Retry queued",
         description: `${data.resetCount ?? 0} failed send(s) have been re-queued.`,
       });
+      // Brand-unsubscribe notice (alert only): the retry is queued regardless.
+      const guard = brandGuardNotice(data);
+      if (guard) toast(brandGuardToast(guard));
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "errors"] });
     },

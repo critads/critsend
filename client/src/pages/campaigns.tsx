@@ -17,7 +17,7 @@ import {
   type BulkDeleteProgress,
 } from "@/lib/bulk-delete-campaigns";
 import { getCampaignListSegmentIds } from "@/lib/campaign-list-segments";
-import { campaignActionErrorMessage } from "@/lib/campaign-wizard";
+import { brandGuardNotice, brandGuardToast, campaignActionErrorMessage } from "@/lib/campaign-wizard";
 import { OrangeWanadooStatusDot } from "@/components/orange-wanadoo-status-dot";
 import { useJobStream, isSSEConnected } from "@/hooks/use-job-stream";
 import { Link, useLocation } from "wouter";
@@ -575,14 +575,20 @@ export default function Campaigns() {
   });
 
   const pauseResumeMutation = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "pause" | "resume" }) =>
-      apiRequest("POST", `/api/campaigns/${id}/${action}`),
-    onSuccess: (_, { action }) => {
+    mutationFn: async ({ id, action }: { id: string; action: "pause" | "resume" }) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/${action}`);
+      return res.json() as Promise<unknown>;
+    },
+    onSuccess: (body, { action }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       toast({
         title: action === "pause" ? "Campaign paused" : "Campaign resumed",
         description: action === "pause" ? "The campaign has been paused." : "The campaign is now sending.",
       });
+      // Brand-unsubscribe notice (alert only): the resume went through; tell
+      // the operator when the brand is above the warning / alert threshold.
+      const guard = brandGuardNotice(body);
+      if (guard) toast(brandGuardToast(guard));
     },
     onError: (error) => {
       toast({
@@ -596,12 +602,16 @@ export default function Campaigns() {
   // Step-by-step sending (Task #242): resume mutation that carries the
   // stepAction / stepLimit body chosen in the dialog.
   const stepResumeMutation = useMutation({
-    mutationFn: ({ id, stepAction, stepLimit }: { id: string; stepAction: "finish" | "continue"; stepLimit?: number }) =>
-      apiRequest("POST", `/api/campaigns/${id}/resume`, { stepAction, stepLimit }),
-    onSuccess: () => {
+    mutationFn: async ({ id, stepAction, stepLimit }: { id: string; stepAction: "finish" | "continue"; stepLimit?: number }) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/resume`, { stepAction, stepLimit });
+      return res.json() as Promise<unknown>;
+    },
+    onSuccess: (body) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       setStepResumeDialog(null);
       toast({ title: "Campaign resumed", description: "The campaign is now sending." });
+      const guard = brandGuardNotice(body);
+      if (guard) toast(brandGuardToast(guard));
     },
     onError: (error) => {
       toast({
@@ -714,14 +724,19 @@ export default function Campaigns() {
   });
 
   const requeueMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/campaigns/${id}/requeue`),
-    onSuccess: () => {
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/campaigns/${id}/requeue`);
+      return res.json() as Promise<unknown>;
+    },
+    onSuccess: (body) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       setFailedInfoCampaign(null);
       toast({
         title: "Campaign requeued",
         description: "The campaign has been requeued for sending.",
       });
+      const guard = brandGuardNotice(body);
+      if (guard) toast(brandGuardToast(guard));
     },
     onError: (error) => {
       toast({
@@ -1128,14 +1143,14 @@ export default function Campaigns() {
                               title={campaign.pauseReason === "step_limit"
                                 ? `Auto-paused after step: ${(campaign.stepProcessedCount ?? 0).toLocaleString()} / ${(campaign.stepSendLimit ?? "?").toLocaleString()} emails processed`
                                 : campaign.pauseReason === "brand_unsubscribe_limit"
-                                  ? "Envoi bloqué : cette marque a dépassé sa limite de désabonnements"
+                                  ? "Mise en pause automatiquement par l'ancienne limite de désabonnements de la marque (supprimée : le seuil n'est plus qu'une alerte). La campagne peut être reprise."
                                   : campaign.pauseReason}
                               data-testid={`text-pause-reason-${campaign.id}`}
                             >
                               {campaign.pauseReason === "step_limit"
                                 ? `Step paused — ${(campaign.stepProcessedCount ?? 0).toLocaleString()} processed`
                                 : campaign.pauseReason === "brand_unsubscribe_limit"
-                                  ? "Bloquée — limite de désabonnements de la marque"
+                                  ? "Mise en pause par l'ancienne limite de désabonnements — reprise possible"
                                   : campaign.pauseReason}
                             </span>
                           )}

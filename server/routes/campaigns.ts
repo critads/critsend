@@ -31,7 +31,7 @@ import {
   type StepResumeOverrides,
 } from "../services/step-resume";
 import {
-  brandUnsubscribeBlockPayload,
+  brandUnsubscribeNotice,
   evaluateBrandUnsubscribeGuard,
   shouldEvaluateBrandGuardForPatch,
 } from "../services/brand-unsubscribe-guard";
@@ -50,11 +50,14 @@ function envInt(name: string, fallback: number, min: number): number {
   return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
 }
 
-async function rejectBlockedBrand(res: Response, campaignName: string): Promise<boolean> {
-  const decision = await evaluateBrandUnsubscribeGuard(campaignName);
-  if (decision.status !== "blocked") return false;
-  res.status(409).json(brandUnsubscribeBlockPayload(decision));
-  return true;
+// Brand-unsubscribe notice (alert only, never a refusal): activation routes
+// attach `brandGuard` to their success payload when the brand is above the
+// warning or alert threshold so the client can show it; nothing is blocked.
+function withBrandGuard<T extends object>(
+  payload: T,
+  notice: Awaited<ReturnType<typeof brandUnsubscribeNotice>>,
+): T & { brandGuard?: NonNullable<typeof notice> } {
+  return notice ? { ...payload, brandGuard: notice } : payload;
 }
 
 
@@ -1129,9 +1132,9 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (data.htmlContent && data.htmlContent !== "") {
         data.htmlContent = sanitizeCampaignHtml(data.htmlContent);
       }
-      if ((data.status === "sending" || data.status === "scheduled") && await rejectBlockedBrand(res, data.name)) {
-        return;
-      }
+      const createBrandNotice = (data.status === "sending" || data.status === "scheduled")
+        ? await brandUnsubscribeNotice(data.name, { action: "create" })
+        : null;
       delete data.segmentIds;
       delete data.excludeSegmentIds;
        const campaign = await db.transaction(async (tx) => {
@@ -1166,7 +1169,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
       logger.info("Campaign created successfully:", campaign.id);
 
-       res.status(201).json({ ...campaign, segmentIds: requestedSegmentIds, excludeSegmentIds: requestedExcludeIds });
+       res.status(201).json(withBrandGuard(
+         { ...campaign, segmentIds: requestedSegmentIds, excludeSegmentIds: requestedExcludeIds },
+         createBrandNotice,
+       ));
     } catch (error) {
       if (error instanceof z.ZodError) {
         logger.error("Campaign validation error:", error.errors);
@@ -1288,17 +1294,14 @@ export function registerCampaignRoutes(app: Express, helpers: {
         : ("segmentId" in normalizedBody ? (normalizedBody.segmentId ? [normalizedBody.segmentId] : []) : undefined);
       const effectiveStatus = normalizedBody.status ?? existingCampaign.status;
       const effectiveName = normalizedBody.name ?? existingCampaign.name;
-      if (
-        shouldEvaluateBrandGuardForPatch(
-          existingCampaign.status,
-          effectiveStatus,
-          existingCampaign.name,
-          effectiveName,
-        )
-        && await rejectBlockedBrand(res, effectiveName)
-      ) {
-        return;
-      }
+      const patchBrandNotice = shouldEvaluateBrandGuardForPatch(
+        existingCampaign.status,
+        effectiveStatus,
+        existingCampaign.name,
+        effectiveName,
+      )
+        ? await brandUnsubscribeNotice(effectiveName, { action: "patch", campaignId: req.params.id })
+        : null;
       if (requestedSegmentIds !== undefined) {
         if (!Array.isArray(requestedSegmentIds) ||
             requestedSegmentIds.some((id) => typeof id !== "string" || !id.trim()) ||
@@ -1442,11 +1445,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${req.params.id}`);
       }
 
-       res.json({
+       res.json(withBrandGuard({
          ...campaign,
          segmentIds: requestedSegmentIds ?? (existingCampaign as any).segmentIds ?? (campaign.segmentId ? [campaign.segmentId] : []),
          excludeSegmentIds: effectiveExcludeIds,
-       });
+       }, patchBrandNotice));
     } catch (error) {
       if (error instanceof WarmCampaignImmutableError) {
         return res.status(409).json({ error: error.message });
@@ -1608,7 +1611,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (campaignForGuard.status !== "paused") {
         return res.status(409).json({ error: "Campaign is no longer paused" });
       }
-      if (await rejectBlockedBrand(res, campaignForGuard.name)) return;
+      const resumeBrandNotice = await brandUnsubscribeNotice(
+        campaignForGuard.name,
+        { action: "resume", campaignId: req.params.id },
+      );
       const resumeResult = await db.transaction(async (tx) => {
         // Serialize resume requests on the campaign row BEFORE touching jobs
         // or failed sends. A stale second request waits for the first commit,
@@ -1700,7 +1706,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.info(`[CAMPAIGN_RESUME] Campaign ${req.params.id} returned to 'scheduled' (scheduledAt in future)`);
       }
       
-      res.json(campaign);
+      res.json(withBrandGuard(campaign, resumeBrandNotice));
     } catch (error) {
       logger.error("Error resuming campaign:", error);
       res.status(500).json({ error: "Failed to resume campaign" });
@@ -2066,7 +2072,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (!existingCampaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
-      if (await rejectBlockedBrand(res, existingCampaign.name)) return;
+      const retryBrandNotice = await brandUnsubscribeNotice(
+        existingCampaign.name,
+        { action: "retry-failed", campaignId: req.params.id },
+      );
 
       // All three operations in one transaction for atomicity.
       const { campaign, resetCount } = await db.transaction(async (tx) => {
@@ -2129,7 +2138,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
 
       await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
       logger.info(`[CAMPAIGN_RETRY_FAILED] Reset ${resetCount} failed sends to pending, NOTIFY sent for campaign ${req.params.id}`);
-      res.json({ campaign, resetCount });
+      res.json(withBrandGuard({ campaign, resetCount }, retryBrandNotice));
     } catch (error) {
       logger.error("Error retrying failed campaign sends:", error);
       res.status(500).json({ error: "Failed to retry failed sends" });
@@ -2148,7 +2157,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
       if (existingCampaign.status !== "failed") {
         return res.status(400).json({ error: "Only failed campaigns can be requeued" });
       }
-      if (await rejectBlockedBrand(res, existingCampaign.name)) return;
+      const requeueBrandNotice = await brandUnsubscribeNotice(
+        existingCampaign.name,
+        { action: "requeue", campaignId: req.params.id },
+      );
 
       await storage.clearStuckJobsForCampaign(req.params.id);
 
@@ -2180,7 +2192,7 @@ export function registerCampaignRoutes(app: Express, helpers: {
       await messageQueue.notify("campaign_jobs", { campaignId: req.params.id });
       logger.info(`[CAMPAIGN_REQUEUE] NOTIFY sent for campaign ${req.params.id}`);
 
-      res.json(campaign);
+      res.json(withBrandGuard(campaign, requeueBrandNotice));
     } catch (error) {
       logger.error("Error requeuing campaign:", error);
       res.status(500).json({ error: "Failed to requeue campaign" });
@@ -2323,7 +2335,10 @@ export function registerCampaignRoutes(app: Express, helpers: {
           details: validationErrors 
         });
       }
-      if (await rejectBlockedBrand(res, effectiveCampaign.name)) return;
+      const sendBrandNotice = await brandUnsubscribeNotice(
+        effectiveCampaign.name,
+        { action: "send", campaignId },
+      );
       
       const mta = await storage.getMta(effectiveCampaign.mtaId!);
       if (!mta) {
@@ -2425,11 +2440,11 @@ export function registerCampaignRoutes(app: Express, helpers: {
         logger.info(`[CAMPAIGN_SEND] NOTIFY sent for campaign ${campaignId}`);
       }
       logger.info(`[CAMPAIGN_SEND] ${timestamp} - Campaign ${campaignId} ${isScheduled ? "scheduled" : "started"} successfully`);
-      res.json({ 
+      res.json(withBrandGuard({ 
         success: true, 
         campaign: { ...updatedCampaign, segmentIds: selectedSegmentIds, excludeSegmentIds: effectiveExcludeIds },
         message: `Campaign ${isScheduled ? "scheduled for" : "started with"} ${subscriberCount} subscribers`
-      });
+      }, sendBrandNotice));
       
     } catch (error: any) {
       if (error instanceof WarmCampaignImmutableError) {

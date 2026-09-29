@@ -40,3 +40,4 @@
 - [Orange Test invariants](orange-test-invariants.md) — clean miss = every search ran, else not_checked (status, not verdict); health in DB; lease client needs 'error' listener; claim order is a set.
 - [Checking client UI without a browser session](wizard-component-ssr-smoke.md) — screenshots stop at the password login; verify components via SSR render / Vite dev transform instead.
 - [DB-backed tests on dev Neon](db-backed-tests-dev-neon.md) — NEON_DATABASE_URL is a PgBouncer pooler (session SET unreliable), ~150 ms/statement; table-wide queries only in a throwaway schema with qualified names.
+- [Brand unsub thresholds are alert-only](brand-unsub-alert-only.md) — never block/pause on the brand count; read it via the non-throwing notice (raw evaluator throws until bootstrap).

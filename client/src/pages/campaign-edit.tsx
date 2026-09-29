@@ -53,7 +53,13 @@ import {
   imageSrcHost,
   removeExternalImageElements,
   updateManagedCampaignNameMtaSuffix,
+  checkBrandUnsubscribes,
+  EMPTY_BRAND_NOTICES,
+  brandGuardNotice,
+  brandGuardToast,
+  type BrandUnsubNotices,
 } from "@/lib/campaign-wizard";
+import { BrandUnsubscribeNotices } from "@/components/campaign-wizard/brand-unsubscribe-notices";
 import {
   useMtaScheduleInsights,
   MtaLowOpenWarning,
@@ -134,6 +140,10 @@ export default function CampaignEdit() {
   // Initialised to true once the loaded campaign already has an
   // exclusion set; otherwise false (the user must click "+ Add").
   const [showExclusion, setShowExclusion] = useState(false);
+  // Brand-unsubscribe notices (alert only): computed when leaving Content,
+  // displayed until the launch, never a reason to stop the wizard.
+  const [brandNotices, setBrandNotices] = useState<BrandUnsubNotices>(EMPTY_BRAND_NOTICES);
+  const [brandCheckPending, setBrandCheckPending] = useState(false);
   const { toast } = useToast();
 
   const {
@@ -357,8 +367,10 @@ export default function CampaignEdit() {
   }, [segmentIds.join(","), excludeSegmentIds.join(",")]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: Partial<InsertCampaign>) =>
-      apiRequest("PATCH", `/api/campaigns/${campaignId}`, data),
+    mutationFn: async (data: Partial<InsertCampaign>) => {
+      const res = await apiRequest("PATCH", `/api/campaigns/${campaignId}`, data);
+      return res.json();
+    },
     onMutate: async (newData) => {
       await queryClient.cancelQueries({ queryKey: ["/api/campaigns", campaignId] });
       const previousCampaign = queryClient.getQueryData(["/api/campaigns", campaignId]);
@@ -367,13 +379,16 @@ export default function CampaignEdit() {
       );
       return { previousCampaign };
     },
-    onSuccess: () => {
+    onSuccess: (result: unknown) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       toast({
         title: "Campaign updated",
         description: "Your campaign has been saved.",
       });
+      // Renaming / re-activating a campaign returns the brand notice: show it.
+      const guard = brandGuardNotice(result);
+      if (guard) toast(brandGuardToast(guard));
       navigate("/campaigns");
     },
     onError: (_error, _newData, context) => {
@@ -406,7 +421,7 @@ export default function CampaignEdit() {
       );
       return { previousCampaign };
     },
-    onSuccess: () => {
+    onSuccess: (result: unknown) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
       toast({
@@ -415,6 +430,9 @@ export default function CampaignEdit() {
           ? "Your campaign has been scheduled for sending."
           : "Your campaign is now being sent.",
       });
+      // The launch response carries the brand notice (alert only): show it.
+      const guard = brandGuardNotice(result);
+      if (guard) toast(brandGuardToast(guard));
       navigate("/campaigns");
     },
     onError: (error: Error, _newData, context) => {
@@ -545,7 +563,7 @@ export default function CampaignEdit() {
     }
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
     if (!isStepValid(currentStep) || currentStep >= 5) return;
     // Image-domain safeguard: Content (3) -> Tracking (4) is refused while any
     // <img src> points outside the selected MTA's domains.
@@ -559,12 +577,31 @@ export default function CampaignEdit() {
       });
       return;
     }
+    // Brand-unsubscribe notice (alert only): neither an exceeded threshold
+    // nor an unavailable check stops the wizard — the notices stay displayed
+    // until the launch and the server repeats the evaluation at launch.
+    if (currentStep === 3) {
+      // Reset the previous notices only when the brand is re-checked, so the
+      // result of this check survives the Tracking → Schedule step.
+      setBrandNotices(EMPTY_BRAND_NOTICES);
+      setBrandCheckPending(true);
+      try {
+        setBrandNotices(await checkBrandUnsubscribes(formData.name || ""));
+      } finally {
+        setBrandCheckPending(false);
+      }
+    }
     autoSaveMutation.mutate(formData);
     setCurrentStep(currentStep + 1);
   };
 
   const prevStep = () => {
     if (currentStep > 1) {
+      // Going back to Content (or earlier) invalidates the notices: they are
+      // recomputed when the operator leaves step 3 again.
+      if (currentStep - 1 <= 3) {
+        setBrandNotices(EMPTY_BRAND_NOTICES);
+      }
       autoSaveMutation.mutate(formData);
       setCurrentStep(currentStep - 1);
     }
@@ -1522,6 +1559,8 @@ export default function CampaignEdit() {
         </CardContent>
       </Card>
 
+      <BrandUnsubscribeNotices notices={brandNotices} />
+
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <Button
           variant="outline"
@@ -1544,11 +1583,20 @@ export default function CampaignEdit() {
           {currentStep < 5 ? (
             <Button
               onClick={nextStep}
-              disabled={!isStepValid(currentStep)}
+              disabled={!isStepValid(currentStep) || brandCheckPending}
               data-testid="button-next-step"
             >
-              Next
-              <ArrowRight className="h-4 w-4 ml-2" />
+              {brandCheckPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  Next
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </>
+              )}
             </Button>
           ) : (
             <Button

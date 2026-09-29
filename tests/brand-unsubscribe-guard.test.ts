@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../server/storage", () => ({ storage: {} }));
+const loggerWarn = vi.fn();
+vi.mock("../server/logger", () => ({
+  logger: { warn: (...args: unknown[]) => loggerWarn(...args), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
 
 import {
   BRAND_UNSUB_LIMIT,
   BRAND_UNSUB_WARN_THRESHOLD,
   BRAND_UNSUB_WINDOW_DAYS,
-  brandUnsubscribeBlockPayload,
+  brandUnsubscribeNotice,
   classifyBrandUnsubscribeCount,
   evaluateBrandUnsubscribeGuard,
   shouldEvaluateBrandGuardForPatch,
@@ -35,9 +39,12 @@ describe("brand unsubscribe guard", () => {
     [2_000, "warn"],
     [2_001, "warn"],
     [2_500, "warn"],
-    [2_501, "blocked"],
-  ] as const)("classifies %s unsubscribers as %s", (count, expected) => {
-    expect(classifyBrandUnsubscribeCount(count)).toBe(expected);
+    [2_501, "exceeded"],
+    [10_000, "exceeded"],
+  ] as const)("classifies %s unsubscribers as %s (alert only, never blocked)", (count, expected) => {
+    const status: string = classifyBrandUnsubscribeCount(count);
+    expect(status).toBe(expected);
+    expect(status).not.toBe("blocked");
   });
 
   it("uses the canonical historical brand resolved from the campaign name", async () => {
@@ -60,7 +67,7 @@ describe("brand unsubscribe guard", () => {
       brand: "Air France",
       brandKey: "air\u001ffrance",
       count: 2_634,
-      status: "blocked",
+      status: "exceeded",
       limit: 2_500,
       windowDays: 5,
     }));
@@ -79,7 +86,7 @@ describe("brand unsubscribe guard", () => {
     expect(countBrandUnsubscribes).not.toHaveBeenCalled();
   });
 
-  it("propagates an unavailable check so callers fail closed", async () => {
+  it("still surfaces an unavailable check to the explicit check endpoint", async () => {
     findCampaignBrandAnchor.mockRejectedValue(new Error("database unavailable"));
 
     await expect(
@@ -88,21 +95,46 @@ describe("brand unsubscribe guard", () => {
     expect(countBrandUnsubscribes).not.toHaveBeenCalled();
   });
 
-  it("returns a structured blocking response for route clients", () => {
-    const payload = brandUnsubscribeBlockPayload({
-      brand: "Air France",
-      brandKey: "air\u001ffrance",
-      count: 2_501,
-      warnThreshold: 1_500,
-      limit: 2_500,
-      windowDays: 5,
-      status: "blocked",
+  describe("activation notice (alert only)", () => {
+    it("returns the decision above the alert threshold and logs it, without any error code", async () => {
+      findCampaignBrandAnchor.mockResolvedValue("#3086 Air France - old-code - mta");
+      countBrandUnsubscribes.mockResolvedValue(2_501);
+
+      const notice = await brandUnsubscribeNotice(
+        "#4000 Air France - code - mta",
+        { action: "resume", campaignId: "c-1" },
+        store,
+      );
+
+      expect(notice).toEqual(expect.objectContaining({ status: "exceeded", count: 2_501, brand: "Air France" }));
+      expect(notice).not.toHaveProperty("code");
+      expect(notice).not.toHaveProperty("error");
+      expect(loggerWarn).toHaveBeenCalledWith(expect.stringContaining("resume allowed while brand exceeds"));
     });
 
-    expect(payload).toEqual(expect.objectContaining({
-      code: "BRAND_UNSUB_LIMIT_EXCEEDED",
-      brandGuard: expect.objectContaining({ status: "blocked", count: 2_501 }),
-    }));
+    it("returns the warning decision without logging an alert", async () => {
+      countBrandUnsubscribes.mockResolvedValue(1_600);
+
+      const notice = await brandUnsubscribeNotice("#4000 Air France - code - mta", { action: "send" }, store);
+
+      expect(notice).toEqual(expect.objectContaining({ status: "warn", count: 1_600 }));
+      expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it("returns null when the brand is fine or has no brand", async () => {
+      countBrandUnsubscribes.mockResolvedValue(10);
+      await expect(brandUnsubscribeNotice("#4000 Air France - code - mta", { action: "send" }, store)).resolves.toBeNull();
+      await expect(brandUnsubscribeNotice("#123 Promo Aout - code - mta", { action: "send" }, store)).resolves.toBeNull();
+    });
+
+    it("never fails the action when the check is unavailable", async () => {
+      findCampaignBrandAnchor.mockRejectedValue(new Error("database unavailable"));
+
+      await expect(
+        brandUnsubscribeNotice("#4000 Air France - code - mta", { action: "requeue", campaignId: "c-2" }, store),
+      ).resolves.toBeNull();
+      expect(loggerWarn).toHaveBeenCalledWith(expect.stringContaining("check unavailable during requeue"), expect.any(Error));
+    });
   });
 
   it("rechecks a name change while a campaign is active or scheduled", () => {

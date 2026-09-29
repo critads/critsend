@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { BrandUnsubscribeNotices } from "@/components/campaign-wizard/brand-unsubscribe-notices";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -53,10 +54,13 @@ import {
   findExternalImageSrcs,
   removeExternalImageElements,
   normalizeForApi,
-  buildBrandMessage,
+  checkBrandUnsubscribes,
+  EMPTY_BRAND_NOTICES,
+  brandGuardNotice,
+  brandGuardToast,
   campaignActionErrorMessage,
   updateCampaignNameMtaSuffix,
-  type BrandUnsubResult,
+  type BrandUnsubNotices,
 } from "@/lib/campaign-wizard";
 import {
   useMtaScheduleInsights,
@@ -136,9 +140,9 @@ export default function CampaignNew() {
   const [savedIndicator, setSavedIndicator] = useState(false);
   // Brand-unsubscribe safeguard: gates Content -> Tracking using the campaign name.
   const [brandCheckPending, setBrandCheckPending] = useState(false);
-  const [brandWarning, setBrandWarning] = useState<string | null>(null);
-  const [brandBlock, setBrandBlock] = useState<string | null>(null);
-  const [brandCheckUnavailable, setBrandCheckUnavailable] = useState(false);
+  // Brand-unsubscribe notices are informational only (alert / warning /
+  // "could not check"); none of them stops the wizard or the launch.
+  const [brandNotices, setBrandNotices] = useState<BrandUnsubNotices>(EMPTY_BRAND_NOTICES);
   const { toast } = useToast();
 
   const {
@@ -375,6 +379,11 @@ export default function CampaignNew() {
         title: isScheduled ? "Campaign scheduled" : "Campaign started",
         description: result.message || (isScheduled ? "Your campaign has been scheduled." : "Your campaign is now being sent."),
       });
+      // The server re-evaluates the brand at launch; a brand that crossed the
+      // alert threshold since step 3 is reported here (alert only, the
+      // campaign is already running).
+      const guard = brandGuardNotice(result);
+      if (guard) toast(brandGuardToast(guard));
       navigate("/campaigns");
     },
     onError: (error: Error) => {
@@ -464,10 +473,6 @@ export default function CampaignNew() {
 
   const nextStep = async () => {
     if (currentStep >= 5 || !isStepValid(currentStep)) return;
-    // Reset any prior brand-safeguard messages whenever the operator clicks Next.
-    setBrandBlock(null);
-    setBrandWarning(null);
-    setBrandCheckUnavailable(false);
     // Image-domain safeguard: every absolute <img src> must use a domain
     // attributed to the selected MTA (relative/data: URLs are fine — they are
     // rehosted at send time). Hard stop, mirrored by the alert in the step.
@@ -479,27 +484,17 @@ export default function CampaignNew() {
       });
       return;
     }
-    // Give the operator early feedback; the server repeats this check at launch.
+    // Brand-unsubscribe notice (alert only): give the operator the brand's
+    // recent unsubscribe count before Tracking. Neither an exceeded threshold
+    // nor an unavailable check stops the wizard — the notices stay displayed
+    // until the launch and the server repeats the evaluation at launch.
     if (currentStep === 3) {
+      // Reset the previous notices only when the brand is re-checked, so the
+      // result of this check survives the Tracking → Schedule step.
+      setBrandNotices(EMPTY_BRAND_NOTICES);
       setBrandCheckPending(true);
       try {
-        const res = await apiRequest(
-          "GET",
-          `/api/campaigns/brand-unsub-check?name=${encodeURIComponent(formData.name || "")}`,
-        );
-        const data = (await res.json()) as BrandUnsubResult;
-        if (data?.status === "blocked") {
-          setBrandBlock(buildBrandMessage(data));
-          return; // hard stop: do not advance to Tracking
-        }
-        if (data?.status === "warn") {
-          setBrandWarning(buildBrandMessage(data));
-        }
-      } catch (err) {
-        console.error("Brand unsubscribe check failed:", err);
-        setBrandCheckUnavailable(true);
-        setBrandBlock("Impossible de vérifier actuellement la limite de désabonnements de cette marque. Réessayez dans quelques instants.");
-        return;
+        setBrandNotices(await checkBrandUnsubscribes(formData.name || ""));
       } finally {
         setBrandCheckPending(false);
       }
@@ -510,8 +505,11 @@ export default function CampaignNew() {
 
   const prevStep = () => {
     if (currentStep > 1) {
-      setBrandBlock(null);
-      setBrandWarning(null);
+      // Going back to Content (or earlier) invalidates the notices: they are
+      // recomputed when the operator leaves step 3 again.
+      if (currentStep - 1 <= 3) {
+        setBrandNotices(EMPTY_BRAND_NOTICES);
+      }
       setCurrentStep(currentStep - 1);
     }
   };
@@ -1408,20 +1406,7 @@ export default function CampaignNew() {
         </CardContent>
       </Card>
 
-      {brandBlock && (
-        <Alert variant="destructive" data-testid="alert-brand-block">
-          <AlertTitle>
-            {brandCheckUnavailable ? "Vérification temporairement indisponible" : "Limite de désabonnements atteinte"}
-          </AlertTitle>
-          <AlertDescription>{brandBlock}</AlertDescription>
-        </Alert>
-      )}
-      {brandWarning && (
-        <Alert data-testid="alert-brand-warning">
-          <AlertTitle>Attention</AlertTitle>
-          <AlertDescription>{brandWarning}</AlertDescription>
-        </Alert>
-      )}
+      <BrandUnsubscribeNotices notices={brandNotices} />
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <Button

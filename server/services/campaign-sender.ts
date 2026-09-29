@@ -25,7 +25,6 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { prioritizeFinalizationDurabilityError } from "./campaign-job-error-policy";
 import { runAfterDurableFinalization } from "./step-durability";
-import { evaluateBrandUnsubscribeGuard } from "./brand-unsubscribe-guard";
 import { classifyAudienceBatch } from "./orange-wanadoo-risk";
 import {
   CAMPAIGN_PRESSURE_FORCE_AFTER_HOURS,
@@ -309,18 +308,10 @@ export async function processCampaignInternal(campaignId: string, jobId?: string
   const audienceAlreadyExhausted = !!(
     campaign.prioritizeActiveClickers && (campaign as any).warmAudienceExhaustedAt
   );
-  const brandGuard = await evaluateBrandUnsubscribeGuard(campaign.name);
-  if (brandGuard.status === "blocked") {
-    logger.warn(
-      `${logPrefix} Brand unsubscribe limit blocks sending: brand=${brandGuard.brand} `
-      + `count=${brandGuard.count} limit=${brandGuard.limit} windowDays=${brandGuard.windowDays}`,
-    );
-    await storage.updateCampaign(campaignId, {
-      status: "paused",
-      pauseReason: "brand_unsubscribe_limit",
-    });
-    return;
-  }
+  // Brand unsubscribe thresholds are alert-only (2026-09-29): the sender no
+  // longer counts the brand's unsubscribes nor pauses a campaign for it. Rows
+  // still carrying pause_reason 'brand_unsubscribe_limit' were paused before
+  // that change and are resumed by the operator like any other paused campaign.
 
   const nowMs = Date.now();
   const isStaleRetryUntil = campaign.retryUntil && campaign.retryUntil.getTime() <= nowMs;

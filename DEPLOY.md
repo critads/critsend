@@ -244,12 +244,21 @@ git commit -m "ci: add auto-deploy workflow"
 git push
 ```
 
-### Brand unsubscribe guard — `.env` overrides win over code defaults
+### Brand unsubscribe alert — `.env` overrides win over code defaults
 
-The guard that blocks a campaign launch when its brand generated too many
-unsubscribers reads three values: `BRAND_UNSUB_WINDOW_DAYS` (code default **5**
-Europe/Paris calendar days since 2026-09-20 — previously 7 in production),
-`BRAND_UNSUB_LIMIT` (default 2500) and `BRAND_UNSUB_WARN_THRESHOLD` (default 1500).
+Since 2026-09-29 the brand-unsubscribe thresholds are **alert only**: a brand
+that generated many unsubscribers produces a warning, then a red alert, in the
+campaign wizard and a toast after a resume / retry / requeue, but **nothing is
+blocked** (no 409 on any activation route) and the sender **never pauses** a
+campaign for it. Campaigns still paused with the historical reason
+`brand_unsubscribe_limit` (paused before that date) stay paused until an
+operator resumes them; the list labels them « Mise en pause par l'ancienne
+limite de désabonnements — reprise possible ». **No `.env` value needs to
+change** for this: the three variables keep their names and meaning as
+thresholds — `BRAND_UNSUB_WINDOW_DAYS` (code default **5** Europe/Paris
+calendar days since 2026-09-20 — previously 7 in production),
+`BRAND_UNSUB_LIMIT` (alert threshold, default 2500) and
+`BRAND_UNSUB_WARN_THRESHOLD` (warning threshold, default 1500).
 Any of them present in `.env` **overrides** the code default, because
 `ecosystem.config.cjs` merges `.env` into every PM2 process. When a code default
 changes, the new value only applies once the `.env` line is aligned:
@@ -272,10 +281,10 @@ If you do want the key gone, recreate the processes once
 (`pm2 delete critsend-web critsend-worker critsend-drainer && pm2 start
 deploy/ecosystem.config.cjs --env production && pm2 save`, ≈5 s downtime).
 
-Final check from the application: in the campaign wizard, the brand warning
-reads « … désabonnés sur les **5** derniers jours (limite : …) », and
+Final check from the application: in the campaign wizard, the brand notice
+reads « … désabonnés sur les **5** derniers jours (seuil : …) », and
 `GET /api/campaigns/brand-unsub-check?name=<campaign name>` (authenticated)
-returns `"windowDays": 5`.
+returns `"windowDays": 5` with `"status"` one of `ok` / `warn` / `exceeded`.
 
 ### Smart segment IA (campaign wizard) — optional, needs an Anthropic key
 
