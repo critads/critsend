@@ -3,7 +3,7 @@
 - [Step-resume invariants](step-resume-invariants.md) — preserving an audience cursor requires preserving failed send rows; retries then happen after enumeration instead of silently omitting contacts.
 - [drizzle push prod footgun](drizzle-push-prod-footgun.md) — NEON_DATABASE_URL wins in drizzle.config.ts; always `NEON_DATABASE_URL= npm run db:push`.
 - [Neon is stale, not prod](neon-is-stale-not-prod.md) — live prod is the Hetzner critsend DB; NEON_DATABASE_URL is the pre-June-2026 Neon copy — never verify prod against it.
-- [Lockfile Replit proxy URLs](lockfile-replit-proxy-urls.md) — dep updates can write package-firewall.replit.local into package-lock.json; npm ci on prod wipes node_modules then fails — grep+fix before deploy.
+- [Lockfile Replit proxy URLs](lockfile-replit-proxy-urls.md) — new deps can write package-firewall.replit.(internal|local) into package-lock.json; npm ci on prod wipes node_modules then hangs/fails — grep the prefix before deploy.
 - [Unsubscribe link prefetch](unsubscribe-link-prefetch.md) — GET /u/:token mutates, so Gmail/Apple link-prefetch causes false unsubscribes + inflated stats; proper fix = GET confirmation page, mutate on POST.
 - [Duplicate sends: ambiguous must be terminal](duplicate-send-retry.md) — ambiguous outcomes and unresolved finalization writes are terminal; every send, retry, and worker path must block automatic replay.
 - [Sender restart reservations](sender-restart-reservations.md) — immediate pending rows are resumable outer-batch reservations; never age them into failed during active-campaign startup.

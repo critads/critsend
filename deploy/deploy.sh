@@ -50,6 +50,15 @@ ok "Code updated: $(git log -1 --oneline)"
 
 # ─── Step 2: npm ci ───────────────────────────────────────────────────────────
 step "Installing dependencies (npm ci)..."
+# Guard: a dependency added from the Replit workspace can leave "resolved" URLs
+# pointing at Replit's internal package proxy (package-firewall.replit.internal /
+# .local). That host does not exist here, so `npm ci` — which has already wiped
+# node_modules — hangs on connection retries instead of failing. Refuse early,
+# before anything is deleted, with the fix to apply on the dev side.
+if grep -qE '"resolved": "https?://package-firewall\.replit\.' package-lock.json; then
+    grep -nE '"resolved": "https?://package-firewall\.replit\.' package-lock.json | head -n 5 >&2
+    fail "package-lock.json points at Replit's internal package proxy (see lines above). On the dev side run: sed -i 's#\"resolved\": \"http://package-firewall.replit.internal/npm/#\"resolved\": \"https://registry.npmjs.org/#' package-lock.json, commit, push, then redeploy."
+fi
 # Run in a subshell with NODE_ENV unset so npm does not skip devDependencies.
 # devDependencies (vite, esbuild, @vitejs/plugin-react, etc.) are required at
 # build time even though the runtime is production.
