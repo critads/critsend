@@ -1,0 +1,32 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ # horodatage des échecs (+ les 2 lignes qui précèdent chacun)
+pm2 logs critsend-web --err --lines 300 --nostream | grep -B2 'Checker tick failed'
+
+# compteurs du pool des deux instances web (port 5000, sauf PORT= dans .env ; l'appel alterne entre instances)
+for i in 1 2; do curl -s http://127.0.0.1:5000/metrics | grep -E '^critsend_db_pool_(total|idle|waiting|saturation_total|checkout_timeout_total|load_shed_total)[ {]'; echo --; done
+18|critsen | (Use `node --trace-warnings ...` to show where the warning was created)
+18|critsen | 2026-09-29 12:11:07 +02:00: (node:3889104) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+18|critsen | 2026-09-29 12:11:10 +02:00: 2026-09-29T10:11:10.877Z [ERROR] [ORANGE_TEST] Checker tick failed:
+18|critsen | 2026-09-29 12:11:22 +02:00: 2026-09-29T10:11:22.367Z [WARN] [503] source=load_shed method=OPTIONS path=/campaigns/2026/09/6654b109-8278-4a42-80b1-4e520468b71e/ route=non-api rid=c33a69c1-09f5-4006-900b-2e6ace23082c kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=5 sat=1.00 lease=0
+18|critsen | 2026-09-29 12:11:22 +02:00: 2026-09-29T10:11:22.872Z [ERROR] [ORANGE_TEST] Checker tick failed:
+--
+18|critsen | 2026-09-29 12:11:32 +02:00: 2026-09-29T10:11:32.031Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/85fcbbd8-20a7-412a-b7e7-1b7223302c86/56d19cc9-5378-4189-b5ef-951618ecd647/p.gif","method":"GET","requestId":"b6e0bcfd-714a-4233-99a9-26ba313aa8a8"}
+18|critsen | 2026-09-29 12:11:32 +02:00: 2026-09-29T10:11:32.075Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/acfd67cd-3bd5-414c-b946-bed4f5353bfd/d3fc573b-bf2d-4fa1-bcad-8dec3659a1b6/p.gif","method":"GET","requestId":"7b89e601-ea8b-4be3-baf2-a58c5b7c3668"}
+18|critsen | 2026-09-29 12:11:32 +02:00: 2026-09-29T10:11:32.332Z [ERROR] [ORANGE_TEST] Checker tick failed:
+--
+18|critsen | 2026-09-29 12:11:43 +02:00: 2026-09-29T10:11:43.396Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/185f877f-a85c-48b6-9cc1-d74581cc4ecb/40063b0a-4e2f-49d6-812f-ac8f90275137/p.gif","method":"GET","requestId":"b342d6c7-2655-41e4-9574-37425c3172c1"}
+18|critsen | 2026-09-29 12:11:43 +02:00: 2026-09-29T10:11:43.666Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/e39b71b9-40a9-45a9-98a0-27cc75de76bd/8c210451-166f-438b-ad01-fcdbdbbbd271/p.gif","method":"GET","requestId":"9184195b-7c42-4412-add3-92f7fc370476"}
+18|critsen | 2026-09-29 12:11:44 +02:00: 2026-09-29T10:11:44.330Z [ERROR] [ORANGE_TEST] Checker tick failed:
+critsend_db_pool_total 6
+critsend_db_pool_idle 6
+critsend_db_pool_waiting 0
+critsend_db_pool_saturation_total 0
+critsend_db_pool_checkout_timeout_total 1
+--
+critsend_db_pool_total 6
+critsend_db_pool_idle 5
+critsend_db_pool_waiting 0
+critsend_db_pool_saturation_total 0
+critsend_db_pool_load_shed_total{reason="saturation",route="non-api"} 1
+critsend_db_pool_checkout_timeout_total 0
+--
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
