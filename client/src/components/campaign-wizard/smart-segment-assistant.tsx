@@ -44,15 +44,14 @@ type Props = {
   campaignName: string;
   campaignId: string | null;
   mtaId: string | null;
-  /** Current audience of the wizard: tells which created proposal (if any) is the attached one. */
+  /** Current audience of the wizard: tells which created proposals are attached. */
   selectedSegmentIds: string[];
   /**
-   * The operator chose a proposal for the campaign: `segments` join the
-   * audience and `detachSegmentIds` (the other proposals created from the
-   * same analysis — one proposal per analysis is attached) leave it. Not
-   * called for « Créer sans attacher ».
+   * The operator attached one or several proposals to the campaign: the
+   * `segments` join the audience as distinct segments, on top of what is
+   * already selected. Not called for « Créer sans attacher ».
    */
-  onSegmentsCreated: (segments: Array<{ id: string; name: string }>, change: { detachSegmentIds: string[] }) => void;
+  onSegmentsCreated: (segments: Array<{ id: string; name: string }>) => void;
 };
 
 type BrandOverride = { name: string; ref: string };
@@ -101,6 +100,8 @@ export function SmartSegmentAssistant({
   const [error, setError] = useState<string | null>(null);
   const [proofsOpen, setProofsOpen] = useState(false);
   const [sessionCreated, setSessionCreated] = useState<Array<{ index: number; id: string; name: string }>>([]);
+  // Proposals ticked for the bulk « Créer et attacher la sélection » action.
+  const [checkedIndexes, setCheckedIndexes] = useState<number[]>([]);
   const [checkedSimilarRefs, setCheckedSimilarRefs] = useState<string[]>([]);
   const [manualSimilarRefs, setManualSimilarRefs] = useState<string[]>([]);
   const [manualSimilarInput, setManualSimilarInput] = useState("");
@@ -262,6 +263,9 @@ export function SmartSegmentAssistant({
   // A proposal may only be materialised while it still describes the current
   // inputs exactly (a reused analysis carries the params it was computed with).
   const analysisMatchesInputs = !!analysis && analysisIdentity(analysis.params) === requestKey;
+  useEffect(() => {
+    setCheckedIndexes([]);
+  }, [analysis?.id]);
 
   // Segments created from the displayed analysis: those the server already
   // knows plus those created in this session (the view is not refetched).
@@ -271,35 +275,50 @@ export function SmartSegmentAssistant({
     for (const entry of sessionCreated) byIndex.set(entry.index, entry);
     return [...byIndex.values()].sort((a, b) => a.index - b.index);
   }, [analysis?.createdSegments, sessionCreated]);
-  // At most one proposal of an analysis sits in the campaign (recommendation
-  // and variant overlap; the « similar brands » segment is compared with
-  // them, not added). Which one is read from the wizard's own selection.
-  const attachedIndex = createdEntries.find((entry) => selectedSegmentIds.includes(entry.id))?.index ?? null;
+  // Proposals whose segment sits in the campaign, read from the wizard's own
+  // selection: several proposals of one analysis may be attached together
+  // (distinct segments, the campaign sends to their union).
+  const attachedIndexes = useMemo(
+    () => new Set(createdEntries.filter((entry) => selectedSegmentIds.includes(entry.id)).map((entry) => entry.index)),
+    [createdEntries, selectedSegmentIds],
+  );
+  const selectableIndexes = useMemo(
+    () => checkedIndexes.filter((index) => !attachedIndexes.has(index) && index < (analysis?.proposal?.segments.length ?? 0)),
+    [checkedIndexes, attachedIndexes, analysis?.proposal?.segments.length],
+  );
+
+  // Recommendation + variant are nested (the variant widens the recommendation):
+  // attaching or ticking both is allowed but the operator is told the campaign
+  // then sends to the variant's audience.
+  const nestedPairInAudience = useMemo(() => {
+    const segments = analysis?.proposal?.segments ?? [];
+    const inPlay = new Set([...attachedIndexes, ...selectableIndexes]);
+    const kinds = new Set([...inPlay].map((index) => segments[index]?.kind).filter(Boolean));
+    return kinds.has("recommendation") && kinds.has("variant");
+  }, [analysis?.proposal?.segments, attachedIndexes, selectableIndexes]);
 
   const materializeMutation = useMutation({
-    mutationFn: async ({ index, attach }: { index: number; attach: boolean }) => {
+    mutationFn: async ({ indexes, attach }: { indexes: number[]; attach: boolean }) => {
       if (!analysis) throw new Error("Aucune analyse disponible.");
       if (analysisIdentity(analysis.params) !== currentRequestKey.current) {
         throw new Error("Les paramètres ont changé depuis l'analyse : relancez l'analyse avant de créer le segment.");
       }
       const response = await apiRequest("POST", `/api/smart-segments/analyses/${analysis.id}/materialize`, {
         campaignId,
-        proposalIndexes: [index],
+        proposalIndexes: indexes,
         attach,
       });
-      return { data: await response.json() as MaterializeResponse, index, attach };
+      return { data: await response.json() as MaterializeResponse, indexes, attach };
     },
-    onSuccess: ({ data, index, attach }) => {
-      const wasCreated = createdEntries.some((entry) => entry.index === index);
-      setSessionCreated((current) => [...current.filter((entry) => entry.index !== index), ...data.segments]);
-      if (attach) {
-        // Exclusive: the other proposals of this analysis leave the audience
-        // (the server did the same on a saved draft; the wizard mirrors it).
-        const attachedIds = new Set(data.segments.map((segment) => segment.id));
-        const detachSegmentIds = createdEntries.map((entry) => entry.id).filter((id) => !attachedIds.has(id));
-        onSegmentsCreated(data.segments, { detachSegmentIds });
-      }
-      if (!wasCreated) queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+    onSuccess: ({ data, indexes, attach }) => {
+      const createdBefore = new Set(createdEntries.map((entry) => entry.index));
+      const newlyCreated = indexes.some((index) => !createdBefore.has(index));
+      setSessionCreated((current) => [...current.filter((entry) => !indexes.includes(entry.index)), ...data.segments]);
+      setCheckedIndexes((current) => current.filter((index) => !indexes.includes(index)));
+      // Additive: the chosen proposals join the audience next to what is
+      // already attached (the server did the same on a saved draft).
+      if (attach) onSegmentsCreated(data.segments);
+      if (newlyCreated) queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
       setError(null);
     },
     onError: (cause) => setError(parseSmartSegmentApiError(cause).message),
@@ -522,12 +541,22 @@ export function SmartSegmentAssistant({
           )}
           {analysis.proposal.segments.map((segment, index) => {
             const createdEntry = createdEntries.find((entry) => entry.index === index) ?? null;
-            const attached = attachedIndex === index;
+            const attached = attachedIndexes.has(index);
+            const checked = selectableIndexes.includes(index);
             const kindLabel = segment.kind ? SMART_SEGMENT_PROPOSAL_KIND_LABELS[segment.kind] : null;
             const busy = materializeMutation.isPending || !analysisMatchesInputs;
             const ow = segment.orangeWanadoo ?? null;
             return <div key={`${segment.name}-${index}`} className="rounded-lg border bg-background p-4 space-y-3" data-testid={`smart-segment-proposal-${index}`}>
               <div className="flex flex-wrap items-center gap-2">
+                {analysis.proposal!.segments.length >= 2 && !attached && (
+                  <Checkbox
+                    checked={checked}
+                    disabled={busy}
+                    onCheckedChange={(value) => setCheckedIndexes((current) => value === true ? [...current.filter((other) => other !== index), index] : current.filter((other) => other !== index))}
+                    aria-label={`Sélectionner ${segment.name}`}
+                    data-testid={`checkbox-smart-segment-select-${index}`}
+                  />
+                )}
                 <h4 className="font-semibold">{segment.name}</h4>
                 {kindLabel && <Badge variant={segment.kind === "similar_brands" ? "default" : "secondary"}>{kindLabel}</Badge>}
                 {attached && <Badge variant="outline" className="border-green-600 text-green-700" data-testid={`badge-smart-segment-attached-${index}`}>Attaché à la campagne</Badge>}
@@ -547,17 +576,32 @@ export function SmartSegmentAssistant({
               {createdEntry && <p className="text-sm font-medium text-green-700" data-testid={`text-smart-segment-created-${index}`}>Segment créé : {createdEntry.name}</p>}
               <div className="flex flex-wrap gap-2">
                 {!attached && (
-                  <Button type="button" size="sm" disabled={busy} onClick={() => materializeMutation.mutate({ index, attach: true })} data-testid={index === 0 ? "button-smart-segment-create" : `button-smart-segment-create-${index}`}>
-                    {attachedIndex !== null ? "Utiliser ce segment à la place" : createdEntry ? "Attacher ce segment" : "Utiliser ce segment"}
+                  <Button type="button" size="sm" disabled={busy} onClick={() => materializeMutation.mutate({ indexes: [index], attach: true })} data-testid={index === 0 ? "button-smart-segment-create" : `button-smart-segment-create-${index}`}>
+                    {createdEntry ? "Attacher ce segment" : attachedIndexes.size > 0 ? "Ajouter ce segment" : "Utiliser ce segment"}
                   </Button>
                 )}
                 {!createdEntry && (
-                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => materializeMutation.mutate({ index, attach: false })} data-testid={`button-smart-segment-create-only-${index}`}>Créer sans attacher</Button>
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => materializeMutation.mutate({ indexes: [index], attach: false })} data-testid={`button-smart-segment-create-only-${index}`}>Créer sans attacher</Button>
                 )}
               </div>
             </div>;
           })}
-          {analysis.proposal.segments.length >= 2 && <p className="text-xs text-muted-foreground">Une seule proposition d'une même analyse est attachée à la campagne (recommandation et variante se recouvrent ; le segment « marques similaires uniquement » se compare à elles) : en choisir une autre détache la précédente.</p>}
+          {analysis.proposal.segments.length >= 2 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="button" size="sm" disabled={materializeMutation.isPending || !analysisMatchesInputs || selectableIndexes.length === 0} onClick={() => materializeMutation.mutate({ indexes: [...selectableIndexes].sort((a, b) => a - b), attach: true })} data-testid="button-smart-segment-attach-selection">
+                  Créer et attacher la sélection{selectableIndexes.length > 0 ? ` (${selectableIndexes.length})` : ""}
+                </Button>
+                <p className="text-xs text-muted-foreground">Cochez 2 ou 3 propositions pour les attacher ensemble : chacune devient un segment distinct de la campagne, qui envoie à leur réunion (chaque abonné une fois). Pour en retirer une, décochez-la dans la liste des segments ci-dessus.</p>
+              </div>
+              {nestedPairInAudience && (
+                <p className="flex gap-2 text-sm text-amber-700" data-testid="text-smart-segment-nested-warning">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  La variante contient la recommandation : les deux ensemble, la campagne envoie à l'audience de la variante (les chiffres de la recommandation ne s'appliquent plus).
+                </p>
+              )}
+            </div>
+          )}
 
           {evidence && <div className="rounded-lg border bg-background">
             <Button type="button" variant="ghost" className="w-full justify-between" onClick={() => setProofsOpen((open) => !open)}>Preuves {proofsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>

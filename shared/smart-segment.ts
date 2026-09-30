@@ -153,12 +153,13 @@ export const smartSegmentMaterializeRequestSchema = z.object({
   campaignId: campaignReferenceIdSchema.nullable().optional(),
   proposalIndexes: z.array(z.number().int().min(0).max(SMART_SEGMENT_MAX_PROPOSALS - 1)).min(1).max(SMART_SEGMENT_MAX_PROPOSALS).optional(),
   /**
-   * At most ONE proposal of an analysis is attached to the campaign: the
-   * recommendation and the variant overlap (nested audiences), and the
-   * « similar brands » segment is meant to be compared with them, not stacked
-   * on top. Attaching one detaches the others created from the same analysis.
-   * false = create the segments only. Default true (one index) for older
-   * clients.
+   * true = create the requested proposals (those not created yet) and attach
+   * every one of them to the draft campaign as distinct segments — additive:
+   * segments of the analysis already attached stay. The campaign then sends to
+   * their union (each subscriber once); the recommendation and the variant
+   * are nested, so attaching both means sending to the variant's audience.
+   * false = create the segments only. Default true for a single index (older
+   * clients), false for several.
    */
   attach: z.boolean().optional(),
 });
@@ -514,10 +515,9 @@ export type SmartSegmentCreatedSegment = { index: number; id: string; name: stri
 
 export type SmartSegmentMaterializeResponse = {
   segments: SmartSegmentCreatedSegment[];
+  /** true when the server bound the requested segments to the analysed draft itself. */
   attached: boolean;
   createdSegmentIds: string[];
-  /** Segments of the same analysis the server detached from the draft (exclusive attach); absent on older servers. */
-  detachedSegmentIds?: string[];
 };
 
 export type SmartSegmentAnalysisView = {

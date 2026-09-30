@@ -795,14 +795,13 @@ export default function CampaignNew() {
               campaignId={campaignId}
               mtaId={formData.mtaId || null}
               selectedSegmentIds={segmentIds}
-              onSegmentsCreated={(createdSegments, { detachSegmentIds }) => {
+              onSegmentsCreated={(createdSegments) => {
                 setFormData((old: any) => {
                   const current: string[] = old.segmentIds ?? (old.segmentId ? [old.segmentId] : []);
                   const createdIds = createdSegments.map((segment) => segment.id);
-                  // Exclusive choice among the nested proposals of one analysis:
-                  // the previously chosen one leaves the audience.
-                  const kept = current.filter((id) => !detachSegmentIds.includes(id));
-                  const next = [...kept, ...createdIds.filter((id) => !kept.includes(id))];
+                  // Additive: the chosen proposals join the audience as distinct
+                  // segments next to whatever is already selected.
+                  const next = [...current, ...createdIds.filter((id) => !current.includes(id))];
                   return {
                     ...old,
                     segmentIds: next,

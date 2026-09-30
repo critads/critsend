@@ -100,29 +100,34 @@ describe("Smart segment source wiring", () => {
     expect(component).not.toContain("candidate.lift");
   });
 
-  it("labels proposals by their server-derived kind and attaches ONE proposal of an analysis at a time (no bulk create)", () => {
+  it("labels proposals by their server-derived kind and lets the operator attach several proposals of one analysis as distinct segments", () => {
     expect(component).toContain("SMART_SEGMENT_PROPOSAL_KIND_LABELS[segment.kind]");
     // The third segment is labelled by what it contains, not as the recommendation widened.
     expect(SMART_SEGMENT_PROPOSAL_KIND_LABELS.similar_brands).toBe("Marques similaires uniquement");
     expect(SMART_SEGMENT_PROPOSAL_KIND_LABELS.similar_brands).not.toMatch(/^Avec /);
-    // The wizard note explains the exclusive attach without calling every proposal a nested audience.
-    expect(component).toContain("Une seule proposition d'une même analyse est attachée à la campagne");
-    expect(component).toContain("en choisir une autre détache la précédente");
     expect(component).not.toContain("audiences imbriquées");
     expect(component).not.toContain("« avec marques similaires »");
     expect(component).toContain("Cette sélection sert au segment « marques similaires uniquement »");
-    // One exclusive « Utiliser » per card, plus « Créer sans attacher ».
-    expect(component).toContain("materializeMutation.mutate({ index, attach: true })");
-    expect(component).toContain("materializeMutation.mutate({ index, attach: false })");
+    // Per card: a tick box (2+ proposals), an additive « Utiliser / Ajouter / Attacher », and « Créer sans attacher ».
+    expect(component).toContain('data-testid={`checkbox-smart-segment-select-${index}`}');
+    expect(component).toContain("materializeMutation.mutate({ indexes: [index], attach: true })");
+    expect(component).toContain("materializeMutation.mutate({ indexes: [index], attach: false })");
     expect(component).toContain('data-testid={`button-smart-segment-create-only-${index}`}');
-    expect(component).toContain('{attachedIndex !== null ? "Utiliser ce segment à la place" : createdEntry ? "Attacher ce segment" : "Utiliser ce segment"}');
-    expect(component).not.toContain("button-smart-segment-create-all");
-    expect(component).not.toContain("Créer les {");
-    // The request carries the attach flag; the wizard mirrors the server's exclusivity.
-    expect(component).toMatch(/proposalIndexes: \[index\],\s+attach,/);
-    expect(component).toContain("const detachSegmentIds = createdEntries.map((entry) => entry.id).filter((id) => !attachedIds.has(id));");
-    expect(component).toContain("onSegmentsCreated(data.segments, { detachSegmentIds });");
-    expect(component).toContain("const attachedIndex = createdEntries.find((entry) => selectedSegmentIds.includes(entry.id))?.index ?? null;");
+    expect(component).toContain('{createdEntry ? "Attacher ce segment" : attachedIndexes.size > 0 ? "Ajouter ce segment" : "Utiliser ce segment"}');
+    expect(component).not.toContain("Utiliser ce segment à la place");
+    expect(component).not.toContain("détache la précédente");
+    // Bulk action on the ticked proposals; already attached ones cannot be ticked again.
+    expect(component).toContain('data-testid="button-smart-segment-attach-selection"');
+    expect(component).toContain("materializeMutation.mutate({ indexes: [...selectableIndexes].sort((a, b) => a - b), attach: true })");
+    expect(component).toContain("checkedIndexes.filter((index) => !attachedIndexes.has(index)");
+    expect(component).toContain("Cochez 2 ou 3 propositions pour les attacher ensemble");
+    // Recommendation + variant are nested: allowed, but said out loud.
+    expect(component).toContain('data-testid="text-smart-segment-nested-warning"');
+    expect(component).toContain('kinds.has("recommendation") && kinds.has("variant")');
+    // The request carries the attach flag; nothing is detached on the wizard side.
+    expect(component).toMatch(/proposalIndexes: indexes,\s+attach,/);
+    expect(component).toContain("if (attach) onSegmentsCreated(data.segments);");
+    expect(component).not.toContain("detachSegmentIds");
   });
 
   it("renders the « Projeté vs réel » panel for the resolved brand", () => {
@@ -133,9 +138,10 @@ describe("Smart segment source wiring", () => {
     expect(panel).toContain("staleTime:");
   });
 
-  it.each([newPage, editPage])("drops the detached sibling from the wizard selection when a proposal is swapped", (source) => {
-    expect(source).toContain("onSegmentsCreated={(createdSegments, { detachSegmentIds }) => {");
-    expect(source).toContain("const kept = current.filter((id) => !detachSegmentIds.includes(id));");
+  it.each([newPage, editPage])("adds attached proposals to the wizard selection without dropping what is already selected", (source) => {
+    expect(source).toContain("onSegmentsCreated={(createdSegments) => {");
+    expect(source).toContain("const next = [...current, ...createdIds.filter((id) => !current.includes(id))];");
+    expect(source).not.toContain("detachSegmentIds");
   });
 
   it("polls analyses and posts materialization", () => {
@@ -155,7 +161,8 @@ describe("Smart segment source wiring", () => {
     expect(component).toContain("if (key !== currentRequestKey.current) return;");
     expect(component).toContain("const analysisMatchesInputs = !!analysis && analysisIdentity(analysis.params) === requestKey;");
     expect(component).toContain("const busy = materializeMutation.isPending || !analysisMatchesInputs;");
-    expect(component.match(/disabled=\{busy\}/g)).toHaveLength(2);
+    // Tick box, « Utiliser/Ajouter/Attacher » and « Créer sans attacher » per card.
+    expect(component.match(/disabled=\{busy\}/g)).toHaveLength(3);
   });
 });
 

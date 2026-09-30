@@ -472,14 +472,14 @@ describe("materializeSmartSegmentProposal", () => {
     expect(segmentsTable).toHaveLength(1);
     expect(segmentsTable[0]).toMatchObject({ name: "Smart · Air France · 21/09 · FR", cached_count: 2_800, rules: proposal.segments[0].rules });
     expect(segmentsTable[0].description).toContain("claude-test");
-    expect(result).toEqual({ segments: [{ index: 0, id: "seg-1", name: "Smart · Air France · 21/09 · FR" }], attached: true, createdSegmentIds: ["seg-1"], detachedSegmentIds: [] });
+    expect(result).toEqual({ segments: [{ index: 0, id: "seg-1", name: "Smart · Air France · 21/09 · FR" }], attached: true, createdSegmentIds: ["seg-1"] });
     expect(statements()).toEqual([
       "BEGIN",
       "SELECT id, fingerprint,", // analysis row locked FOR UPDATE
       "INSERT INTO segments",
       "UPDATE smart_segment_analyses SET",
       "SELECT id, status", // campaign locked FOR UPDATE
-      "SELECT COALESCE(MAX(position) +", // no sibling created yet: nothing to detach
+      "SELECT COALESCE(MAX(position) +",
       "INSERT INTO campaign_segments",
       "UPDATE campaigns SET",
       "COMMIT",
@@ -509,54 +509,74 @@ describe("materializeSmartSegmentProposal", () => {
     clientQueries.length = 0;
     await materializeSmartSegmentProposal(id, { campaignId: null, proposalIndexes: [0, 1] }, { now });
     expect(statements()).toEqual(["BEGIN", "SELECT id, fingerprint,", "COMMIT"]);
-    // Attaching two proposals of one analysis at once is refused before any write.
-    await expect(materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0, 1], attach: true }, { now }))
-      .rejects.toMatchObject({ code: "ATTACH_ONE", status: 400 });
-    expect(campaignSegments).toHaveLength(0);
   });
 
-  it("attaches one proposal at a time: choosing another one detaches the previous choice and keeps the legacy column on the lowest position", async () => {
+  it("attaches several proposals of one analysis at once, as distinct segments after the current positions", async () => {
     const id = await succeededAnalysis();
     const now = () => new Date("2026-09-21T10:00:00.000Z");
-    // A hand-picked segment is already in the draft: it stays.
+    // A hand-picked segment is already in the draft: it stays first.
     campaignSegments.push({ campaignId: "camp-draft", segmentId: "seg-manual", position: 0 });
     campaigns.get("camp-draft")!.segment_id = "seg-manual";
-    const first = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0], attach: true }, { now });
-    expect(first).toMatchObject({ attached: true, detachedSegmentIds: [] });
+    const result = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1, 0], attach: true }, { now });
+    expect(result).toEqual({
+      segments: [
+        { index: 1, id: "seg-1", name: "Smart · Air France · 21/09 · FR · 2" },
+        { index: 0, id: "seg-2", name: "Smart · Air France · 21/09 · FR · 1" },
+      ],
+      attached: true,
+      createdSegmentIds: ["seg-1", "seg-2"],
+    });
     expect(campaignSegments).toEqual([
       { campaignId: "camp-draft", segmentId: "seg-manual", position: 0 },
       { campaignId: "camp-draft", segmentId: "seg-1", position: 1 },
-    ]);
-    // « Créer sans attacher » on the sibling: created, audience untouched.
-    const createdOnly = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1], attach: false }, { now });
-    expect(createdOnly).toMatchObject({ attached: false, detachedSegmentIds: [], segments: [{ index: 1, id: "seg-2" }] });
-    expect(campaignSegments.map((entry) => entry.segmentId)).toEqual(["seg-manual", "seg-1"]);
-    // « Utiliser ce segment à la place »: the recommendation leaves, the variant enters.
-    clientQueries.length = 0;
-    const swapped = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1], attach: true }, { now });
-    expect(swapped).toMatchObject({ attached: true, detachedSegmentIds: ["seg-1"], segments: [{ index: 1, id: "seg-2" }] });
-    // The freed position is reused (MAX + 1 after the detach); readers order by position.
-    expect(campaignSegments).toEqual([
-      { campaignId: "camp-draft", segmentId: "seg-manual", position: 0 },
-      { campaignId: "camp-draft", segmentId: "seg-2", position: 1 },
+      { campaignId: "camp-draft", segmentId: "seg-2", position: 2 },
     ]);
     expect(campaigns.get("camp-draft")!.segment_id).toBe("seg-manual");
+    // One campaign lock, one position read, one insert per segment, one mirror update.
+    expect(statements().filter((text) => text.startsWith("SELECT id, status"))).toHaveLength(1);
+    expect(statements().filter((text) => text.startsWith("INSERT INTO campaign_segments"))).toHaveLength(2);
+    expect(statements().filter((text) => text.startsWith("DELETE FROM campaign_segments"))).toHaveLength(0);
+  });
+
+  it("attaches additively: a second proposal joins the first instead of replacing it, and re-attaching is a no-op", async () => {
+    const id = await succeededAnalysis();
+    const now = () => new Date("2026-09-21T10:00:00.000Z");
+    const first = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0], attach: true }, { now });
+    expect(first).toMatchObject({ attached: true, segments: [{ index: 0, id: "seg-1" }] });
+    expect(campaignSegments).toEqual([{ campaignId: "camp-draft", segmentId: "seg-1", position: 0 }]);
+    expect(campaigns.get("camp-draft")!.segment_id).toBe("seg-1");
+    // « Créer sans attacher » on the sibling: created, audience untouched.
+    const createdOnly = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1], attach: false }, { now });
+    expect(createdOnly).toMatchObject({ attached: false, segments: [{ index: 1, id: "seg-2" }] });
+    expect(campaignSegments.map((entry) => entry.segmentId)).toEqual(["seg-1"]);
+    // « Ajouter ce segment »: the variant enters next to the recommendation.
+    clientQueries.length = 0;
+    const added = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1], attach: true }, { now });
+    expect(added).toMatchObject({ attached: true, segments: [{ index: 1, id: "seg-2" }] });
+    expect(campaignSegments).toEqual([
+      { campaignId: "camp-draft", segmentId: "seg-1", position: 0 },
+      { campaignId: "camp-draft", segmentId: "seg-2", position: 1 },
+    ]);
+    expect(campaigns.get("camp-draft")!.segment_id).toBe("seg-1");
     expect(statements()).toEqual([
       "BEGIN",
       "SELECT id, fingerprint,",
       "SELECT id, status",
-      "DELETE FROM campaign_segments",
       "SELECT COALESCE(MAX(position) +",
       "INSERT INTO campaign_segments",
       "UPDATE campaigns SET",
       "COMMIT",
     ]);
     expect(segmentsTable).toHaveLength(2);
-    // Swapping back when the chosen one held the lowest position moves the legacy column.
+    // Attaching an already attached proposal again changes nothing.
+    const again = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0, 1], attach: true }, { now });
+    expect(again.attached).toBe(true);
+    expect(campaignSegments).toHaveLength(2);
+    // The operator removed the recommendation from the campaign's segment
+    // list: the legacy column follows the lowest remaining position.
     campaignSegments.splice(0, 1);
-    const back = await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0], attach: true }, { now });
-    expect(back.detachedSegmentIds).toEqual(["seg-2"]);
-    expect(campaigns.get("camp-draft")!.segment_id).toBe("seg-1");
+    await materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [1], attach: true }, { now });
+    expect(campaigns.get("camp-draft")!.segment_id).toBe("seg-2");
   });
 
   it("does not attach to a campaign that is no longer a draft, and rejects unfinished analyses", async () => {

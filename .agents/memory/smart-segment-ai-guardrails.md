@@ -61,21 +61,21 @@ silently keeps precedence over detection with stale refs/tags/history).
 **Why:** an analysis made for another name/cap/pre-draft context could otherwise be attached to
 the current draft (500 ms debounce + un-fenced mutation results made this reachable).
 
-## 3a. One proposal of an analysis is attached, never several
-Rule: the recommendation and the variant overlap (nested audiences); the « marques similaires
-uniquement » segment is made of similar_refs_* blocks ONLY (since 2026-09-30 — it is NOT the
-recommendation widened any more, a similar segment mixing general blocks is refused before the
-recount) and is compared with them, not stacked. Either way a campaign holds at most ONE
-proposal per analysis. `materialize` takes `attach` + exactly one index (2+ with attach ⇒ 400);
-server-side attach on a draft detaches the analysis' sibling segments in the same transaction
-under the campaign row lock and re-mirrors the legacy `campaigns.segment_id` to the
-lowest-position row; the response lists `detachedSegmentIds`; « Créer sans attacher » only
-creates. The wizard mirrors this itself (drops the other created siblings from its selection)
-because for a new/unsaved campaign the server cannot attach at all.
+## 3a. Several proposals of one analysis may be attached — as DISTINCT segments, additively
+Rule (since 2026-09-30, operator's explicit request): `materialize` with `attach:true` accepts 1–3
+indexes and appends every one of them to the draft after its current positions (`ON CONFLICT DO
+NOTHING`, legacy `campaigns.segment_id` re-mirrored to the lowest position); nothing is ever
+detached by the assistant — removing a proposal goes through the wizard's segment combobox. The
+proposals are never merged into one segment. The wizard offers tick boxes + « Créer et attacher la
+sélection (N) » next to the per-card « Utiliser / Ajouter / Attacher ce segment » and « Créer sans
+attacher », and shows an amber note (not a block) when recommendation AND variant are both in play:
+the variant is the recommendation widened, so the campaign then sends to the variant's audience.
 
-**Why:** the first « Créer les deux/trois » button attached nested segments together; the
-campaign then sent to the union (= the widest one) while the operator believed the recommended
-one was in use, and the badge counters/projection comparison were meaningless.
+**Why:** the exclusive attach (24–30 Sep 2026) came from the first « Créer les deux/trois » button
+silently stacking nested segments while the operator believed the recommendation was in use. Since
+the « marques similaires uniquement » segment is made of `similar_refs_*` blocks only, stacking is a
+real audience addition, and the operator asked to pick 2 or 3 proposals and send to all of them.
+Keep the nesting *visible* rather than forbidden; never bring back a merged « both » segment.
 
 ## 3b. Evidence cache lives inside the evidence JSON (no migration)
 Rule: the dossier carries `evidenceKey` = `smartSegmentEvidenceIdentity` (brand/family/similar

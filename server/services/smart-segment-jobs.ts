@@ -400,52 +400,43 @@ function brandLabelFor(params: SmartSegmentAnalysisRequest, evidence: SmartSegme
 }
 
 /**
- * Attaches ONE segment of an analysis to a draft, exclusively: the
- * recommendation and the variant of one analysis overlap (nested audiences),
- * and the « similar brands » segment is an alternative to compare with them,
- * not an add-on — so attaching two of them would stack overlapping or
- * competing audiences for nothing; the previous choice is detached. Returns
- * null when the campaign is not a draft any more (a live audience is never
- * changed here).
+ * Attaches segments of an analysis to a draft, additively: each requested
+ * segment is appended after the campaign's current positions (an already
+ * attached one keeps its place), nothing is detached — the operator picks the
+ * proposals to send to and the campaign sends to their union. Returns false
+ * when the campaign is not a draft any more (a live audience is never changed
+ * here).
  */
-async function attachExclusively(
-  client: PoolClient,
-  campaignId: string,
-  segmentId: string,
-  siblings: SmartSegmentCreatedSegment[],
-): Promise<{ detachedSegmentIds: string[] } | null> {
+async function attachToDraft(client: PoolClient, campaignId: string, segmentIds: string[]): Promise<boolean> {
   // Row lock: the campaign cannot leave 'draft' while positions change.
   const campaign = await client.query<{ id: string; status: string }>(
     `SELECT id, status FROM campaigns WHERE id = $1 FOR UPDATE`,
     [campaignId],
   );
-  if (!campaign.rows[0] || campaign.rows[0].status !== "draft") return null;
-  const siblingIds = siblings.map((entry) => entry.id).filter((other) => other !== segmentId);
-  const detached = siblingIds.length
-    ? await client.query<{ segment_id: string }>(
-      `DELETE FROM campaign_segments WHERE campaign_id = $1 AND segment_id = ANY($2::varchar[]) RETURNING segment_id`,
-      [campaignId, siblingIds],
-    )
-    : null;
+  if (!campaign.rows[0] || campaign.rows[0].status !== "draft") return false;
   const positions = await client.query<{ next: string }>(
     `SELECT COALESCE(MAX(position) + 1, 0)::text AS next FROM campaign_segments WHERE campaign_id = $1`,
     [campaignId],
   );
-  await client.query(
-    `INSERT INTO campaign_segments (campaign_id, segment_id, position)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (campaign_id, segment_id) DO NOTHING`,
-    [campaignId, segmentId, Number(positions.rows[0]?.next ?? 0)],
-  );
+  let next = Number(positions.rows[0]?.next ?? 0);
+  for (const segmentId of segmentIds) {
+    const inserted = await client.query(
+      `INSERT INTO campaign_segments (campaign_id, segment_id, position)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (campaign_id, segment_id) DO NOTHING`,
+      [campaignId, segmentId, next],
+    );
+    if (inserted.rowCount) next += 1;
+  }
   // The legacy single-segment column mirrors position 0 of the relation for
-  // older readers; recomputed because the detached segment may have held it.
+  // older readers.
   await client.query(
     `UPDATE campaigns
         SET segment_id = (SELECT cs.segment_id FROM campaign_segments cs WHERE cs.campaign_id = $1 ORDER BY cs.position ASC LIMIT 1)
       WHERE id = $1`,
     [campaignId],
   );
-  return { detachedSegmentIds: detached?.rows.map((row) => row.segment_id) ?? [] };
+  return true;
 }
 
 /**
@@ -455,10 +446,11 @@ async function attachExclusively(
  * twice, and the campaign is locked so it cannot start sending between the
  * status check and the attach. The segments are never left half-created.
  *
- * `attach` (default: true for a single index, false otherwise) binds at most
- * one proposal to the campaign; the other segments of the same analysis are
- * detached from it (one proposal per analysis: recommendation and variant
- * overlap, the « similar brands » segment is compared with them, not added).
+ * `attach` (default: true for a single index, false otherwise) binds every
+ * requested proposal to the campaign as a distinct segment, on top of what is
+ * already attached: the operator may send to two or three proposals of one
+ * analysis (the campaign sends to their union). Nothing is detached here —
+ * removing a segment goes through the campaign's own segment list.
  */
 export async function materializeSmartSegmentProposal(
   id: string,
@@ -495,9 +487,6 @@ export async function materializeSmartSegmentProposal(
       .filter((index, position, all) => Number.isInteger(index) && index >= 0 && index < proposal.segments.length && all.indexOf(index) === position);
     if (!requested.length) throw new SmartSegmentError("BAD_INDEX", "Indice de proposition invalide.", 400);
     const attach = input.attach ?? requested.length === 1;
-    if (attach && requested.length > 1) {
-      throw new SmartSegmentError("ATTACH_ONE", "Une seule proposition d'une même analyse peut être attachée à la campagne : recommandation et variante se recouvrent, et le segment « marques similaires » se compare à elles au lieu de s'y ajouter.", 400);
-    }
 
     const existing: SmartSegmentCreatedSegment[] = Array.isArray(row.created_segments) ? [...row.created_segments] : [];
     const created: SmartSegmentCreatedSegment[] = [];
@@ -545,13 +534,14 @@ export async function materializeSmartSegmentProposal(
     // Server-side attach only for an existing draft: appending positions to a
     // campaign that is sending would change a live audience. Other cases are
     // attached by the wizard through its normal save path.
-    const attachment = attach && bindable ? await attachExclusively(client, analysedCampaignId, created[0].id, existing) : null;
+    const attached = attach && bindable
+      ? await attachToDraft(client, analysedCampaignId, created.map((entry) => entry.id))
+      : false;
     await client.query("COMMIT");
     return {
       segments: created,
-      attached: attachment !== null,
+      attached,
       createdSegmentIds: created.map((entry) => entry.id),
-      detachedSegmentIds: attachment?.detachedSegmentIds ?? [],
     };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
