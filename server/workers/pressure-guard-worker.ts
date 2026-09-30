@@ -1282,9 +1282,21 @@ export async function drainCampaign(campaignId: string): Promise<void> {
       return;
     }
     // Bump status='attempting' on the locked rows so other workers + the
-    // orphan-recovery sweep treat them as in-flight.
+    // orphan-recovery sweep treat them as in-flight. sent_at is re-stamped
+    // to the claim time: deferred rows carry sent_at from when they were
+    // deferred (hours ago), and the orphaned-sends reconciler closes any
+    // 'attempting' row whose sent_at is older than its grace period — so
+    // without the re-stamp an hourly sweep landing mid-drain fails rows
+    // that are being delivered right now. Legacy rows deferred before the
+    // first_deferred_at column existed keep their original deferral time
+    // there (SET expressions read the pre-update row), so the aging cap
+    // still anchors on the real deferral if such a row loses the CAS and
+    // returns to pending.
     await client.query(
-      `UPDATE campaign_sends SET status = 'attempting'
+      `UPDATE campaign_sends
+          SET status = 'attempting',
+              first_deferred_at = COALESCE(first_deferred_at, sent_at),
+              sent_at = NOW()
        WHERE campaign_id = $1 AND subscriber_id = ANY($2::text[]) AND status = 'pending'`,
       [campaignId, claimedSubIds],
     );
@@ -1743,50 +1755,81 @@ export async function drainCampaign(campaignId: string): Promise<void> {
   });
   await Promise.all(workers);
 
-  // Task #169: tally aged force-dispatches that actually delivered.
-  // Computed BEFORE the finalize transaction so the campaign-level
-  // counter (aged_forced_count) bumps atomically with sent_count /
-  // failed_count / pending_count — no drift possible on crash between
-  // writes. successIds ∩ agedSet so hard-stop drops and SMTP failures
-  // on aged rows do NOT count.
-  const agedDelivered = successIds.reduce((n, id) => n + (agedSet.has(id) ? 1 : 0), 0);
-
   // Finalize: status attempting → sent/failed + clear eligible_at, and
-  // bump all campaign-level counters (sent/failed/pending + aged) in
-  // the same transaction.
+  // bump all campaign-level counters (sent/failed/pending + aged +
+  // Orange/Wanadoo) in the same transaction.
+  //
+  // Every counter is derived from the rows the UPDATEs actually
+  // transitioned (RETURNING), not from the in-memory outcome lists: a row
+  // can leave 'attempting' underneath a drain (orphaned-sends reconciler),
+  // and the repository batch finalizer counts the same way, so the cached
+  // campaign counters never drift from campaign_sends.
+  let sentTransitioned = 0;
+  let failedTransitioned = 0;
+  let ambiguousTransitioned = 0;
+  // Task #169: aged force-dispatches that actually delivered — sent rows ∩
+  // agedSet, so hard-stop drops and SMTP failures on aged rows do NOT count.
+  let agedDelivered = 0;
+  // Orange/Wanadoo share of the delivered rows. The drain is the third path
+  // that flips rows to 'sent' (next to the per-send and batch finalizers in
+  // campaign-repository.ts) and must bump orange_wanadoo_sent_count like
+  // they do, with the same domain rule: that counter is the denominator of
+  // the /campaigns complaint dot, so every drained Orange/Wanadoo send left
+  // out of it inflates the displayed complaint rate.
+  let orangeWanadooDelivered = 0;
   await db.transaction(async (tx) => {
     if (successIds.length > 0) {
-      await tx.execute(sql`
+      const sentRes = await tx.execute(sql`
         UPDATE campaign_sends SET status = 'sent', eligible_at = NULL, sent_at = NOW()${guardOn ? sql`, smtp_outcome_class = 'delivered'` : sql``}
         WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(successIds)}::text[]) AND status = 'attempting'
+        RETURNING subscriber_id
       `);
+      const sentIds = sentRes.rows.map((row) => String((row as { subscriber_id: string }).subscriber_id));
+      sentTransitioned = sentIds.length;
+      agedDelivered = sentIds.reduce((n, id) => n + (agedSet.has(id) ? 1 : 0), 0);
+      if (sentIds.length > 0) {
+        const targetSent = await tx.execute(sql`
+          SELECT COUNT(*)::int AS count
+          FROM subscribers
+          WHERE id = ANY(${toPgTextArray(sentIds)}::text[])
+            AND lower(split_part(email, '@', 2)) IN ('orange.fr', 'wanadoo.fr')
+        `);
+        orangeWanadooDelivered = Number((targetSent.rows[0] as { count?: number } | undefined)?.count ?? 0);
+      }
     }
     if (failedIds.length > 0) {
-      await tx.execute(sql`
+      const failedRes = await tx.execute(sql`
         UPDATE campaign_sends SET status = 'failed', eligible_at = NULL${guardOn ? sql`, smtp_outcome_class = 'pre_data_retryable'` : sql``}
         WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(failedIds)}::text[]) AND status = 'attempting'
+        RETURNING subscriber_id
       `);
+      failedTransitioned = failedRes.rows.length;
     }
     if (guardOn && ambiguousIds.length > 0) {
-      await tx.execute(sql`
+      const ambiguousRes = await tx.execute(sql`
         UPDATE campaign_sends SET status = 'failed', eligible_at = NULL, smtp_outcome_class = 'ambiguous'
         WHERE campaign_id = ${campaignId} AND subscriber_id = ANY(${toPgTextArray(ambiguousIds)}::text[]) AND status = 'attempting'
+        RETURNING subscriber_id
       `);
+      ambiguousTransitioned = ambiguousRes.rows.length;
     }
+    const transitioned = sentTransitioned + failedTransitioned + ambiguousTransitioned;
+    if (transitioned === 0) return;
     await tx.execute(sql`
       UPDATE campaigns SET
-        sent_count = sent_count + ${successIds.length},
-        failed_count = failed_count + ${failedIds.length + (guardOn ? ambiguousIds.length : 0)},
-        pending_count = GREATEST(pending_count - ${successIds.length + failedIds.length + (guardOn ? ambiguousIds.length : 0)}, 0),
+        sent_count = sent_count + ${sentTransitioned},
+        orange_wanadoo_sent_count = orange_wanadoo_sent_count + ${orangeWanadooDelivered},
+        failed_count = failed_count + ${failedTransitioned + ambiguousTransitioned},
+        pending_count = GREATEST(pending_count - ${transitioned}, 0),
         aged_forced_count = aged_forced_count + ${agedDelivered},
-        first_send_at = CASE WHEN ${successIds.length} > 0 THEN COALESCE(first_send_at, NOW()) ELSE first_send_at END,
-        last_send_at = CASE WHEN ${successIds.length} > 0 THEN NOW() ELSE last_send_at END
+        first_send_at = CASE WHEN ${sentTransitioned} > 0 THEN COALESCE(first_send_at, NOW()) ELSE first_send_at END,
+        last_send_at = CASE WHEN ${sentTransitioned} > 0 THEN NOW() ELSE last_send_at END
       WHERE id = ${campaignId}
     `);
   });
 
-  if (successIds.length > 0) {
-    try { pressureGuardSentAfterDeferTotal.inc({ campaign_id: campaignId }, successIds.length); } catch {}
+  if (sentTransitioned > 0) {
+    try { pressureGuardSentAfterDeferTotal.inc({ campaign_id: campaignId }, sentTransitioned); } catch {}
   }
   // Prom counter stays best-effort (telemetry, not a persisted business
   // counter); the persisted campaigns.aged_forced_count is now bumped
@@ -1795,18 +1838,22 @@ export async function drainCampaign(campaignId: string): Promise<void> {
     try { pressureGuardAgedForceSendsTotal.inc(agedDelivered); } catch {}
   }
 
-  logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${successIds.length}, failed=${failedIds.length}, ambiguous=${ambiguousIds.length}, deferred=${losers.length}, dropped=${dropIds.length}, aged_force_delivered=${agedDelivered}`);
+  const notTransitioned = successIds.length + failedIds.length + (guardOn ? ambiguousIds.length : 0)
+    - (sentTransitioned + failedTransitioned + ambiguousTransitioned);
+  if (notTransitioned > 0) {
+    logger.warn(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId}: ${notTransitioned} drained row(s) were no longer 'attempting' at finalize (closed concurrently) — counters bumped from the ${sentTransitioned + failedTransitioned + ambiguousTransitioned} row(s) actually transitioned`);
+  }
+  logger.info(`[PRESSURE_GUARD_WORKER] Campaign ${campaignId} drained: sent=${sentTransitioned} (orange/wanadoo=${orangeWanadooDelivered}), failed=${failedTransitioned}, ambiguous=${ambiguousTransitioned}, deferred=${losers.length}, dropped=${dropIds.length}, aged_force_delivered=${agedDelivered}`);
 
   // Task #165: push a near-real-time SSE event so the campaigns-list
   // progress bar updates within ~1s of each drain wave instead of having
   // to wait for the next 10s TanStack poll. Bump the running deltas by
-  // the finalize-transaction mutations (which match the in-memory id
-  // lists) and emit via the shared helper.
-  sentDelta += successIds.length;
+  // the finalize-transaction mutations and emit via the shared helper.
+  sentDelta += sentTransitioned;
   // Ambiguous rows are persisted as status='failed', so they move the same SSE
   // segments as plain failures (empty when the guard is OFF → unchanged).
-  failedDelta += failedIds.length + ambiguousIds.length;
-  pendingDelta -= successIds.length + failedIds.length + ambiguousIds.length;
+  failedDelta += failedTransitioned + ambiguousTransitioned;
+  pendingDelta -= sentTransitioned + failedTransitioned + ambiguousTransitioned;
   emitProgress("sending");
 
   await completeCampaignAfterPressureDrain(campaignId, campaignDeadlineForce, emitProgress);

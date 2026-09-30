@@ -41,3 +41,4 @@
 - [Checking client UI without a browser session](wizard-component-ssr-smoke.md) — screenshots stop at the password login; verify components via SSR render / Vite dev transform instead.
 - [DB-backed tests on dev Neon](db-backed-tests-dev-neon.md) — NEON_DATABASE_URL is a PgBouncer pooler (session SET unreliable), ~150 ms/statement; table-wide queries only in a throwaway schema with qualified names.
 - [Brand unsub thresholds are alert-only](brand-unsub-alert-only.md) — never block/pause on the brand count; read it via the non-throwing notice (raw evaluator throws until bootstrap).
+- [Deferred-drain claims vs orphan grace](deferred-claim-orphan-grace.md) — parked rows keep an old sent_at; re-stamp at claim or the hourly orphan sweep fails in-flight sends; finalize from RETURNING rows.

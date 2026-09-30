@@ -20,3 +20,8 @@ Treat retained send rows as a lower bound, never as exact lifetime truth. Orange
 **Why:** `campaign_sends` is retention-purged, including partially purged campaigns, while current retention settings and cached timestamps cannot prove that no older rows were already deleted. Direct assignment can silently replace valid lifetime counters with zero or a partial total.
 
 **How to apply:** Never decrease lifetime sent counters from surviving send rows. Paginate complaint detections separately from send rows, deduplicate by subscriber with bounded indexed seeks, and expose a durable preservation metric when surviving total sends are below the persisted lifetime count.
+Every path that flips `campaign_sends` rows to `sent` must bump `orange_wanadoo_sent_count` in the same statement as `sent_count` — there are three (per-send, batch finalizer, pressure-guard drain), and the drain was missed for months.
+
+**Why:** The complaint dot is `complaints / orange_wanadoo_sent_count` from cached columns (0.4 % orange, 0.6 % red) while the modal recomputes live, so a denominator that misses drained Orange/Wanadoo sends shows a red dot at a real 0.08 % — and Smart-segment campaigns route most of their audience through the drain. The 15-minute recent reconciler is fill-only and may abort on its 5 s budget, and the historical walk is one-shot, so the gap does not self-heal.
+
+**How to apply:** Count Orange/Wanadoo from the rows the UPDATE actually transitioned (RETURNING) with the SQL rule `lower(split_part(email,'@',2)) IN ('orange.fr','wanadoo.fr')`. Repair terminal campaigns with `scripts/reconcile-orange-wanadoo-campaign-counters.ts --since=YYYY-MM-DD` (dry-run first; CAS + terminal-status guarded), never a table-wide UPDATE.

@@ -34,3 +34,8 @@ tests/orange-test-jobs-postgres.test.ts for the pattern).
 - `pool.query`'s callback path goes through `pool.connect(cb)`; a `vi.spyOn`
   on `connect` that ignores the callback argument would hang `pool.query`.
   Only spy while the code under test uses the promise form.
+- Nullsink-MTA tests share port 2525 and the server starts lazily on the
+  first send, rejecting concurrent starts ("start already in progress"):
+  drive drains with `PRESSURE_GUARD_SMTP_CONCURRENCY=1` set before import,
+  stop the server in afterAll, and expect clashes when two nullsink files
+  run in the same vitest invocation.
