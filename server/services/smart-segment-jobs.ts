@@ -400,12 +400,13 @@ function brandLabelFor(params: SmartSegmentAnalysisRequest, evidence: SmartSegme
 }
 
 /**
- * Attaches ONE segment of an analysis to a draft, exclusively: the other
- * segments created from the same analysis are nested audiences of the same
- * proposal (recommendation ⊂ « with similar brands »), so attaching two of
- * them would double the overlap for nothing — the previous choice is
- * detached. Returns null when the campaign is not a draft any more (a live
- * audience is never changed here).
+ * Attaches ONE segment of an analysis to a draft, exclusively: the
+ * recommendation and the variant of one analysis overlap (nested audiences),
+ * and the « similar brands » segment is an alternative to compare with them,
+ * not an add-on — so attaching two of them would stack overlapping or
+ * competing audiences for nothing; the previous choice is detached. Returns
+ * null when the campaign is not a draft any more (a live audience is never
+ * changed here).
  */
 async function attachExclusively(
   client: PoolClient,
@@ -456,7 +457,8 @@ async function attachExclusively(
  *
  * `attach` (default: true for a single index, false otherwise) binds at most
  * one proposal to the campaign; the other segments of the same analysis are
- * detached from it, since the proposals are nested audiences.
+ * detached from it (one proposal per analysis: recommendation and variant
+ * overlap, the « similar brands » segment is compared with them, not added).
  */
 export async function materializeSmartSegmentProposal(
   id: string,
@@ -494,7 +496,7 @@ export async function materializeSmartSegmentProposal(
     if (!requested.length) throw new SmartSegmentError("BAD_INDEX", "Indice de proposition invalide.", 400);
     const attach = input.attach ?? requested.length === 1;
     if (attach && requested.length > 1) {
-      throw new SmartSegmentError("ATTACH_ONE", "Une seule proposition peut être attachée à la campagne : les propositions d'une même analyse sont des audiences imbriquées.", 400);
+      throw new SmartSegmentError("ATTACH_ONE", "Une seule proposition d'une même analyse peut être attachée à la campagne : recommandation et variante se recouvrent, et le segment « marques similaires » se compare à elles au lieu de s'y ajouter.", 400);
     }
 
     const existing: SmartSegmentCreatedSegment[] = Array.isArray(row.created_segments) ? [...row.created_segments] : [];

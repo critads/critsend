@@ -21,14 +21,19 @@ export const SMART_SEGMENT_REUSE_WINDOW_MS = 6 * 60 * 60 * 1000;
 export const SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS = 6;
 /** Upper bound of « similar brand » refs an analysis may carry (candidates + manual additions). */
 export const SMART_SEGMENT_MAX_SIMILAR_REFS = 8;
-/** Proposals per analysis: recommendation, variant, and « with similar brands » when those blocks exist. */
+/** Proposals per analysis: recommendation, variant, and the « similar brands only » segment when those blocks exist. */
 export const SMART_SEGMENT_MAX_PROPOSALS = 3;
-/** Role of a proposal, derived by the server from the blocks actually used (never declared by the model). */
+/**
+ * Role of a proposal, derived by the server from the blocks actually used
+ * (never declared by the model). `similar_brands` = a segment made of
+ * similar_refs_* blocks only (60-day actives holding a similar-brand ref,
+ * optionally the lapsed/dormant bands), never the recommendation widened.
+ */
 export type SmartSegmentProposalKind = "recommendation" | "variant" | "similar_brands";
 export const SMART_SEGMENT_PROPOSAL_KIND_LABELS: Record<SmartSegmentProposalKind, string> = {
   recommendation: "Recommandation",
   variant: "Variante",
-  similar_brands: "Avec marques similaires",
+  similar_brands: "Marques similaires uniquement",
 };
 /** Subscriber ref as typed by an operator (exact-case once normalised to uppercase). */
 export const smartSegmentRefSchema = z.string().trim().min(1).max(32).regex(/^[A-Za-z0-9_-]+$/, "Ref invalide");
@@ -148,10 +153,12 @@ export const smartSegmentMaterializeRequestSchema = z.object({
   campaignId: campaignReferenceIdSchema.nullable().optional(),
   proposalIndexes: z.array(z.number().int().min(0).max(SMART_SEGMENT_MAX_PROPOSALS - 1)).min(1).max(SMART_SEGMENT_MAX_PROPOSALS).optional(),
   /**
-   * Proposals of one analysis are nested audiences (recommendation ⊂ « with
-   * similar brands »): at most ONE of them is attached to the campaign, and
-   * attaching it detaches the others created from the same analysis. false =
-   * create the segments only. Default true (one index) for older clients.
+   * At most ONE proposal of an analysis is attached to the campaign: the
+   * recommendation and the variant overlap (nested audiences), and the
+   * « similar brands » segment is meant to be compared with them, not stacked
+   * on top. Attaching one detaches the others created from the same analysis.
+   * false = create the segments only. Default true (one index) for older
+   * clients.
    */
   attach: z.boolean().optional(),
 });

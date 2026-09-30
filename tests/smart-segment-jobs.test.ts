@@ -509,7 +509,7 @@ describe("materializeSmartSegmentProposal", () => {
     clientQueries.length = 0;
     await materializeSmartSegmentProposal(id, { campaignId: null, proposalIndexes: [0, 1] }, { now });
     expect(statements()).toEqual(["BEGIN", "SELECT id, fingerprint,", "COMMIT"]);
-    // Attaching two nested proposals at once is refused before any write.
+    // Attaching two proposals of one analysis at once is refused before any write.
     await expect(materializeSmartSegmentProposal(id, { campaignId: "camp-draft", proposalIndexes: [0, 1], attach: true }, { now }))
       .rejects.toMatchObject({ code: "ATTACH_ONE", status: 400 });
     expect(campaignSegments).toHaveLength(0);

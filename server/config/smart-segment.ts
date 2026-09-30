@@ -21,7 +21,11 @@ function envInt(name: string, fallback: number, min: number, max = Number.MAX_SA
 export const SMART_SEGMENT_DEFAULT_MODEL = "claude-sonnet-4-5";
 // v2 (task #315): 1 to 3 segments, mandatory « with similar brands » segment
 // when similar_refs_* blocks exist.
-export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v2";
+// v3 (task #336): that last segment is made of similar_refs_* blocks ONLY
+// (no general active block mixed in); the recommendation and the variant
+// never use similar_refs_*. The version is part of the 6 h reuse key, so a
+// v2 analysis is never served to a request made after this change.
+export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v3";
 /** Prompt of the « similar brands » web-search lookup; part of the persisted result key. */
 export const SMART_SEGMENT_SIMILAR_PROMPT_VERSION = "similar-brands-v1";
 

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { normalizeSimilarRefs, smartSegmentAnalysisIdentity } from "../shared/smart-segment";
+import { SMART_SEGMENT_PROPOSAL_KIND_LABELS, normalizeSimilarRefs, smartSegmentAnalysisIdentity } from "../shared/smart-segment";
 import {
   clampComplaintCapPercent,
   complaintRateColor,
@@ -100,9 +100,18 @@ describe("Smart segment source wiring", () => {
     expect(component).not.toContain("candidate.lift");
   });
 
-  it("labels proposals by their server-derived kind and attaches ONE nested proposal at a time (no bulk create)", () => {
+  it("labels proposals by their server-derived kind and attaches ONE proposal of an analysis at a time (no bulk create)", () => {
     expect(component).toContain("SMART_SEGMENT_PROPOSAL_KIND_LABELS[segment.kind]");
-    // Nested audiences: one exclusive « Utiliser » per card, plus « Créer sans attacher ».
+    // The third segment is labelled by what it contains, not as the recommendation widened.
+    expect(SMART_SEGMENT_PROPOSAL_KIND_LABELS.similar_brands).toBe("Marques similaires uniquement");
+    expect(SMART_SEGMENT_PROPOSAL_KIND_LABELS.similar_brands).not.toMatch(/^Avec /);
+    // The wizard note explains the exclusive attach without calling every proposal a nested audience.
+    expect(component).toContain("Une seule proposition d'une même analyse est attachée à la campagne");
+    expect(component).toContain("en choisir une autre détache la précédente");
+    expect(component).not.toContain("audiences imbriquées");
+    expect(component).not.toContain("« avec marques similaires »");
+    expect(component).toContain("Cette sélection sert au segment « marques similaires uniquement »");
+    // One exclusive « Utiliser » per card, plus « Créer sans attacher ».
     expect(component).toContain("materializeMutation.mutate({ index, attach: true })");
     expect(component).toContain("materializeMutation.mutate({ index, attach: false })");
     expect(component).toContain('data-testid={`button-smart-segment-create-only-${index}`}');

@@ -416,9 +416,13 @@ describe("generateSmartSegmentProposal", () => {
   });
 });
 
-// ====== Task #315 — third « with similar brands » segment ======
+// ====== Task #315 / #336 — third « similar brands only » segment ======
 
-/** Evidence whose operator selected one similar brand (4TUI): the dossier then carries similar_refs_* blocks. */
+/**
+ * Evidence whose operator selected one similar brand (4TUI): the dossier then
+ * carries similar_refs_active and, thanks to a reliable « opened 61–180 d »
+ * cohort, similar_refs_lapsed (the dormant band stays omitted).
+ */
 function makeSimilarEvidence(): SmartSegmentEvidence {
   const similarBrand = { ...brand, verticalRefs: [], similarRefs: ["4TUI"] };
   const rates = aggregateCohortRates([
@@ -431,87 +435,165 @@ function makeSimilarEvidence(): SmartSegmentEvidence {
     { axis: "ref_relation", cohort: "extension", delivered: 10_000, humanClickers: 200, botClickers: 0, complaints: 12 },
     { axis: "ref_relation", cohort: "similar", delivered: 20_000, humanClickers: 400, botClickers: 0, complaints: 20 },
     { axis: "ref_relation", cohort: "none", delivered: 99_000, humanClickers: 900, botClickers: 0, complaints: 40 },
+    { axis: "recency", cohort: "opened_61_180d", delivered: 20_000, humanClickers: 100, botClickers: 0, complaints: 12 },
   ]);
   const { projectable: definitions } = splitProjectableBlocks(buildBlockLibrary(similarBrand), rates);
   const availability: Record<string, number> = {
     clickers_6plus: 3_000, clickers_4plus: 6_000, clickers_1plus: 25_000, warm_openers: 90_000,
-    brand_core_refs: 40_000, brand_extension_refs: 8_000, similar_refs_active: 15_000,
+    brand_core_refs: 40_000, brand_extension_refs: 8_000, similar_refs_active: 15_000, similar_refs_lapsed: 9_000,
   };
   const blocks = definitions.map((definition) => projectBlock(definition, availability[definition.id] ?? 0, rates, "brand", { "6+": 3_000, "4-5": 3_000, "2-3": 9_000, "1": 10_000 }));
-  return { ...makeEvidence(), brand: similarBrand, cohortRates: rates, blocks, similarBrands: [{ ref: "4TUI", brandName: "TUI" }] };
+  return { ...makeEvidence(), brand: similarBrand, cohortRates: rates, blocks, recencyCalibration: { level: "brand", campaignIds: ["camp-old"] }, similarBrands: [{ ref: "4TUI", brandName: "TUI" }] };
 }
 
-function threeSegments(withSimilar: boolean): string {
-  const segments = [
+type FixtureSegment = { name: string; children: unknown[]; blocksUsed: string[] };
+
+/** The « similar brands » segment as expected since task #336: similar_refs_* blocks only. */
+const SIMILAR_ONLY: FixtureSegment = { name: "Marques similaires", children: [{ block: "similar_refs_active" }], blocksUsed: ["similar_refs_active"] };
+/** The pre-#336 composition: the recommendation widened to the similar refs (now refused). */
+const SIMILAR_MIXED: FixtureSegment = {
+  name: "Avec marques similaires",
+  children: [{ type: "group", combinator: "OR", children: [{ block: "clickers_6plus" }, { block: "similar_refs_active" }] }],
+  blocksUsed: ["clickers_6plus", "similar_refs_active"],
+};
+
+function threeSegments(similar: FixtureSegment | false): string {
+  const segments: FixtureSegment[] = [
     { name: "Cliqueurs très actifs", children: [{ block: "clickers_6plus" }], blocksUsed: ["clickers_6plus"] },
     { name: "Variante volumique", children: [{ block: "clickers_4plus" }], blocksUsed: ["clickers_4plus"] },
   ];
-  if (withSimilar) {
-    segments.push({ name: "Avec marques similaires", children: [{ type: "group", combinator: "OR", children: [{ block: "clickers_6plus" }, { block: "similar_refs_active" }] } as unknown as { block: string }], blocksUsed: ["clickers_6plus", "similar_refs_active"] });
-  }
+  if (similar) segments.push(similar);
   return JSON.stringify({
     segments: segments.map((segment) => ({
       name: segment.name,
       rules: { version: 2, root: { type: "group", combinator: "AND", children: segment.children } },
       blocksUsed: segment.blocksUsed,
-      rationale: "Le socle des cliqueurs assidus, élargi ou non aux marques proches retenues par l'opérateur.",
+      rationale: "Le socle des cliqueurs assidus d'un côté, les porteurs de refs des marques proches retenues par l'opérateur de l'autre.",
       warnings: [],
     })),
   });
 }
 
-describe("third segment « with similar brands »", () => {
+/** Fake recount telling the similar-ref audiences (they carry 4TUI) apart from the general ones. */
+const measureSimilarAware = () => measureAs((rules) => (JSON.stringify(rules).includes("4TUI") ? 12_000 : 3_000));
+
+describe("third segment « similar brands only »", () => {
   it("tells the model about the mandatory last segment only through the prompt, with 1 to 3 segments", () => {
-    const prompt = buildSmartSegmentPrompt(makeSimilarEvidence(), params, null);
+    const evidence = makeSimilarEvidence();
+    expect(evidence.blocks.map((block) => block.id)).toEqual(expect.arrayContaining(["similar_refs_active", "similar_refs_lapsed"]));
+    const prompt = buildSmartSegmentPrompt(evidence, params, null);
     expect(prompt.system).toContain("1 à 3 segments");
-    expect(prompt.system).toContain("tu DOIS ajouter, en DERNIER, un segment « avec marques similaires »");
+    expect(prompt.system).toContain("tu DOIS ajouter, en DERNIER, un segment « marques similaires » composé UNIQUEMENT de blocs similar_refs_*");
     expect(prompt.user).toContain("similar_refs_active");
     expect(prompt.user).toContain('"marquesSimilaires":[{"ref":"4TUI","nom":"TUI"}]');
+  });
+
+  it("no longer asks for the recommendation widened to the similar refs, and keeps those blocks out of the recommendation and the variant", () => {
+    const prompt = buildSmartSegmentPrompt(makeSimilarEvidence(), params, null);
+    expect(prompt.system).not.toContain("élargie");
+    expect(prompt.system).not.toContain("avec marques similaires");
+    // The widening scale of the recommendation stops at the vertical.
+    expect(prompt.system).not.toContain("puis les porteurs de refs de marques similaires");
+    expect(prompt.system).toContain("puis les porteurs des refs de la marque, puis la verticale");
+    expect(prompt.system).toContain("Ni la recommandation ni la variante n'utilisent de bloc similar_refs_*");
+    // Optional bands only when present in the dossier and under the cap; general blocks named as forbidden.
+    expect(prompt.system).toContain("similar_refs_active est obligatoire");
+    expect(prompt.system).toContain("seulement s'ils figurent dans le dossier et si le plafond de plaintes le permet");
+    expect(prompt.system).toContain("ni clickers_*, ni warm_openers, ni openers_vertical, ni brand_*, ni vertical_*");
   });
 
   it("derives the kinds from the blocks actually used: similar_refs_* wins, then first = recommendation, rest = variants", () => {
     const kinds = assignProposalKinds([
       { blocksUsed: ["clickers_6plus"] },
-      { blocksUsed: ["clickers_6plus", "similar_refs_active"] },
+      { blocksUsed: ["similar_refs_active"] },
       { blocksUsed: ["clickers_4plus"] },
     ]).map((segment) => segment.kind);
     expect(kinds).toEqual(["recommendation", "similar_brands", "variant"]);
     expect(assignProposalKinds([{ blocksUsed: ["similar_refs_lapsed"] }])[0].kind).toBe("similar_brands");
   });
 
-  it("accepts three segments and types the last one as the similar-brands segment", async () => {
+  it("accepts three segments and types the last one (similar_refs_active alone) as the similar-brands segment", async () => {
     const evidence = makeSimilarEvidence();
-    const validated = await validateProposal(threeSegments(true), evidence, params, measureAs((rules) => (JSON.stringify(rules).includes("4TUI") ? 12_000 : 3_000)));
+    const validated = await validateProposal(threeSegments(SIMILAR_ONLY), evidence, params, measureSimilarAware());
     expect(validated.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
-    expect(validated.segments[2].blocksUsed).toEqual(["clickers_6plus", "similar_refs_active"]);
-    expect(validated.segments[2].audienceCount).toBe(12_000);
+    const similar = validated.segments[2];
+    expect(similar.blocksUsed).toEqual(["similar_refs_active"]);
+    expect(similar.audienceCount).toBe(12_000);
+    // Readable rules: 60-day activity AND one of the similar refs, plus the mandatory exclusions — no general active block.
+    expect(similar.readableRules.join("\n")).toContain("A ouvert ou cliqué dans les 60 derniers jours");
+    expect(similar.readableRules.join("\n")).toContain("A la ref « 4TUI »");
+    expect(similar.readableRules.join("\n")).not.toMatch(/cliqueur (très )?actif|a cliqué dans les 60 derniers jours/i);
+    expect(similar.injectedExclusions.length).toBeGreaterThan(0);
+  });
+
+  it("accepts the similar segment widened to its own lapsed band (similar_refs_active + similar_refs_lapsed)", async () => {
+    const evidence = makeSimilarEvidence();
+    const withLapsed: FixtureSegment = {
+      name: "Marques similaires, actifs et ouverts 61–180 j",
+      children: [{ type: "group", combinator: "OR", children: [{ block: "similar_refs_active" }, { block: "similar_refs_lapsed" }] }],
+      blocksUsed: ["similar_refs_active", "similar_refs_lapsed"],
+    };
+    const validated = await validateProposal(threeSegments(withLapsed), evidence, params, measureSimilarAware());
+    expect(validated.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
+    expect(validated.segments[2].blocksUsed).toEqual(["similar_refs_active", "similar_refs_lapsed"]);
+  });
+
+  it("refuses a similar segment mixing general blocks before any recount, naming the blocks to remove", async () => {
+    const evidence = makeSimilarEvidence();
+    const measure = vi.fn(measureSimilarAware());
+    const error = await validateProposal(threeSegments(SIMILAR_MIXED), evidence, params, measure).catch((e) => e);
+    expect(error).toBeInstanceOf(ModelOutputRejected);
+    expect(error.reasons.some((reason: string) => reason.startsWith("segment 3 : ") && reason.includes("composé UNIQUEMENT de blocs similar_refs_*") && reason.includes("retire clickers_6plus"))).toBe(true);
+    // The mixed segment left no valid similar segment behind: the model is told what to add.
+    expect(error.message).toContain("aucun segment « marques similaires » valide");
+    expect(error.message).toContain("composé UNIQUEMENT du bloc similar_refs_active");
+    expect(error.message).toContain("similar_refs_lapsed");
+    expect(error.message).not.toContain("élargie");
+    // Only the two general segments were recounted: never the mixed one.
+    expect(measure).toHaveBeenCalledTimes(2);
+    for (const [rules] of measure.mock.calls) expect(JSON.stringify(rules)).not.toContain("4TUI");
+  });
+
+  it("lists every general block to remove when the model mixed several of them", async () => {
+    const evidence = makeSimilarEvidence();
+    const widened: FixtureSegment = {
+      name: "Tout le monde",
+      children: [{ type: "group", combinator: "OR", children: [{ block: "clickers_4plus" }, { block: "warm_openers" }, { block: "similar_refs_active" }, { block: "similar_refs_lapsed" }] }],
+      blocksUsed: ["clickers_4plus", "warm_openers", "similar_refs_active", "similar_refs_lapsed"],
+    };
+    const error = await validateProposal(threeSegments(widened), evidence, params, measureSimilarAware()).catch((e) => e);
+    expect(error).toBeInstanceOf(ModelOutputRejected);
+    expect(error.message).toContain("retire clickers_4plus, warm_openers");
+    expect(error.message).toContain("conservé(s) : similar_refs_active, similar_refs_lapsed");
   });
 
   it("rejects a proposal without the similar-brands segment, with actionable feedback", async () => {
     const evidence = makeSimilarEvidence();
     const error = await validateProposal(threeSegments(false), evidence, params, measureAs(3_000)).catch((e) => e);
     expect(error).toBeInstanceOf(ModelOutputRejected);
-    expect(error.message).toContain("aucun segment « avec marques similaires » valide");
-    expect(error.message).toContain("similar_refs_active");
+    expect(error.message).toContain("aucun segment « marques similaires » valide");
+    expect(error.message).toContain("composé UNIQUEMENT du bloc similar_refs_active");
+    expect(error.message).toContain("sans aucun bloc général");
   });
 
   it("shows the similar-brands segment last whatever the model's order, so index 0 is always the recommendation", async () => {
     const evidence = makeSimilarEvidence();
-    const parsed = JSON.parse(threeSegments(true)) as { segments: unknown[] };
+    const parsed = JSON.parse(threeSegments(SIMILAR_ONLY)) as { segments: unknown[] };
     parsed.segments.reverse();
-    const validated = await validateProposal(JSON.stringify(parsed), evidence, params, measureAs((rules) => (JSON.stringify(rules).includes("4TUI") ? 12_000 : 3_000)));
+    const validated = await validateProposal(JSON.stringify(parsed), evidence, params, measureSimilarAware());
     expect(validated.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
-    expect(validated.segments.map((segment) => segment.name)).toEqual(["Variante volumique", "Cliqueurs très actifs", "Avec marques similaires"]);
+    expect(validated.segments.map((segment) => segment.name)).toEqual(["Variante volumique", "Cliqueurs très actifs", "Marques similaires"]);
     expect(validated.segments[2].audienceCount).toBe(12_000);
   });
 
   it("refuses a proposal made only of similar-brands segments: the recommendation without them must exist to compare", async () => {
     const evidence = makeSimilarEvidence();
-    const parsed = JSON.parse(threeSegments(true)) as { segments: unknown[] };
+    const parsed = JSON.parse(threeSegments(SIMILAR_ONLY)) as { segments: unknown[] };
     const similarOnly = JSON.stringify({ segments: [parsed.segments[2]] });
     const error = await validateProposal(similarOnly, evidence, params, measureAs(12_000)).catch((e) => e);
     expect(error).toBeInstanceOf(ModelOutputRejected);
     expect(error.message).toContain("aucune recommandation sans marques similaires");
+    expect(error.message).toContain("le segment « marques similaires » composé UNIQUEMENT du bloc similar_refs_active");
   });
 
   it("does not demand a similar segment when the dossier has no similar_refs_* block", async () => {
@@ -521,7 +603,7 @@ describe("third segment « with similar brands »", () => {
   });
 
   it("refuses a fourth segment", async () => {
-    const parsed = JSON.parse(threeSegments(true)) as { segments: unknown[] };
+    const parsed = JSON.parse(threeSegments(SIMILAR_ONLY)) as { segments: unknown[] };
     parsed.segments.push(parsed.segments[0]);
     await expect(validateProposal(JSON.stringify(parsed), makeSimilarEvidence(), params, measureAs(3_000))).rejects.toBeInstanceOf(ModelOutputRejected);
   });
@@ -531,15 +613,29 @@ describe("third segment « with similar brands »", () => {
     const prompts: string[] = [];
     const callModel = vi.fn(async (prompt: { system: string; user: string }) => {
       prompts.push(prompt.user);
-      return { text: threeSegments(prompts.length > 1), model: "claude-test", stopReason: "end_turn", usage: { inputTokens: 1_000, outputTokens: 300 } };
+      return { text: threeSegments(prompts.length > 1 ? SIMILAR_ONLY : false), model: "claude-test", stopReason: "end_turn", usage: { inputTokens: 1_000, outputTokens: 300 } };
     });
-    const proposal = await generateSmartSegmentProposal(evidence, params, {
-      callModel,
-      measureAudience: measureAs((rules) => (JSON.stringify(rules).includes("4TUI") ? 12_000 : 3_000)),
-    }, { model: "claude-config" });
+    const proposal = await generateSmartSegmentProposal(evidence, params, { callModel, measureAudience: measureSimilarAware() }, { model: "claude-config" });
     expect(callModel).toHaveBeenCalledTimes(2);
-    expect(prompts[1]).toContain("aucun segment « avec marques similaires » valide");
+    expect(prompts[1]).toContain("aucun segment « marques similaires » valide");
     expect(proposal.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
+    expect(proposal.promptVersion).toBe("smart-segment-v3");
+  });
+
+  it("end to end: a mixed similar segment is sent back with the blocks to remove, the pure one is then accepted with kinds", async () => {
+    const evidence = makeSimilarEvidence();
+    const prompts: string[] = [];
+    const callModel = vi.fn(async (prompt: { system: string; user: string }) => {
+      prompts.push(prompt.user);
+      return { text: threeSegments(prompts.length > 1 ? SIMILAR_ONLY : SIMILAR_MIXED), model: "claude-test", stopReason: "end_turn", usage: { inputTokens: 1_000, outputTokens: 300 } };
+    });
+    const proposal = await generateSmartSegmentProposal(evidence, params, { callModel, measureAudience: measureSimilarAware() }, { model: "claude-config" });
+    expect(callModel).toHaveBeenCalledTimes(2);
+    expect(prompts[1]).toContain("refusée par le serveur");
+    expect(prompts[1]).toContain("retire clickers_6plus");
+    expect(proposal.attempts).toBe(2);
+    expect(proposal.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
+    expect(proposal.segments[2].blocksUsed).toEqual(["similar_refs_active"]);
   });
 
   it("end to end: a proposal still lacking the similar segment on the last attempt fails the analysis instead of being kept", async () => {
@@ -549,7 +645,20 @@ describe("third segment « with similar brands »", () => {
     expect(callModel).toHaveBeenCalledTimes(2);
     expect(error).toBeInstanceOf(SmartSegmentError);
     expect(error).toMatchObject({ code: "AI_PROPOSAL_REJECTED", status: 422 });
-    expect(error.message).toContain("aucun segment « avec marques similaires » valide");
+    expect(error.message).toContain("aucun segment « marques similaires » valide");
     expect(error.message).toContain("retirez des marques similaires");
+  });
+
+  it("end to end: two mixed similar segments in a row fail the analysis explicitly (422) — never a success with the wrong segment", async () => {
+    const evidence = makeSimilarEvidence();
+    const measure = vi.fn(measureSimilarAware());
+    const callModel = vi.fn(async () => ({ text: threeSegments(SIMILAR_MIXED), model: "claude-test", stopReason: "end_turn", usage: null }));
+    const error = await generateSmartSegmentProposal(evidence, params, { callModel, measureAudience: measure }, { model: "claude-config" }).catch((e) => e);
+    expect(callModel).toHaveBeenCalledTimes(2);
+    expect(error).toBeInstanceOf(SmartSegmentError);
+    expect(error).toMatchObject({ code: "AI_PROPOSAL_REJECTED", status: 422 });
+    expect(error.message).toContain("retire clickers_6plus");
+    expect(error.message).toContain("retirez des marques similaires");
+    for (const [rules] of measure.mock.calls) expect(JSON.stringify(rules)).not.toContain("4TUI");
   });
 });

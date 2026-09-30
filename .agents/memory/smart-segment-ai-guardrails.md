@@ -61,9 +61,12 @@ silently keeps precedence over detection with stale refs/tags/history).
 **Why:** an analysis made for another name/cap/pre-draft context could otherwise be attached to
 the current draft (500 ms debounce + un-fenced mutation results made this reachable).
 
-## 3a. Proposals of one analysis are NESTED audiences: attach one, never several
-Rule: the 2–3 proposals overlap (recommended ⊂ wider ⊂ with similar brands), so a campaign holds
-at most ONE of them. `materialize` takes `attach` + exactly one index (2+ with attach ⇒ 400);
+## 3a. One proposal of an analysis is attached, never several
+Rule: the recommendation and the variant overlap (nested audiences); the « marques similaires
+uniquement » segment is made of similar_refs_* blocks ONLY (since 2026-09-30 — it is NOT the
+recommendation widened any more, a similar segment mixing general blocks is refused before the
+recount) and is compared with them, not stacked. Either way a campaign holds at most ONE
+proposal per analysis. `materialize` takes `attach` + exactly one index (2+ with attach ⇒ 400);
 server-side attach on a draft detaches the analysis' sibling segments in the same transaction
 under the campaign row lock and re-mirrors the legacy `campaigns.segment_id` to the
 lowest-position row; the response lists `detachedSegmentIds`; « Créer sans attacher » only
@@ -171,6 +174,8 @@ passed down per call; the client query for a billed lookup must never refetch on
 (refresh = new query key nonce, so its retries stay refreshes). The 6 h analysis reuse is keyed
 by prompt version too: a prompt change must not be invisible until the reuse window expires.
 When the operator selected similar brands, the proposal must hold a recommendation without them
-AND, last, a « avec marques similaires » segment on EVERY model attempt; after the last attempt the
-analysis fails (422, with « retirez des marques similaires ») — never a success with a note. The
+AND, last, a « marques similaires » segment of similar_refs_* blocks only, on EVERY model attempt
+(the operator wants to measure those brands' contribution apart, so general actives never mix
+in); after the last attempt the analysis fails (422, with « retirez des marques similaires ») —
+never a success with a note. Any change to that composition = prompt version bump (6 h reuse). The
 web-search `max_uses` is a per-answer ceiling: a paused turn that spent it is not continued.

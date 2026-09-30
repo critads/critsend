@@ -49,8 +49,8 @@ type Props = {
   /**
    * The operator chose a proposal for the campaign: `segments` join the
    * audience and `detachSegmentIds` (the other proposals created from the
-   * same analysis — nested audiences) leave it. Not called for « Créer sans
-   * attacher ».
+   * same analysis — one proposal per analysis is attached) leave it. Not
+   * called for « Créer sans attacher ».
    */
   onSegmentsCreated: (segments: Array<{ id: string; name: string }>, change: { detachSegmentIds: string[] }) => void;
 };
@@ -271,8 +271,9 @@ export function SmartSegmentAssistant({
     for (const entry of sessionCreated) byIndex.set(entry.index, entry);
     return [...byIndex.values()].sort((a, b) => a.index - b.index);
   }, [analysis?.createdSegments, sessionCreated]);
-  // The proposals of one analysis are nested audiences: at most one of them
-  // sits in the campaign. Which one is read from the wizard's own selection.
+  // At most one proposal of an analysis sits in the campaign (recommendation
+  // and variant overlap; the « similar brands » segment is compared with
+  // them, not added). Which one is read from the wizard's own selection.
   const attachedIndex = createdEntries.find((entry) => selectedSegmentIds.includes(entry.id))?.index ?? null;
 
   const materializeMutation = useMutation({
@@ -400,7 +401,7 @@ export function SmartSegmentAssistant({
               <div>
                 <p className="text-sm font-medium">Marques similaires</p>
                 <p className="text-xs text-muted-foreground">
-                  Marques de l'annuaire (Brands + REF) que l'IA juge comparables à « {similarBrandName} » après une recherche web : même secteur, même cible. Cochées par défaut ; décochez pour les écarter. Cette sélection sert au segment « avec marques similaires ».
+                  Marques de l'annuaire (Brands + REF) que l'IA juge comparables à « {similarBrandName} » après une recherche web : même secteur, même cible. Cochées par défaut ; décochez pour les écarter. Cette sélection sert au segment « marques similaires uniquement » : les actifs 60 j porteurs d'une de ces refs, sans les actifs généraux de la recommandation.
                 </p>
               </div>
               {similarBrandsQuery.data && (
@@ -556,7 +557,7 @@ export function SmartSegmentAssistant({
               </div>
             </div>;
           })}
-          {analysis.proposal.segments.length >= 2 && <p className="text-xs text-muted-foreground">Les propositions d'une même analyse sont des audiences imbriquées : une seule est attachée à la campagne, en choisir une autre détache la précédente.</p>}
+          {analysis.proposal.segments.length >= 2 && <p className="text-xs text-muted-foreground">Une seule proposition d'une même analyse est attachée à la campagne (recommandation et variante se recouvrent ; le segment « marques similaires uniquement » se compare à elles) : en choisir une autre détache la précédente.</p>}
 
           {evidence && <div className="rounded-lg border bg-background">
             <Button type="button" variant="ghost" className="w-full justify-between" onClick={() => setProofsOpen((open) => !open)}>Preuves {proofsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>
