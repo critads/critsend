@@ -308,17 +308,29 @@ export function SmartSegmentAssistant({
         proposalIndexes: indexes,
         attach,
       });
-      return { data: await response.json() as MaterializeResponse, indexes, attach };
+      // The server binds the segments itself only when the analysis was made
+      // for this very (saved) campaign; otherwise the wizard attaches them
+      // through its own save path.
+      const serverBindable = !!analysis.params.campaignId && analysis.params.campaignId === campaignId;
+      return { data: await response.json() as MaterializeResponse, indexes, attach, analysisId: analysis.id, requestKey: currentRequestKey.current, serverBindable };
     },
-    onSuccess: ({ data, indexes, attach }) => {
-      const createdBefore = new Set(createdEntries.map((entry) => entry.index));
-      const newlyCreated = indexes.some((index) => !createdBefore.has(index));
+    onSuccess: ({ data, indexes, attach, analysisId: forAnalysisId, requestKey: forRequestKey, serverBindable }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
+      // Late response: the inputs or the displayed analysis changed while the
+      // request was in flight — the segments exist, but they belong to another
+      // analysis than the one on screen and must not enter this audience.
+      if (forAnalysisId !== analysis?.id || forRequestKey !== currentRequestKey.current) return;
       setSessionCreated((current) => [...current.filter((entry) => !indexes.includes(entry.index)), ...data.segments]);
       setCheckedIndexes((current) => current.filter((index) => !indexes.includes(index)));
+      if (attach && serverBindable && !data.attached) {
+        // The saved campaign is no longer a draft: the server refused to touch
+        // its audience, so the wizard must not pretend otherwise.
+        setError("La campagne n'est plus un brouillon : les segments ont été créés mais pas attachés.");
+        return;
+      }
       // Additive: the chosen proposals join the audience next to what is
       // already attached (the server did the same on a saved draft).
       if (attach) onSegmentsCreated(data.segments);
-      if (newlyCreated) queryClient.invalidateQueries({ queryKey: ["/api/segments"] });
       setError(null);
     },
     onError: (cause) => setError(parseSmartSegmentApiError(cause).message),

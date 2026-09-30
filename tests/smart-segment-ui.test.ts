@@ -128,6 +128,10 @@ describe("Smart segment source wiring", () => {
     expect(component).toMatch(/proposalIndexes: indexes,\s+attach,/);
     expect(component).toContain("if (attach) onSegmentsCreated(data.segments);");
     expect(component).not.toContain("detachSegmentIds");
+    // A late response (inputs or analysis changed meanwhile) never enters the audience,
+    // and a refused server attach (campaign left 'draft') is reported, not mirrored.
+    expect(component).toContain("if (forAnalysisId !== analysis?.id || forRequestKey !== currentRequestKey.current) return;");
+    expect(component).toContain("if (attach && serverBindable && !data.attached) {");
   });
 
   it("renders the « Projeté vs réel » panel for the resolved brand", () => {
