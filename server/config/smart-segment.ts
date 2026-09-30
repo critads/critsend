@@ -23,9 +23,13 @@ export const SMART_SEGMENT_DEFAULT_MODEL = "claude-sonnet-4-5";
 // when similar_refs_* blocks exist.
 // v3 (task #336): that last segment is made of similar_refs_* blocks ONLY
 // (no general active block mixed in); the recommendation and the variant
-// never use similar_refs_*. The version is part of the 6 h reuse key, so a
-// v2 analysis is never served to a request made after this change.
-export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v3";
+// never use similar_refs_*.
+// v4 (task #340): the similar segment systematically includes the 61–180 d
+// band (similar_refs_lapsed) next to the actives; the server composes it and
+// only falls back to the actives when the cap or the dossier forbids the
+// band, saying so. The version is part of the 6 h reuse key, so an older
+// analysis is never served to a request made after these changes.
+export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v4";
 /** Prompt of the « similar brands » web-search lookup; part of the persisted result key. */
 export const SMART_SEGMENT_SIMILAR_PROMPT_VERSION = "similar-brands-v1";
 

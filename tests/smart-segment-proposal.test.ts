@@ -7,7 +7,7 @@ vi.mock("../server/db", () => ({ pool: {}, db: {}, getPoolSaturation: () => 0 })
 vi.mock("../server/repositories/campaign-repository", () => ({ getSegmentPerformanceHistoryCandidates: vi.fn() }));
 
 import type { SmartSegmentAnalysisRequest, SmartSegmentEvidence } from "../shared/smart-segment";
-import { SMART_SEGMENT_ALLOWED_OPERATORS } from "../shared/smart-segment";
+import { ORANGE_WANADOO_COHORT, SMART_SEGMENT_ALLOWED_OPERATORS } from "../shared/smart-segment";
 import {
   auditModelRules,
   buildSmartSegmentPrompt,
@@ -17,6 +17,10 @@ import {
   validateAndProject,
   validateProposal,
   assignProposalKinds,
+  composeSimilarSegment,
+  expectedSimilarComposition,
+  narrowingWarning,
+  similarCompositionNotes,
   ModelOutputRejected,
 } from "../server/services/smart-segment-proposal";
 import type { AudienceMeasure } from "../server/services/smart-segment-projection";
@@ -422,8 +426,13 @@ describe("generateSmartSegmentProposal", () => {
  * Evidence whose operator selected one similar brand (4TUI): the dossier then
  * carries similar_refs_active and, thanks to a reliable « opened 61–180 d »
  * cohort, similar_refs_lapsed (the dormant band stays omitted).
+ * `lapsedComplaints` tunes that cohort's complaints; null removes the cohort
+ * altogether, so the lapsed block is omitted from the dossier.
+ * `orangeWanadooComplaints` adds the Orange/Wanadoo domain cohort (20 000
+ * delivered) so the recount's orangeWanadooCount is projected and enforced.
  */
-function makeSimilarEvidence(): SmartSegmentEvidence {
+function makeSimilarEvidence(options: { lapsedComplaints?: number | null; orangeWanadooComplaints?: number } = {}): SmartSegmentEvidence {
+  const lapsedComplaints = options.lapsedComplaints === undefined ? 12 : options.lapsedComplaints;
   const similarBrand = { ...brand, verticalRefs: [], similarRefs: ["4TUI"] };
   const rates = aggregateCohortRates([
     { axis: "clicker_tier", cohort: "0", delivered: 100_000, humanClickers: 500, botClickers: 0, complaints: 60 },
@@ -435,15 +444,24 @@ function makeSimilarEvidence(): SmartSegmentEvidence {
     { axis: "ref_relation", cohort: "extension", delivered: 10_000, humanClickers: 200, botClickers: 0, complaints: 12 },
     { axis: "ref_relation", cohort: "similar", delivered: 20_000, humanClickers: 400, botClickers: 0, complaints: 20 },
     { axis: "ref_relation", cohort: "none", delivered: 99_000, humanClickers: 900, botClickers: 0, complaints: 40 },
-    { axis: "recency", cohort: "opened_61_180d", delivered: 20_000, humanClickers: 100, botClickers: 0, complaints: 12 },
+    ...(lapsedComplaints === null ? [] : [{ axis: "recency" as const, cohort: "opened_61_180d", delivered: 20_000, humanClickers: 100, botClickers: 0, complaints: lapsedComplaints }]),
+    ...(options.orangeWanadooComplaints === undefined ? [] : [{ axis: "domain_group" as const, cohort: ORANGE_WANADOO_COHORT, delivered: 20_000, humanClickers: 200, botClickers: 0, complaints: options.orangeWanadooComplaints }]),
   ]);
-  const { projectable: definitions } = splitProjectableBlocks(buildBlockLibrary(similarBrand), rates);
+  const { projectable: definitions, omitted } = splitProjectableBlocks(buildBlockLibrary(similarBrand), rates);
   const availability: Record<string, number> = {
     clickers_6plus: 3_000, clickers_4plus: 6_000, clickers_1plus: 25_000, warm_openers: 90_000,
     brand_core_refs: 40_000, brand_extension_refs: 8_000, similar_refs_active: 15_000, similar_refs_lapsed: 9_000,
   };
   const blocks = definitions.map((definition) => projectBlock(definition, availability[definition.id] ?? 0, rates, "brand", { "6+": 3_000, "4-5": 3_000, "2-3": 9_000, "1": 10_000 }));
-  return { ...makeEvidence(), brand: similarBrand, cohortRates: rates, blocks, recencyCalibration: { level: "brand", campaignIds: ["camp-old"] }, similarBrands: [{ ref: "4TUI", brandName: "TUI" }] };
+  return {
+    ...makeEvidence(),
+    brand: similarBrand,
+    cohortRates: rates,
+    blocks,
+    omittedBlocks: omitted,
+    recencyCalibration: lapsedComplaints === null ? null : { level: "brand", campaignIds: ["camp-old"] },
+    similarBrands: [{ ref: "4TUI", brandName: "TUI" }],
+  };
 }
 
 type FixtureSegment = { name: string; children: unknown[]; blocksUsed: string[] };
@@ -496,9 +514,13 @@ describe("third segment « similar brands only »", () => {
     expect(prompt.system).not.toContain("puis les porteurs de refs de marques similaires");
     expect(prompt.system).toContain("puis les porteurs des refs de la marque, puis la verticale");
     expect(prompt.system).toContain("Ni la recommandation ni la variante n'utilisent de bloc similar_refs_*");
-    // Optional bands only when present in the dossier and under the cap; general blocks named as forbidden.
+    // Active + 61–180 d band systematically (server-composed), dormant optional under the cap; general blocks named as forbidden.
     expect(prompt.system).toContain("similar_refs_active est obligatoire");
-    expect(prompt.system).toContain("seulement s'ils figurent dans le dossier et si le plafond de plaintes le permet");
+    expect(prompt.system).toContain("similar_refs_lapsed (dernière ouverture ou clic il y a 61 à 180 jours) y est ajouté en OR dès qu'il figure dans le dossier");
+    expect(prompt.system).toContain("le serveur l'ajoute lui-même si tu l'omets et ne le retire que si le plafond de plaintes l'impose");
+    expect(prompt.system).toContain("similar_refs_dormant peut s'y ajouter (en OR) seulement s'il figure dans le dossier et si le plafond de plaintes le permet");
+    // The recommendation/variant rule about lapsed blocks no longer reads as applying to the similar segment.
+    expect(prompt.system).toContain("le segment « marques similaires » suit sa propre règle, ci-dessous");
     expect(prompt.system).toContain("ni clickers_*, ni warm_openers, ni openers_vertical, ni brand_*, ni vertical_*");
   });
 
@@ -512,18 +534,213 @@ describe("third segment « similar brands only »", () => {
     expect(assignProposalKinds([{ blocksUsed: ["similar_refs_lapsed"] }])[0].kind).toBe("similar_brands");
   });
 
-  it("accepts three segments and types the last one (similar_refs_active alone) as the similar-brands segment", async () => {
+  it("accepts three segments, types the last one as the similar-brands segment and widens it to the 61–180 d band when the model sent the actives alone", async () => {
     const evidence = makeSimilarEvidence();
-    const validated = await validateProposal(threeSegments(SIMILAR_ONLY), evidence, params, measureSimilarAware());
+    const measure = vi.fn(measureSimilarAware());
+    const validated = await validateProposal(threeSegments(SIMILAR_ONLY), evidence, params, measure);
     expect(validated.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
     const similar = validated.segments[2];
+    // Server composition: actives 60 d OR last open/click 61–180 d, both holding a similar ref.
+    expect(similar.blocksUsed).toEqual(["similar_refs_active", "similar_refs_lapsed"]);
+    expect(similar.audienceCount).toBe(12_000);
+    expect(similar.rules.root.combinator).toBe("AND");
+    expect(similar.rules.root.children[0]).toMatchObject({ type: "group", combinator: "OR" });
+    const readable = similar.readableRules.join("\n");
+    expect(readable).toContain("A ouvert ou cliqué dans les 60 derniers jours");
+    expect(readable).toContain("Dernière ouverture ou clic il y a 61 à 180 jours");
+    expect(readable).toContain("A la ref « 4TUI »");
+    expect(readable).not.toMatch(/cliqueur (très )?actif|a cliqué dans les 60 derniers jours/i);
+    expect(similar.injectedExclusions.length).toBeGreaterThan(0);
+    // The operator is told the server added the band; nothing was dropped.
+    expect(similar.warnings[0]).toContain("Bande « ouverts 61–180 j » ajoutée par le serveur au segment « marques similaires »");
+    expect(similar.warnings.join("\n")).not.toContain("écartée");
+    // One recount per segment: the widened composition is the preferred one, no fallback measured.
+    expect(measure).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(measure.mock.calls[2][0])).toContain("engaged_lapsed");
+  });
+
+  it("keeps the model's own exclusions in the server-composed similar segment, hoisted in AND next to the bands", async () => {
+    const evidence = makeSimilarEvidence();
+    const withExclusion: FixtureSegment = {
+      name: "Marques similaires hors extension US",
+      children: [{ block: "similar_refs_active" }, { type: "condition", field: "refs", operator: "not_has_ref", value: "US4AF", value2: null }],
+      blocksUsed: ["similar_refs_active"],
+    };
+    const validated = await validateProposal(threeSegments(withExclusion), evidence, params, measureSimilarAware());
+    const similar = validated.segments[2];
+    expect(similar.blocksUsed).toEqual(["similar_refs_active", "similar_refs_lapsed"]);
+    const topLevel = similar.rules.root.children;
+    expect(topLevel[0]).toMatchObject({ type: "group", combinator: "OR" });
+    expect(topLevel.some((child) => child.type === "condition" && child.operator === "not_has_ref" && child.value === "US4AF")).toBe(true);
+    expect(similar.readableRules.join("\n")).toContain("US4AF");
+  });
+
+  it("falls back to the actives alone, and says which band it dropped and why, when the 61–180 d band pushes the similar segment over the cap", async () => {
+    // A complaint-heavy 61–180 d cohort: the widened composition breaks the cap, the actives alone hold it.
+    const evidence = makeSimilarEvidence({ lapsedComplaints: 200 });
+    expect(evidence.blocks.map((block) => block.id)).toContain("similar_refs_lapsed");
+    const general = measureAs(3_000);
+    const measure = vi.fn(async (rules: SegmentRulesV2): Promise<AudienceMeasure> => {
+      const json = JSON.stringify(rules);
+      if (!json.includes("4TUI")) return general(rules);
+      if (json.includes("engaged_lapsed")) {
+        return { total: 40_000, tierCounts: { "0": 40_000 }, recencyCounts: { engaged_60d: 12_000, opened_61_180d: 28_000 }, orangeWanadooCount: 0 };
+      }
+      return { total: 12_000, tierCounts: { "0": 12_000 }, recencyCounts: { engaged_60d: 12_000 }, orangeWanadooCount: 0 };
+    });
+    const validated = await validateProposal(threeSegments(SIMILAR_ONLY), evidence, params, measure);
+    const similar = validated.segments[2];
+    expect(similar.kind).toBe("similar_brands");
     expect(similar.blocksUsed).toEqual(["similar_refs_active"]);
     expect(similar.audienceCount).toBe(12_000);
-    // Readable rules: 60-day activity AND one of the similar refs, plus the mandatory exclusions — no general active block.
-    expect(similar.readableRules.join("\n")).toContain("A ouvert ou cliqué dans les 60 derniers jours");
-    expect(similar.readableRules.join("\n")).toContain("A la ref « 4TUI »");
-    expect(similar.readableRules.join("\n")).not.toMatch(/cliqueur (très )?actif|a cliqué dans les 60 derniers jours/i);
-    expect(similar.injectedExclusions.length).toBeGreaterThan(0);
+    expect(similar.projectedComplaintRate).toBeLessThanOrEqual(params.complaintCap);
+    expect(similar.readableRules.join("\n")).not.toContain("61 à 180 jours");
+    // First warning: the band dropped, the figure that broke the cap, the cap, what would include it, what remains.
+    expect(similar.warnings[0]).toMatch(/^Bande « ouverts 61–180 j » écartée du segment « marques similaires » : avec, le taux de plaintes projeté atteindrait \d+\.\d{3} %, au-dessus du plafond 0\.450 % ; /);
+    expect(similar.warnings[0]).toContain("Le segment reste sur les actifs 60 j.");
+    expect(similar.warnings.join("\n")).not.toContain("ajoutée par le serveur");
+    // Two general recounts + the widened similar one in the first wave, then the narrowed similar composition only.
+    expect(measure).toHaveBeenCalledTimes(4);
+    expect(JSON.stringify(measure.mock.calls[3][0])).not.toContain("engaged_lapsed");
+    expect(JSON.stringify(measure.mock.calls[3][0])).toContain("4TUI");
+  });
+
+  it("rejects the similar segment, without a silent narrowing, when even the actives alone break the cap (here through Orange/Wanadoo)", async () => {
+    // Heavy 61–180 d cohort AND a heavy Orange/Wanadoo cohort: the widened composition breaks the audience cap,
+    // the actives alone still break the Orange/Wanadoo cap — no composition is acceptable.
+    const evidence = makeSimilarEvidence({ lapsedComplaints: 200, orangeWanadooComplaints: 200 });
+    const general = measureAs(3_000);
+    const measure = vi.fn(async (rules: SegmentRulesV2): Promise<AudienceMeasure> => {
+      const json = JSON.stringify(rules);
+      if (!json.includes("4TUI")) return general(rules);
+      if (json.includes("engaged_lapsed")) {
+        return { total: 40_000, tierCounts: { "0": 40_000 }, recencyCounts: { engaged_60d: 12_000, opened_61_180d: 28_000 }, orangeWanadooCount: 9_000 };
+      }
+      return { total: 12_000, tierCounts: { "0": 12_000 }, recencyCounts: { engaged_60d: 12_000 }, orangeWanadooCount: 3_000 };
+    });
+    const error = await validateProposal(threeSegments(SIMILAR_ONLY), evidence, params, measure).catch((e) => e);
+    expect(error).toBeInstanceOf(ModelOutputRejected);
+    expect(error.reasons.some((reason: string) => reason.startsWith("segment 3 : taux de plaintes projeté sur Orange/Wanadoo") && reason.includes("> plafond 0.450 %"))).toBe(true);
+    expect(error.message).toContain("aucun segment « marques similaires » valide");
+    expect(measure).toHaveBeenCalledTimes(4);
+  });
+
+  it("rejects the similar segment when the fallback to the actives keeps nobody — an empty fallback never passes as a segment", async () => {
+    const evidence = makeSimilarEvidence({ lapsedComplaints: 200 });
+    const general = measureAs(3_000);
+    // Every similar-ref holder left after the exclusions is in the 61–180 d band: widened over the cap, actives alone empty.
+    const measure = vi.fn(async (rules: SegmentRulesV2): Promise<AudienceMeasure> => {
+      const json = JSON.stringify(rules);
+      if (!json.includes("4TUI")) return general(rules);
+      if (json.includes("engaged_lapsed")) {
+        return { total: 28_000, tierCounts: { "0": 28_000 }, recencyCounts: { engaged_60d: 0, opened_61_180d: 28_000 }, orangeWanadooCount: 0 };
+      }
+      return { total: 0, tierCounts: {}, recencyCounts: {}, orangeWanadooCount: 0 };
+    });
+    const error = await validateProposal(threeSegments(SIMILAR_ONLY), evidence, params, measure).catch((e) => e);
+    expect(error).toBeInstanceOf(ModelOutputRejected);
+    expect(error.reasons).toContain("segment 3 : effectif nul sur les actifs 60 j après exclusions obligatoires, et la composition plus large (ouverts 61–180 j en plus) dépasse le plafond de plaintes");
+    expect(measure).toHaveBeenCalledTimes(4);
+  });
+
+  it("removes the model's sentences citing a band the server dropped, and says so", async () => {
+    const evidence = makeSimilarEvidence({ lapsedComplaints: 200 });
+    const general = measureAs(3_000);
+    const measure = vi.fn(async (rules: SegmentRulesV2): Promise<AudienceMeasure> => {
+      const json = JSON.stringify(rules);
+      if (!json.includes("4TUI")) return general(rules);
+      if (json.includes("engaged_lapsed")) {
+        return { total: 40_000, tierCounts: { "0": 40_000 }, recencyCounts: { engaged_60d: 12_000, opened_61_180d: 28_000 }, orangeWanadooCount: 0 };
+      }
+      return { total: 12_000, tierCounts: { "0": 12_000 }, recencyCounts: { engaged_60d: 12_000 }, orangeWanadooCount: 0 };
+    });
+    const parsed = JSON.parse(threeSegments({ ...SIMILAR_ONLY, children: [{ block: "similar_refs_active" }, { block: "similar_refs_lapsed" }], blocksUsed: ["similar_refs_active", "similar_refs_lapsed"] })) as { segments: Array<{ rationale: string; warnings: string[] }> };
+    parsed.segments[2].rationale = "Les porteurs de refs des marques proches, actifs ou non. Le bloc similar_refs_lapsed élargit aux ouvreurs plus anciens. Ce segment mesure l'apport de ces marques à part.";
+    parsed.segments[2].warnings = ["La bande similar_refs_lapsed est moins réactive que les actifs."];
+    const validated = await validateProposal(JSON.stringify(parsed), evidence, params, measure);
+    const similar = validated.segments[2];
+    expect(similar.blocksUsed).toEqual(["similar_refs_active"]);
+    expect(similar.rationale).not.toContain("similar_refs_lapsed");
+    expect(similar.rationale).toContain("Les porteurs de refs des marques proches, actifs ou non.");
+    expect(similar.rationale).toContain("Ce segment mesure l'apport de ces marques à part.");
+    expect(similar.warnings.join("\n")).not.toContain("moins réactive");
+    expect(similar.warnings).toContain("Des phrases du modèle citant une bande écartée par le serveur ont été retirées.");
+  });
+
+  it("adds the actives itself, and says so, when the model sent the 61–180 d band alone", async () => {
+    const evidence = makeSimilarEvidence();
+    const lapsedOnly: FixtureSegment = { name: "Marques similaires anciennes", children: [{ block: "similar_refs_lapsed" }], blocksUsed: ["similar_refs_lapsed"] };
+    const validated = await validateProposal(threeSegments(lapsedOnly), evidence, params, measureSimilarAware());
+    const similar = validated.segments[2];
+    expect(similar.blocksUsed).toEqual(["similar_refs_active", "similar_refs_lapsed"]);
+    expect(similar.warnings[0]).toBe("Bande « actifs 60 j » ajoutée par le serveur au segment « marques similaires » : sa composition attendue réunit les actifs 60 j et les ouverts 61–180 j porteurs d'une ref de marque similaire.");
+  });
+
+  it("keeps the similar segment on the actives, and says why, when the dossier has no reliable 61–180 d cohort", async () => {
+    const evidence = makeSimilarEvidence({ lapsedComplaints: null });
+    expect(evidence.blocks.map((block) => block.id)).not.toContain("similar_refs_lapsed");
+    expect(evidence.omittedBlocks?.map((block) => block.id)).toContain("similar_refs_lapsed");
+    const measure = vi.fn(measureSimilarAware());
+    const validated = await validateProposal(threeSegments(SIMILAR_ONLY), evidence, params, measure);
+    const similar = validated.segments[2];
+    expect(similar.blocksUsed).toEqual(["similar_refs_active"]);
+    expect(similar.warnings[0]).toMatch(/^Bande « ouverts 61–180 j » des marques similaires non incluse : aucune cohorte « ouverts 61–180 j » fiable/);
+    expect(similar.warnings[0]).toContain("historique insuffisant pour la projeter");
+    expect(similar.warnings[0]).toContain("le segment reste sur les actifs 60 j");
+    expect(measure).toHaveBeenCalledTimes(3);
+    // The refusals then describe the composition the dossier allows.
+    expect(expectedSimilarComposition(evidence)).toBe("composé UNIQUEMENT du bloc similar_refs_active, sans aucun bloc général");
+    const error = await validateProposal(threeSegments(false), evidence, params, measureAs(3_000)).catch((e) => e);
+    expect(error.message).toContain("composé UNIQUEMENT du bloc similar_refs_active, sans aucun bloc général");
+  });
+
+  it("composes the ladder widest-first: dormant (model's choice) → active + lapsed → active alone", () => {
+    const evidence = makeSimilarEvidence();
+    const lapsed = evidence.blocks.find((block) => block.id === "similar_refs_lapsed")!;
+    const dormantRules = group("AND", [condition("engagement", "dormant"), group("OR", [condition("refs", "has_ref", "4TUI")])]);
+    const withDormant: SmartSegmentEvidence = {
+      ...evidence,
+      blocks: [...evidence.blocks, { ...lapsed, id: "similar_refs_dormant", label: "Porteurs de refs de marques similaires — dormants > 180 j", rules: dormantRules }],
+    };
+    const modelRules: SegmentRulesV2 = { version: 2, root: group("AND", [group("OR", [JSON.parse(JSON.stringify(lapsed.rules)), dormantRules])]) };
+    const composed = composeSimilarSegment(["similar_refs_lapsed", "similar_refs_dormant"], modelRules, withDormant);
+    expect(composed.variants.map((variant) => variant.blocksUsed)).toEqual([
+      ["similar_refs_active", "similar_refs_lapsed", "similar_refs_dormant"],
+      ["similar_refs_active", "similar_refs_lapsed"],
+      ["similar_refs_active"],
+    ]);
+    // The model left the actives out: the server added them and says so for the kept composition.
+    expect(composed.addedBlocks).toEqual(["similar_refs_active"]);
+    expect(composed.lapsedUnavailable).toBeNull();
+    expect(similarCompositionNotes(composed, composed.variants[0].blocksUsed)).toEqual([
+      "Bande « actifs 60 j » ajoutée par le serveur au segment « marques similaires » : sa composition attendue réunit les actifs 60 j et les ouverts 61–180 j porteurs d'une ref de marque similaire.",
+    ]);
+    const fromActiveOnly = composeSimilarSegment(["similar_refs_active"], { version: 2, root: group("AND", [JSON.parse(JSON.stringify(evidence.blocks[0].rules))]) }, withDormant);
+    expect(fromActiveOnly.variants.map((variant) => variant.blocksUsed)).toEqual([["similar_refs_active", "similar_refs_lapsed"], ["similar_refs_active"]]);
+    expect(fromActiveOnly.addedBlocks).toEqual(["similar_refs_lapsed"]);
+    // Once the cap drops the added band, the note disappears (the narrowing sentence tells the story instead).
+    expect(similarCompositionNotes(fromActiveOnly, ["similar_refs_active"])).toEqual([]);
+    // Without the 61–180 d band in the dossier, the note names the bands really kept (dormant included).
+    const withoutLapsed = makeSimilarEvidence({ lapsedComplaints: null });
+    const dormantEvidence: SmartSegmentEvidence = { ...withoutLapsed, blocks: [...withoutLapsed.blocks, { ...evidence.blocks[0], id: "similar_refs_dormant", rules: dormantRules }] };
+    const activeAndDormant = composeSimilarSegment(["similar_refs_active", "similar_refs_dormant"], { version: 2, root: group("AND", [dormantRules]) }, dormantEvidence);
+    expect(activeAndDormant.variants.map((variant) => variant.blocksUsed)).toEqual([["similar_refs_active", "similar_refs_dormant"], ["similar_refs_active"]]);
+    expect(similarCompositionNotes(activeAndDormant, ["similar_refs_active", "similar_refs_dormant"])[0]).toMatch(/non incluse : .* — le segment reste sur les actifs 60 j et les dormants > 180 j\.$/);
+    expect(expectedSimilarComposition(withDormant)).toBe("composé UNIQUEMENT des blocs similar_refs_active et similar_refs_lapsed (en OR) (similar_refs_dormant en option, si le plafond le permet), sans aucun bloc général");
+  });
+
+  it("writes the narrowing sentence with the figure, the cap and the way out — audience rate or Orange/Wanadoo rate", () => {
+    const audience = narrowingWarning(["similar_refs_lapsed"], ["similar_refs_active"], { audienceRate: 0.0052, orangeWanadoo: null }, 0.0045);
+    expect(audience).toBe("Bande « ouverts 61–180 j » écartée du segment « marques similaires » : avec, le taux de plaintes projeté atteindrait 0.520 %, au-dessus du plafond 0.450 % ; un plafond ≥ 0.520 % l'inclurait. Le segment reste sur les actifs 60 j.");
+    const beyond = narrowingWarning(["similar_refs_dormant"], ["similar_refs_active", "similar_refs_lapsed"], { audienceRate: 0.0091, orangeWanadoo: null }, 0.0045);
+    expect(beyond).toContain("Bande « dormants > 180 j » écartée");
+    expect(beyond).toContain("au-delà même du plafond maximal (0.600 %)");
+    expect(beyond).toContain("Le segment reste sur les actifs 60 j et les ouverts 61–180 j.");
+    const orange = narrowingWarning(["similar_refs_lapsed"], ["similar_refs_active"], { audienceRate: null, orangeWanadoo: { rate: 0.0048, count: 4_200 } }, 0.0045);
+    expect(orange).toMatch(/le taux de plaintes projeté atteindrait 0\.480 % sur Orange\/Wanadoo \(4\s200 abonnés\), au-dessus du plafond 0\.450 % ; un plafond ≥ 0\.480 % l'inclurait\./);
+    // Both rates failing: the way out is the highest one, the ISP rate here.
+    const both = narrowingWarning(["similar_refs_lapsed"], ["similar_refs_active"], { audienceRate: 0.0047, orangeWanadoo: { rate: 0.0055, count: 4_200 } }, 0.0045);
+    expect(both).toMatch(/le taux de plaintes projeté atteindrait 0\.470 % et 0\.550 % sur Orange\/Wanadoo \(4\s200 abonnés\), au-dessus du plafond 0\.450 % ; un plafond ≥ 0\.550 % l'inclurait\./);
   });
 
   it("accepts the similar segment widened to its own lapsed band (similar_refs_active + similar_refs_lapsed)", async () => {
@@ -533,9 +750,13 @@ describe("third segment « similar brands only »", () => {
       children: [{ type: "group", combinator: "OR", children: [{ block: "similar_refs_active" }, { block: "similar_refs_lapsed" }] }],
       blocksUsed: ["similar_refs_active", "similar_refs_lapsed"],
     };
-    const validated = await validateProposal(threeSegments(withLapsed), evidence, params, measureSimilarAware());
+    const measure = vi.fn(measureSimilarAware());
+    const validated = await validateProposal(threeSegments(withLapsed), evidence, params, measure);
     expect(validated.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
     expect(validated.segments[2].blocksUsed).toEqual(["similar_refs_active", "similar_refs_lapsed"]);
+    // Already the expected composition: nothing added, nothing dropped, one recount.
+    expect(validated.segments[2].warnings.join("\n")).not.toMatch(/ajoutée par le serveur|écartée|non incluse/);
+    expect(measure).toHaveBeenCalledTimes(3);
   });
 
   it("refuses a similar segment mixing general blocks before any recount, naming the blocks to remove", async () => {
@@ -546,7 +767,7 @@ describe("third segment « similar brands only »", () => {
     expect(error.reasons.some((reason: string) => reason.startsWith("segment 3 : ") && reason.includes("composé UNIQUEMENT de blocs similar_refs_*") && reason.includes("retire clickers_6plus"))).toBe(true);
     // The mixed segment left no valid similar segment behind: the model is told what to add.
     expect(error.message).toContain("aucun segment « marques similaires » valide");
-    expect(error.message).toContain("composé UNIQUEMENT du bloc similar_refs_active");
+    expect(error.message).toContain("composé UNIQUEMENT des blocs similar_refs_active et similar_refs_lapsed (en OR), sans aucun bloc général");
     expect(error.message).toContain("similar_refs_lapsed");
     expect(error.message).not.toContain("élargie");
     // Only the two general segments were recounted: never the mixed one.
@@ -572,7 +793,7 @@ describe("third segment « similar brands only »", () => {
     const error = await validateProposal(threeSegments(false), evidence, params, measureAs(3_000)).catch((e) => e);
     expect(error).toBeInstanceOf(ModelOutputRejected);
     expect(error.message).toContain("aucun segment « marques similaires » valide");
-    expect(error.message).toContain("composé UNIQUEMENT du bloc similar_refs_active");
+    expect(error.message).toContain("composé UNIQUEMENT des blocs similar_refs_active et similar_refs_lapsed (en OR), sans aucun bloc général");
     expect(error.message).toContain("sans aucun bloc général");
   });
 
@@ -593,7 +814,7 @@ describe("third segment « similar brands only »", () => {
     const error = await validateProposal(similarOnly, evidence, params, measureAs(12_000)).catch((e) => e);
     expect(error).toBeInstanceOf(ModelOutputRejected);
     expect(error.message).toContain("aucune recommandation sans marques similaires");
-    expect(error.message).toContain("le segment « marques similaires » composé UNIQUEMENT du bloc similar_refs_active");
+    expect(error.message).toContain("le segment « marques similaires » composé UNIQUEMENT des blocs similar_refs_active et similar_refs_lapsed (en OR)");
   });
 
   it("does not demand a similar segment when the dossier has no similar_refs_* block", async () => {
@@ -619,7 +840,7 @@ describe("third segment « similar brands only »", () => {
     expect(callModel).toHaveBeenCalledTimes(2);
     expect(prompts[1]).toContain("aucun segment « marques similaires » valide");
     expect(proposal.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
-    expect(proposal.promptVersion).toBe("smart-segment-v3");
+    expect(proposal.promptVersion).toBe("smart-segment-v4");
   });
 
   it("end to end: a mixed similar segment is sent back with the blocks to remove, the pure one is then accepted with kinds", async () => {
@@ -635,7 +856,8 @@ describe("third segment « similar brands only »", () => {
     expect(prompts[1]).toContain("retire clickers_6plus");
     expect(proposal.attempts).toBe(2);
     expect(proposal.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
-    expect(proposal.segments[2].blocksUsed).toEqual(["similar_refs_active"]);
+    // The pure segment sent as actives alone is served widened to the 61–180 d band.
+    expect(proposal.segments[2].blocksUsed).toEqual(["similar_refs_active", "similar_refs_lapsed"]);
   });
 
   it("end to end: a proposal still lacking the similar segment on the last attempt fails the analysis instead of being kept", async () => {

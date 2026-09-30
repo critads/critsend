@@ -179,3 +179,25 @@ AND, last, a « marques similaires » segment of similar_refs_* blocks only, on 
 in); after the last attempt the analysis fails (422, with « retirez des marques similaires ») —
 never a success with a note. Any change to that composition = prompt version bump (6 h reuse). The
 web-search `max_uses` is a per-answer ceiling: a paused turn that spent it is not continued.
+
+## Similar segment is server-composed, fallbacks are never silent (Sept 2026)
+
+The « marques similaires » segment's composition is decided by the server, not the model: the
+active 60 d band + the 61–180 d band (whenever the dossier offers the block), dormant only when
+the model asked for it. The model's tree is rebuilt (bands in OR, its own exclusions hoisted in
+AND) so `blocksUsed` and the recounted rules always match for the projection. Fallback ladder
+(dormant → lapsed → actives) walks down only on a complaint-cap failure (audience OR
+Orange/Wanadoo), recounting the narrower composition lazily; every step down produces a visible
+sentence naming the band, the failing figure(s) and the cap that would include it, and model
+sentences citing a dropped band are removed. An empty audience is terminal at EVERY step (an
+empty fallback must not pass as a segment), and a band without a reliable recency cohort is
+absent from the dossier — reported, never projected.
+
+**Why:** the operator's request was "include 61–180 d systematically", but the complaint cap
+stays hard; a silent narrowing (or an accepted empty fallback) would hide why the selection is
+smaller than promised, and a band without its own cohort has no defensible complaint rate.
+
+**How to apply:** any new band or composition rule for that segment goes into
+`composeSimilarSegment` + `narrowingWarning`/`similarCompositionNotes`, with a prompt version
+bump; operator text about the composition must be derived from the composition finally kept,
+never from the preferred one.

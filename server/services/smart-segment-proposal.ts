@@ -8,6 +8,7 @@ import {
   DOMAIN_FAMILIES,
   RECENCY_BAND_LABELS,
   SMART_SEGMENT_ALLOWED_OPERATORS,
+  SMART_SEGMENT_COMPLAINT_HARD_CAP,
   SMART_SEGMENT_DISCLAIMER,
   describeRulesFr,
   smartSegmentModelOutputSchema,
@@ -25,6 +26,7 @@ import { SmartSegmentError } from "./smart-segment-evidence";
 import {
   ensureMandatoryExclusions,
   exceedsComplaintCap,
+  group,
   mandatoryExclusions,
   projectComposition,
   type AudienceMeasure,
@@ -81,8 +83,8 @@ export function buildSmartSegmentPrompt(
     "Chaque segment inclut au moins un bloc. Tu peux ajouter des conditions {\"type\":\"condition\",\"field\":...,\"operator\":...,\"value\":...,\"value2\":null} UNIQUEMENT pour exclure (not_has_ref, not_has_tag, not_received_campaign, not_opened_from_bot_ip, not_equals, unsubscribed_from_fewer_campaigns), avec les refs, tags et identifiants de campagne du dossier, placées en AND à côté des blocs (dans un OR, chaque branche doit contenir un bloc) : toute inclusion écrite à la main (has_ref, clicked_campaign, ends_with…) est refusée car non calibrée.",
     `Opérateurs autorisés : ${SMART_SEGMENT_ALLOWED_OPERATORS.join(", ")}. Le champ « engagement » porte les opérateurs d'engagement, « refs » has_ref / not_has_ref, « tags » not_has_tag seulement, « email » equals / not_equals / starts_with / ends_with.`,
     "Les exclusions obligatoires (IP de plainte, ref DEL, tags de désabonnement de la marque, famille de domaines, destinataires des envois récents) seront ajoutées par le serveur si tu les omets ; ne les contredis pas.",
-    "Stratégie : atteindre l'objectif de clics avec le taux de plaintes projeté le plus bas — d'abord les cliqueurs les plus actifs, puis les autres actifs 60 j, puis les porteurs des refs de la marque, puis la verticale ; n'élargis à un bloc suivant que si l'objectif n'est pas atteint. Les blocs « _lapsed » (ouverts 61–180 j) et « _dormant » (dormants > 180 j) portent des contacts sans activité 60 j : ils sont calibrés sur leur propre cohorte de récence, ne les ajoute que si les blocs actifs ne suffisent pas, prends d'abord la bande « _lapsed », et signale-le dans les mises en garde. Le premier segment est la recommandation ; un second segment optionnel propose une variante (plus sûre ou plus volumique). Ni la recommandation ni la variante n'utilisent de bloc similar_refs_* : ces blocs sont réservés au segment « marques similaires » décrit ci-dessous. Chaque segment doit rester sous le plafond de plaintes.",
-    "Marques similaires : si le dossier contient des blocs similar_refs_* (marques similaires retenues par l'opérateur), tu DOIS ajouter, en DERNIER, un segment « marques similaires » composé UNIQUEMENT de blocs similar_refs_* : similar_refs_active est obligatoire ; similar_refs_lapsed puis similar_refs_dormant peuvent s'y ajouter (en OR) seulement s'ils figurent dans le dossier et si le plafond de plaintes le permet. Aucun autre bloc n'y entre — ni clickers_*, ni warm_openers, ni openers_vertical, ni brand_*, ni vertical_* : ce segment isole les porteurs de refs de marques similaires pour que l'opérateur mesure leur apport à part, et le serveur refuse tout mélange. Ce segment doit lui aussi rester sous le plafond de plaintes. Sans bloc similar_refs_* dans le dossier, n'ajoute pas ce segment.",
+    "Stratégie : atteindre l'objectif de clics avec le taux de plaintes projeté le plus bas — d'abord les cliqueurs les plus actifs, puis les autres actifs 60 j, puis les porteurs des refs de la marque, puis la verticale ; n'élargis à un bloc suivant que si l'objectif n'est pas atteint. Les blocs « _lapsed » (ouverts 61–180 j) et « _dormant » (dormants > 180 j) portent des contacts sans activité 60 j : ils sont calibrés sur leur propre cohorte de récence ; dans la recommandation et la variante, ne les ajoute que si les blocs actifs ne suffisent pas, prends d'abord la bande « _lapsed », et signale-le dans les mises en garde (le segment « marques similaires » suit sa propre règle, ci-dessous). Le premier segment est la recommandation ; un second segment optionnel propose une variante (plus sûre ou plus volumique). Ni la recommandation ni la variante n'utilisent de bloc similar_refs_* : ces blocs sont réservés au segment « marques similaires » décrit ci-dessous. Chaque segment doit rester sous le plafond de plaintes.",
+    "Marques similaires : si le dossier contient des blocs similar_refs_* (marques similaires retenues par l'opérateur), tu DOIS ajouter, en DERNIER, un segment « marques similaires » composé UNIQUEMENT de blocs similar_refs_* : similar_refs_active est obligatoire, et similar_refs_lapsed (dernière ouverture ou clic il y a 61 à 180 jours) y est ajouté en OR dès qu'il figure dans le dossier — mets-le systématiquement, le serveur l'ajoute lui-même si tu l'omets et ne le retire que si le plafond de plaintes l'impose, en le signalant à l'opérateur ; similar_refs_dormant peut s'y ajouter (en OR) seulement s'il figure dans le dossier et si le plafond de plaintes le permet. Aucun autre bloc n'y entre — ni clickers_*, ni warm_openers, ni openers_vertical, ni brand_*, ni vertical_* : ce segment isole les porteurs de refs de marques similaires pour que l'opérateur mesure leur apport à part, et le serveur refuse tout mélange. Ce segment doit lui aussi rester sous le plafond de plaintes. Sans bloc similar_refs_* dans le dossier, n'ajoute pas ce segment.",
     "Les projections sont indicatives (créa, objet et heure d'envoi comptent) : dis-le dans les mises en garde quand c'est pertinent.",
     "IMPORTANT : name, rationale et warnings ne doivent contenir AUCUN chiffre (ni effectif, ni taux, ni pourcentage, ni date) : le serveur affiche lui-même les chiffres recomptés. Cite les blocs par leur identifiant et explique le raisonnement en mots ; toute phrase chiffrée sera supprimée.",
   ].join("\n");
@@ -412,7 +414,8 @@ export function sanitizeModelText(
   segment: { name: string; rationale: string; warnings: string[] },
   blocksUsed: string[],
   evidence: SmartSegmentEvidence,
-): { name: string; rationale: string; warnings: string[]; strippedSentences: number } {
+  options: { omitMentionsOf?: readonly string[] } = {},
+): { name: string; rationale: string; warnings: string[]; strippedSentences: number; droppedMentions: number } {
   const mask = (value: string) => {
     let masked = value;
     for (const block of evidence.blocks) {
@@ -420,20 +423,31 @@ export function sanitizeModelText(
     }
     return masked;
   };
+  // Blocks the server removed from the composition after the model wrote its
+  // text (a band dropped by the cap): a sentence citing one would describe a
+  // segment that is not the one shown.
+  const omitted = evidence.blocks.filter((block) => options.omitMentionsOf?.includes(block.id));
+  const mentionsOmitted = (sentence: string) => omitted.some((block) => sentence.includes(block.id) || sentence.includes(block.label));
   let strippedSentences = 0;
+  let droppedMentions = 0;
   const cleanSentences = (value: string): string => {
     const sentences = value.split(/(?<=[.!?;])\s+|\n+/);
     const kept = sentences.filter((sentence) => {
+      if (!sentence.trim()) return false;
+      if (mentionsOmitted(sentence)) {
+        droppedMentions += 1;
+        return false;
+      }
       const keep = !DIGIT.test(mask(sentence));
-      if (!keep && sentence.trim()) strippedSentences += 1;
+      if (!keep) strippedSentences += 1;
       return keep;
     });
     return kept.join(" ").replace(/\s+/g, " ").trim();
   };
-  const name = DIGIT.test(mask(segment.name)) ? compositionLabel(blocksUsed, evidence) : segment.name;
+  const name = DIGIT.test(mask(segment.name)) || mentionsOmitted(segment.name) ? compositionLabel(blocksUsed, evidence) : segment.name;
   const rationale = cleanSentences(segment.rationale);
   const warnings = segment.warnings.map(cleanSentences).filter(Boolean);
-  return { name, rationale, warnings, strippedSentences };
+  return { name, rationale, warnings, strippedSentences, droppedMentions };
 }
 
 /** Numeric explanation written by the server from the projection itself. */
@@ -510,9 +524,170 @@ export function similarBlockIds(evidence: Pick<SmartSegmentEvidence, "blocks">):
   return evidence.blocks.filter((block) => isSimilarBlockId(block.id)).map((block) => block.id);
 }
 
+/** Blocks of the « similar brands » segment, by recency band of the same similar-ref holders. */
+export const SIMILAR_ACTIVE_BLOCK_ID = "similar_refs_active";
+export const SIMILAR_LAPSED_BLOCK_ID = "similar_refs_lapsed";
+export const SIMILAR_DORMANT_BLOCK_ID = "similar_refs_dormant";
+
+/** Operator-facing band name of each similar_refs_* block (same labels as the recency cells). */
+const SIMILAR_BLOCK_BAND_LABELS: Record<string, string> = {
+  [SIMILAR_ACTIVE_BLOCK_ID]: RECENCY_BAND_LABELS.engaged_60d,
+  [SIMILAR_LAPSED_BLOCK_ID]: RECENCY_BAND_LABELS.opened_61_180d,
+  [SIMILAR_DORMANT_BLOCK_ID]: RECENCY_BAND_LABELS.dormant_180d,
+};
+
 /** Composition rule of the « similar brands » segment, quoted in every refusal that enforces it. */
 export const SIMILAR_SEGMENT_COMPOSITION_RULE =
-  "le segment « marques similaires » est composé UNIQUEMENT de blocs similar_refs_* (similar_refs_active obligatoire, similar_refs_lapsed / similar_refs_dormant en option), sans aucun bloc général";
+  "le segment « marques similaires » est composé UNIQUEMENT de blocs similar_refs_* (similar_refs_active et similar_refs_lapsed en OR dès que la bande 61–180 j figure dans le dossier, similar_refs_dormant en option), sans aucun bloc général";
+
+/**
+ * How the « similar brands » segment must be composed given the blocks the
+ * dossier offers, quoted in the refusals that ask the model to add or fix it.
+ */
+export function expectedSimilarComposition(evidence: Pick<SmartSegmentEvidence, "blocks">): string {
+  const ids = similarBlockIds(evidence);
+  const bands = [SIMILAR_ACTIVE_BLOCK_ID, SIMILAR_LAPSED_BLOCK_ID].filter((id) => ids.includes(id));
+  const mandatory = bands.length ? bands : ids.slice(0, 1);
+  const optional = ids.filter((id) => !mandatory.includes(id));
+  const core = mandatory.length > 1 ? `des blocs ${mandatory.join(" et ")} (en OR)` : `du bloc ${mandatory[0]}`;
+  return `composé UNIQUEMENT ${core}${optional.length ? ` (${optional.join(", ")} en option, si le plafond le permet)` : ""}, sans aucun bloc général`;
+}
+
+function isExclusionCondition(node: SegmentGroup["children"][number]): node is SegmentCondition {
+  return node.type === "condition" && RAW_EXCLUSION_OPERATORS.has((node as SegmentCondition).operator);
+}
+
+/**
+ * Exclusion conditions found anywhere in an expanded tree, de-duplicated.
+ * Block rules never carry an exclusion operator and the mandatory ones are
+ * injected later, so these are exactly the conditions the model wrote.
+ */
+export function collectExclusionConditions(root: SegmentGroup): SegmentCondition[] {
+  const seen = new Set<string>();
+  const out: SegmentCondition[] = [];
+  const walk = (node: SegmentGroup["children"][number]) => {
+    if (node.type === "group") {
+      for (const child of (node as SegmentGroup).children) walk(child);
+      return;
+    }
+    if (!isExclusionCondition(node)) return;
+    const key = JSON.stringify([node.field, node.operator, node.value, node.value2 ?? null]);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(JSON.parse(JSON.stringify(node)) as SegmentCondition);
+  };
+  walk(root);
+  return out;
+}
+
+export type SimilarSegmentVariant = { blocksUsed: string[]; rules: SegmentRulesV2 };
+export type SimilarComposition = {
+  /** By preference: the widest first; each next one drops the least essential band. */
+  variants: SimilarSegmentVariant[];
+  /** Bands of the expected composition the model had left out, added by the server. */
+  addedBlocks: string[];
+  /** Why the 61–180 d band is absent from the dossier, when it is (null when offered). */
+  lapsedUnavailable: string | null;
+};
+
+/** Composition of a segment the server does not re-compose (the model's tree, as is). */
+export function modelComposition(blocksUsed: readonly string[], rules: SegmentRulesV2): SimilarComposition {
+  return { variants: [{ blocksUsed: [...blocksUsed], rules }], addedBlocks: [], lapsedUnavailable: null };
+}
+
+/**
+ * Server-side composition of the « similar brands » segment. The operator's
+ * request fixes it: holders of a similar-brand ref active in the last 60
+ * days OR whose last open/click is 61–180 days old, whenever the dossier
+ * offers that band; the dormant band only on the model's initiative. The
+ * model's own exclusion conditions are kept, in AND next to the blocks —
+ * hoisted to the top level when it nested them, which can only narrow.
+ *
+ * Variants come by preference: the widest first, then without the dormant
+ * band, then the actives alone. The cap check walks them down and says which
+ * band it dropped and why — a band is never dropped silently, and never kept
+ * when the dossier cannot project it (the block is then absent).
+ */
+export function composeSimilarSegment(
+  blocksUsed: readonly string[],
+  modelRules: SegmentRulesV2,
+  evidence: SmartSegmentEvidence,
+): SimilarComposition {
+  const offered = new Map(evidence.blocks.filter((block) => isSimilarBlockId(block.id)).map((block) => [block.id, block]));
+  const active = offered.get(SIMILAR_ACTIVE_BLOCK_ID);
+  if (!active) {
+    // No active band in the dossier: nothing to compose around, keep the model's tree.
+    return modelComposition(blocksUsed, modelRules);
+  }
+  const lapsed = offered.get(SIMILAR_LAPSED_BLOCK_ID);
+  const lapsedUnavailable = lapsed
+    ? null
+    : evidence.omittedBlocks?.find((block) => block.id === SIMILAR_LAPSED_BLOCK_ID)?.reason ?? "aucune cohorte de récence fiable dans le calibrage";
+  const dormant = blocksUsed.includes(SIMILAR_DORMANT_BLOCK_ID) ? offered.get(SIMILAR_DORMANT_BLOCK_ID) : undefined;
+  const base = [active, ...(lapsed ? [lapsed] : [])];
+  const addedBlocks = base.map((block) => block.id).filter((id) => !blocksUsed.includes(id));
+  const ladder = [
+    ...(dormant ? [[...base, dormant]] : []),
+    base,
+    ...(lapsed ? [[active]] : []),
+  ];
+  const exclusions = collectExclusionConditions(modelRules.root);
+  const variants = ladder.map((blocks) => {
+    const blockRules = blocks.map((block) => JSON.parse(JSON.stringify(block.rules)) as SegmentGroup);
+    const inclusion = blockRules.length === 1 ? blockRules[0] : group("OR", blockRules);
+    return { blocksUsed: blocks.map((block) => block.id), rules: { version: 2 as const, root: group("AND", [inclusion, ...exclusions]) } };
+  });
+  return { variants, addedBlocks, lapsedUnavailable };
+}
+
+const bandLabels = (ids: readonly string[]) => ids.map((id) => SIMILAR_BLOCK_BAND_LABELS[id] ?? id);
+
+/**
+ * Operator sentences about the similar segment's composition finally kept:
+ * the bands the server added to the model's version (those still present —
+ * a band dropped by the cap is told by narrowingWarning instead) and the
+ * 61–180 d band the dossier could not offer.
+ */
+export function similarCompositionNotes(composed: SimilarComposition, keptBlocks: readonly string[]): string[] {
+  const notes: string[] = [];
+  const added = composed.addedBlocks.filter((id) => keptBlocks.includes(id));
+  if (added.length) {
+    const expected = [SIMILAR_ACTIVE_BLOCK_ID, ...(composed.lapsedUnavailable ? [] : [SIMILAR_LAPSED_BLOCK_ID])];
+    const plural = added.length > 1;
+    notes.push(`Bande${plural ? "s" : ""} « ${bandLabels(added).join(" » et « ")} » ajoutée${plural ? "s" : ""} par le serveur au segment « marques similaires » : sa composition attendue réunit les ${bandLabels(expected).join(" et les ")} porteurs d'une ref de marque similaire.`);
+  }
+  if (composed.lapsedUnavailable) {
+    notes.push(`Bande « ${SIMILAR_BLOCK_BAND_LABELS[SIMILAR_LAPSED_BLOCK_ID]} » des marques similaires non incluse : ${composed.lapsedUnavailable} (historique insuffisant pour la projeter) — le segment reste sur les ${bandLabels(keptBlocks).join(" et les ")}.`);
+  }
+  return notes;
+}
+
+/** Rates that broke the complaint cap for one composition (each present only when it fails). */
+export type CapFailureRates = { audienceRate: number | null; orangeWanadoo: { rate: number; count: number } | null };
+
+/**
+ * Sentence shown when a wider composition of the similar segment failed the
+ * complaint cap and the next one is retained: names the band dropped, the
+ * projected figure that broke the cap and what would include the band.
+ */
+export function narrowingWarning(
+  dropped: string[],
+  kept: string[],
+  failure: CapFailureRates,
+  complaintCap: number,
+): string {
+  const ow = failure.orangeWanadoo;
+  const owWhere = ow ? `${pct(ow.rate)} sur Orange/Wanadoo (${ow.count.toLocaleString("fr-FR")} abonnés)` : null;
+  const where = failure.audienceRate !== null
+    ? `le taux de plaintes projeté atteindrait ${pct(failure.audienceRate)}${owWhere ? ` et ${owWhere}` : ""}`
+    : `le taux de plaintes projeté atteindrait ${owWhere}`;
+  // Every enforced rate has to hold the cap: the way out is the highest one.
+  const threshold = Math.max(failure.audienceRate ?? 0, ow?.rate ?? 0);
+  const wayOut = threshold <= SMART_SEGMENT_COMPLAINT_HARD_CAP
+    ? `un plafond ≥ ${pct(threshold)} ${dropped.length > 1 ? "les" : "l'"}inclurait`
+    : `au-delà même du plafond maximal (${pct(SMART_SEGMENT_COMPLAINT_HARD_CAP)})`;
+  return `Bande${dropped.length > 1 ? "s" : ""} « ${bandLabels(dropped).join(" » et « ")} » écartée${dropped.length > 1 ? "s" : ""} du segment « marques similaires » : avec, ${where}, au-dessus du plafond ${pct(complaintCap)} ; ${wayOut}. Le segment reste sur les ${bandLabels(kept).join(" et les ")}.`;
+}
 
 /**
  * Splits the blocks a segment really expanded into the similar_refs_* ones
@@ -567,6 +742,11 @@ export async function validateAndProject(
  * attempt the analysis fails explicitly — an analysis without the segment
  * the operator asked for, or with the wrong one, is never persisted as a
  * success.
+ *
+ * The similar segment's composition is the server's (composeSimilarSegment):
+ * the model's version is re-composed around the active + 61–180 d bands, and
+ * when that fails the complaint cap the server itself falls back to the next
+ * narrower band set, telling the operator which band it dropped and why.
  */
 export async function validateProposal(
   rawText: string,
@@ -591,13 +771,16 @@ export async function validateProposal(
   const required = mandatoryExclusions(evidence.brand, evidence.family, evidence.recentBrandCampaignIds);
   const segments: SmartSegmentProposalSegment[] = [];
   const rejections: string[] = [];
+  /** One composition of a segment, ready to recount (mandatory exclusions in). */
+  type Variant = { blocksUsed: string[]; rules: SegmentRulesV2; injected: string[] };
   type Candidate = {
     index: number;
     segment: SmartSegmentModelOutput["segments"][number];
-    blocksUsed: string[];
     declaredOnly: string[];
-    rules: SegmentRulesV2;
-    injected: string[];
+    /** By preference: [0] is recounted first, the next ones only if the previous failed the cap. */
+    variants: Variant[];
+    /** How the variants were composed (bands added by the server, band the dossier lacks). */
+    composed: SimilarComposition;
   };
   const candidates: Candidate[] = [];
   for (const [index, segment] of output.segments.entries()) {
@@ -626,49 +809,91 @@ export async function validateProposal(
       rejections.push(`segment ${index + 1} : ${SIMILAR_SEGMENT_COMPOSITION_RULE} — retire ${mixed.general.join(", ")} (bloc(s) similar_refs_* conservé(s) : ${mixed.similar.join(", ")})`);
       continue;
     }
-    const declaredOnly = segment.blocksUsed.filter((id) => !blocksUsed.includes(id));
-    const { rules, injected } = ensureMandatoryExclusions(segment.rules, required);
-    candidates.push({ index, segment, blocksUsed, declaredOnly, rules, injected });
+    // The similar segment is composed by the server (active + 61–180 d band
+    // whenever the dossier offers it); every other segment is the model's.
+    const composed = blocksUsed.some((id) => isSimilarBlockId(id))
+      ? composeSimilarSegment(blocksUsed, segment.rules, evidence)
+      : modelComposition(blocksUsed, segment.rules);
+    const variants = composed.variants.map((variant) => {
+      const { rules, injected } = ensureMandatoryExclusions(variant.rules, required);
+      return { blocksUsed: variant.blocksUsed, rules, injected };
+    });
+    const declaredOnly = segment.blocksUsed.filter((id) => !variants[0].blocksUsed.includes(id));
+    candidates.push({ index, segment, declaredOnly, variants, composed });
   }
   // The exact recounts dominate the validation time and are independent
-  // (each opens its own read-only transaction), so the audited proposals are
-  // recounted together instead of one after the other.
-  const measures = await Promise.all(candidates.map((candidate) => measureAudience(candidate.rules)));
+  // (each opens its own read-only transaction), so the preferred compositions
+  // are recounted together; a narrower fallback is recounted only when the
+  // wider one failed the cap.
+  const measures = await Promise.all(candidates.map((candidate) => measureAudience(candidate.variants[0].rules)));
   const complaintFloor = evidence.complaintFloor?.rate ?? 0;
-  for (const [position, { index, segment, blocksUsed, declaredOnly, rules, injected }] of candidates.entries()) {
-    const measure = measures[position];
-    const audienceCount = measure.total;
-    const projection = projectComposition(
-      measure,
-      blocksUsed,
-      evidence.blocks,
-      evidence.cohortRates,
-      evidence.calibrationLevel,
-      evidence.recencyCalibration?.level ?? evidence.calibrationLevel,
-      { complaintFloor },
-    );
-    if (audienceCount === 0) {
-      rejections.push(`segment ${index + 1} : effectif nul après exclusions obligatoires`);
-      continue;
-    }
-    if (exceedsComplaintCap(projection.projectedComplaintRate, params.complaintCap)) {
-      rejections.push(`segment ${index + 1} : taux de plaintes projeté ${pct(projection.projectedComplaintRate)} > plafond ${pct(params.complaintCap)} — retire les blocs les plus risqués`);
-      continue;
-    }
+  const project = (measure: AudienceMeasure, blocksUsed: string[]) => projectComposition(
+    measure,
+    blocksUsed,
+    evidence.blocks,
+    evidence.cohortRates,
+    evidence.calibrationLevel,
+    evidence.recencyCalibration?.level ?? evidence.calibrationLevel,
+    { complaintFloor },
+  );
+  /** Why a composition breaks the complaint cap (a narrower one may then be tried), or null when it holds. */
+  const capFailure = (index: number, projection: ReturnType<typeof projectComposition>): ({ reason: string } & CapFailureRates) | null => {
+    const audienceRate = exceedsComplaintCap(projection.projectedComplaintRate, params.complaintCap) ? projection.projectedComplaintRate : null;
     // Orange/Wanadoo is the ISP that blocks: its own projected rate must hold
     // the cap too, once the exposure is large enough to matter.
     const ow = projection.orangeWanadoo;
-    if (ow && ow.count >= ORANGE_WANADOO_MIN_ENFORCED && exceedsComplaintCap(ow.projectedComplaintRate, params.complaintCap)) {
-      rejections.push(`segment ${index + 1} : taux de plaintes projeté sur Orange/Wanadoo ${pct(ow.projectedComplaintRate)} (${ow.count.toLocaleString("fr-FR")} abonnés) > plafond ${pct(params.complaintCap)} — retire les blocs les plus risqués (leurs abonnés Orange/Wanadoo sont projetés au pire taux mesuré)`);
-      continue;
+    const orangeWanadoo = ow && ow.count >= ORANGE_WANADOO_MIN_ENFORCED && exceedsComplaintCap(ow.projectedComplaintRate, params.complaintCap)
+      ? { rate: ow.projectedComplaintRate, count: ow.count }
+      : null;
+    if (audienceRate === null && orangeWanadoo === null) return null;
+    const reason = audienceRate !== null
+      ? `segment ${index + 1} : taux de plaintes projeté ${pct(audienceRate)} > plafond ${pct(params.complaintCap)} — retire les blocs les plus risqués`
+      : `segment ${index + 1} : taux de plaintes projeté sur Orange/Wanadoo ${pct(orangeWanadoo!.rate)} (${orangeWanadoo!.count.toLocaleString("fr-FR")} abonnés) > plafond ${pct(params.complaintCap)} — retire les blocs les plus risqués (leurs abonnés Orange/Wanadoo sont projetés au pire taux mesuré)`;
+    return { reason, audienceRate, orangeWanadoo };
+  };
+  for (const [position, { index, segment, declaredOnly, variants, composed }] of candidates.entries()) {
+    let measure = measures[position];
+    let chosen: { variant: Variant; projection: ReturnType<typeof projectComposition>; audienceCount: number } | null = null;
+    const fallbackWarnings: string[] = [];
+    const dropped: string[] = [];
+    for (const [step, variant] of variants.entries()) {
+      if (step > 0) measure = await measureAudience(variant.rules);
+      if (measure.total === 0) {
+        // Empty is terminal: the narrower compositions are subsets of this
+        // one, and a fallback that kept nobody must not pass as a segment.
+        rejections.push(step === 0
+          ? `segment ${index + 1} : effectif nul après exclusions obligatoires`
+          : `segment ${index + 1} : effectif nul sur les ${bandLabels(variant.blocksUsed).join(" et les ")} après exclusions obligatoires, et la composition plus large (${bandLabels(dropped).join(", ")} en plus) dépasse le plafond de plaintes`);
+        break;
+      }
+      const projection = project(measure, variant.blocksUsed);
+      const failure = capFailure(index, projection);
+      if (!failure) {
+        chosen = { variant, projection, audienceCount: measure.total };
+        break;
+      }
+      const next = variants[step + 1];
+      if (!next) {
+        rejections.push(failure.reason);
+        break;
+      }
+      const droppedNow = variant.blocksUsed.filter((id) => !next.blocksUsed.includes(id));
+      dropped.push(...droppedNow);
+      fallbackWarnings.push(narrowingWarning(droppedNow, next.blocksUsed, failure, params.complaintCap));
     }
+    if (!chosen) continue;
+    const { variant: { blocksUsed, rules, injected }, projection, audienceCount } = chosen;
     // Operator-facing text: nothing numeric may come from the model. Its
     // name/rationale/warnings are kept only once every figure-bearing
-    // sentence is removed; the server writes the numeric explanation itself.
-    const text = sanitizeModelText(segment, blocksUsed, evidence);
-    const warnings = [...text.warnings];
+    // sentence is removed — and, after a fallback, every sentence citing a
+    // band the server dropped; the server writes the numeric explanation itself.
+    const text = sanitizeModelText(segment, blocksUsed, evidence, { omitMentionsOf: dropped });
+    const warnings = [...fallbackWarnings, ...similarCompositionNotes(composed, blocksUsed), ...text.warnings];
     if (text.strippedSentences > 0) {
       warnings.push("Des phrases chiffrées écrites par le modèle ont été retirées : seuls les chiffres calculés par le serveur sont affichés.");
+    }
+    if (text.droppedMentions > 0) {
+      warnings.push("Des phrases du modèle citant une bande écartée par le serveur ont été retirées.");
     }
     const boundingCohorts = new Set(projection.tiers.map((tier) => tier.complaintCohort).filter((cohort) => !cohort.startsWith("clicker_tier/")));
     if (boundingCohorts.has("family/in_family")) {
@@ -712,11 +937,8 @@ export async function validateProposal(
   // model's order, so index 0 is always the recommendation.
   const typed = assignProposalKinds(segments);
   const ordered = [...typed.filter((segment) => segment.kind !== "similar_brands"), ...typed.filter((segment) => segment.kind === "similar_brands")];
-  const similarIds = similarBlockIds(evidence);
-  if (similarIds.length) {
-    const preferred = similarIds.includes("similar_refs_active") ? "similar_refs_active" : similarIds[0];
-    const optional = similarIds.filter((id) => id !== preferred);
-    const expected = `composé UNIQUEMENT du bloc ${preferred}${optional.length ? ` (${optional.join(", ")} en option, si le plafond le permet)` : ""}, sans aucun bloc général`;
+  if (similarBlockIds(evidence).length) {
+    const expected = expectedSimilarComposition(evidence);
     const hasSimilar = ordered.some((segment) => segment.kind === "similar_brands");
     const hasRecommendation = ordered.some((segment) => segment.kind === "recommendation");
     if (!hasSimilar) {

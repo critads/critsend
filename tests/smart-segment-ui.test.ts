@@ -108,6 +108,10 @@ describe("Smart segment source wiring", () => {
     expect(component).not.toContain("audiences imbriquées");
     expect(component).not.toContain("« avec marques similaires »");
     expect(component).toContain("Cette sélection sert au segment « marques similaires uniquement »");
+    // The help text describes the server composition: actives 60 d + last open/click 61–180 d, band dropped only for the cap or missing history.
+    expect(component).toContain("dont la dernière ouverture / clic date de 61 à 180 jours");
+    expect(component).toContain("La bande 61–180 j n'est retirée que si le plafond de plaintes l'impose ou si l'historique ne permet pas de la projeter");
+    expect(component).not.toContain("les actifs 60 j porteurs d'une de ces refs, sans");
     // Per card: a tick box (2+ proposals), an additive « Utiliser / Ajouter / Attacher », and « Créer sans attacher ».
     expect(component).toContain('data-testid={`checkbox-smart-segment-select-${index}`}');
     expect(component).toContain("materializeMutation.mutate({ indexes: [index], attach: true })");

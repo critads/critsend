@@ -432,7 +432,7 @@ export function SmartSegmentAssistant({
               <div>
                 <p className="text-sm font-medium">Marques similaires</p>
                 <p className="text-xs text-muted-foreground">
-                  Marques de l'annuaire (Brands + REF) que l'IA juge comparables à « {similarBrandName} » après une recherche web : même secteur, même cible. Cochées par défaut ; décochez pour les écarter. Cette sélection sert au segment « marques similaires uniquement » : les actifs 60 j porteurs d'une de ces refs, sans les actifs généraux de la recommandation.
+                  Marques de l'annuaire (Brands + REF) que l'IA juge comparables à « {similarBrandName} » après une recherche web : même secteur, même cible. Cochées par défaut ; décochez pour les écarter. Cette sélection sert au segment « marques similaires uniquement » : les porteurs d'une de ces refs actifs dans les 60 derniers jours ou dont la dernière ouverture / clic date de 61 à 180 jours, sans les actifs généraux de la recommandation. La bande 61–180 j n'est retirée que si le plafond de plaintes l'impose ou si l'historique ne permet pas de la projeter — la proposition le signale alors.
                 </p>
               </div>
               {similarBrandsQuery.data && (
