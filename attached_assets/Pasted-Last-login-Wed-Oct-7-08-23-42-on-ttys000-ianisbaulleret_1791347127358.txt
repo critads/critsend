@@ -1,0 +1,329 @@
+Last login: Wed Oct  7 08:23:42 on ttys000
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@30bJ1HssVCP2plfo
+ssh: Could not resolve hostname 30bj1hssvcp2plfo: nodename nor servname provided, or not known
+ianisbaulleret@Ianiss-MacBook-Pro ~ % ssh ubuntu@37.27.117.222
+ubuntu@37.27.117.222's password: 
+Welcome to Ubuntu 24.04.4 LTS (GNU/Linux 6.8.0-100-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Wed Oct  7 06:24:24 AM CEST 2026
+
+  System load:                    0.07
+  Usage of /home:                 0.2% of 1.50TB
+  Memory usage:                   3%
+  Swap usage:                     0%
+  Temperature:                    71.0 C
+  Processes:                      1092
+  Users logged in:                0
+  IPv4 address for enp193s0f0np0: 37.27.117.222
+  IPv6 address for enp193s0f0np0: 2a01:4f9:3070:28cb::2
+
+ * Canonical Workshop gives developers fast, composable, reproducible, and
+   secure developer environments that are perfect for agentic workflows.
+
+   https://ubuntu.com/workshop
+
+Expanded Security Maintenance for Applications is not enabled.
+
+65 updates can be applied immediately.
+To see these additional updates run: apt list --upgradable
+
+Enable ESM Apps to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+
+*** System restart required ***
+Last login: Thu Oct  1 06:07:49 2026 from 91.74.100.86
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ grep -h "2026-10-07T0[2-6]" ~/.pm2/logs/critsend-web-*.log | grep -i -E "checkout|timeout|ECONN|terminat|too many|SATURAT|pool" | head -60
+grep -h "2026-10-07T0[2-6]" ~/.pm2/logs/critsend-worker-*.log | grep -i -E "error|timeout|watchdog|hung|fatal|exit|heartbeat" | head -80
+grep: /home/ubuntu/.pm2/logs/critsend-web-*.log: No such file or directory
+grep: /home/ubuntu/.pm2/logs/critsend-worker-*.log: No such file or directory
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ pm2 ls
+pm2 describe critsend-worker | grep -E "status|restarts|uptime|created at"
+tail -80 /var/log/critsend/worker-err.log
+tail -40 /var/log/critsend/worker-out.log
+┌────┬────────────────────┬──────────┬──────┬───────────┬──────────┬──────────┐
+│ id │ name               │ mode     │ ↺    │ status    │ cpu      │ memory   │
+├────┼────────────────────┼──────────┼──────┼───────────┼──────────┼──────────┤
+│ 23 │ critsend-drainer   │ fork     │ 4    │ online    │ 0%       │ 141.9mb  │
+│ 18 │ critsend-web       │ cluster  │ 25   │ online    │ 0%       │ 432.0mb  │
+│ 19 │ critsend-web       │ cluster  │ 25   │ online    │ 0%       │ 440.9mb  │
+│ 22 │ critsend-worker    │ fork     │ 4    │ online    │ 0%       │ 282.0mb  │
+└────┴────────────────────┴──────────┴──────┴───────────┴──────────┴──────────┘
+Module
+┌────┬────────────────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ status   │ cpu      │ mem      │
+├────┼────────────────────┼──────────┼──────────┼──────────┤
+│ 3  │ pm2-logrotate      │ online   │ 0%       │ 64.5mb   │
+└────┴────────────────────┴──────────┴──────────┴──────────┘
+│ status            │ online                                            │
+│ restarts          │ 4                                                 │
+│ uptime            │ 6D                                                │
+│ unstable restarts │ 0                                                 │
+│ created at        │ 2026-10-01T04:10:20.126Z                          │
+2026-10-07 06:25:13 +02:00:       '1791347113082',
+2026-10-07 06:25:13 +02:00:       <Buffer de 00 04 a5 74 6f 6b 65 6e d9 2c 35 33 38 61 36 35 35 31 2d 64 30 64 66 2d 34 62 38 65 2d 39 39 61 36 2d 30 61 38 30 66 63 66 35 37 63 30 37 3a 32 30 ... 36 more bytes>
+2026-10-07 06:25:13 +02:00:     ]
+2026-10-07 06:25:13 +02:00:   }
+2026-10-07 06:25:13 +02:00: }
+2026-10-07 06:25:13 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:25:13 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:25:13 +02:00:     at parseType (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:302:14) {
+2026-10-07 06:25:13 +02:00:   command: {
+2026-10-07 06:25:13 +02:00:     name: 'evalsha',
+2026-10-07 06:25:13 +02:00:     args: [
+2026-10-07 06:25:13 +02:00:       '6c4c6de2bece2ad87657691d945d902df2198f5e',
+2026-10-07 06:25:13 +02:00:       '11',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:wait',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:active',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:prioritized',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:events',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:stalled',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:limiter',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:delayed',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:paused',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:meta',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:pc',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:marker',
+2026-10-07 06:25:13 +02:00:       'bull:flushes:',
+2026-10-07 06:25:13 +02:00:       '1791347113083',
+2026-10-07 06:25:13 +02:00:       <Buffer de 00 04 a5 74 6f 6b 65 6e d9 2c 34 34 61 64 64 31 32 35 2d 37 65 63 65 2d 34 34 34 62 2d 61 66 33 39 2d 39 39 39 64 35 38 37 38 65 38 32 63 3a 32 30 ... 36 more bytes>
+2026-10-07 06:25:13 +02:00:     ]
+2026-10-07 06:25:13 +02:00:   }
+2026-10-07 06:25:13 +02:00: }
+2026-10-07 06:25:13 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:25:13 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:25:13 +02:00:     at parseType (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:302:14) {
+2026-10-07 06:25:13 +02:00:   command: {
+2026-10-07 06:25:13 +02:00:     name: 'evalsha',
+2026-10-07 06:25:13 +02:00:     args: [
+2026-10-07 06:25:13 +02:00:       '6c4c6de2bece2ad87657691d945d902df2198f5e',
+2026-10-07 06:25:13 +02:00:       '11',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:wait',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:active',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:prioritized',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:events',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:stalled',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:limiter',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:delayed',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:paused',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:meta',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:pc',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:marker',
+2026-10-07 06:25:13 +02:00:       'bull:campaigns:',
+2026-10-07 06:25:13 +02:00:       '1791347113083',
+2026-10-07 06:25:13 +02:00:       <Buffer de 00 04 a5 74 6f 6b 65 6e d9 2c 37 38 66 62 32 38 36 34 2d 33 39 34 36 2d 34 65 61 33 2d 38 33 37 34 2d 32 64 65 30 64 37 63 36 39 64 32 36 3a 32 30 ... 36 more bytes>
+2026-10-07 06:25:13 +02:00:     ]
+2026-10-07 06:25:13 +02:00:   }
+2026-10-07 06:25:13 +02:00: }
+2026-10-07 06:25:13 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:25:13 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:25:13 +02:00:     at parseType (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:302:14) {
+2026-10-07 06:25:13 +02:00:   command: {
+2026-10-07 06:25:13 +02:00:     name: 'evalsha',
+2026-10-07 06:25:13 +02:00:     args: [
+2026-10-07 06:25:13 +02:00:       '6c4c6de2bece2ad87657691d945d902df2198f5e',
+2026-10-07 06:25:13 +02:00:       '11',
+2026-10-07 06:25:13 +02:00:       'bull:automations:wait',
+2026-10-07 06:25:13 +02:00:       'bull:automations:active',
+2026-10-07 06:25:13 +02:00:       'bull:automations:prioritized',
+2026-10-07 06:25:13 +02:00:       'bull:automations:events',
+2026-10-07 06:25:13 +02:00:       'bull:automations:stalled',
+2026-10-07 06:25:13 +02:00:       'bull:automations:limiter',
+2026-10-07 06:25:13 +02:00:       'bull:automations:delayed',
+2026-10-07 06:25:13 +02:00:       'bull:automations:paused',
+2026-10-07 06:25:13 +02:00:       'bull:automations:meta',
+2026-10-07 06:25:13 +02:00:       'bull:automations:pc',
+2026-10-07 06:25:13 +02:00:       'bull:automations:marker',
+2026-10-07 06:25:13 +02:00:       'bull:automations:',
+2026-10-07 06:25:13 +02:00:       '1791347113084',
+2026-10-07 06:25:13 +02:00:       <Buffer de 00 04 a5 74 6f 6b 65 6e d9 2c 33 61 33 62 30 37 63 66 2d 63 31 34 33 2d 34 64 37 62 2d 38 38 66 38 2d 61 37 31 65 63 34 31 36 63 30 31 33 3a 32 30 ... 36 more bytes>
+2026-10-07 06:25:13 +02:00:     ]
+2026-10-07 06:25:13 +02:00:   }
+2026-10-07 06:25:13 +02:00: }
+2026-10-07 06:24:03 +02:00: 2026-10-07T04:24:03.283Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+2026-10-07 06:24:03 +02:00: 2026-10-07T04:24:03.316Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:24:05 +02:00: 2026-10-07T04:24:05.314Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:24:07 +02:00: 2026-10-07T04:24:07.314Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:24:09 +02:00: 2026-10-07T04:24:09.323Z [INFO] Processed 6 tag operations in 4 bulk groups
+2026-10-07 06:24:13 +02:00: 2026-10-07T04:24:13.284Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+2026-10-07 06:24:13 +02:00: 2026-10-07T04:24:13.323Z [INFO] Processed 4 tag operations in 3 bulk groups
+2026-10-07 06:24:15 +02:00: 2026-10-07T04:24:15.321Z [INFO] Processed 3 tag operations in 3 bulk groups
+2026-10-07 06:24:17 +02:00: 2026-10-07T04:24:17.317Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:24:19 +02:00: 2026-10-07T04:24:19.328Z [INFO] Processed 5 tag operations in 5 bulk groups
+2026-10-07 06:24:21 +02:00: 2026-10-07T04:24:21.324Z [INFO] Processed 5 tag operations in 4 bulk groups
+2026-10-07 06:24:23 +02:00: 2026-10-07T04:24:23.285Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+2026-10-07 06:24:23 +02:00: 2026-10-07T04:24:23.320Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:24:25 +02:00: 2026-10-07T04:24:25.317Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:24:27 +02:00: 2026-10-07T04:24:27.321Z [INFO] Processed 4 tag operations in 3 bulk groups
+2026-10-07 06:24:29 +02:00: 2026-10-07T04:24:29.317Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:24:31 +02:00: 2026-10-07T04:24:31.319Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:24:33 +02:00: 2026-10-07T04:24:33.285Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+2026-10-07 06:24:33 +02:00: 2026-10-07T04:24:33.320Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:24:35 +02:00: 2026-10-07T04:24:35.321Z [INFO] Processed 4 tag operations in 3 bulk groups
+2026-10-07 06:24:37 +02:00: 2026-10-07T04:24:37.316Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:24:39 +02:00: 2026-10-07T04:24:39.321Z [INFO] Processed 5 tag operations in 3 bulk groups
+2026-10-07 06:24:41 +02:00: 2026-10-07T04:24:41.316Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:24:43 +02:00: 2026-10-07T04:24:43.285Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+2026-10-07 06:24:43 +02:00: 2026-10-07T04:24:43.318Z [INFO] Processed 2 tag operations in 1 bulk groups
+2026-10-07 06:24:45 +02:00: 2026-10-07T04:24:45.319Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:24:47 +02:00: 2026-10-07T04:24:47.319Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:24:49 +02:00: 2026-10-07T04:24:49.327Z [INFO] Processed 6 tag operations in 5 bulk groups
+2026-10-07 06:24:51 +02:00: 2026-10-07T04:24:51.322Z [INFO] Processed 3 tag operations in 3 bulk groups
+2026-10-07 06:24:53 +02:00: 2026-10-07T04:24:53.284Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+2026-10-07 06:24:53 +02:00: 2026-10-07T04:24:53.324Z [INFO] Processed 4 tag operations in 3 bulk groups
+2026-10-07 06:24:55 +02:00: 2026-10-07T04:24:55.319Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:24:57 +02:00: 2026-10-07T04:24:57.322Z [INFO] Processed 4 tag operations in 2 bulk groups
+2026-10-07 06:25:01 +02:00: 2026-10-07T04:25:01.322Z [INFO] Processed 3 tag operations in 3 bulk groups
+2026-10-07 06:25:03 +02:00: 2026-10-07T04:25:03.286Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+2026-10-07 06:25:03 +02:00: 2026-10-07T04:25:03.321Z [INFO] Processed 4 tag operations in 3 bulk groups
+2026-10-07 06:25:07 +02:00: 2026-10-07T04:25:07.319Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:25:09 +02:00: 2026-10-07T04:25:09.321Z [INFO] Processed 2 tag operations in 2 bulk groups
+2026-10-07 06:25:11 +02:00: 2026-10-07T04:25:11.319Z [INFO] Processed 1 tag operations in 1 bulk groups
+2026-10-07 06:25:13 +02:00: 2026-10-07T04:25:13.284Z [INFO] [PRESSURE_GUARD_WORKER] tick: leader_acquired=Y, bootstrap=ready, has_pending=N, eligible_campaigns=0, picked=0+0+aged0+deadline0, winding_down=0, back_pressured=0, drained_calls=0, errors=0
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ grep -h "^2026-10-07 0[2-6]" /var/log/critsend/web-*.log | grep -i -E "checkout|timeout|ECONN|terminat|too many|SATURAT|pool" | head -60
+grep -h "^2026-10-07 0[2-6]" /var/log/critsend/worker-*.log | grep -i -E "error|timeout|watchdog|hung|fatal|exit|heartbeat" | head -80
+2026-10-07 06:16:37 +02:00: 2026-10-07T04:16:37.448Z [WARN] [503] source=load_shed method=GET path=/api/dashboard/chart route=/api/dashboard rid=c482bda0-6f74-41ab-ba38-d741cda13a71 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:16:40 +02:00: 2026-10-07T04:16:40.692Z [WARN] [503] source=load_shed method=GET path=/api/campaigns route=/api/campaigns rid=c566608a-b01a-4694-880b-970a42459467 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=1 sat=1.00 lease=0
+2026-10-07 06:17:03 +02:00: 2026-10-07T04:17:03.109Z [WARN] [503] source=load_shed method=GET path=/api/mtas/orange-test/config route=/api/mtas rid=e88acd65-6a87-4f40-8616-296d5558b884 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:03 +02:00: 2026-10-07T04:17:03.116Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/segment-suggestions route=/api/campaigns rid=092643be-2110-4145-b63a-0d5bdeffdae8 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:18 +02:00: 2026-10-07T04:17:18.868Z [WARN] [503] source=load_shed method=POST path=/api/segments/count route=/api/segments rid=ac0cb2f0-dd6d-4e27-83a5-0de641176762 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=1 sat=1.00 lease=0
+2026-10-07 06:17:30 +02:00: 2026-10-07T04:17:30.488Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/007a2c36-588a-4a91-84b5-ad42bcab56b1 route=/api/campaigns rid=3ffa5c52-f683-4ec4-8ba3-8525f59a10a8 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:35 +02:00: 2026-10-07T04:17:35.503Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=8df9697f-7d5a-4844-a642-7390b16abf9b kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=9 sat=1.00 lease=0
+2026-10-07 06:17:36 +02:00: 2026-10-07T04:17:36.674Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=b50c951b-2f75-4e65-a747-90ee62fc9983 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=3 sat=1.00 lease=0
+2026-10-07 06:17:37 +02:00: 2026-10-07T04:17:37.361Z [WARN] [503] source=load_shed method=GET path=/api/dashboard/chart route=/api/dashboard rid=8f4057ea-3c19-428d-b966-f7bc6081789c kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=1 sat=1.00 lease=0
+2026-10-07 06:17:37 +02:00: 2026-10-07T04:17:37.365Z [WARN] [503] source=load_shed method=GET path=/api/dashboard/stats route=/api/dashboard rid=da552102-ae1c-4d2a-890a-0956992ccea6 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=1 sat=1.00 lease=0
+2026-10-07 06:17:38 +02:00: 2026-10-07T04:17:38.958Z [WARN] [503] source=load_shed method=GET path=/api/dashboard/chart route=/api/dashboard rid=f5db293a-046a-4aeb-8031-d7257fa2c9ac kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=1 sat=1.00 lease=0
+2026-10-07 06:17:39 +02:00: 2026-10-07T04:17:39.828Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/low-open-alerts route=/api/campaigns rid=40aba346-1ac8-46c2-8874-568b6ee53b39 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=5 sat=1.00 lease=0
+2026-10-07 06:17:43 +02:00: 2026-10-07T04:17:43.371Z [WARN] [503] source=load_shed method=GET path=/api/mtas route=/api/mtas rid=efa89e17-daf2-4cab-8ea1-a696e187d065 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=1 sat=1.00 lease=0
+2026-10-07 06:17:43 +02:00: 2026-10-07T04:17:43.631Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/007a2c36-588a-4a91-84b5-ad42bcab56b1/snowball-status route=/api/campaigns rid=cf5266c9-98a4-4174-b423-aa57b5324e9a kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=2 sat=1.00 lease=0
+2026-10-07 06:17:45 +02:00: 2026-10-07T04:17:45.686Z [WARN] [503] source=load_shed method=GET path=/api/mtas route=/api/mtas rid=ba8c899e-9ed2-4f63-b8bf-06a65366bddd kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=12 sat=1.00 lease=0
+2026-10-07 06:17:45 +02:00: 2026-10-07T04:17:45.688Z [WARN] [503] source=load_shed method=GET path=/api/mtas/orange-test/config route=/api/mtas rid=74b2546a-b48f-44c8-84e6-1a7b5d4f163e kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=12 sat=1.00 lease=0
+2026-10-07 06:17:45 +02:00: 2026-10-07T04:17:45.691Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/segment-suggestions route=/api/campaigns rid=282cf885-a0b6-43d3-a379-f5803573a5c0 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=12 sat=1.00 lease=0
+2026-10-07 06:17:45 +02:00: 2026-10-07T04:17:45.694Z [WARN] [503] source=load_shed method=GET path=/api/mtas/orange-test/summary route=/api/mtas rid=593ee1e9-c6a1-4185-ac78-4edb8e38ee6f kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=12 sat=1.00 lease=0
+2026-10-07 06:17:46 +02:00: 2026-10-07T04:17:46.370Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/segment-suggestions route=/api/campaigns rid=2394a65f-d5c9-4162-aec8-df5e02e14dbd kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=1 sat=1.00 lease=0
+2026-10-07 06:17:47 +02:00: 2026-10-07T04:17:47.582Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/segment-suggestions route=/api/campaigns rid=9a33542f-5cca-4e6c-a08c-4c37392411f4 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:50 +02:00: 2026-10-07T04:17:50.809Z [ERROR] Metrics collection error {"error":"Error: timeout exceeded when trying to connect"}
+2026-10-07 06:17:53 +02:00: 2026-10-07T04:17:53.365Z [WARN] [503] source=load_shed method=GET path=/api/mtas route=/api/mtas rid=602aeef6-4263-46ef-b133-d18a8daa092f kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:53 +02:00: 2026-10-07T04:17:53.366Z [WARN] [503] source=load_shed method=GET path=/api/mtas/schedule-insights route=/api/mtas rid=1245c83d-3c7e-4e2f-82c0-30ad849072d2 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:53 +02:00: 2026-10-07T04:17:53.367Z [WARN] [503] source=load_shed method=GET path=/api/segments route=/api/segments rid=afc45f2d-36fe-4323-bcdf-656016d6363a kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:53 +02:00: 2026-10-07T04:17:53.584Z [WARN] [503] source=load_shed method=GET path=/api/campaigns/007a2c36-588a-4a91-84b5-ad42bcab56b1/orange-wanadoo-preflight route=/api/campaigns rid=a2ca98a7-349c-4a8b-9291-2b0eedf39336 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:53 +02:00: 2026-10-07T04:17:53.597Z [WARN] [503] source=load_shed method=GET path=/api/mtas/orange-test/summary route=/api/mtas rid=fe2f39e2-6b51-4e86-aee7-c6b919045f37 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:54 +02:00: 2026-10-07T04:17:54.095Z [WARN] [503] source=load_shed method=POST path=/api/segments/count route=/api/segments rid=f3b16014-babd-4226-9fd3-160adb37cab4 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:17:56 +02:00: 2026-10-07T04:17:56.113Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): timeout exceeded when trying to connect
+2026-10-07 06:18:00 +02:00: 2026-10-07T04:18:00.333Z [WARN] [503] source=load_shed method=GET path=/api/analytics/overall route=/api/analytics rid=ccaf574f-1020-42ea-86a2-8a16d4e878a1 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=4 sat=1.00 lease=0
+2026-10-07 06:18:00 +02:00: 2026-10-07T04:18:00.814Z [WARN] [503] source=load_shed method=GET path=/api/mtas route=/api/mtas rid=8b58916d-8526-4a6e-b18c-3ab1dc1b3d6f kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=5 sat=1.00 lease=0
+2026-10-07 06:18:01 +02:00: 2026-10-07T04:18:01.114Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): timeout exceeded when trying to connect
+2026-10-07 06:18:01 +02:00: 2026-10-07T04:18:01.179Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/c413d012-9399-44c5-8104-ad48591bd734/bf02a92d-169c-445a-a324-42abd7842117/p.gif","method":"GET","requestId":"416942ae-bd88-4b7b-9754-100de05321cc"}
+2026-10-07 06:18:06 +02:00: 2026-10-07T04:18:06.345Z [WARN] [503] source=load_shed method=GET path=/api/dashboard/chart route=/api/dashboard rid=a7d0cbcd-6583-402f-a8ef-d4c15b08f7e1 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=8 sat=1.00 lease=0
+2026-10-07 06:18:06 +02:00: 2026-10-07T04:18:06.348Z [WARN] [503] source=load_shed method=GET path=/api/segments route=/api/segments rid=cd0b5e26-beed-4cd8-8cbe-bc9559043b7b kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=8 sat=1.00 lease=0
+2026-10-07 06:18:07 +02:00: 2026-10-07T04:18:07.508Z [WARN] [503] source=load_shed method=GET path=/api/segments route=/api/segments rid=c23ac39c-6f29-459d-b664-b1f5ec8ae514 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=3 sat=1.00 lease=0
+2026-10-07 06:18:07 +02:00: 2026-10-07T04:18:07.509Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=78207cfa-b283-4557-a877-09a88bf515ee kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=3 sat=1.00 lease=0
+2026-10-07 06:18:08 +02:00: 2026-10-07T04:18:08.702Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/4af0e4e3-f185-4e47-aab5-52854c78a751/13a5da5a-e803-4c2e-88ad-46e086d3338d/p.gif","method":"GET","requestId":"ff160f3d-0d87-4728-bdaa-f0bc4c6eba01"}
+2026-10-07 06:18:08 +02:00: 2026-10-07T04:18:08.971Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=d9822f6b-cf84-439c-85ad-8061411f78e3 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=6 sat=1.00 lease=0
+2026-10-07 06:18:09 +02:00: 2026-10-07T04:18:09.524Z [WARN] [503] source=load_shed method=GET path=/api/mtas route=/api/mtas rid=1546c3ce-2275-40e1-9a86-8f3956095ca7 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=3 sat=1.00 lease=0
+2026-10-07 06:18:11 +02:00: 2026-10-07T04:18:11.413Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/6a232e9a-f7d5-4a62-8735-0d9e64ce9bc5/f5b3c380-1720-433d-8f9f-65746e61b261/p.gif","method":"GET","requestId":"a51cefeb-1e44-4867-b7b5-7832a88ae7b5"}
+2026-10-07 06:18:16 +02:00: Error: timeout exceeded when trying to connect
+2026-10-07 06:18:18 +02:00: 2026-10-07T04:18:18.821Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/api/auth/me","method":"GET","requestId":"95f121db-8e94-4609-bfa7-f98bb00abc87"}
+2026-10-07 06:18:18 +02:00: 2026-10-07T04:18:18.996Z [WARN] [503] source=load_shed method=GET path=/api/mtas route=/api/mtas rid=b1346516-527e-419f-9f36-fbcf740c6dab kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=5 sat=1.00 lease=0
+2026-10-07 06:18:19 +02:00: 2026-10-07T04:18:19.351Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): timeout exceeded when trying to connect
+2026-10-07 06:18:20 +02:00: 2026-10-07T04:18:20.432Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=70a7244b-aa9c-478f-8464-a6f5284e5652 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=5 sat=1.00 lease=0
+2026-10-07 06:18:20 +02:00: 2026-10-07T04:18:20.439Z [WARN] [503] source=load_shed method=GET path=/api/subscribers route=/api/subscribers rid=1adfb770-a4b2-4d01-9cdc-1494cbd0bc36 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=5 sat=1.00 lease=0
+2026-10-07 06:18:21 +02:00: 2026-10-07T04:18:21.601Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=08a0839d-ccee-4660-bacc-44faa6f32c9a kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=10 sat=1.00 lease=0
+2026-10-07 06:18:21 +02:00: 2026-10-07T04:18:21.799Z [WARN] [503] source=load_shed method=GET path=/api/segments route=/api/segments rid=91c6f83b-b99e-4884-9c26-003e71b9faa5 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=10 sat=1.00 lease=0
+2026-10-07 06:18:22 +02:00: 2026-10-07T04:18:22.959Z [WARN] [503] source=load_shed method=GET path=/api/dashboard/chart route=/api/dashboard rid=4a4b7057-602f-4547-a712-6e76b419ce2e kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=2 sat=1.00 lease=0
+2026-10-07 06:18:22 +02:00: 2026-10-07T04:18:22.960Z [WARN] [503] source=load_shed method=GET path=/api/dashboard/stats route=/api/dashboard rid=b35c0e51-7323-42b5-88e6-33fc38e634e9 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=2 sat=1.00 lease=0
+2026-10-07 06:18:24 +02:00: 2026-10-07T04:18:24.074Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=a84d3d39-0e05-4984-b875-3b661a8479f5 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=4 sat=1.00 lease=0
+2026-10-07 06:18:24 +02:00: 2026-10-07T04:18:24.075Z [WARN] [503] source=load_shed method=GET path=/api/campaigns route=/api/campaigns rid=a64c4888-c4be-49d4-ad63-3da6e73844b5 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=4 sat=1.00 lease=0
+2026-10-07 06:18:24 +02:00: 2026-10-07T04:18:24.353Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): timeout exceeded when trying to connect
+2026-10-07 06:18:24 +02:00: 2026-10-07T04:18:24.558Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/6a232e9a-f7d5-4a62-8735-0d9e64ce9bc5/9663c276-3147-4351-b6dc-06c8d71ebf14/p.gif","method":"GET","requestId":"fcac5930-ea30-4bfb-99d7-e891f7e2291f"}
+2026-10-07 06:18:25 +02:00: 2026-10-07T04:18:25.531Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=0b114cf8-baed-408d-82ff-dbb7d394df61 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=0 sat=1.00 lease=0
+2026-10-07 06:18:27 +02:00: 2026-10-07T04:18:27.710Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=2cc54ec4-792c-4460-948b-d09be89b8cca kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=3 sat=1.00 lease=0
+2026-10-07 06:18:29 +02:00: 2026-10-07T04:18:29.449Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): timeout exceeded when trying to connect
+2026-10-07 06:18:30 +02:00: 2026-10-07T04:18:30.165Z [ERROR] Unhandled route error {"status":500,"error":"timeout exceeded when trying to connect","stack":"Error: timeout exceeded when trying to connect\n    at /home/ubuntu/critsend/dist/index.cjs:82:15837\n    at async r._asyncQuery (/home/ubuntu/critsend/dist/index.cjs:82:33504)","path":"/o/02613751-0097-4a64-b97c-38a5b8344b0b/f7cd2eb6-7d40-4be1-b244-758818df615e/p.gif","method":"GET","requestId":"42c037d7-9503-468e-9bba-d60e14c7d06f"}
+2026-10-07 06:18:31 +02:00: 2026-10-07T04:18:31.883Z [WARN] [503] source=load_shed method=GET path=/api/jobs/stream route=/api/jobs rid=9d194282-c1e9-48bc-a03c-7cfe9b0c4f60 kind=saturation code=- pool active=6/6 idle=0 total=6 waiting=3 sat=1.00 lease=0
+2026-10-07 06:18:35 +02:00: 2026-10-07T04:18:35.451Z [WARN] [URGENT_FLUSH] orphan recovery failed (non-fatal): timeout exceeded when trying to connect
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: 2026-10-07T04:02:53.475Z [WARN] [WORKER_HEARTBEAT] Failed to publish heartbeat: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:53 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:53 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:54 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:54 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+2026-10-07 06:02:55 +02:00:     at parseError (/home/ubuntu/critsend/node_modules/redis-parser/lib/parser.js:179:12)
+2026-10-07 06:02:55 +02:00: ReplyError: ERR Your database has been temporarily rate-limited, please contact support@upstash.com for further details.
+ubuntu@Ubuntu-noble-latest-amd64-base:~$ 

@@ -42,3 +42,4 @@
 - [DB-backed tests on dev Neon](db-backed-tests-dev-neon.md) — NEON_DATABASE_URL is a PgBouncer pooler (session SET unreliable), ~150 ms/statement; table-wide queries only in a throwaway schema with qualified names.
 - [Brand unsub thresholds are alert-only](brand-unsub-alert-only.md) — never block/pause on the brand count; read it via the non-throwing notice (raw evaluator throws until bootstrap).
 - [Deferred-drain claims vs orphan grace](deferred-claim-orphan-grace.md) — parked rows keep an old sent_at; re-stamp at claim or the hourly orphan sweep fails in-flight sends; finalize from RETURNING rows.
+- [Redis (Upstash) dependency](redis-upstash-dependency.md) — remote-worker-missing + redis ok = Upstash rate-limited (billing); idle BullMQ workers still poll with USE_BULLMQ off; count cache loss can saturate the web pool.
