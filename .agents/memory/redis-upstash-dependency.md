@@ -3,7 +3,7 @@ name: Redis (Upstash) dependency and what breaks without it
 description: Prod Redis is a hosted Upstash instance; what the app actually uses it for, how an outage shows up, and the idle BullMQ worker trap.
 ---
 
-Prod `REDIS_URL` points at a hosted Upstash database tied to a credit card. On 2026-10-07 (06:02 CEST) the Upstash account was suspended for a failed payment: every write answered `ERR Your database has been temporarily rate-limited` while PING kept working, so `/api/health` showed `redis: ok` **and** `workers.source = remote-worker-missing` at the same time.
+**Since 2026-10-07 ~06:48 CEST prod `REDIS_URL` is a local `redis-server` on the app host (`redis://127.0.0.1:6379`, apt package, no auth, loopback only).** Before that it pointed at a hosted Upstash database (CRITADS / mature-antelope, Fixed 1GB plan) tied to a credit card. On 2026-10-07 (06:02 CEST) the Upstash account was suspended for a failed payment: every write answered `ERR Your database has been temporarily rate-limited` while PING kept working, so `/api/health` showed `redis: ok` **and** `workers.source = remote-worker-missing` at the same time. Paying the invoice did NOT lift the block within 45 min (fresh connections still rejected; console showed the DB green with 0 commands) — the owner switched to local Redis instead. The Upstash DB may still exist/bill until deleted.
 
 **What Redis is used for (USE_BULLMQ is NOT enabled in prod — campaign/import jobs go through PostgreSQL):**
 - worker heartbeat key read by the web health endpoint;
