@@ -182,6 +182,17 @@ export async function diagnoseStuckCampaigns(): Promise<StuckCampaign[]> {
   //     `campaign_jobs.status='failed'` and no successor — invisible to
   //     the user. Detect by retry_count >= STUCK_MAX_JOB_RETRIES with no
   //     pending successor.
+  // 2026-10-07 incident (24 campaigns, missing `smtp_outcome_class`
+  // column): this branch used to look at the most recent *failed* job
+  // only. Once the schema was repaired, the next retry job SUCCEEDED and
+  // the sender legitimately held the campaign in 'sending' (deferred
+  // rows still owed by the pressure guard) — but the newest failed job
+  // still carried retry_count≈31, so the guardian paused the campaign
+  // with `retry_budget_exceeded` anyway, and re-paused it within one
+  // tick after every manual Resume (the resume job also completes and
+  // holds). The retry budget is only exhausted when the *latest job of
+  // any status* is a failed one: a newer completed job means the chain
+  // recovered, and the generic branches below own the campaign again.
   // 2026-05-23 incident (campaign #3050 Darel): a 3-hour Postgres pool
   // saturation triggered 13 consecutive job retries, ALL with the
   // `transient=true` marker — every error was "timeout exceeded when
@@ -217,13 +228,17 @@ export async function diagnoseStuckCampaigns(): Promise<StuckCampaign[]> {
       ) AS recent_errors
     FROM campaigns c
     JOIN LATERAL (
-      SELECT cj.id, cj.retry_count, cj.error_message, cj.completed_at
+      -- Latest job of ANY status. The budget is exhausted only when the
+      -- chain *ended* in a failure; a newer completed job means it
+      -- recovered (see the 2026-10-07 note above).
+      SELECT cj.id, cj.status, cj.retry_count, cj.error_message, cj.completed_at
       FROM campaign_jobs cj
-      WHERE cj.campaign_id = c.id AND cj.status = 'failed'
-      ORDER BY cj.completed_at DESC NULLS LAST
+      WHERE cj.campaign_id = c.id
+      ORDER BY cj.created_at DESC, cj.completed_at DESC NULLS LAST
       LIMIT 1
     ) cj ON TRUE
     WHERE c.status = 'sending'
+      AND cj.status = 'failed'
       AND cj.retry_count >= ${STUCK_MAX_JOB_RETRIES}
       AND NOT EXISTS (
         SELECT 1 FROM campaign_jobs cj2

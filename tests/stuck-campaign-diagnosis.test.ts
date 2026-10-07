@@ -28,6 +28,7 @@ d("Task #181 — diagnoseStuckCampaigns classifies every stuck pattern", () => {
     sendingNoJob: `t181-c-nojob-${ts}`,
     staleHeartbeat: `t181-c-stale-${ts}`,
     retryExhausted: `t181-c-retry-${ts}`,
+    retryRecovered: `t181-c-retry-recovered-${ts}`,
     midFlight: `t181-c-midflight-${ts}`,
     healthyControl: `t181-c-ok-${ts}`,
   };
@@ -92,6 +93,21 @@ d("Task #181 — diagnoseStuckCampaigns classifies every stuck pattern", () => {
       VALUES (${ids.retryExhausted}, 'failed', 5,
               NOW() - INTERVAL '30 minutes', NOW() - INTERVAL '5 minutes', 'boom')`);
 
+    // (4b) 2026-10-07 regression: failed job with retry_count >= max, but a
+    //      NEWER job completed (schema repaired, sender held 'sending' for the
+    //      deferred drain). The chain recovered — must NOT be paused as
+    //      retry_budget_exceeded; the generic no-job branch owns it.
+    await seed(ids.retryRecovered, "sending", null);
+    await db.execute(sql`
+      INSERT INTO campaign_jobs (campaign_id, status, retry_count, created_at, started_at, completed_at, error_message)
+      VALUES (${ids.retryRecovered}, 'failed', 31,
+              NOW() - INTERVAL '40 minutes', NOW() - INTERVAL '35 minutes', NOW() - INTERVAL '30 minutes',
+              'column "smtp_outcome_class" does not exist')`);
+    await db.execute(sql`
+      INSERT INTO campaign_jobs (campaign_id, status, retry_count, created_at, started_at, completed_at)
+      VALUES (${ids.retryRecovered}, 'completed', 0,
+              NOW() - INTERVAL '20 minutes', NOW() - INTERVAL '19 minutes', NOW() - INTERVAL '15 minutes')`);
+
     // (5) mid-flight crash: started_at NOT NULL, sends exist, no progress, no active job
     await seed(ids.midFlight, "sending", "2020-01-01T00:00:00Z");
     await db.execute(sql`UPDATE campaigns SET started_at = NOW() - INTERVAL '30 minutes'
@@ -147,6 +163,16 @@ d("Task #181 — diagnoseStuckCampaigns classifies every stuck pattern", () => {
     expect(row?.reason).toBe("sending_retry_budget_exceeded");
     expect(row?.action).toBe("pause_retry_budget_exceeded");
     expect(row?.retryCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("does NOT pause a campaign whose exhausted retry chain was followed by a completed job (2026-10-07)", async () => {
+    const stuck = await diagnoseStuckCampaigns();
+    const row = stuck.find((s) => s.id === ids.retryRecovered);
+    expect(row?.reason).not.toBe("sending_retry_budget_exceeded");
+    expect(row?.action).not.toBe("pause_retry_budget_exceeded");
+    // The generic catch-all re-enqueues it so the deferred drain / completion path resumes.
+    expect(row?.reason).toBe("sending_no_active_job");
+    expect(row?.action).toBe("reenqueue");
   });
 
   it("flags mid-flight crash (sends exist but no progress and no active job)", async () => {
