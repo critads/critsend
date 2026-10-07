@@ -1,0 +1,101 @@
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ grep -c "errorMissingColumn" /var/log/critsend/worker-err.log; grep -m1 "errorMissingColumn" /var/log/critsend/worker-err.log | cut -c1-25; ls /var/log/critsend/
+27
+2026-10-07 06:37:31 +02:0
+drainer-err.log                         web-out.log
+drainer-err.log.1                       web-out.log.1
+drainer-err.log.10.gz                   web-out.log.10.gz
+drainer-err.log.11.gz                   web-out.log.11.gz
+drainer-err.log.12.gz                   web-out.log.12.gz
+drainer-err.log.13.gz                   web-out.log.13.gz
+drainer-err.log.14.gz                   web-out.log.14.gz
+drainer-err.log.2.gz                    web-out.log.2.gz
+drainer-err.log.3.gz                    web-out.log.3.gz
+drainer-err.log.4.gz                    web-out.log.4.gz
+drainer-err.log.5.gz                    web-out.log.5.gz
+drainer-err.log.6.gz                    web-out.log.6.gz
+drainer-err.log.7.gz                    web-out.log.7.gz
+drainer-err.log.8.gz                    web-out.log.8.gz
+drainer-err.log.9.gz                    web-out.log.9.gz
+drainer-err__2026-09-30_00-00-00.log    web-out__2026-09-30_00-00-00.log
+drainer-err__2026-09-30_00-00-00.log.1  web-out__2026-09-30_00-00-00.log.1
+drainer-err__2026-10-01_00-00-00.log    web-out__2026-10-01_00-00-00.log
+drainer-err__2026-10-01_00-00-00.log.1  web-out__2026-10-01_00-00-00.log.1
+drainer-err__2026-10-02_00-00-00.log    web-out__2026-10-02_00-00-00.log
+drainer-err__2026-10-02_00-00-00.log.1  web-out__2026-10-02_00-00-00.log.1
+drainer-err__2026-10-03_00-00-00.log    web-out__2026-10-03_00-00-00.log
+drainer-err__2026-10-03_00-00-00.log.1  web-out__2026-10-03_00-00-00.log.1
+drainer-err__2026-10-04_00-00-00.log    web-out__2026-10-04_00-00-00.log
+drainer-err__2026-10-04_00-00-00.log.1  web-out__2026-10-04_00-00-00.log.1
+drainer-err__2026-10-05_00-00-00.log    web-out__2026-10-05_00-00-00.log
+drainer-err__2026-10-05_00-00-00.log.1  web-out__2026-10-05_00-00-00.log.1
+drainer-err__2026-10-06_00-00-00.log    web-out__2026-10-06_00-00-00.log
+drainer-err__2026-10-06_00-00-00.log.1  web-out__2026-10-06_00-00-00.log.1
+drainer-err__2026-10-07_00-00-00.log    web-out__2026-10-07_00-00-00.log
+drainer-out.log                         worker-err.log
+drainer-out.log.1                       worker-err.log.1
+drainer-out.log.10.gz                   worker-err.log.10.gz
+drainer-out.log.11.gz                   worker-err.log.11.gz
+drainer-out.log.12.gz                   worker-err.log.12.gz
+drainer-out.log.13.gz                   worker-err.log.13.gz
+drainer-out.log.14.gz                   worker-err.log.14.gz
+drainer-out.log.2.gz                    worker-err.log.2.gz
+drainer-out.log.3.gz                    worker-err.log.3.gz
+drainer-out.log.4.gz                    worker-err.log.4.gz
+drainer-out.log.5.gz                    worker-err.log.5.gz
+drainer-out.log.6.gz                    worker-err.log.6.gz
+drainer-out.log.7.gz                    worker-err.log.7.gz
+drainer-out.log.8.gz                    worker-err.log.8.gz
+drainer-out.log.9.gz                    worker-err.log.9.gz
+drainer-out__2026-09-30_00-00-00.log    worker-err__2026-10-06_23-48-22.log
+drainer-out__2026-09-30_00-00-00.log.1  worker-err__2026-10-07_00-00-00.log
+drainer-out__2026-10-01_00-00-00.log    worker-err__2026-10-07_00-32-52.log
+drainer-out__2026-10-01_00-00-00.log.1  worker-err__2026-10-07_01-05-22.log
+drainer-out__2026-10-02_00-00-00.log    worker-err__2026-10-07_01-37-52.log
+drainer-out__2026-10-02_00-00-00.log.1  worker-err__2026-10-07_02-11-22.log
+drainer-out__2026-10-03_00-00-00.log    worker-err__2026-10-07_02-44-22.log
+drainer-out__2026-10-03_00-00-00.log.1  worker-err__2026-10-07_03-17-52.log
+drainer-out__2026-10-04_00-00-00.log    worker-err__2026-10-07_03-50-52.log
+drainer-out__2026-10-04_00-00-00.log.1  worker-err__2026-10-07_04-23-23.log
+drainer-out__2026-10-05_00-00-00.log    worker-err__2026-10-07_04-56-23.log
+drainer-out__2026-10-05_00-00-00.log.1  worker-err__2026-10-07_05-29-53.log
+drainer-out__2026-10-06_00-00-00.log    worker-err__2026-10-07_06-02-53.log
+drainer-out__2026-10-06_00-00-00.log.1  worker-err__2026-10-07_06-35-53.log
+drainer-out__2026-10-07_00-00-00.log    worker-out.log
+web-err.log                             worker-out.log.1
+web-err.log.1                           worker-out.log.10.gz
+web-err.log.10.gz                       worker-out.log.11.gz
+web-err.log.11.gz                       worker-out.log.12.gz
+web-err.log.12.gz                       worker-out.log.13.gz
+web-err.log.13.gz                       worker-out.log.14.gz
+web-err.log.14.gz                       worker-out.log.2.gz
+web-err.log.2.gz                        worker-out.log.3.gz
+web-err.log.3.gz                        worker-out.log.4.gz
+web-err.log.4.gz                        worker-out.log.5.gz
+web-err.log.5.gz                        worker-out.log.6.gz
+web-err.log.6.gz                        worker-out.log.7.gz
+web-err.log.7.gz                        worker-out.log.8.gz
+web-err.log.8.gz                        worker-out.log.9.gz
+web-err.log.9.gz                        worker-out__2026-09-30_00-00-00.log
+web-err__2026-09-30_00-00-00.log        worker-out__2026-09-30_00-00-00.log.1
+web-err__2026-09-30_00-00-00.log.1      worker-out__2026-10-01_00-00-00.log
+web-err__2026-10-01_00-00-00.log        worker-out__2026-10-01_00-00-00.log.1
+web-err__2026-10-01_00-00-00.log.1      worker-out__2026-10-02_00-00-00.log
+web-err__2026-10-02_00-00-00.log        worker-out__2026-10-02_00-00-00.log.1
+web-err__2026-10-02_00-00-00.log.1      worker-out__2026-10-03_00-00-00.log
+web-err__2026-10-03_00-00-00.log        worker-out__2026-10-03_00-00-00.log.1
+web-err__2026-10-03_00-00-00.log.1      worker-out__2026-10-04_00-00-00.log
+web-err__2026-10-04_00-00-00.log        worker-out__2026-10-04_00-00-00.log.1
+web-err__2026-10-04_00-00-00.log.1      worker-out__2026-10-05_00-00-00.log
+web-err__2026-10-05_00-00-00.log        worker-out__2026-10-05_00-00-00.log.1
+web-err__2026-10-05_00-00-00.log.1      worker-out__2026-10-06_00-00-00.log
+web-err__2026-10-06_00-00-00.log        worker-out__2026-10-06_00-00-00.log.1
+web-err__2026-10-06_00-00-00.log.1      worker-out__2026-10-07_00-00-00.log
+web-err__2026-10-07_00-00-00.log
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ cd /home/ubuntu/critsend && node --env-file=.env -e '
+const {Pool}=require("pg"); const p=new Pool({connectionString:process.env.NEON_DATABASE_URL||process.env.DATABASE_URL});
+p.query("SELECT inet_server_addr()::text AS host, current_database() AS db").then(r=>{console.log(r.rows[0]);
+return p.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 ORDER BY ordinal_position",["campaign_sends"])})
+.then(r=>console.log(r.rows.map(x=>x.column_name).join(" "))).catch(e=>console.error("ERR:",e.message)).finally(()=>p.end());'
+{ host: '157.180.98.150/32', db: 'critsend' }
+id campaign_id subscriber_id sent_at status first_open_at first_click_at retry_count last_retry_at eligible_at first_deferred_at
+ubuntu@Ubuntu-noble-latest-amd64-base:~/critsend$ 
