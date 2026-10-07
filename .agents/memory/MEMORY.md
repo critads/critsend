@@ -43,3 +43,4 @@
 - [Brand unsub thresholds are alert-only](brand-unsub-alert-only.md) — never block/pause on the brand count; read it via the non-throwing notice (raw evaluator throws until bootstrap).
 - [Deferred-drain claims vs orphan grace](deferred-claim-orphan-grace.md) — parked rows keep an old sent_at; re-stamp at claim or the hourly orphan sweep fails in-flight sends; finalize from RETURNING rows.
 - [Redis (Upstash) dependency](redis-upstash-dependency.md) — remote-worker-missing + redis ok = Upstash rate-limited (billing); idle BullMQ workers still poll with USE_BULLMQ off; count cache loss can saturate the web pool.
+- [Guardian retry-budget = latest job](guardian-retry-chain-latest-job.md) — "retry chain exhausted" must read the newest campaign_jobs row of ANY status; judging the newest failed row re-pauses recovered campaigns after every Resume.
