@@ -9,8 +9,8 @@ description: Prod Redis is a hosted Upstash instance; what the app actually uses
 - worker heartbeat key read by the web health endpoint;
 - shared segment-count cache (miss → full COUNT on subscribers in PG);
 - `job-progress` pub/sub bridge between processes (live UI progress);
-- 4 BullMQ Workers (campaigns/imports/flushes/automations) that still start whenever Redis is configured, even with USE_BULLMQ off — they poll empty queues and generate most of the Redis traffic and all of the error spam.
+- (until 2026-10-07) 4 BullMQ Workers (campaigns/imports/flushes/automations) that started whenever Redis was configured, even with USE_BULLMQ off — they polled empty queues and generated most of the Redis traffic and all of the error spam. Now gated by `isBullMQEnabled` (Redis + USE_BULLMQ=true): no Queue/Worker/dedicated connection otherwise. The Replit dev env still sets USE_BULLMQ=true with the old Upstash URL in `.replit` [env].
 
 **How to read the symptom:** `remote-worker-missing` means "no heartbeat in Redis", not "worker dead" — confirm with `pm2 ls` / worker logs before restarting anything. Losing the shared count cache right before someone opens the dashboard is a plausible way to saturate the 6-connection web pool (503 load_shed → `checkout_timeout`) for a few minutes without the DB being down.
 
-**How to apply:** when health flips to worker-missing, grep the worker log for `upstash`/`rate-limited` first and check the Upstash billing page. Durable fixes discussed: gate `startBullMQWorkers()` on USE_BULLMQ, or move to a local redis-server on the app host (Redis only coordinates processes on that one machine).
+**How to apply:** when health flips to worker-missing, grep the worker log for `upstash`/`rate-limited` first and check the Upstash billing page. Both durable fixes are done (local redis-server on the app host; BullMQ gated on USE_BULLMQ) — a future Redis outage should only cost the heartbeat/cache/pub-sub, with far less log noise.

@@ -1,5 +1,5 @@
 import { Worker } from "bullmq";
-import { redisBullMQ, isRedisConfigured } from "./redis";
+import { redisBullMQ, isRedisConfigured, isBullMQEnabled } from "./redis";
 import { logger } from "./logger";
 import {
   triggerCampaignJobPoll,
@@ -14,8 +14,15 @@ let flushWorker: Worker | null = null;
 let automationWorker: Worker | null = null;
 
 export function startBullMQWorkers(): void {
-  if (!isRedisConfigured || !redisBullMQ) {
+  if (!isRedisConfigured) {
     logger.info("[BullMQ] Workers not started — Redis not configured");
+    return;
+  }
+  if (!isBullMQEnabled || !redisBullMQ) {
+    // Nothing is ever enqueued when USE_BULLMQ is off (see queues.ts), so a
+    // Worker would only poll empty queues: 4 blocking connections per process
+    // and a flood of errors whenever Redis degrades.
+    logger.info("[BullMQ] Workers not started — USE_BULLMQ is not 'true' (PG job processor active)");
     return;
   }
 

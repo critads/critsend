@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import { redisBullMQ, isRedisConfigured } from "./redis";
+import { redisBullMQ, isRedisConfigured, isBullMQEnabled } from "./redis";
 import { logger } from "./logger";
 
 const DEFAULT_JOB_OPTIONS = {
@@ -15,9 +15,19 @@ export let flushQueue: Queue | null = null;
 export let automationQueue: Queue | null = null;
 
 export function initQueues(): void {
-  if (!isRedisConfigured || !redisBullMQ) {
+  if (!isRedisConfigured) {
     logger.info(
       "[BullMQ] Redis not configured — queues disabled (PG queue fallback active)"
+    );
+    return;
+  }
+  if (!isBullMQEnabled || !redisBullMQ) {
+    // Every producer checks `USE_BULLMQ && queue` (or `if (!queue) return`),
+    // so leaving the queues null routes campaign/import/flush jobs through
+    // the PostgreSQL job tables + LISTEN/NOTIFY and automations through
+    // their periodic poller — the configuration prod has always run.
+    logger.info(
+      "[BullMQ] USE_BULLMQ is not 'true' — queues disabled (PG queue + LISTEN/NOTIFY active)"
     );
     return;
   }

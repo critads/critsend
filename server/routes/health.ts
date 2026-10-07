@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { db, pool, isPoolHealthy } from "../db";
 import { sql } from "drizzle-orm";
 import { getWorkerHealth, WORKER_HEARTBEAT_KEY } from "../workers";
-import { redisConnection, isRedisConfigured } from "../redis";
+import { redisConnection, isRedisConfigured, isBullMQEnabled } from "../redis";
 import { trackingPool, flushPool, isTrackingPoolHealthy, getFlushPoolStats } from "../tracking-pool";
 import { MAIN_POOL_MAX, TRACKING_POOL_MAX } from "../connection-budget";
 import { register, healthCheckDuration } from "../metrics";
@@ -220,7 +220,7 @@ export function registerHealthRoutes(app: Express) {
         status: redisStatus,
       },
       bullmq: {
-        enabled: process.env.USE_BULLMQ === "true",
+        enabled: isBullMQEnabled,
       },
       memory: {
         heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
