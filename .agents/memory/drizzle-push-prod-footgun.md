@@ -16,11 +16,25 @@ bootstrap-created partial indexes on `campaigns` (restored the same day via
 `CREATE INDEX CONCURRENTLY`). Raw-SQL tables (pmta_*, pressure_*, session,
 tracking_tokens) survived only because the push aborted early on a 42P07 error.
 
+**Prod deploys NEVER push the schema.** Every observed prod deploy since 2026-05
+ran `SKIP_SCHEMA_PUSH=1 bash deploy/deploy.sh` (or the admin UI "code-only"
+mode), so a column added to schema.ts reaches prod only if the DDL is handed to
+the owner and run by hand. On 2026-10-07 `campaign_sends.smtp_outcome_class`
+(declared 2026-06-30 as "inert until the flag is on", then referenced
+unconditionally by the policy_blocked retry selector from 2026-09-08) turned out
+to be missing in prod: 24 campaigns looped every 15 min on 42703 in their retry
+phase for weeks, status stuck at 'sending' because handleJobError refreshes
+retry_until. Fixed with `ADD COLUMN IF NOT EXISTS` (instant); deploy.sh step 4b
+now runs `scripts/check-schema-drift.ts` and aborts before pm2 reload on drift.
+
 **How to apply:**
 - Local schema validation: `NEON_DATABASE_URL= npm run db:push -- --force` (psql
   `$DATABASE_URL` is the local helium DB).
 - Prod schema changes: hand SQL to the user (CREATE INDEX CONCURRENTLY,
   name-matched to schema.ts so the deploy's push no-ops) — never push from here.
+- Any schema.ts column/table addition — flag-gated or not — must ship with the
+  prod DDL in the same hand-off; never assume a declared column exists in prod.
+  The dev Neon DB is not pushed either (it was missing the same column).
 - `drizzle-kit push --force` DROPs plain-column indexes on schema-managed tables
   that aren't declared in schema.ts (it spared expression/trgm indexes). Any
   bootstrap-created plain index on a schema-managed table must ALSO be declared

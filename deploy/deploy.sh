@@ -5,7 +5,8 @@
 #   1. git pull       — pull latest code
 #   2. npm ci         — install/update dependencies
 #   3. npm run build  — build Vite frontend + esbuild server bundles
-#   4. drizzle-kit push — apply pending schema changes
+#   4. drizzle-kit push — apply pending schema changes (skipped with SKIP_SCHEMA_PUSH=1)
+#   4b. schema drift gate — abort if the code expects columns the DB lacks
 #   5. mkdir -p       — ensure required directories exist (images, uploads/imports)
 #   6. nginx update   — apply nginx.conf from repo; rolls back automatically on failure
 #   7. pm2 reload     — zero-downtime process reload
@@ -70,23 +71,48 @@ step "Building frontend and server bundles (npm run build)..."
 npm run build
 ok "Build complete"
 
+if [[ -f ".env" ]]; then
+    _db_url=$(grep -E "^NEON_DATABASE_URL=" .env | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+    if [[ -n "$_db_url" ]]; then
+        export NEON_DATABASE_URL="$_db_url"
+    fi
+fi
+
 if [[ "${SKIP_SCHEMA_PUSH:-0}" == "1" ]]; then
     step "Skipping database schema push (SKIP_SCHEMA_PUSH=1)"
     ok "Schema push skipped"
 else
     step "Pushing database schema changes (drizzle-kit push)..."
-    if [[ -f ".env" ]]; then
-        _db_url=$(grep -E "^NEON_DATABASE_URL=" .env | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-        if [[ -n "$_db_url" ]]; then
-            export NEON_DATABASE_URL="$_db_url"
-        fi
-    fi
     # Precreate the partial index without blocking campaign_stats writes.
     # drizzle-kit then observes the valid index instead of issuing ordinary
     # CREATE INDEX against this hot table.
     npx tsx scripts/ensure-orange-wanadoo-stats-index.ts
     npx drizzle-kit push --force
     ok "Database schema up to date"
+fi
+
+# ─── Step 4b: Schema drift gate ──────────────────────────────────────────────
+# Deploys are usually run with SKIP_SCHEMA_PUSH=1 (push --force is unsafe on
+# the prod tables), so schema changes are applied by hand. If a column that
+# the new code depends on was never created, the code must NOT go live: it
+# fails at runtime with 42703 and, in the campaign worker, silently stalls
+# every campaign that reaches the affected query (campaign_sends.
+# smtp_outcome_class, 2026-10-07: 24 campaigns stuck in their retry phase).
+# Read-only check; prints the ADD COLUMN DDL to run. SKIP_SCHEMA_CHECK=1
+# downgrades it to a warning (use only when the missing object is known to
+# be unused by the code being deployed).
+step "Checking live DB schema against shared/schema.ts..."
+if [[ "${SKIP_SCHEMA_CHECK:-0}" == "1" ]]; then
+    npx tsx scripts/check-schema-drift.ts --warn-only || true
+    ok "Schema drift check ran in warn-only mode (SKIP_SCHEMA_CHECK=1)"
+else
+    if ! npx tsx scripts/check-schema-drift.ts; then
+        echo "[deploy]   The code being deployed expects tables/columns that do not exist in the DB." >&2
+        echo "[deploy]   Run the suggested DDL above (ADD COLUMN IF NOT EXISTS is instant, nullable)," >&2
+        echo "[deploy]   then re-run the deploy. Aborting BEFORE pm2 reload." >&2
+        fail "Schema drift detected"
+    fi
+    ok "Live DB schema matches shared/schema.ts"
 fi
 
 # ─── Step 5: Ensure directories exist with correct permissions ───────────────

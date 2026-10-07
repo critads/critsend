@@ -1,7 +1,7 @@
 - [Hetzner DB resilience gaps](hetzner-db-resilience.md) — critsend-db had no backups, archive_mode off, unattended-upgrades un-blacklisted for PG, systemd Restart=no, no replica; conn budget healthy.
 - [Campaign status-flip guards](campaign-status-flip-guards.md) — any path that sets a campaign back to 'sending' (auto-requeue, retry, ghost-sweep) must guard on current status or it resurrects a manually Ended/Paused campaign.
 - [Step-resume invariants](step-resume-invariants.md) — preserving an audience cursor requires preserving failed send rows; retries then happen after enumeration instead of silently omitting contacts.
-- [drizzle push prod footgun](drizzle-push-prod-footgun.md) — NEON_DATABASE_URL wins in drizzle.config.ts; always `NEON_DATABASE_URL= npm run db:push`.
+- [drizzle push prod footgun](drizzle-push-prod-footgun.md) — NEON_DATABASE_URL wins in drizzle.config.ts; prod deploys always SKIP push, so every schema.ts column needs hand-run DDL or 42703 at runtime.
 - [Neon is stale, not prod](neon-is-stale-not-prod.md) — live prod is the Hetzner critsend DB; NEON_DATABASE_URL is the pre-June-2026 Neon copy — never verify prod against it.
 - [Lockfile Replit proxy URLs](lockfile-replit-proxy-urls.md) — new deps can write package-firewall.replit.(internal|local) into package-lock.json; npm ci on prod wipes node_modules then hangs/fails — grep the prefix before deploy.
 - [Unsubscribe link prefetch](unsubscribe-link-prefetch.md) — GET /u/:token mutates, so Gmail/Apple link-prefetch causes false unsubscribes + inflated stats; proper fix = GET confirmation page, mutate on POST.
