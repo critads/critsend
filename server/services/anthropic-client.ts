@@ -23,11 +23,25 @@ export class AnthropicClientError extends Error {
   }
 }
 
+export type AnthropicImageInput = {
+  mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+  /** Raw image bytes, base64-encoded. */
+  data: string;
+  /** Short caption placed just before the image (e.g. its position and alt text). */
+  label?: string;
+};
+
 export type AnthropicMessageRequest = {
   system: string;
   user: string;
   maxTokens: number;
   temperature?: number;
+  /**
+   * Images shown to the model before `user`, in order (vision input). The
+   * caller is responsible for size/format limits; the client only builds the
+   * content blocks.
+   */
+  images?: AnthropicImageInput[];
   /**
    * Ask the API to ground the answer with its web search tool. `maxUses`
    * bounds the searches per request (each one is billed and takes seconds).
@@ -95,6 +109,18 @@ function collectWebSearchOutcomes(blocks: ContentBlock[]): { results: number; er
     }
   }
   return { results, errors };
+}
+
+/** The first user turn: a bare string without images, content blocks with them. */
+export function buildUserContent(request: AnthropicMessageRequest): unknown {
+  if (!request.images || request.images.length === 0) return request.user;
+  const blocks: unknown[] = [];
+  for (const image of request.images) {
+    if (image.label) blocks.push({ type: "text", text: image.label });
+    blocks.push({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } });
+  }
+  blocks.push({ type: "text", text: request.user });
+  return blocks;
 }
 
 export async function anthropicCreateMessage(
@@ -187,7 +213,7 @@ export async function anthropicCreateMessage(
     }
   };
 
-  const messages: Array<{ role: "user" | "assistant"; content: unknown }> = [{ role: "user", content: request.user }];
+  const messages: Array<{ role: "user" | "assistant"; content: unknown }> = [{ role: "user", content: buildUserContent(request) }];
   const usage = { inputTokens: 0, outputTokens: 0 };
   let usageSeen = false;
   let webSearchResults = 0;

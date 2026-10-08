@@ -10,6 +10,7 @@ import type { PreheaderSuggestionsResponse } from "../shared/preheader-suggestio
 const result: PreheaderSuggestionsResponse = {
   model: "claude-sonnet-4-5",
   language: "fr",
+  imagesAnalyzed: 6,
   notes: ["Newsletter longue : seule la première partie du texte a été analysée."],
   suggestions: [
     { text: "Réservez avant le 20 octobre et profitez de 4 nuits minimum", angle: "urgence" },
@@ -42,6 +43,7 @@ describe("PreheaderSuggestionList", () => {
       result, value: result.suggestions[1].text, onSelect: () => {},
     }));
     expect(html).toContain("Langue détectée : FR.");
+    expect(html).toContain("6 images analysées.");
     expect(html).toContain("Réservez avant le 20 octobre");
     expect(html).toContain("urgence");
     expect(html).toContain(`${result.suggestions[0].text.length} caractères`);

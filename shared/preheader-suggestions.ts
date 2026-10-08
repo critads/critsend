@@ -37,6 +37,8 @@ export type PreheaderSuggestionsResponse = {
   /** ISO 639-1 code detected by the model from the newsletter, when it said so. */
   language: string | null;
   model: string;
-  /** Operator-facing remarks (fewer suggestions than asked, truncated content, …). */
+  /** Operator-facing remarks (fewer suggestions than asked, truncated content, images skipped, …). */
   notes: string[];
+  /** Newsletter images the model actually looked at (vision input). */
+  imagesAnalyzed: number;
 };

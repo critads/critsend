@@ -119,6 +119,7 @@ export function PreheaderSuggestionList({
       <p className="text-xs text-muted-foreground">
         Cliquez sur une proposition pour l'utiliser — vous pourrez encore la modifier.
         {result.language ? ` Langue détectée : ${result.language.toUpperCase()}.` : ""}
+        {result.imagesAnalyzed > 0 ? ` ${result.imagesAnalyzed} image${result.imagesAnalyzed > 1 ? "s" : ""} analysée${result.imagesAnalyzed > 1 ? "s" : ""}.` : ""}
       </p>
       <ul className="space-y-1.5">
         {result.suggestions.map((suggestion, index) => {
