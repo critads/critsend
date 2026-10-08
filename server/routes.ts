@@ -39,6 +39,7 @@ import { ensureBrandsSchema } from "./brands-bootstrap";
 import { ensureUnsubscribeContinueSchema } from "./unsubscribe-continue-bootstrap";
 import { ensureSmartSegmentSchema } from "./smart-segment-bootstrap";
 import { registerSmartSegmentRoutes } from "./routes/smart-segments";
+import { registerPreheaderSuggestionRoutes } from "./routes/preheader-suggestions";
 import { startSmartSegmentJanitor, sweepStaleSmartSegmentAnalyses } from "./services/smart-segment-jobs";
 import { ensureOrangeTestSchema } from "./orange-test-bootstrap";
 import { startOrangeTestChecker } from "./services/orange-test-jobs";
@@ -149,6 +150,7 @@ export async function registerRoutes(
   registerMtaRoutes(app, helpers);
   registerBrandRoutes(app);
   registerSmartSegmentRoutes(app);
+  registerPreheaderSuggestionRoutes(app);
   registerCampaignMtaTransferRoutes(app);
   registerTrackingRoutes(app);
   registerWebhookRoutes(app);

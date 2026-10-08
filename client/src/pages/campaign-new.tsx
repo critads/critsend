@@ -42,6 +42,7 @@ import DateTimePicker from "@/components/date-time-picker";
 import { SegmentCombobox } from "@/components/segment-combobox";
 import { HtmlDropzone } from "@/components/campaign-wizard/html-dropzone";
 import { TagSuggestionsButton } from "@/components/campaign-wizard/tag-suggestions";
+import { PreheaderSuggestions } from "@/components/campaign-wizard/preheader-suggestions";
 import { SegmentSuggestions } from "@/components/campaign-wizard/segment-suggestions";
 import { SmartSegmentAssistant } from "@/components/campaign-wizard/smart-segment-assistant";
 import { ExternalImagesAlert } from "@/components/campaign-wizard/external-images-alert";
@@ -925,6 +926,13 @@ export default function CampaignNew() {
               <p className="text-xs text-muted-foreground">
                 This text appears after the subject in most email clients
               </p>
+              <PreheaderSuggestions
+                subject={formData.subject || ""}
+                htmlContent={formData.htmlContent || ""}
+                campaignName={formData.name}
+                value={formData.preheader || ""}
+                onSelect={(preheader) => updateField("preheader", preheader)}
+              />
             </div>
             <div className="space-y-2">
               <Label>HTML Content *</Label>
