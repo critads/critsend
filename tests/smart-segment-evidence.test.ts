@@ -74,6 +74,7 @@ function fakeRunner(handlers: {
   mtaCapture?: () => unknown[];
   floor?: (params: unknown[]) => unknown[];
   brandMtas?: (ids: string[]) => unknown[];
+  brandNames?: (refs: string[]) => unknown[];
   count?: (sql: string, label: string) => number;
 }) {
   const recorded: Recorded[] = [];
@@ -103,7 +104,7 @@ function fakeRunner(handlers: {
       if (label === "répartition des cliqueurs disponibles") return (handlers.tiers?.() ?? []) as never;
       if (label.startsWith("récence")) return (handlers.recency?.(params[0] as string, params[4] as number, label) ?? []) as never;
       if (label.startsWith("répartition par récence")) return (handlers.recencyMix?.() ?? []) as never;
-      if (label === "noms des marques similaires") return [] as never;
+      if (label === "noms des marques similaires et d'affinité") return (handlers.brandNames?.(params[0] as string[]) ?? []) as never;
       throw new Error(`unexpected query ${label}`);
     },
     async queryCount(label, statement: SQL) {
@@ -191,6 +192,46 @@ describe("buildSmartSegmentEvidence", () => {
     expect(stages[0]).toEqual(["brand_history", 5]);
     expect(stages.at(-1)![0]).toBe("reservoirs");
     expect(evidence.budget.queries).toBe(recorded.length);
+  });
+
+  it("measures the operator's similar and affinity refs as their own cohorts, builds their blocks and names both brand lists", async () => {
+    historyCandidates.mockResolvedValueOnce([{ campaignId: "camp-a", segmentName: "FR - Cliqueurs" }]);
+    const withSelections: SmartSegmentBrandResolution = { ...brand, verticalRefs: ["4PIE"], similarRefs: ["4TUI"], affinityRefs: ["2MDM", "1CAR"] };
+    const { runner, recorded } = fakeRunner({
+      stats: (ids) => ids.map((id) => statsRow(id, "Air France 01/09", 100_000, 100_000)),
+      cohorts: () => [
+        ...cohortRows(),
+        { axis: "ref_relation", cohort: "similar", delivered: "20000", human_clickers: "400", bot_clickers: "0", complaints: "20" },
+        { axis: "ref_relation", cohort: "affinity", delivered: "15000", human_clickers: "240", bot_clickers: "0", complaints: "12" },
+      ],
+      tiers: () => [{ tier: "6+", count: "3000" }],
+      brandNames: (refs) => {
+        expect(refs).toEqual(["4TUI", "2MDM", "1CAR"]);
+        return [{ ref: "4TUI", name: "TUI" }, { ref: "2MDM", name: "Maisons du Monde" }];
+      },
+    });
+    const evidence = await buildSmartSegmentEvidence(
+      { campaignName: "Air France 21/09", excludeCampaignId: null, brand: withSelections, family: "fai_fr" },
+      () => {},
+      { config, runner },
+    );
+    // The cohort statement binds the affinity refs and classifies them in their own relation, after similar and before vertical.
+    const cohortQuery = recorded.find((entry) => entry.label.startsWith("cohortes"))!;
+    expect(cohortQuery.params).toEqual(expect.arrayContaining([["4TUI"], ["2MDM", "1CAR"], ["4PIE"]]));
+    expect(cohortQuery.text.replace(/\s+/g, " ")).toMatch(/THEN 'similar' WHEN s\.refs && \$\d+::text\[\] THEN 'affinity' WHEN s\.refs && \$\d+::text\[\] THEN 'vertical'/);
+    const affinityRate = evidence.cohortRates.find((rate) => rate.axis === "ref_relation" && rate.cohort === "affinity")!;
+    expect(affinityRate.humanCtr).toBeCloseTo(240 / 15_000);
+    // One active block per family, each calibrated on its own cohort, holding its own refs only.
+    const ids = evidence.blocks.map((block) => block.id);
+    expect(ids).toEqual(expect.arrayContaining(["similar_refs_active", "affinity_refs_active"]));
+    const affinityBlock = evidence.blocks.find((block) => block.id === "affinity_refs_active")!;
+    expect(affinityBlock.calibration).toMatchObject({ axis: "ref_relation", cohort: "affinity" });
+    expect(JSON.stringify(affinityBlock.rules)).toContain("2MDM");
+    expect(JSON.stringify(affinityBlock.rules)).toContain("1CAR");
+    expect(JSON.stringify(affinityBlock.rules)).not.toContain("4TUI");
+    // Display names come from one lookup; a ref without a directory name is kept with a null name, never dropped.
+    expect(evidence.similarBrands).toEqual([{ ref: "4TUI", brandName: "TUI" }]);
+    expect(evidence.affinityBrands).toEqual([{ ref: "2MDM", brandName: "Maisons du Monde" }, { ref: "1CAR", brandName: null }]);
   });
 
   it("calibrates the non-active bands on the finished sends of every brand when the brand's own sends reach too few of them", async () => {

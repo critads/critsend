@@ -29,9 +29,17 @@ export const SMART_SEGMENT_DEFAULT_MODEL = "claude-sonnet-4-5";
 // only falls back to the actives when the cap or the dossier forbids the
 // band, saying so. The version is part of the 6 h reuse key, so an older
 // analysis is never served to a request made after these changes.
-export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v4";
-/** Prompt of the « similar brands » web-search lookup; part of the persisted result key. */
-export const SMART_SEGMENT_SIMILAR_PROMPT_VERSION = "similar-brands-v1";
+// v5 (task #343): 1 to 4 segments — a 4th « audience similaire hors
+// secteur » segment made of affinity_refs_* blocks ONLY (brands sharing the
+// customer profile in another vertical), mandatory when those blocks exist,
+// composed by the server like the similar segment.
+export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v5";
+/**
+ * Prompt of the « similar brands » web-search lookup; part of the persisted
+ * result key. v2 (task #343): the same call also returns the customer
+ * profile and the « affinity » brands of other verticals.
+ */
+export const SMART_SEGMENT_SIMILAR_PROMPT_VERSION = "similar-brands-v2";
 
 export function getSmartSegmentConfig() {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim() || null;

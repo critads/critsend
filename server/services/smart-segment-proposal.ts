@@ -72,7 +72,7 @@ export function buildSmartSegmentPrompt(
   const system = [
     "Tu es l'assistant de ciblage d'une plateforme d'emailing B2C française. Tu travailles EN CADRÉ :",
     "- tu ne calcules aucun chiffre : effectifs, CTR et taux de plaintes viennent du serveur et seront recomptés après toi ;",
-    "- tu composes 1 à 3 segments à partir des BLOCS fournis (réservoirs déjà mesurés après exclusions) ;",
+    "- tu composes 1 à 4 segments à partir des BLOCS fournis (réservoirs déjà mesurés après exclusions) ;",
     "- tu n'écris jamais de SQL, jamais de tag de clic ou d'ouverture, jamais de ref ou de campagne absente du dossier ;",
     "- tu réponds UNIQUEMENT par un objet JSON valide, sans texte autour.",
     "",
@@ -83,8 +83,9 @@ export function buildSmartSegmentPrompt(
     "Chaque segment inclut au moins un bloc. Tu peux ajouter des conditions {\"type\":\"condition\",\"field\":...,\"operator\":...,\"value\":...,\"value2\":null} UNIQUEMENT pour exclure (not_has_ref, not_has_tag, not_received_campaign, not_opened_from_bot_ip, not_equals, unsubscribed_from_fewer_campaigns), avec les refs, tags et identifiants de campagne du dossier, placées en AND à côté des blocs (dans un OR, chaque branche doit contenir un bloc) : toute inclusion écrite à la main (has_ref, clicked_campaign, ends_with…) est refusée car non calibrée.",
     `Opérateurs autorisés : ${SMART_SEGMENT_ALLOWED_OPERATORS.join(", ")}. Le champ « engagement » porte les opérateurs d'engagement, « refs » has_ref / not_has_ref, « tags » not_has_tag seulement, « email » equals / not_equals / starts_with / ends_with.`,
     "Les exclusions obligatoires (IP de plainte, ref DEL, tags de désabonnement de la marque, famille de domaines, destinataires des envois récents) seront ajoutées par le serveur si tu les omets ; ne les contredis pas.",
-    "Stratégie : atteindre l'objectif de clics avec le taux de plaintes projeté le plus bas — d'abord les cliqueurs les plus actifs, puis les autres actifs 60 j, puis les porteurs des refs de la marque, puis la verticale ; n'élargis à un bloc suivant que si l'objectif n'est pas atteint. Les blocs « _lapsed » (ouverts 61–180 j) et « _dormant » (dormants > 180 j) portent des contacts sans activité 60 j : ils sont calibrés sur leur propre cohorte de récence ; dans la recommandation et la variante, ne les ajoute que si les blocs actifs ne suffisent pas, prends d'abord la bande « _lapsed », et signale-le dans les mises en garde (le segment « marques similaires » suit sa propre règle, ci-dessous). Le premier segment est la recommandation ; un second segment optionnel propose une variante (plus sûre ou plus volumique). Ni la recommandation ni la variante n'utilisent de bloc similar_refs_* : ces blocs sont réservés au segment « marques similaires » décrit ci-dessous. Chaque segment doit rester sous le plafond de plaintes.",
-    "Marques similaires : si le dossier contient des blocs similar_refs_* (marques similaires retenues par l'opérateur), tu DOIS ajouter, en DERNIER, un segment « marques similaires » composé UNIQUEMENT de blocs similar_refs_* : similar_refs_active est obligatoire, et similar_refs_lapsed (dernière ouverture ou clic il y a 61 à 180 jours) y est ajouté en OR dès qu'il figure dans le dossier — mets-le systématiquement, le serveur l'ajoute lui-même si tu l'omets et ne le retire que si le plafond de plaintes l'impose, en le signalant à l'opérateur ; similar_refs_dormant peut s'y ajouter (en OR) seulement s'il figure dans le dossier et si le plafond de plaintes le permet. Aucun autre bloc n'y entre — ni clickers_*, ni warm_openers, ni openers_vertical, ni brand_*, ni vertical_* : ce segment isole les porteurs de refs de marques similaires pour que l'opérateur mesure leur apport à part, et le serveur refuse tout mélange. Ce segment doit lui aussi rester sous le plafond de plaintes. Sans bloc similar_refs_* dans le dossier, n'ajoute pas ce segment.",
+    "Stratégie : atteindre l'objectif de clics avec le taux de plaintes projeté le plus bas — d'abord les cliqueurs les plus actifs, puis les autres actifs 60 j, puis les porteurs des refs de la marque, puis la verticale ; n'élargis à un bloc suivant que si l'objectif n'est pas atteint. Les blocs « _lapsed » (ouverts 61–180 j) et « _dormant » (dormants > 180 j) portent des contacts sans activité 60 j : ils sont calibrés sur leur propre cohorte de récence ; dans la recommandation et la variante, ne les ajoute que si les blocs actifs ne suffisent pas, prends d'abord la bande « _lapsed », et signale-le dans les mises en garde (les segments « marques similaires » et « audience similaire hors secteur » suivent leur propre règle, ci-dessous). Le premier segment est la recommandation ; un second segment optionnel propose une variante (plus sûre ou plus volumique). Ni la recommandation ni la variante n'utilisent de bloc similar_refs_* ou affinity_refs_* : ces blocs sont réservés aux segments « marques similaires » et « audience similaire hors secteur » décrits ci-dessous. Chaque segment doit rester sous le plafond de plaintes.",
+    "Marques similaires : si le dossier contient des blocs similar_refs_* (marques similaires retenues par l'opérateur), tu DOIS ajouter, après la recommandation et sa variante, un segment « marques similaires » composé UNIQUEMENT de blocs similar_refs_* : similar_refs_active est obligatoire, et similar_refs_lapsed (dernière ouverture ou clic il y a 61 à 180 jours) y est ajouté en OR dès qu'il figure dans le dossier — mets-le systématiquement, le serveur l'ajoute lui-même si tu l'omets et ne le retire que si le plafond de plaintes l'impose, en le signalant à l'opérateur ; similar_refs_dormant peut s'y ajouter (en OR) seulement s'il figure dans le dossier et si le plafond de plaintes le permet. Aucun autre bloc n'y entre — ni clickers_*, ni warm_openers, ni openers_vertical, ni brand_*, ni vertical_*, ni affinity_refs_* : ce segment isole les porteurs de refs de marques similaires pour que l'opérateur mesure leur apport à part, et le serveur refuse tout mélange. Ce segment doit lui aussi rester sous le plafond de plaintes. Sans bloc similar_refs_* dans le dossier, n'ajoute pas ce segment.",
+    "Audience similaire hors secteur : si le dossier contient des blocs affinity_refs_* (marques d'affinité retenues par l'opérateur : même profil de clientèle que la marque — genre, âge, revenus, style de vie — mais une AUTRE verticale, par exemple pour un joaillier haut de gamme des marques de prêt-à-porter féminin premium, de cosmétiques de luxe, de linge de maison ou de voyages haut de gamme), tu DOIS ajouter, en DERNIER, un segment « audience similaire hors secteur » composé UNIQUEMENT de blocs affinity_refs_*, selon la même règle : affinity_refs_active obligatoire, affinity_refs_lapsed en OR dès qu'il figure dans le dossier (le serveur l'ajoute si tu l'omets), affinity_refs_dormant en option si le plafond le permet. Aucun autre bloc n'y entre — ni bloc général, ni similar_refs_* : ce segment mesure à part ce qu'apporte une audience au profil comparable venue d'autres secteurs, et le serveur refuse tout mélange. Sa justification explique en mots pourquoi ces marques partagent la clientèle de la marque (dossier « marquesAffinite »). Ce segment doit lui aussi rester sous le plafond de plaintes. Sans bloc affinity_refs_* dans le dossier, n'ajoute pas ce segment.",
     "Les projections sont indicatives (créa, objet et heure d'envoi comptent) : dis-le dans les mises en garde quand c'est pertinent.",
     "IMPORTANT : name, rationale et warnings ne doivent contenir AUCUN chiffre (ni effectif, ni taux, ni pourcentage, ni date) : le serveur affiche lui-même les chiffres recomptés. Cite les blocs par leur identifiant et explique le raisonnement en mots ; toute phrase chiffrée sera supprimée.",
   ].join("\n");
@@ -100,6 +101,10 @@ export function buildSmartSegmentPrompt(
       refsVerticale: evidence.brand.verticalRefs,
     },
     marquesSimilaires: (evidence.similarBrands ?? (evidence.brand.similarRefs ?? []).map((ref) => ({ ref, brandName: null }))).map((entry) => ({
+      ref: entry.ref,
+      nom: entry.brandName,
+    })),
+    marquesAffinite: (evidence.affinityBrands ?? (evidence.brand.affinityRefs ?? []).map((ref) => ({ ref, brandName: null }))).map((entry) => ({
       ref: entry.ref,
       nom: entry.brandName,
     })),
@@ -321,6 +326,7 @@ export function auditModelRules(rules: SegmentRulesV2, evidence: SmartSegmentEvi
     ...evidence.brand.extensionRefs,
     ...evidence.brand.verticalRefs,
     ...(evidence.brand.similarRefs ?? []),
+    ...(evidence.brand.affinityRefs ?? []),
     BOT_OPENER_REF,
   ]);
   const knownCampaigns = new Set([
@@ -514,43 +520,112 @@ export function comparisonWarnings(
   return warnings;
 }
 
+/**
+ * A family of « ref » blocks built from one operator selection (see
+ * smart-segment-projection): the 60-day actives holding one of those refs,
+ * plus the 61–180 d and dormant bands of the same holders. Each family is
+ * the whole of exactly one proposal — the « similar brands » segment or the
+ * « similar audience, other sector » segment — composed by the server and
+ * never mixed with any other block.
+ */
+export type RefSegmentFamily = {
+  kind: Exclude<SmartSegmentProposalKind, "recommendation" | "variant">;
+  /** Block id prefix (projection ids: `${prefix}active|lapsed|dormant`). */
+  prefix: string;
+  /** Operator-facing name of the segment, quoted in every refusal and warning. */
+  label: string;
+  /** Who the blocks hold, for the composition notes. */
+  holders: string;
+};
+export const SIMILAR_FAMILY: RefSegmentFamily = {
+  kind: "similar_brands",
+  prefix: "similar_refs_",
+  label: "marques similaires",
+  holders: "porteurs d'une ref de marque similaire",
+};
+export const AFFINITY_FAMILY: RefSegmentFamily = {
+  kind: "affinity_brands",
+  prefix: "affinity_refs_",
+  label: "audience similaire hors secteur",
+  holders: "porteurs d'une ref de marque d'affinité (même profil de clientèle, autre secteur)",
+};
+export const REF_SEGMENT_FAMILIES: readonly RefSegmentFamily[] = [SIMILAR_FAMILY, AFFINITY_FAMILY];
+
+/** Family of a block id, null for the general blocks (clickers_*, warm_openers, openers_vertical, brand_*, vertical_*). */
+export function refFamilyOfBlock(id: string): RefSegmentFamily | null {
+  return REF_SEGMENT_FAMILIES.find((family) => id.startsWith(family.prefix)) ?? null;
+}
+
 /** Whether a block id comes from the operator's similar-brand selection (similar_refs_active / _lapsed / _dormant). */
 export function isSimilarBlockId(id: string): boolean {
-  return id.startsWith("similar_refs_");
+  return id.startsWith(SIMILAR_FAMILY.prefix);
+}
+
+/** Whether a block id comes from the operator's affinity-brand selection (affinity_refs_active / _lapsed / _dormant). */
+export function isAffinityBlockId(id: string): boolean {
+  return id.startsWith(AFFINITY_FAMILY.prefix);
+}
+
+/** Blocks of one family offered by the dossier. */
+export function familyBlockIds(evidence: Pick<SmartSegmentEvidence, "blocks">, family: RefSegmentFamily): string[] {
+  return evidence.blocks.filter((block) => block.id.startsWith(family.prefix)).map((block) => block.id);
 }
 
 /** Blocks built from the operator's similar-brand selection (see smart-segment-projection). */
 export function similarBlockIds(evidence: Pick<SmartSegmentEvidence, "blocks">): string[] {
-  return evidence.blocks.filter((block) => isSimilarBlockId(block.id)).map((block) => block.id);
+  return familyBlockIds(evidence, SIMILAR_FAMILY);
+}
+
+/** Families the dossier offers blocks for (each one is a mandatory proposal). */
+export function offeredRefFamilies(evidence: Pick<SmartSegmentEvidence, "blocks">): RefSegmentFamily[] {
+  return REF_SEGMENT_FAMILIES.filter((family) => familyBlockIds(evidence, family).length > 0);
 }
 
 /** Blocks of the « similar brands » segment, by recency band of the same similar-ref holders. */
 export const SIMILAR_ACTIVE_BLOCK_ID = "similar_refs_active";
 export const SIMILAR_LAPSED_BLOCK_ID = "similar_refs_lapsed";
 export const SIMILAR_DORMANT_BLOCK_ID = "similar_refs_dormant";
+export const AFFINITY_ACTIVE_BLOCK_ID = "affinity_refs_active";
+export const AFFINITY_LAPSED_BLOCK_ID = "affinity_refs_lapsed";
+export const AFFINITY_DORMANT_BLOCK_ID = "affinity_refs_dormant";
 
-/** Operator-facing band name of each similar_refs_* block (same labels as the recency cells). */
-const SIMILAR_BLOCK_BAND_LABELS: Record<string, string> = {
-  [SIMILAR_ACTIVE_BLOCK_ID]: RECENCY_BAND_LABELS.engaged_60d,
-  [SIMILAR_LAPSED_BLOCK_ID]: RECENCY_BAND_LABELS.opened_61_180d,
-  [SIMILAR_DORMANT_BLOCK_ID]: RECENCY_BAND_LABELS.dormant_180d,
+const activeId = (family: RefSegmentFamily) => `${family.prefix}active`;
+const lapsedId = (family: RefSegmentFamily) => `${family.prefix}lapsed`;
+const dormantId = (family: RefSegmentFamily) => `${family.prefix}dormant`;
+
+/** Operator-facing band name of each family block (same labels as the recency cells). */
+const BAND_LABELS_BY_SUFFIX: Record<string, string> = {
+  active: RECENCY_BAND_LABELS.engaged_60d,
+  lapsed: RECENCY_BAND_LABELS.opened_61_180d,
+  dormant: RECENCY_BAND_LABELS.dormant_180d,
 };
+function bandLabelOf(id: string): string {
+  const family = refFamilyOfBlock(id);
+  return (family && BAND_LABELS_BY_SUFFIX[id.slice(family.prefix.length)]) ?? id;
+}
+const bandLabels = (ids: readonly string[]) => ids.map(bandLabelOf);
 
-/** Composition rule of the « similar brands » segment, quoted in every refusal that enforces it. */
-export const SIMILAR_SEGMENT_COMPOSITION_RULE =
-  "le segment « marques similaires » est composé UNIQUEMENT de blocs similar_refs_* (similar_refs_active et similar_refs_lapsed en OR dès que la bande 61–180 j figure dans le dossier, similar_refs_dormant en option), sans aucun bloc général";
+/** Composition rule of a family segment, quoted in every refusal that enforces it. */
+export function compositionRule(family: RefSegmentFamily): string {
+  return `le segment « ${family.label} » est composé UNIQUEMENT de blocs ${family.prefix}* (${activeId(family)} et ${lapsedId(family)} en OR dès que la bande 61–180 j figure dans le dossier, ${dormantId(family)} en option), sans aucun autre bloc`;
+}
+/** Composition rule of the « similar brands » segment. */
+export const SIMILAR_SEGMENT_COMPOSITION_RULE = compositionRule(SIMILAR_FAMILY);
 
 /**
- * How the « similar brands » segment must be composed given the blocks the
- * dossier offers, quoted in the refusals that ask the model to add or fix it.
+ * How a family segment must be composed given the blocks the dossier
+ * offers, quoted in the refusals that ask the model to add or fix it.
  */
-export function expectedSimilarComposition(evidence: Pick<SmartSegmentEvidence, "blocks">): string {
-  const ids = similarBlockIds(evidence);
-  const bands = [SIMILAR_ACTIVE_BLOCK_ID, SIMILAR_LAPSED_BLOCK_ID].filter((id) => ids.includes(id));
+export function expectedFamilyComposition(evidence: Pick<SmartSegmentEvidence, "blocks">, family: RefSegmentFamily): string {
+  const ids = familyBlockIds(evidence, family);
+  const bands = [activeId(family), lapsedId(family)].filter((id) => ids.includes(id));
   const mandatory = bands.length ? bands : ids.slice(0, 1);
   const optional = ids.filter((id) => !mandatory.includes(id));
   const core = mandatory.length > 1 ? `des blocs ${mandatory.join(" et ")} (en OR)` : `du bloc ${mandatory[0]}`;
-  return `composé UNIQUEMENT ${core}${optional.length ? ` (${optional.join(", ")} en option, si le plafond le permet)` : ""}, sans aucun bloc général`;
+  return `composé UNIQUEMENT ${core}${optional.length ? ` (${optional.join(", ")} en option, si le plafond le permet)` : ""}, sans aucun autre bloc`;
+}
+export function expectedSimilarComposition(evidence: Pick<SmartSegmentEvidence, "blocks">): string {
+  return expectedFamilyComposition(evidence, SIMILAR_FAMILY);
 }
 
 function isExclusionCondition(node: SegmentGroup["children"][number]): node is SegmentCondition {
@@ -588,42 +663,46 @@ export type SimilarComposition = {
   addedBlocks: string[];
   /** Why the 61–180 d band is absent from the dossier, when it is (null when offered). */
   lapsedUnavailable: string | null;
+  /** Family the server composed (null when the tree is the model's). */
+  family?: RefSegmentFamily | null;
 };
 
 /** Composition of a segment the server does not re-compose (the model's tree, as is). */
 export function modelComposition(blocksUsed: readonly string[], rules: SegmentRulesV2): SimilarComposition {
-  return { variants: [{ blocksUsed: [...blocksUsed], rules }], addedBlocks: [], lapsedUnavailable: null };
+  return { variants: [{ blocksUsed: [...blocksUsed], rules }], addedBlocks: [], lapsedUnavailable: null, family: null };
 }
 
 /**
- * Server-side composition of the « similar brands » segment. The operator's
- * request fixes it: holders of a similar-brand ref active in the last 60
- * days OR whose last open/click is 61–180 days old, whenever the dossier
- * offers that band; the dormant band only on the model's initiative. The
- * model's own exclusion conditions are kept, in AND next to the blocks —
- * hoisted to the top level when it nested them, which can only narrow.
+ * Server-side composition of a family segment (« similar brands » or
+ * « similar audience, other sector »). The operator's request fixes it:
+ * holders of one of the selected refs active in the last 60 days OR whose
+ * last open/click is 61–180 days old, whenever the dossier offers that band;
+ * the dormant band only on the model's initiative. The model's own exclusion
+ * conditions are kept, in AND next to the blocks — hoisted to the top level
+ * when it nested them, which can only narrow.
  *
  * Variants come by preference: the widest first, then without the dormant
  * band, then the actives alone. The cap check walks them down and says which
  * band it dropped and why — a band is never dropped silently, and never kept
  * when the dossier cannot project it (the block is then absent).
  */
-export function composeSimilarSegment(
+export function composeFamilySegment(
+  family: RefSegmentFamily,
   blocksUsed: readonly string[],
   modelRules: SegmentRulesV2,
   evidence: SmartSegmentEvidence,
 ): SimilarComposition {
-  const offered = new Map(evidence.blocks.filter((block) => isSimilarBlockId(block.id)).map((block) => [block.id, block]));
-  const active = offered.get(SIMILAR_ACTIVE_BLOCK_ID);
+  const offered = new Map(evidence.blocks.filter((block) => block.id.startsWith(family.prefix)).map((block) => [block.id, block]));
+  const active = offered.get(activeId(family));
   if (!active) {
     // No active band in the dossier: nothing to compose around, keep the model's tree.
     return modelComposition(blocksUsed, modelRules);
   }
-  const lapsed = offered.get(SIMILAR_LAPSED_BLOCK_ID);
+  const lapsed = offered.get(lapsedId(family));
   const lapsedUnavailable = lapsed
     ? null
-    : evidence.omittedBlocks?.find((block) => block.id === SIMILAR_LAPSED_BLOCK_ID)?.reason ?? "aucune cohorte de récence fiable dans le calibrage";
-  const dormant = blocksUsed.includes(SIMILAR_DORMANT_BLOCK_ID) ? offered.get(SIMILAR_DORMANT_BLOCK_ID) : undefined;
+    : evidence.omittedBlocks?.find((block) => block.id === lapsedId(family))?.reason ?? "aucune cohorte de récence fiable dans le calibrage";
+  const dormant = blocksUsed.includes(dormantId(family)) ? offered.get(dormantId(family)) : undefined;
   const base = [active, ...(lapsed ? [lapsed] : [])];
   const addedBlocks = base.map((block) => block.id).filter((id) => !blocksUsed.includes(id));
   const ladder = [
@@ -637,27 +716,35 @@ export function composeSimilarSegment(
     const inclusion = blockRules.length === 1 ? blockRules[0] : group("OR", blockRules);
     return { blocksUsed: blocks.map((block) => block.id), rules: { version: 2 as const, root: group("AND", [inclusion, ...exclusions]) } };
   });
-  return { variants, addedBlocks, lapsedUnavailable };
+  return { variants, addedBlocks, lapsedUnavailable, family };
 }
 
-const bandLabels = (ids: readonly string[]) => ids.map((id) => SIMILAR_BLOCK_BAND_LABELS[id] ?? id);
+/** Server-side composition of the « similar brands » segment (see composeFamilySegment). */
+export function composeSimilarSegment(
+  blocksUsed: readonly string[],
+  modelRules: SegmentRulesV2,
+  evidence: SmartSegmentEvidence,
+): SimilarComposition {
+  return composeFamilySegment(SIMILAR_FAMILY, blocksUsed, modelRules, evidence);
+}
 
 /**
- * Operator sentences about the similar segment's composition finally kept:
+ * Operator sentences about a family segment's composition finally kept:
  * the bands the server added to the model's version (those still present —
  * a band dropped by the cap is told by narrowingWarning instead) and the
  * 61–180 d band the dossier could not offer.
  */
 export function similarCompositionNotes(composed: SimilarComposition, keptBlocks: readonly string[]): string[] {
   const notes: string[] = [];
+  const family = composed.family ?? refFamilyOfBlock(keptBlocks[0] ?? "") ?? SIMILAR_FAMILY;
   const added = composed.addedBlocks.filter((id) => keptBlocks.includes(id));
   if (added.length) {
-    const expected = [SIMILAR_ACTIVE_BLOCK_ID, ...(composed.lapsedUnavailable ? [] : [SIMILAR_LAPSED_BLOCK_ID])];
+    const expected = [activeId(family), ...(composed.lapsedUnavailable ? [] : [lapsedId(family)])];
     const plural = added.length > 1;
-    notes.push(`Bande${plural ? "s" : ""} « ${bandLabels(added).join(" » et « ")} » ajoutée${plural ? "s" : ""} par le serveur au segment « marques similaires » : sa composition attendue réunit les ${bandLabels(expected).join(" et les ")} porteurs d'une ref de marque similaire.`);
+    notes.push(`Bande${plural ? "s" : ""} « ${bandLabels(added).join(" » et « ")} » ajoutée${plural ? "s" : ""} par le serveur au segment « ${family.label} » : sa composition attendue réunit les ${bandLabels(expected).join(" et les ")} ${family.holders}.`);
   }
   if (composed.lapsedUnavailable) {
-    notes.push(`Bande « ${SIMILAR_BLOCK_BAND_LABELS[SIMILAR_LAPSED_BLOCK_ID]} » des marques similaires non incluse : ${composed.lapsedUnavailable} (historique insuffisant pour la projeter) — le segment reste sur les ${bandLabels(keptBlocks).join(" et les ")}.`);
+    notes.push(`Bande « ${BAND_LABELS_BY_SUFFIX.lapsed} » du segment « ${family.label} » non incluse : ${composed.lapsedUnavailable} (historique insuffisant pour la projeter) — le segment reste sur les ${bandLabels(keptBlocks).join(" et les ")}.`);
   }
   return notes;
 }
@@ -666,7 +753,7 @@ export function similarCompositionNotes(composed: SimilarComposition, keptBlocks
 export type CapFailureRates = { audienceRate: number | null; orangeWanadoo: { rate: number; count: number } | null };
 
 /**
- * Sentence shown when a wider composition of the similar segment failed the
+ * Sentence shown when a wider composition of a family segment failed the
  * complaint cap and the next one is retained: names the band dropped, the
  * projected figure that broke the cap and what would include the band.
  */
@@ -676,6 +763,7 @@ export function narrowingWarning(
   failure: CapFailureRates,
   complaintCap: number,
 ): string {
+  const family = refFamilyOfBlock(dropped[0] ?? kept[0] ?? "") ?? SIMILAR_FAMILY;
   const ow = failure.orangeWanadoo;
   const owWhere = ow ? `${pct(ow.rate)} sur Orange/Wanadoo (${ow.count.toLocaleString("fr-FR")} abonnés)` : null;
   const where = failure.audienceRate !== null
@@ -686,17 +774,27 @@ export function narrowingWarning(
   const wayOut = threshold <= SMART_SEGMENT_COMPLAINT_HARD_CAP
     ? `un plafond ≥ ${pct(threshold)} ${dropped.length > 1 ? "les" : "l'"}inclurait`
     : `au-delà même du plafond maximal (${pct(SMART_SEGMENT_COMPLAINT_HARD_CAP)})`;
-  return `Bande${dropped.length > 1 ? "s" : ""} « ${bandLabels(dropped).join(" » et « ")} » écartée${dropped.length > 1 ? "s" : ""} du segment « marques similaires » : avec, ${where}, au-dessus du plafond ${pct(complaintCap)} ; ${wayOut}. Le segment reste sur les ${bandLabels(kept).join(" et les ")}.`;
+  return `Bande${dropped.length > 1 ? "s" : ""} « ${bandLabels(dropped).join(" » et « ")} » écartée${dropped.length > 1 ? "s" : ""} du segment « ${family.label} » : avec, ${where}, au-dessus du plafond ${pct(complaintCap)} ; ${wayOut}. Le segment reste sur les ${bandLabels(kept).join(" et les ")}.`;
 }
 
 /**
- * Splits the blocks a segment really expanded into the similar_refs_* ones
- * and the general ones (clickers_*, warm_openers, openers_vertical, brand_*,
- * vertical_*). Returns null unless BOTH families are present — the one
- * composition the « similar brands » segment must never have: mixing the
- * general actives back in turns it into the recommendation widened to the
- * similar refs, which stops measuring what those brands bring on their own.
+ * Splits the blocks a segment really expanded into the ones of one ref
+ * family and every other block (general ones — clickers_*, warm_openers,
+ * openers_vertical, brand_*, vertical_* — or another family's). Returns
+ * null unless a family block sits next to a foreign one — the one
+ * composition a family segment must never have: mixing the general actives
+ * back in turns it into the recommendation widened to those refs, and
+ * mixing the two families blurs what each selection brings on its own.
  */
+export function mixedFamilyComposition(blocksUsed: readonly string[]): { family: RefSegmentFamily; kept: string[]; foreign: string[] } | null {
+  const family = blocksUsed.map(refFamilyOfBlock).find((entry): entry is RefSegmentFamily => entry !== null);
+  if (!family) return null;
+  const kept = blocksUsed.filter((id) => id.startsWith(family.prefix));
+  const foreign = blocksUsed.filter((id) => !id.startsWith(family.prefix));
+  return foreign.length ? { family, kept, foreign } : null;
+}
+
+/** Similar-family view of mixedFamilyComposition (null when no similar block is mixed with another). */
 export function mixedSimilarComposition(blocksUsed: readonly string[]): { similar: string[]; general: string[] } | null {
   const similar = blocksUsed.filter((id) => isSimilarBlockId(id));
   const general = blocksUsed.filter((id) => !isSimilarBlockId(id));
@@ -705,13 +803,16 @@ export function mixedSimilarComposition(blocksUsed: readonly string[]): { simila
 
 /**
  * Role of every validated segment, from the blocks actually expanded: any
- * segment using a similar_refs_* block is the « similar brands » one; among
- * the others the first is the recommendation, the rest are variants.
+ * segment using a similar_refs_* block is the « similar brands » one, any
+ * segment using an affinity_refs_* block is the « similar audience, other
+ * sector » one; among the others the first is the recommendation, the rest
+ * are variants.
  */
 export function assignProposalKinds<T extends { blocksUsed: string[] }>(segments: T[]): Array<T & { kind: SmartSegmentProposalKind }> {
   let recommendationSeen = false;
   return segments.map((segment) => {
-    if (segment.blocksUsed.some((id) => isSimilarBlockId(id))) return { ...segment, kind: "similar_brands" as const };
+    const family = segment.blocksUsed.map(refFamilyOfBlock).find((entry): entry is RefSegmentFamily => entry !== null);
+    if (family) return { ...segment, kind: family.kind };
     const kind: SmartSegmentProposalKind = recommendationSeen ? "variant" : "recommendation";
     recommendationSeen = true;
     return { ...segment, kind };
@@ -801,18 +902,21 @@ export async function validateProposal(
       continue;
     }
     // Composition rule, checked before the costly recount: a segment holding
-    // a similar_refs_* block IS the « similar brands » segment (see
-    // assignProposalKinds) and must carry nothing else. The reason names the
-    // blocks to remove so the model's retry is a deletion, not a guess.
-    const mixed = mixedSimilarComposition(blocksUsed);
+    // a similar_refs_* (resp. affinity_refs_*) block IS the « similar
+    // brands » (resp. « similar audience, other sector ») segment (see
+    // assignProposalKinds) and must carry nothing else — no general block,
+    // no block of the other family. The reason names the blocks to remove so
+    // the model's retry is a deletion, not a guess.
+    const mixed = mixedFamilyComposition(blocksUsed);
     if (mixed) {
-      rejections.push(`segment ${index + 1} : ${SIMILAR_SEGMENT_COMPOSITION_RULE} — retire ${mixed.general.join(", ")} (bloc(s) similar_refs_* conservé(s) : ${mixed.similar.join(", ")})`);
+      rejections.push(`segment ${index + 1} : ${compositionRule(mixed.family)} — retire ${mixed.foreign.join(", ")} (bloc(s) ${mixed.family.prefix}* conservé(s) : ${mixed.kept.join(", ")})`);
       continue;
     }
-    // The similar segment is composed by the server (active + 61–180 d band
+    // A family segment is composed by the server (active + 61–180 d band
     // whenever the dossier offers it); every other segment is the model's.
-    const composed = blocksUsed.some((id) => isSimilarBlockId(id))
-      ? composeSimilarSegment(blocksUsed, segment.rules, evidence)
+    const family = blocksUsed.map(refFamilyOfBlock).find((entry): entry is RefSegmentFamily => entry !== null) ?? null;
+    const composed = family
+      ? composeFamilySegment(family, blocksUsed, segment.rules, evidence)
       : modelComposition(blocksUsed, segment.rules);
     const variants = composed.variants.map((variant) => {
       const { rules, injected } = ensureMandatoryExclusions(variant.rules, required);
@@ -933,24 +1037,33 @@ export async function validateProposal(
     throw new ModelOutputRejected(rejections.length ? rejections : ["aucun segment exploitable"]);
   }
   // Kinds come from the blocks really expanded, never from the model's
-  // labels; the « similar brands » segment(s) are shown last whatever the
-  // model's order, so index 0 is always the recommendation.
+  // labels; the family segments are shown after the recommendation and its
+  // variant whatever the model's order — « similar brands » then « similar
+  // audience, other sector » — so index 0 is always the recommendation.
   const typed = assignProposalKinds(segments);
-  const ordered = [...typed.filter((segment) => segment.kind !== "similar_brands"), ...typed.filter((segment) => segment.kind === "similar_brands")];
-  if (similarBlockIds(evidence).length) {
-    const expected = expectedSimilarComposition(evidence);
-    const hasSimilar = ordered.some((segment) => segment.kind === "similar_brands");
+  const ordered = [
+    ...typed.filter((segment) => segment.kind === "recommendation" || segment.kind === "variant"),
+    ...REF_SEGMENT_FAMILIES.flatMap((family) => typed.filter((segment) => segment.kind === family.kind)),
+  ];
+  // Every selection the operator made is a mandatory proposal: a dossier
+  // offering a family's blocks must yield that family's segment, next to a
+  // recommendation free of any family block.
+  const offeredFamilies = offeredRefFamilies(evidence);
+  if (offeredFamilies.length) {
     const hasRecommendation = ordered.some((segment) => segment.kind === "recommendation");
-    if (!hasSimilar) {
+    for (const family of offeredFamilies) {
+      if (ordered.some((segment) => segment.kind === family.kind)) continue;
       throw new ModelOutputRejected([
         ...rejections,
-        `aucun segment « marques similaires » valide : ajoute en dernier un segment ${expected}, sous le plafond de plaintes`,
+        `aucun segment « ${family.label} » valide : ajoute ${family === SIMILAR_FAMILY && offeredFamilies.length > 1 ? "après la recommandation" : "en dernier"} un segment ${expectedFamilyComposition(evidence, family)}, sous le plafond de plaintes`,
       ]);
     }
     if (!hasRecommendation) {
+      const prefixes = offeredFamilies.map((family) => `${family.prefix}*`).join(" ni ");
+      const tail = offeredFamilies.map((family) => `le segment « ${family.label} » ${expectedFamilyComposition(evidence, family)}`).join(", puis ");
       throw new ModelOutputRejected([
         ...rejections,
-        `aucune recommandation sans marques similaires : propose d'abord un segment sans bloc similar_refs_* (la recommandation), puis en dernier le segment « marques similaires » ${expected}`,
+        `aucune recommandation sans bloc de marques : propose d'abord un segment sans bloc ${prefixes} (la recommandation), puis ${tail}`,
       ]);
     }
   }
@@ -1015,11 +1128,12 @@ export async function generateSmartSegmentProposal(
           feedback = reason;
           continue;
         }
-        // The operator's similar brands are part of the request: a proposal
-        // that cannot honour them fails out loud, with the way out.
-        const hint = similarBlockIds(evidence).length && /marques similaires/.test(reason)
-          ? " Relancez l'analyse ou retirez des marques similaires."
-          : "";
+        // The operator's similar / affinity brands are part of the request:
+        // a proposal that cannot honour them fails out loud, with the way out.
+        const hint = offeredRefFamilies(evidence)
+          .filter((family) => reason.includes(`« ${family.label} »`))
+          .map((family) => family === AFFINITY_FAMILY ? " Relancez l'analyse ou retirez des marques d'affinité." : " Relancez l'analyse ou retirez des marques similaires.")
+          .join("");
         throw new SmartSegmentError("AI_PROPOSAL_REJECTED", `Proposition IA refusée après ${maxAttempts} tentatives : ${reason}${hint}`, 422);
       }
       throw error;

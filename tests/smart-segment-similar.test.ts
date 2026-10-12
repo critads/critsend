@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../server/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("../server/db", () => ({ pool: { query: vi.fn(async () => { throw new Error("no db in unit tests"); }) }, db: {} }));
+vi.mock("../server/storage", () => ({ storage: {} }));
 
 import {
   brandNameKey,
@@ -14,13 +15,17 @@ import {
   SimilarBrandsOutputMalformed,
   stripPerformanceFigures,
   SMART_SEGMENT_MAX_CONCURRENT_SIMILAR_LOOKUPS,
+  describeAffinityRejections,
+  validateAffinityRefs,
   validateSimilarRefs,
+  withAffinityRefs,
   withSimilarRefs,
   type DirectoryBrand,
   type SimilarBrandDeps,
   type SimilarBrandLookupResult,
 } from "../server/services/smart-segment-similar";
 import { AnthropicClientError, type AnthropicMessageRequest, type AnthropicMessageResponse } from "../server/services/anthropic-client";
+import { resolveSmartSegmentBrand } from "../server/services/smart-segment-brand";
 import { SmartSegmentError } from "../server/services/smart-segment-evidence";
 import { SMART_SEGMENT_SIMILAR_PROMPT_VERSION } from "../server/config/smart-segment";
 import type { SmartSegmentBrandResolution } from "../shared/smart-segment";
@@ -42,9 +47,22 @@ const directory: DirectoryBrand[] = [
   { name: "H&M", refs: ["1HM"] },
 ];
 
-function modelAnswer(marques: Array<{ nom: string; raison?: string }>, secteur = "Prêt-à-porter féminin, mode urbaine, femmes de 20 à 40 ans."): AnthropicMessageResponse {
+/** Affinity brands the fixture model proposes for Morgan (vertical 1): another vertical each, as the prompt demands. */
+const DEFAULT_AFFINITY = [{ nom: "Maisons du Monde", raison: "Mêmes jeunes femmes urbaines, budget déco comparable." }, { nom: "TUI" }];
+
+function modelAnswer(
+  marques: Array<{ nom: string; raison?: string }>,
+  secteur = "Prêt-à-porter féminin, mode urbaine, femmes de 20 à 40 ans.",
+  marquesAffinite: Array<{ nom: string; raison?: string }> | undefined = DEFAULT_AFFINITY,
+): AnthropicMessageResponse {
+  const body: Record<string, unknown> = {
+    secteur,
+    profil: "Femmes de 20 à 40 ans, urbaines, revenus moyens, achats mode fréquents.",
+    marques: marques.map((m) => ({ nom: m.nom, raison: m.raison ?? "Même univers mode femme." })),
+  };
+  if (marquesAffinite) body.marques_affinite = marquesAffinite.map((m) => ({ nom: m.nom, raison: m.raison ?? "Même profil de clientes." }));
   return {
-    text: `\`\`\`json\n${JSON.stringify({ secteur, marques: marques.map((m) => ({ nom: m.nom, raison: m.raison ?? "Même univers mode femme." })) })}\n\`\`\``,
+    text: `\`\`\`json\n${JSON.stringify(body)}\n\`\`\``,
     model: "claude-test",
     stopReason: "end_turn",
     usage: { inputTokens: 5_000, outputTokens: 200 },
@@ -148,6 +166,55 @@ describe("model output selection", () => {
     expect(selected.strippedSentences).toBe(2);
   });
 
+  it("keeps affinity brands of another vertical only, never one already similar, and reads a missing list as empty with a note", () => {
+    const raw = {
+      secteur: "Mode femme",
+      profil: "Jeunes femmes urbaines. Taux de clic de 4 %.",
+      marques: [{ nom: "Naf Naf" }],
+      marques_affinite: [
+        { nom: "Maisons du Monde", raison: "Même profil." },
+        { nom: "Pimkie", raison: "Same vertical (1): refused by the server whatever the model says." },
+        { nom: "Naf Naf", raison: "Already similar: kept there only." },
+        { nom: "Morgan", raison: "The brand itself." },
+        { nom: "Sephora", raison: "Invented: not in the directory." },
+        { nom: "tui" },
+      ],
+    };
+    const selected = selectSimilarBrands(raw, directory, excludedSimilarRefs(["1MOR"]), 8, { brandVertical: "1" });
+    expect(selected.profile).toBe("Jeunes femmes urbaines.");
+    expect(selected.brands.map((b) => b.name)).toEqual(["Naf Naf"]);
+    expect(selected.affinityBrands.map((b) => `${b.name}:${b.refs.join("+")}:${b.vertical}`)).toEqual(["Maisons du Monde:2MDM:2", "TUI:4TUI:4"]);
+    expect(selected.affinityBrands[0].verticalLabel).toBe("Maison");
+    expect(selected.affinitySameVertical).toEqual(["Pimkie", "Morgan"]);
+    expect(selected.affinityDropped).toEqual(["Naf Naf"]);
+    expect(selected.hallucinated).toEqual(["Sephora"]);
+    expect(selected.affinityListMissing).toBe(false);
+    // Unknown brand vertical: the other-vertical rule cannot be enforced, every directory ref is eligible.
+    const unknown = selectSimilarBrands(raw, directory, excludedSimilarRefs(["1MOR"]), 8, { brandVertical: null });
+    expect(unknown.affinityBrands.map((b) => b.name)).toEqual(["Maisons du Monde", "Pimkie", "TUI"]);
+    expect(unknown.affinitySameVertical).toEqual([]);
+    // A missing list is an omission of the model, not a malformed answer; a non-array is.
+    const missing = selectSimilarBrands({ marques: [{ nom: "Naf Naf" }] }, directory, new Set(), 8, { brandVertical: "1" });
+    expect(missing.affinityBrands).toEqual([]);
+    expect(missing.affinityListMissing).toBe(true);
+    expect(() => selectSimilarBrands({ marques: [], marques_affinite: "nope" }, directory, new Set())).toThrow(SimilarBrandsOutputMalformed);
+  });
+
+  it("caps the affinity refs on their own budget, independent of the similar refs", () => {
+    const wide: DirectoryBrand[] = [
+      ...Array.from({ length: 3 }, (_, index) => ({ name: `Mode ${index}`, refs: [`1M${index}A`, `1M${index}B`] })),
+      ...Array.from({ length: 4 }, (_, index) => ({ name: `Maison ${index}`, refs: [`2H${index}A`, `2H${index}B`] })),
+    ];
+    const raw = {
+      marques: wide.slice(0, 3).map((b) => ({ nom: b.name })),
+      marques_affinite: wide.slice(3).map((b) => ({ nom: b.name })),
+    };
+    const selected = selectSimilarBrands(raw, wide, new Set(), 6, { brandVertical: "1", maxRefs: 5 });
+    expect(selected.brands).toHaveLength(3);
+    expect(selected.affinityBrands.map((b) => b.refs)).toEqual([["2H0A", "2H0B"], ["2H1A", "2H1B"], ["2H2A"]]);
+    expect(selected.affinityDropped).toEqual(["Maison 3"]);
+  });
+
   it("never truncates a cache identity: an over-long key is hashed", () => {
     const longName = "M".repeat(120);
     const refs = Array.from({ length: 16 }, (_, i) => `${"R".repeat(28)}${i}`);
@@ -167,7 +234,13 @@ describe("similar brands prompt", () => {
     expect(prompt.user).toContain("Marque annonceur : Morgan");
     expect(prompt.user).toContain("1MOR");
     expect(prompt.user).toContain("1 = Mode");
-    expect(prompt.user).toContain("Naf Naf — 1NAF, 1NAF2");
+    expect(prompt.user).toContain("Naf Naf — 1NAF, 1NAF2 — Mode");
+    expect(prompt.user).toContain("Maisons du Monde — 2MDM — Maison");
+    // Mission 2 asks for the customer profile and other-vertical affinity brands, in the same JSON answer.
+    expect(prompt.system).toContain("Mission 2 — audience similaire hors secteur");
+    expect(prompt.system).toContain("marques d'une AUTRE verticale que « Mode »");
+    expect(prompt.system).toContain('"marques_affinite":[');
+    expect(prompt.system).toContain("Interdit dans « marques_affinite » : une marque de la même verticale");
     expect(prompt.user).not.toMatch(/^Morgan — /m);
     const noWeb = buildSimilarBrandsPrompt({ brandName: "Morgan", coreRefs: [], directory, webSearchAvailable: false, maxWebSearches: 0 });
     expect(noWeb.system).not.toContain("recherche web");
@@ -187,9 +260,16 @@ describe("lookupSimilarBrands", () => {
     expect(result.brands.map((b) => `${b.name}:${b.refs.join("+")}`)).toEqual(["Naf Naf:1NAF+1NAF2", "Cache Cache:1CC", "Étam:1ETAM"]);
     expect(result).toMatchObject({ brandName: "Morgan", coreRefs: ["1MOR"], webSearchUsed: true, webSearches: 2, cached: false, generatedAt: "2026-09-22T10:00:00.000Z", notes: [] });
     expect(result.sector).toContain("Prêt-à-porter");
+    // Mission 2 of the same call: the customer profile and the other-vertical affinity brands, with their vertical named.
+    expect(result.profile).toContain("Femmes de 20 à 40 ans");
+    expect(result.affinityBrands).toEqual([
+      { name: "Maisons du Monde", refs: ["2MDM"], reason: "Mêmes jeunes femmes urbaines, budget déco comparable.", vertical: "2", verticalLabel: "Maison" },
+      { name: "TUI", refs: ["4TUI"], reason: "Même profil de clientes.", vertical: "4", verticalLabel: "Voyage / loisirs" },
+    ]);
     const key = similarBrandCacheKey("Morgan", ["1MOR"]);
     expect(key).toBe(`${SMART_SEGMENT_SIMILAR_PROMPT_VERSION}|morgan|1MOR`);
     expect(deps.store.get(key)?.brands).toHaveLength(3);
+    expect(deps.store.get(key)?.affinityBrands).toHaveLength(2);
   });
 
   it("serves the persisted answer without calling the model, and « refresh » bypasses it", async () => {
@@ -369,5 +449,68 @@ describe("similar-ref selection validation", () => {
     const base = { campaignName: "Air France", campaignId: null, family: "fai_fr" as const, targetClicks: 1_000, complaintCap: 0.004 };
     expect(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["4tui", "4CLUB"] })).toBe(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["4CLUB", "4TUI"] }));
     expect(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["4TUI"] })).not.toBe(smartSegmentAnalysisIdentity({ ...base }));
+    // The affinity selection too: the same similar refs with another affinity list is another analysis.
+    expect(smartSegmentAnalysisIdentity({ ...base, affinityRefs: ["1mor", "2MDM"] })).toBe(smartSegmentAnalysisIdentity({ ...base, affinityRefs: ["2MDM", "1MOR"] }));
+    expect(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["4TUI"], affinityRefs: ["2MDM"] })).not.toBe(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["4TUI"] }));
+  });
+});
+
+describe("affinity-ref selection validation (« hors secteur » is a server guarantee)", () => {
+  it("refuses, with a reason each, the brand's own refs, refs of the brand's vertical and refs already kept as similar", () => {
+    const result = validateAffinityRefs(["2mdm", "4AF", "e4af", "4CLUB", "4TUI", "1MOR", "del", "2MDM"], brand, ["4TUI"]);
+    expect(result.affinityRefs).toEqual(["1MOR", "2MDM"]);
+    expect(result.rejected).toEqual([
+      { ref: "4AF", reason: "own_brand" },
+      { ref: "4CLUB", reason: "same_vertical" },
+      { ref: "4TUI", reason: "already_similar" },
+      { ref: "DEL", reason: "own_brand" },
+      { ref: "E4AF", reason: "own_brand" },
+    ]);
+    expect(describeAffinityRejections(result.rejected)).toBe("4AF (ref de la marque elle-même, DEL ou ref robot), 4CLUB (même verticale que la marque), 4TUI (déjà parmi les marques similaires), DEL (ref de la marque elle-même, DEL ou ref robot), E4AF (ref de la marque elle-même, DEL ou ref robot)");
+    expect(validateAffinityRefs(undefined, brand, []).affinityRefs).toEqual([]);
+  });
+
+  it("cannot enforce the vertical rule for a brand without vertical digit, and still refuses its own refs", () => {
+    const noVertical: SmartSegmentBrandResolution = { ...brand, coreRefs: ["AF"], extensionRefs: ["USAF"], vertical: null, verticalLabel: null, verticalRefs: [] };
+    const result = validateAffinityRefs(["4TUI", "AF", "usaf"], noVertical, []);
+    expect(result.affinityRefs).toEqual(["4TUI"]);
+    expect(result.rejected.map((entry) => entry.ref)).toEqual(["AF", "USAF"]);
+  });
+
+  it("carries the affinity selection on the resolution and keeps it out of the vertical pool", () => {
+    const resolved = withAffinityRefs(withSimilarRefs(brand, ["4TUI"]), ["2MDM", "4PIE"]);
+    expect(resolved.similarRefs).toEqual(["4TUI"]);
+    expect(resolved.affinityRefs).toEqual(["2MDM", "4PIE"]);
+    expect(resolved.verticalRefs).toEqual(["4CLUB"]);
+  });
+
+  it("enforces the rule for a brand given through its US / E form: resolution, suggested candidates and the operator's selection all read the core vertical", async () => {
+    // The operator types the US form of Morgan's ref: the brand still belongs to vertical 1 (Mode).
+    const resolved = await resolveSmartSegmentBrand(
+      { campaignName: "Whatever", brandOverride: { name: "Morgan", ref: "us1mor" } },
+      { findBrandsByToken: async () => [], findCampaignBrandAnchor: async () => null, listVerticalRefs: async (prefix) => (prefix === "1" ? ["1PIM", "1NAF"] : []) },
+    );
+    expect(resolved).toMatchObject({ coreRefs: ["US1MOR"], vertical: "1", verticalRefs: ["1PIM", "1NAF"] });
+
+    // Suggested candidates: a same-vertical brand proposed as affinity by the model is refused by the server.
+    const deps = makeDeps({
+      callModel: async (request) => {
+        deps.calls.push(request);
+        return modelAnswer([{ nom: "Naf Naf" }], undefined, [{ nom: "Pimkie", raison: "Même profil, mais même verticale." }, { nom: "Maisons du Monde" }]);
+      },
+    });
+    const result = await lookupSimilarBrands({ brandName: resolved.brandName ?? "Morgan", coreRefs: resolved.coreRefs }, deps);
+    expect(deps.calls[0].system).toContain("marques d'une AUTRE verticale que « Mode »");
+    expect(result.affinityBrands.map((b) => `${b.name}:${b.vertical}`)).toEqual(["Maisons du Monde:2"]);
+    expect(result.notes).toContain("Marques d'affinité écartées par le serveur car de la même verticale que la marque : Pimkie.");
+
+    // The operator's own selection: the same rule, with the reason, whatever the UI let through.
+    const checked = validateAffinityRefs(["1PIM", "e1naf", "2MDM", "1MOR"], resolved, []);
+    expect(checked.affinityRefs).toEqual(["2MDM"]);
+    expect(checked.rejected).toEqual([
+      { ref: "1MOR", reason: "same_vertical" },
+      { ref: "1PIM", reason: "same_vertical" },
+      { ref: "E1NAF", reason: "same_vertical" },
+    ]);
   });
 });

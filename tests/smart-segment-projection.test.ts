@@ -211,6 +211,19 @@ describe("smart segment projection — blocks and compositions", () => {
     expect(withSimilar).toContain("similar_refs_active");
     expect(withSimilar).toContain("similar_refs_lapsed");
     expect(withSimilar).toContain("similar_refs_dormant");
+    expect(withSimilar.some((id) => id.startsWith("affinity_refs_"))).toBe(false);
+    // Affinity brands (same customer profile, other vertical) get their own ladder, calibrated on their own cohort.
+    const withAffinity = buildBlockLibrary({ ...brand, similarRefs: ["4TUI"], affinityRefs: ["2MDM", "1CAR"] });
+    expect(withAffinity.map((block) => block.id)).toEqual(expect.arrayContaining(["affinity_refs_active", "affinity_refs_lapsed", "affinity_refs_dormant"]));
+    const affinityActive = withAffinity.find((block) => block.id === "affinity_refs_active")!;
+    expect(affinityActive.calibration).toEqual({ axis: "ref_relation", cohort: "affinity" });
+    expect(JSON.stringify(affinityActive.rules)).toContain('"2MDM"');
+    expect(JSON.stringify(affinityActive.rules)).toContain('"1CAR"');
+    expect(JSON.stringify(affinityActive.rules)).not.toContain("4TUI");
+    expect(affinityActive.label).toContain("hors secteur");
+    const affinityLapsed = withAffinity.find((block) => block.id === "affinity_refs_lapsed")!;
+    expect(affinityLapsed.calibration.refRelation).toBe("affinity");
+    expect(JSON.stringify(affinityLapsed.rules)).toContain("engaged_lapsed");
     const anonymous = buildBlockLibrary({ ...brand, detected: false, coreRefs: [], extensionRefs: [], verticalRefs: [], vertical: null });
     expect(anonymous.map((block) => block.id)).toEqual(["clickers_6plus", "clickers_4plus", "clickers_1plus", "warm_openers"]);
   });
@@ -382,6 +395,11 @@ describe("smart segment projection — non-active recency blocks (Task #311)", (
       "brand_core_refs_dormant", "brand_core_refs_lapsed", "similar_refs_dormant", "similar_refs_lapsed", "vertical_refs_dormant", "vertical_refs_lapsed",
     ]);
     expect(blind.projectable.map((block) => block.id)).toContain("similar_refs_active");
+    // The affinity bands follow the same rule: offered only with a calibrated recency cohort.
+    const withAffinity = splitProjectableBlocks(buildBlockLibrary({ ...brand, affinityRefs: ["2MDM"] }), brandTable);
+    expect(withAffinity.omitted.map((block) => block.id)).toEqual(expect.arrayContaining(["affinity_refs_lapsed", "affinity_refs_dormant"]));
+    expect(withAffinity.projectable.map((block) => block.id)).toContain("affinity_refs_active");
+    expect(withAffinity.projectable.map((block) => block.id)).not.toContain("affinity_refs_lapsed");
     expect(() => projectBlock(definitions.find((d) => d.id === "brand_core_refs_lapsed")!, 1_000, brandTable, "brand", {})).toThrow(/sans cohorte de récence fiable/);
 
     const sighted = splitProjectableBlocks(definitions, recencyTable);

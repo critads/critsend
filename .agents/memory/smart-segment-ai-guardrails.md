@@ -201,3 +201,31 @@ smaller than promised, and a band without its own cohort has no defensible compl
 `composeSimilarSegment` + `narrowingWarning`/`similarCompositionNotes`, with a prompt version
 bump; operator text about the composition must be derived from the composition finally kept,
 never from the preferred one.
+
+## Ref families are data: similar AND affinity (« hors secteur »), Oct 2026
+
+Rule: the operator's selections are two disjoint ref families, each one a mandatory, server-composed
+proposal made of its own blocks ONLY: « marques similaires » (same vertical) and « audience
+similaire hors secteur » (same customer profile, ANOTHER vertical digit — 1 Mode, 2 Maison,
+3 Beauté, 4 Voyage, 5 Distribution, 6 Bijoux). « Hors secteur » is a SERVER guarantee: own-brand,
+already-similar and same-vertical refs are refused with their reason, both when the request
+starts and when the worker re-reads the persisted params; the UI only tells the operator earlier.
+A brand without a vertical cannot be checked → accepted. Mixing the two families in one segment
+is refused like mixing a general block in.
+
+There is ONE vertical rule, shared by client and server, and it is extension-aware: a ref in its
+US / E form (US4AF, E4AF) belongs to the vertical of its core ref. Brand resolution, the lookup
+prompt, candidate filtering and selection validation must all call that same helper.
+
+**Why:** the point of each family segment is to measure what that selection brings on its own;
+a same-sector ref in the affinity pool, or both pools in one segment, silently turns the 4th
+proposal back into the 3rd. A review caught a second, prefix-blind "first character" vertical
+implementation still used by brand resolution: a brand typed through its US form resolved to no
+vertical at all, so same-sector candidates were suggested and accepted while the UI looked right.
+
+**How to apply:** adding a family means declaring it in the shared family table and giving it
+its own block ladder and its own relation cohort (never projected on another family's rates);
+every composition / refusal / ordering rule is per family; any such change bumps the prompt
+version (6 h reuse) and the evidence format when the dossier shape changes. Never write a new
+"first digit of the ref" expression — reuse the shared helper, and when a module is fully mocked
+in a test, take shared rules from the shared module so the mock cannot hide a divergence.

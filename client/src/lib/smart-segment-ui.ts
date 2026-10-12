@@ -1,7 +1,10 @@
 import {
+  SMART_SEGMENT_MAX_AFFINITY_REFS,
   SMART_SEGMENT_MAX_SIMILAR_REFS,
   normalizeSimilarRefs,
+  refVerticalDigit,
   smartSegmentRefSchema,
+  type SmartSegmentAffinityBrand,
   type SmartSegmentSimilarBrand,
 } from "@shared/smart-segment";
 
@@ -34,6 +37,11 @@ export function defaultSimilarBrandRefs(brands: readonly SmartSegmentSimilarBran
   return normalizeSimilarRefs(brands.flatMap((brand) => brand.refs)).slice(0, SMART_SEGMENT_MAX_SIMILAR_REFS);
 }
 
+/** Every ref of every proposed affinity brand is checked by default (the server already kept only other-vertical refs, under its cap). */
+export function defaultAffinityBrandRefs(brands: readonly SmartSegmentAffinityBrand[]): string[] {
+  return normalizeSimilarRefs(brands.flatMap((brand) => brand.refs)).slice(0, SMART_SEGMENT_MAX_AFFINITY_REFS);
+}
+
 /** True when the similar-brands lookup failed for a transient reason worth retrying automatically (gateway/timeout). */
 export function isTransientSimilarBrandsError(error: unknown): boolean {
   const status = parseSmartSegmentApiError(error).status;
@@ -53,6 +61,35 @@ export function validateManualSimilarRef(
   if (normalizeSimilarRefs(selectedRefs).includes(ref)) return { ref: null, error: "Cette ref est déjà sélectionnée." };
   if (normalizeSimilarRefs(selectedRefs).length >= SMART_SEGMENT_MAX_SIMILAR_REFS) {
     return { ref: null, error: `${SMART_SEGMENT_MAX_SIMILAR_REFS} refs maximum` };
+  }
+  return { ref, error: null };
+}
+
+/**
+ * A ref typed by hand for the « similar audience, other sector » selection.
+ * Same checks as a similar ref, plus the two that make it « other sector »:
+ * its vertical digit must differ from the brand's (when the brand has one),
+ * and it must not already be in the similar selection — the server refuses
+ * both with the same reasons, this only tells the operator earlier.
+ */
+export function validateManualAffinityRef(
+  value: string,
+  forbiddenRefs: readonly string[],
+  selectedRefs: readonly string[],
+  context: { brandVertical: string | null; similarRefs: readonly string[] },
+): { ref: string | null; error: string | null } {
+  const ref = value.trim().toUpperCase();
+  const parsed = smartSegmentRefSchema.safeParse(ref);
+  if (!parsed.success) return { ref: null, error: parsed.error.issues[0]?.message ?? "Ref invalide" };
+  const forbidden = new Set(normalizeSimilarRefs([...forbiddenRefs, "DEL"]));
+  if (forbidden.has(ref)) return { ref: null, error: "Cette ref ne peut pas être ajoutée." };
+  if (normalizeSimilarRefs(context.similarRefs).includes(ref)) return { ref: null, error: "Cette ref figure déjà parmi les marques similaires." };
+  if (context.brandVertical !== null && refVerticalDigit(ref) === context.brandVertical) {
+    return { ref: null, error: "Cette ref est du même secteur que la marque : ajoutez-la plutôt aux marques similaires." };
+  }
+  if (normalizeSimilarRefs(selectedRefs).includes(ref)) return { ref: null, error: "Cette ref est déjà sélectionnée." };
+  if (normalizeSimilarRefs(selectedRefs).length >= SMART_SEGMENT_MAX_AFFINITY_REFS) {
+    return { ref: null, error: `${SMART_SEGMENT_MAX_AFFINITY_REFS} refs maximum` };
   }
   return { ref, error: null };
 }

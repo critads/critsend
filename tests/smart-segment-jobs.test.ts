@@ -137,6 +137,7 @@ vi.mock("../server/db", () => ({
   },
 }));
 vi.mock("../server/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock("../server/storage", () => ({ storage: {} }));
 
 const resolveBrand = vi.fn();
 vi.mock("../server/services/smart-segment-brand", () => ({
@@ -256,6 +257,55 @@ describe("startSmartSegmentAnalysis", () => {
     await expect(startSmartSegmentAnalysis(params, "user-1", { config, callModel })).rejects.toMatchObject({ code: "BRAND_UNRESOLVED", status: 422 });
     expect(table.size).toBe(0);
     expect(buildEvidence).not.toHaveBeenCalled();
+  });
+
+  it("refuses an affinity selection that is not « hors secteur », with the reason per ref, and carries a valid one to the dossier", async () => {
+    // 4TUI shares the brand's vertical (4), 4AF is the brand itself: both refused before any work is queued.
+    await expect(startSmartSegmentAnalysis({ ...params, affinityRefs: ["2MDM", "4tui", "4AF"] }, "user-1", { config, callModel }))
+      .rejects.toMatchObject({ code: "AFFINITY_REFS_INVALID", status: 422, message: expect.stringContaining("4AF (ref de la marque elle-même, DEL ou ref robot), 4TUI (même verticale que la marque)") });
+    // A ref kept as similar cannot be an affinity ref too.
+    await expect(startSmartSegmentAnalysis({ ...params, similarRefs: ["2MDM"], affinityRefs: ["2MDM"] }, "user-1", { config, callModel }))
+      .rejects.toMatchObject({ code: "AFFINITY_REFS_INVALID", message: expect.stringContaining("2MDM (déjà parmi les marques similaires)") });
+    expect(table.size).toBe(0);
+    expect(buildEvidence).not.toHaveBeenCalled();
+
+    const { view } = await startSmartSegmentAnalysis({ ...params, similarRefs: ["4TUI"], affinityRefs: ["1car", "2MDM"] }, "user-1", { config, callModel });
+    await waitForSmartSegmentAnalysis(view.id);
+    expect((await getSmartSegmentAnalysis(view.id))?.status).toBe("succeeded");
+    expect(buildEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({ brand: expect.objectContaining({ similarRefs: ["4TUI"], affinityRefs: ["1CAR", "2MDM"] }) }),
+      expect.any(Function),
+      expect.anything(),
+    );
+    // The affinity selection is part of the analysis identity: another list is another analysis.
+    expect(analysisFingerprint({ ...params, affinityRefs: ["2MDM", "1CAR"] })).toBe(analysisFingerprint({ ...params, affinityRefs: ["1car", "2mdm"] }));
+    expect(analysisFingerprint({ ...params, affinityRefs: ["2MDM"] })).not.toBe(analysisFingerprint(params));
+  });
+
+  it("keeps the « hors secteur » guarantee for a brand given through its US / E form (real resolver, direct request)", async () => {
+    // The override carries the US form of the ref: the resolver must still read vertical 4, so that a
+    // same-sector affinity ref (4TUI) is refused and a Maison ref (2MDM) is accepted and carried to the dossier.
+    const actual = await vi.importActual<typeof import("../server/services/smart-segment-brand")>("../server/services/smart-segment-brand");
+    const brandDeps = { findBrandsByToken: async () => [], findCampaignBrandAnchor: async () => null, listVerticalRefs: async (prefix: string) => (prefix === "4" ? ["4TUI", "4CLUB"] : []) };
+    resolveBrand.mockImplementation((request: Parameters<typeof actual.resolveSmartSegmentBrand>[0]) => actual.resolveSmartSegmentBrand(request, brandDeps));
+    try {
+      const request = { ...params, brandOverride: { name: "Air France", ref: "us4af" } };
+      await expect(startSmartSegmentAnalysis({ ...request, affinityRefs: ["4TUI"] }, "user-1", { config, callModel }))
+        .rejects.toMatchObject({ code: "AFFINITY_REFS_INVALID", status: 422, message: expect.stringContaining("4TUI (même verticale que la marque)") });
+      expect(buildEvidence).not.toHaveBeenCalled();
+
+      const { view } = await startSmartSegmentAnalysis({ ...request, affinityRefs: ["2MDM"] }, "user-1", { config, callModel });
+      await waitForSmartSegmentAnalysis(view.id);
+      expect((await getSmartSegmentAnalysis(view.id))?.status).toBe("succeeded");
+      expect(buildEvidence).toHaveBeenCalledWith(
+        expect.objectContaining({ brand: expect.objectContaining({ source: "manual", coreRefs: ["US4AF"], vertical: "4", verticalRefs: ["4TUI", "4CLUB"], affinityRefs: ["2MDM"] }) }),
+        expect.any(Function),
+        expect.anything(),
+      );
+    } finally {
+      resolveBrand.mockReset();
+      resolveBrand.mockResolvedValue(brand);
+    }
   });
 
   it("runs the pipeline in the background, persists progress, evidence and the proposal", async () => {
@@ -491,6 +541,25 @@ describe("materializeSmartSegmentProposal", () => {
     const view = await getSmartSegmentAnalysis(id);
     expect(view?.createdSegments).toEqual([{ index: 0, id: "seg-1", name: "Smart · Air France · 21/09 · FR" }]);
     expect(view?.createdSegmentIds).toEqual(["seg-1"]);
+  });
+
+  it("names the « similar brands » and « similar audience, other sector » proposals after their role", async () => {
+    generateProposal.mockResolvedValueOnce({
+      ...proposal,
+      segments: [
+        proposal.segments[0],
+        { ...proposal.segments[1], kind: "similar_brands", blocksUsed: ["similar_refs_active"] },
+        { ...proposal.segments[1], kind: "affinity_brands", blocksUsed: ["affinity_refs_active"] },
+      ],
+    });
+    const id = await succeededAnalysis({ similarRefs: ["4TUI"], affinityRefs: ["2MDM"] });
+    const now = () => new Date("2026-09-21T10:00:00.000Z");
+    const result = await materializeSmartSegmentProposal(id, { campaignId: null, proposalIndexes: [0, 1, 2] }, { now });
+    expect(result.segments.map((segment) => segment.name)).toEqual([
+      "Smart · Air France · 21/09 · FR · 1",
+      "Smart · Air France · 21/09 · FR · marques similaires",
+      "Smart · Air France · 21/09 · FR · audience similaire hors secteur",
+    ]);
   });
 
   it("is idempotent per proposal index and numbers the variant", async () => {

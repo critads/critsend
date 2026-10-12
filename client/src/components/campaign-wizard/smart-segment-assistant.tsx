@@ -13,10 +13,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   clampComplaintCapPercent,
   complaintRateColor,
+  defaultAffinityBrandRefs,
   defaultSimilarBrandRefs,
   formatSmartSegmentPercent,
   isTransientSimilarBrandsError,
   parseSmartSegmentApiError,
+  validateManualAffinityRef,
   validateManualSimilarRef,
 } from "@/lib/smart-segment-ui";
 import { SmartSegmentOutcomesPanel } from "@/components/campaign-wizard/smart-segment-outcomes";
@@ -24,12 +26,14 @@ import {
   DOMAIN_FAMILIES,
   ORANGE_WANADOO_COHORT,
   RECENCY_BAND_LABELS,
+  SMART_SEGMENT_MAX_AFFINITY_REFS,
   SMART_SEGMENT_MAX_SIMILAR_REFS,
   SMART_SEGMENT_MTA_CAPTURE_LABELS,
   SMART_SEGMENT_PROPOSAL_KIND_LABELS,
   SMART_SEGMENT_STAGE_LABELS,
   normalizeComplaintCap,
   normalizeSimilarRefs,
+  refVerticalDigit,
   type DomainFamilyId,
   type SmartSegmentAnalysisRequest,
   type SmartSegmentAnalysisView,
@@ -77,9 +81,17 @@ const cohortLabel = (value: string) => {
   if (value === "other") return "Autres domaines";
   if (value in RECENCY_BAND_LABELS) return RECENCY_BAND_LABELS[value as keyof typeof RECENCY_BAND_LABELS];
   const [relation, band] = value.split("|");
-  if (band && band in RECENCY_BAND_LABELS) return `${relation} · ${RECENCY_BAND_LABELS[band as keyof typeof RECENCY_BAND_LABELS]}`;
-  return value;
+  if (band && band in RECENCY_BAND_LABELS) return `${relationLabel(relation)} · ${RECENCY_BAND_LABELS[band as keyof typeof RECENCY_BAND_LABELS]}`;
+  return relationLabel(value);
 };
+const relationLabel = (value: string) => ({
+  core: "refs cœur",
+  extension: "refs extension",
+  similar: "marques similaires",
+  affinity: "affinité hors secteur",
+  vertical: "verticale",
+  none: "hors verticale",
+}[value] ?? value);
 
 export function SmartSegmentAssistant({
   campaignName,
@@ -106,6 +118,12 @@ export function SmartSegmentAssistant({
   const [manualSimilarRefs, setManualSimilarRefs] = useState<string[]>([]);
   const [manualSimilarInput, setManualSimilarInput] = useState("");
   const [manualSimilarError, setManualSimilarError] = useState<string | null>(null);
+  // Second selection, for the « similar audience, other sector » proposal:
+  // brands with the same customer profile in another vertical.
+  const [checkedAffinityRefs, setCheckedAffinityRefs] = useState<string[]>([]);
+  const [manualAffinityRefs, setManualAffinityRefs] = useState<string[]>([]);
+  const [manualAffinityInput, setManualAffinityInput] = useState("");
+  const [manualAffinityError, setManualAffinityError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedName(campaignName.trim()), 500);
@@ -178,10 +196,17 @@ export function SmartSegmentAssistant({
     setManualSimilarRefs([]);
     setManualSimilarInput("");
     setManualSimilarError(null);
+    setCheckedAffinityRefs([]);
+    setManualAffinityRefs([]);
+    setManualAffinityInput("");
+    setManualAffinityError(null);
   }, [similarKey]);
-  // A new answer (first load or refresh) resets the ticks to the server's proposal.
+  // A new answer (first load or refresh) resets both selections to the
+  // server's proposal: similar brands and affinity brands are checked by default.
   useEffect(() => {
-    if (similarBrandsQuery.data) setCheckedSimilarRefs(defaultSimilarBrandRefs(similarBrandsQuery.data.brands));
+    if (!similarBrandsQuery.data) return;
+    setCheckedSimilarRefs(defaultSimilarBrandRefs(similarBrandsQuery.data.brands));
+    setCheckedAffinityRefs(defaultAffinityBrandRefs(similarBrandsQuery.data.affinityBrands ?? []));
   }, [similarBrandsQuery.data]);
   const refreshSimilarBrands = () => setSimilarRefreshNonce((nonce) => nonce + 1);
   useEffect(() => {
@@ -208,6 +233,9 @@ export function SmartSegmentAssistant({
   // changes the analysis is part of it (immediate name — not the debounced
   // one —, campaign, MTA, family, target, cap, brand override).
   const similarRefs = normalizeSimilarRefs([...checkedSimilarRefs, ...manualSimilarRefs]);
+  // The server refuses an affinity ref already kept as similar: drop it here
+  // rather than let a brand ticked in both panels block « Analyser ».
+  const affinityRefs = normalizeSimilarRefs([...checkedAffinityRefs, ...manualAffinityRefs]).filter((ref) => !similarRefs.includes(ref));
   const requestBody = useMemo<SmartSegmentAnalysisRequest>(() => ({
     campaignName: campaignName.trim(),
     campaignId,
@@ -219,7 +247,8 @@ export function SmartSegmentAssistant({
     complaintCap: normalizeComplaintCap(clampComplaintCapPercent(complaintCapPercent) / 100),
     brandOverride: override,
     ...(similarRefs.length > 0 ? { similarRefs } : {}),
-  }), [campaignName, campaignId, mtaId, family, targetClicks, complaintCapPercent, override, similarRefs.join(",")]);
+    ...(affinityRefs.length > 0 ? { affinityRefs } : {}),
+  }), [campaignName, campaignId, mtaId, family, targetClicks, complaintCapPercent, override, similarRefs.join(","), affinityRefs.join(",")]);
   const requestKey = analysisIdentity(requestBody);
   // The displayed analysis belongs to one exact request. When any input
   // changes, the projection on screen no longer describes what "Analyser"
@@ -377,6 +406,33 @@ export function SmartSegmentAssistant({
     setManualSimilarInput("");
     setManualSimilarError(null);
   };
+  const brandVertical = refVerticalDigit(coreRefs[0]);
+  const affinityRefsAtCap = affinityRefs.length >= SMART_SEGMENT_MAX_AFFINITY_REFS;
+  const toggleAffinityBrand = (refs: string[], checked: boolean) => {
+    const normalized = normalizeSimilarRefs(refs);
+    if (!checked) {
+      setCheckedAffinityRefs((current) => current.filter((value) => !normalized.includes(value)));
+      setManualAffinityError(null);
+      return;
+    }
+    const next = normalizeSimilarRefs([...checkedAffinityRefs, ...manualAffinityRefs, ...normalized]);
+    if (next.length > SMART_SEGMENT_MAX_AFFINITY_REFS) {
+      setManualAffinityError(`${SMART_SEGMENT_MAX_AFFINITY_REFS} refs maximum : décochez une marque ou retirez une ref ajoutée à la main.`);
+      return;
+    }
+    setCheckedAffinityRefs((current) => normalizeSimilarRefs([...current, ...normalized]));
+    setManualAffinityError(null);
+  };
+  const addManualAffinityRef = () => {
+    const result = validateManualAffinityRef(manualAffinityInput, ownBrandRefs, affinityRefs, { brandVertical, similarRefs });
+    if (!result.ref) {
+      setManualAffinityError(result.error);
+      return;
+    }
+    setManualAffinityRefs((current) => normalizeSimilarRefs([...current, result.ref!]));
+    setManualAffinityInput("");
+    setManualAffinityError(null);
+  };
 
   return (
     <div className="rounded-lg border bg-muted/30 p-4 space-y-4" data-testid="smart-segment-assistant">
@@ -512,6 +568,71 @@ export function SmartSegmentAssistant({
           </div>
         )}
 
+        {brand?.detected && similarBrandName.length > 0 && (
+          <div className="space-y-3 rounded-md border bg-background p-3" data-testid="smart-segment-affinity-brands">
+            <div>
+              <p className="text-sm font-medium">Audience similaire hors secteur</p>
+              <p className="text-xs text-muted-foreground">
+                Marques de l'annuaire dont la clientèle ressemble à celle de « {similarBrandName} » (genre, âge, revenus, style de vie) mais qui vendent dans un AUTRE secteur — par exemple, pour un joaillier haut de gamme, du prêt-à-porter féminin premium, des cosmétiques de luxe, du linge de maison ou des voyages. Cochées par défaut ; décochez pour les écarter. Cette sélection sert à une 4e proposition, « audience similaire hors secteur », composée uniquement des porteurs d'une de ces refs (actifs 60 j ou dernière activité 61–180 j), à part de la recommandation et des marques similaires, pour en mesurer l'apport séparément. Le serveur refuse toute ref du secteur de la marque.
+              </p>
+            </div>
+            {similarBrandsQuery.isLoading || (similarBrandsQuery.isFetching && !similarBrandsQuery.data) ? (
+              <Skeleton className="h-12 w-full" />
+            ) : similarBrandsQuery.isError ? (
+              <p className="text-xs text-muted-foreground">Indisponible tant que la recherche des marques similaires n'a pas abouti.</p>
+            ) : similarBrandsQuery.data ? (
+              <div className="space-y-2">
+                {similarBrandsQuery.data.profile && <p className="text-xs text-muted-foreground" data-testid="text-smart-segment-affinity-profile"><span className="font-medium">Profil de clientèle :</span> {similarBrandsQuery.data.profile}</p>}
+                {(similarBrandsQuery.data.affinityBrands ?? []).length ? (similarBrandsQuery.data.affinityBrands ?? []).map((candidate) => {
+                  const refs = normalizeSimilarRefs(candidate.refs);
+                  const checkedCount = refs.filter((ref) => checkedAffinityRefs.includes(ref)).length;
+                  const checked = checkedCount === refs.length ? true : checkedCount === 0 ? false : "indeterminate";
+                  return (
+                    <div key={candidate.name} className="flex items-start gap-2">
+                      <Checkbox
+                        id={`smart-affinity-${candidate.name}`}
+                        checked={checked}
+                        disabled={checked !== true && affinityRefsAtCap}
+                        onCheckedChange={(value) => toggleAffinityBrand(refs, value === true)}
+                        data-testid={`checkbox-smart-segment-affinity-${refs[0] ?? candidate.name}`}
+                      />
+                      <Label htmlFor={`smart-affinity-${candidate.name}`} className="min-w-0 flex-1 font-normal">
+                        <span className="block">{candidate.name} · {refs.join(", ")}{candidate.verticalLabel && <span className="text-muted-foreground"> · {candidate.verticalLabel}</span>}</span>
+                        {candidate.reason && <span className="block text-xs text-muted-foreground">{candidate.reason}</span>}
+                      </Label>
+                    </div>
+                  );
+                }) : (
+                  <p className="text-sm text-muted-foreground">Aucune marque d'affinité hors secteur trouvée dans l'annuaire pour cette marque : ajoutez des refs à la main si vous en connaissez.</p>
+                )}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <Input
+                className="h-8 w-56"
+                placeholder="Ajouter une ref d'un autre secteur"
+                value={manualAffinityInput}
+                onChange={(event) => { setManualAffinityInput(event.target.value); setManualAffinityError(null); }}
+                onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addManualAffinityRef(); } }}
+                data-testid="input-smart-segment-affinity-ref"
+              />
+              <Button type="button" variant="outline" size="sm" disabled={affinityRefsAtCap} onClick={addManualAffinityRef}>Ajouter</Button>
+            </div>
+            {manualAffinityRefs.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {manualAffinityRefs.map((ref) => (
+                  <Badge key={ref} variant="secondary" className="gap-1">
+                    {ref}
+                    <button type="button" className="rounded px-0.5 hover:bg-muted" aria-label={`Retirer ${ref}`} onClick={() => setManualAffinityRefs((current) => current.filter((value) => value !== ref))}>×</button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {manualAffinityError && <p className="text-xs text-destructive">{manualAffinityError}</p>}
+            {affinityRefsAtCap && <p className="text-xs text-muted-foreground">{SMART_SEGMENT_MAX_AFFINITY_REFS} refs maximum</p>}
+          </div>
+        )}
+
         <div className="grid gap-3 md:grid-cols-3">
           <div className="space-y-1"><Label>Famille de domaines</Label>
             <Select value={family} onValueChange={(value: DomainFamilyId) => { setFamily(value); setFamilyChosen(true); }} disabled={!configured}>
@@ -570,7 +691,7 @@ export function SmartSegmentAssistant({
                   />
                 )}
                 <h4 className="font-semibold">{segment.name}</h4>
-                {kindLabel && <Badge variant={segment.kind === "similar_brands" ? "default" : "secondary"}>{kindLabel}</Badge>}
+                {kindLabel && <Badge variant={segment.kind === "similar_brands" || segment.kind === "affinity_brands" ? "default" : "secondary"} data-testid={`badge-smart-segment-kind-${index}`}>{kindLabel}</Badge>}
                 {attached && <Badge variant="outline" className="border-green-600 text-green-700" data-testid={`badge-smart-segment-attached-${index}`}>Attaché à la campagne</Badge>}
               </div>
               <pre className="whitespace-pre-wrap font-sans text-sm">{segment.readableRules.join("\n")}</pre>
@@ -604,7 +725,7 @@ export function SmartSegmentAssistant({
                 <Button type="button" size="sm" disabled={materializeMutation.isPending || !analysisMatchesInputs || selectableIndexes.length === 0} onClick={() => materializeMutation.mutate({ indexes: [...selectableIndexes].sort((a, b) => a - b), attach: true })} data-testid="button-smart-segment-attach-selection">
                   Créer et attacher la sélection{selectableIndexes.length > 0 ? ` (${selectableIndexes.length})` : ""}
                 </Button>
-                <p className="text-xs text-muted-foreground">Cochez 2 ou 3 propositions pour les attacher ensemble : chacune devient un segment distinct de la campagne, qui envoie à leur réunion (chaque abonné une fois). Pour en retirer une, décochez-la dans la liste des segments ci-dessus.</p>
+                <p className="text-xs text-muted-foreground">Cochez 2 à 4 propositions pour les attacher ensemble : chacune devient un segment distinct de la campagne, qui envoie à leur réunion (chaque abonné une fois). Pour en retirer une, décochez-la dans la liste des segments ci-dessus.</p>
               </div>
               {nestedPairInAudience && (
                 <p className="flex gap-2 text-sm text-amber-700" data-testid="text-smart-segment-nested-warning">
@@ -623,6 +744,7 @@ export function SmartSegmentAssistant({
               {evidence.complaintFloor && <p data-testid="text-smart-segment-complaint-floor"><span className="font-medium">Plancher de plaintes :</span> {formatSmartSegmentPercent(evidence.complaintFloor.rate, 3)} % ({evidence.complaintFloor.label} — {integer.format(evidence.complaintFloor.complaints)} plainte(s) sur {integer.format(evidence.complaintFloor.delivered)} envoyés, {evidence.complaintFloor.campaignIds.length} envoi(s))</p>}
               {evidence.baselines && <p data-testid="text-smart-segment-baselines"><span className="font-medium">Repères de la marque (envois de calibrage) :</span> désabonnements {evidence.baselines.unsubscribeRate === null ? "non mesurés" : `${formatSmartSegmentPercent(evidence.baselines.unsubscribeRate)} %`} · part Orange/Wanadoo {evidence.baselines.orangeWanadooShare === null ? "non mesurée" : `${formatSmartSegmentPercent(evidence.baselines.orangeWanadooShare, 0)} %`} · plaintes Orange/Wanadoo {evidence.baselines.orangeWanadooComplaintRate === null ? "non mesurables" : `${formatSmartSegmentPercent(evidence.baselines.orangeWanadooComplaintRate, 3)} %`}</p>}
               {!!evidence.similarBrands?.length && <p><span className="font-medium">Marques similaires retenues :</span> {evidence.similarBrands.map((item) => `${item.brandName ?? item.ref} (${item.ref})`).join(", ")}</p>}
+              {!!evidence.affinityBrands?.length && <p data-testid="text-smart-segment-evidence-affinity"><span className="font-medium">Marques d'affinité hors secteur retenues :</span> {evidence.affinityBrands.map((item) => `${item.brandName ?? item.ref} (${item.ref})`).join(", ")}</p>}
               {evidence.recencyCalibration && <p><span className="font-medium">Cohortes de récence :</span> calibrage {recencyCalibrationLabel(evidence.recencyCalibration.level)} sur {integer.format(evidence.recencyCalibration.campaignIds.length)} envoi(s)</p>}
               {evidence.recencyCalibration === null && <p className="text-muted-foreground">Blocs non actifs indisponibles (aucune cohorte de récence fiable)</p>}
               <div><h5 className="mb-2 font-medium">Envois de la marque</h5><Table><TableHeader><TableRow><TableHead>Nom / date</TableHead><TableHead>MTA</TableHead><TableHead>Livrés</TableHead><TableHead>CTR humain</TableHead><TableHead>Plaintes</TableHead><TableHead>Désabo.</TableHead><TableHead>Terminé / calibration</TableHead></TableRow></TableHeader><TableBody>{evidence.brandSends.map((send) => <TableRow key={send.campaignId}><TableCell>{send.name}<br /><span className="text-xs text-muted-foreground">{date(send.firstSendAt)}</span></TableCell><TableCell>{send.mtaName ?? send.mtaId ?? "—"}{send.mtaComplaintCapture === "blind" && <><br /><span className="text-xs text-amber-700">ne remonte pas les plaintes</span></>}</TableCell><TableCell>{integer.format(send.delivered)}</TableCell><TableCell>{formatSmartSegmentPercent(send.humanCtr)} %</TableCell><TableCell>{formatSmartSegmentPercent(send.complaintRate)} %</TableCell><TableCell>{send.delivered > 0 ? `${formatSmartSegmentPercent(send.unsubscribes / send.delivered)} %` : "—"}</TableCell><TableCell>{send.finished ? "Oui" : "Non"} / {send.usedForCalibration ? "Oui" : "Non"}</TableCell></TableRow>)}</TableBody></Table></div>

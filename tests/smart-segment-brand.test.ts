@@ -34,7 +34,11 @@ describe("smart segment brand resolution", () => {
     expect(deriveExtensionRefs(["4AF"])).toEqual(["US4AF", "E4AF"]);
     expect(deriveUnsubscribeTags(["4AF"])).toEqual(["U4AF", "UUS4AF"]);
     expect(verticalOf("4AF")).toBe("4");
+    // A brand given through its US / E form belongs to the vertical of its core ref.
+    expect(verticalOf("US4AF")).toBe("4");
+    expect(verticalOf("e4af")).toBe("4");
     expect(verticalOf("AF")).toBeNull();
+    expect(verticalOf("USAF")).toBeNull();
     expect(verticalOf(null)).toBeNull();
   });
 
@@ -102,6 +106,21 @@ describe("smart segment brand resolution", () => {
       deps({ listVerticalRefs: async () => ["7OTHER"] }),
     );
     expect(manual).toMatchObject({ source: "manual", brandName: "Ma Marque", coreRefs: ["7MM"], vertical: "7", verticalRefs: ["7OTHER"] });
+  });
+
+  it("resolves a brand given through its US / E form to the vertical of its core ref (the « hors secteur » rule depends on it)", async () => {
+    const asked: string[] = [];
+    for (const ref of ["us4af", "E4AF"]) {
+      const resolved = await resolveSmartSegmentBrand(
+        { campaignName: "Whatever", brandOverride: { name: "Air France", ref } },
+        deps({ listVerticalRefs: async (prefix) => { asked.push(prefix); return ["4TUI", ref.toUpperCase()]; } }),
+      );
+      expect(resolved).toMatchObject({ source: "manual", coreRefs: [ref.toUpperCase()], vertical: "4", verticalLabel: expect.stringContaining("Voyage"), verticalRefs: ["4TUI"] });
+    }
+    expect(asked).toEqual(["4", "4"]);
+    // No digit under the prefix: no vertical at all, never the prefix letter.
+    const none = await resolveSmartSegmentBrand({ campaignName: "Whatever", brandOverride: { name: "Sans verticale", ref: "USAF" } }, deps());
+    expect(none).toMatchObject({ coreRefs: ["USAF"], vertical: null, verticalLabel: null, verticalRefs: [] });
   });
 });
 

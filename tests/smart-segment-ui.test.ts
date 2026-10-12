@@ -4,10 +4,12 @@ import { SMART_SEGMENT_PROPOSAL_KIND_LABELS, normalizeSimilarRefs, smartSegmentA
 import {
   clampComplaintCapPercent,
   complaintRateColor,
+  defaultAffinityBrandRefs,
   defaultSimilarBrandRefs,
   formatSmartSegmentPercent,
   isTransientSimilarBrandsError,
   parseSmartSegmentApiError,
+  validateManualAffinityRef,
   validateManualSimilarRef,
 } from "../client/src/lib/smart-segment-ui";
 
@@ -58,6 +60,34 @@ describe("Smart segment UI helpers", () => {
     expect(isTransientSimilarBrandsError({ status: 400, message: "400: bad request" })).toBe(false);
     expect(isTransientSimilarBrandsError({ status: 409, body: { error: "annuaire vide", code: "SMART_SEGMENT_DIRECTORY_EMPTY" } })).toBe(false);
     expect(isTransientSimilarBrandsError(new Error("boom"))).toBe(false);
+  });
+
+  it("checks every affinity-brand candidate by default, capped at eight", () => {
+    const candidates = [
+      { name: "Maisons du Monde", refs: ["2mdm"], reason: "Même clientèle, autre secteur." },
+      { name: "Club Med", refs: ["4CM", "4cmed"], reason: "Voyages haut de gamme." },
+    ];
+    expect(defaultAffinityBrandRefs(candidates)).toEqual(["2MDM", "4CM", "4CMED"]);
+    const many = Array.from({ length: 9 }, (_, index) => ({ name: `Brand ${index}`, refs: [`${(index % 3) + 1}R${index}`], reason: "" }));
+    expect(defaultAffinityBrandRefs(many)).toHaveLength(8);
+  });
+
+  it("refuses a manual affinity ref of the brand's own vertical or already kept as similar, before the server does", () => {
+    const context = { brandVertical: "6", similarRefs: ["6DJ"] };
+    expect(validateManualAffinityRef(" 2mdm ", ["6MB", "E6MB"], [], context)).toEqual({ ref: "2MDM", error: null });
+    // Same vertical digit as the brand (6 = Bijoux): belongs to the similar selection.
+    expect(validateManualAffinityRef("6xyz", ["6MB"], [], context)).toEqual({ ref: null, error: "Cette ref est du même secteur que la marque : ajoutez-la plutôt aux marques similaires." });
+    // US / E extensions carry the vertical of their core ref.
+    expect(validateManualAffinityRef("US6XYZ", ["6MB"], [], context).ref).toBeNull();
+    expect(validateManualAffinityRef("E2MDM", ["6MB"], [], context)).toEqual({ ref: "E2MDM", error: null });
+    // Already in the similar selection, own brand, DEL, duplicates and the cap.
+    expect(validateManualAffinityRef("6dj", ["6MB"], [], context)).toEqual({ ref: null, error: "Cette ref figure déjà parmi les marques similaires." });
+    expect(validateManualAffinityRef("6MB", ["6MB"], [], context)).toEqual({ ref: null, error: "Cette ref ne peut pas être ajoutée." });
+    expect(validateManualAffinityRef("del", ["6MB"], [], context).ref).toBeNull();
+    expect(validateManualAffinityRef("2MDM", ["6MB"], ["2MDM"], context)).toEqual({ ref: null, error: "Cette ref est déjà sélectionnée." });
+    expect(validateManualAffinityRef("1CAR", ["6MB"], Array.from({ length: 8 }, (_, index) => `2R${index}`), context)).toEqual({ ref: null, error: "8 refs maximum" });
+    // Brand without a vertical (manual override with an unknown prefix): the sector check cannot apply, the ref is accepted.
+    expect(validateManualAffinityRef("6XYZ", ["XMB"], [], { brandVertical: null, similarRefs: [] })).toEqual({ ref: "6XYZ", error: null });
   });
 
   it("caps the similar-ref selection at eight", () => {
@@ -124,7 +154,7 @@ describe("Smart segment source wiring", () => {
     expect(component).toContain('data-testid="button-smart-segment-attach-selection"');
     expect(component).toContain("materializeMutation.mutate({ indexes: [...selectableIndexes].sort((a, b) => a - b), attach: true })");
     expect(component).toContain("checkedIndexes.filter((index) => !attachedIndexes.has(index)");
-    expect(component).toContain("Cochez 2 ou 3 propositions pour les attacher ensemble");
+    expect(component).toContain("Cochez 2 à 4 propositions pour les attacher ensemble");
     // Recommendation + variant are nested: allowed, but said out loud.
     expect(component).toContain('data-testid="text-smart-segment-nested-warning"');
     expect(component).toContain('kinds.has("recommendation") && kinds.has("variant")');
@@ -136,6 +166,29 @@ describe("Smart segment source wiring", () => {
     // and a refused server attach (campaign left 'draft') is reported, not mirrored.
     expect(component).toContain("if (forAnalysisId !== analysis?.id || forRequestKey !== currentRequestKey.current) return;");
     expect(component).toContain("if (attach && serverBindable && !data.attached) {");
+  });
+
+  it("offers the « similar audience, other sector » selection next to the similar brands and sends it as affinityRefs", () => {
+    // Its own panel, fed by the same lookup (profile + affinity brands), checked by default.
+    expect(component).toContain('data-testid="smart-segment-affinity-brands"');
+    expect(component).toContain("setCheckedAffinityRefs(defaultAffinityBrandRefs(similarBrandsQuery.data.affinityBrands ?? []))");
+    expect(component).toContain('data-testid="text-smart-segment-affinity-profile"');
+    expect(component).toContain("data-testid={`checkbox-smart-segment-affinity-${refs[0] ?? candidate.name}`}");
+    expect(component).toContain('data-testid="input-smart-segment-affinity-ref"');
+    expect(component).toContain("validateManualAffinityRef(manualAffinityInput, ownBrandRefs, affinityRefs, { brandVertical, similarRefs })");
+    // The help text says what the 4th proposal is and that the server enforces « other sector ».
+    expect(component).toContain("mais qui vendent dans un AUTRE secteur");
+    expect(component).toContain("Cette sélection sert à une 4e proposition, « audience similaire hors secteur », composée uniquement des porteurs d'une de ces refs");
+    expect(component).toContain("Le serveur refuse toute ref du secteur de la marque.");
+    // A ref kept as similar never reaches the affinity list; the request carries the list only when non-empty, and it is part of the identity.
+    expect(component).toContain("const affinityRefs = normalizeSimilarRefs([...checkedAffinityRefs, ...manualAffinityRefs]).filter((ref) => !similarRefs.includes(ref));");
+    expect(component).toContain("...(affinityRefs.length > 0 ? { affinityRefs } : {})");
+    expect(component).toMatch(/similarRefs\.join\(","\), affinityRefs\.join\(","\)\]/);
+    // Proposal cards and the dossier name the 4th kind and the kept affinity brands.
+    expect(SMART_SEGMENT_PROPOSAL_KIND_LABELS.affinity_brands).toBe("Audience similaire hors secteur");
+    expect(component).toContain('segment.kind === "similar_brands" || segment.kind === "affinity_brands" ? "default" : "secondary"');
+    expect(component).toContain('data-testid="text-smart-segment-evidence-affinity"');
+    expect(component).toContain("Marques d'affinité hors secteur retenues :");
   });
 
   it("renders the « Projeté vs réel » panel for the resolved brand", () => {
@@ -187,6 +240,16 @@ describe("smartSegmentAnalysisIdentity", () => {
     expect(smartSegmentAnalysisIdentity({ ...base, targetClicks: 501 })).not.toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, campaignId: null })).not.toBe(same);
     expect(smartSegmentAnalysisIdentity({ ...base, brandOverride: null })).not.toBe(same);
+  });
+
+  it("changes when the affinity-brand selection changes, independently of the similar one", () => {
+    const base = { campaignName: "Mauboussin", campaignId: "camp-1", family: "fai_fr" as const, targetClicks: 500, complaintCap: 0.0045, brandOverride: null, similarRefs: ["6DJ"] };
+    const withAffinity = smartSegmentAnalysisIdentity({ ...base, affinityRefs: ["2MDM", "4CM"] });
+    expect(withAffinity).not.toBe(smartSegmentAnalysisIdentity(base));
+    expect(withAffinity).not.toBe(smartSegmentAnalysisIdentity({ ...base, affinityRefs: ["2MDM"] }));
+    expect(smartSegmentAnalysisIdentity({ ...base, affinityRefs: ["4cm", "2mdm"] })).toBe(withAffinity);
+    // The same refs as similar instead of affinity are another analysis.
+    expect(smartSegmentAnalysisIdentity({ ...base, similarRefs: ["6DJ", "2MDM", "4CM"] })).not.toBe(withAffinity);
   });
 
   it("changes when the similar-brand selection changes", () => {

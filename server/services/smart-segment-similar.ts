@@ -12,12 +12,23 @@
 // against the brand's own refs and is part of the analysis identity, so any
 // change re-runs the evidence engine. Results are persisted per brand for a
 // few weeks: one lookup costs several web searches and tens of seconds.
+//
+// Task #343 — the same call also returns the « affinity » brands: directory
+// brands of ANOTHER vertical (sector) whose customers share the profile of
+// the brand's customers (a premium women's jeweller → premium women's
+// ready-to-wear, luxury cosmetics, high-end home linen, upmarket travel).
+// « Other vertical » is enforced by the server from the refs' first digit,
+// whatever the model answered; affinity candidates never overlap the
+// similar ones.
 import crypto from "node:crypto";
 import { pool } from "../db";
 import { logger } from "../logger";
 import {
+  SMART_SEGMENT_MAX_AFFINITY_REFS,
   SMART_SEGMENT_MAX_SIMILAR_REFS,
   normalizeSimilarRefs,
+  refVerticalDigit,
+  type SmartSegmentAffinityBrand,
   type SmartSegmentBrandResolution,
   type SmartSegmentSimilarBrand,
   type SmartSegmentSimilarBrandsResponse,
@@ -32,7 +43,7 @@ import { SmartSegmentError } from "./smart-segment-evidence";
 export type DirectoryBrand = { name: string; refs: string[] };
 
 /** What the model is asked to return (validated with zod-free checks: the shape is tiny). */
-type ModelSimilarOutput = { secteur?: unknown; marques?: unknown };
+type ModelSimilarOutput = { secteur?: unknown; profil?: unknown; marques?: unknown; marques_affinite?: unknown };
 
 export type SimilarBrandLookupResult = Omit<SmartSegmentSimilarBrandsResponse, "cached" | "notes"> & {
   promptVersion: string;
@@ -54,6 +65,8 @@ export type SimilarBrandDeps = {
 
 /** Max brands the model may return; each brand can carry several refs, capped globally after. */
 export const SMART_SEGMENT_MAX_SIMILAR_BRANDS = 6;
+/** Max affinity (other-vertical) brands kept from the model's answer; refs capped globally after. */
+export const SMART_SEGMENT_MAX_AFFINITY_BRANDS = 6;
 /** Fresh (non-cached) lookups running at once in this process; beyond it the wizard is told to retry. */
 export const SMART_SEGMENT_MAX_CONCURRENT_SIMILAR_LOOKUPS = 3;
 /** A model call is not attempted with less than this left on the deadline. */
@@ -110,26 +123,35 @@ export function buildSimilarBrandsPrompt(input: {
   webSearchAvailable: boolean;
   maxWebSearches: number;
 }): { system: string; user: string } {
+  const vertical = verticalOf(input.coreRefs[0] ?? null);
+  const verticalLabel = vertical ? (VERTICAL_LABELS[vertical] ?? "inconnue") : null;
   const system = [
-    "Tu es l'assistant marketing d'une plateforme d'emailing B2C française. On te donne une MARQUE ANNONCEUR et l'ANNUAIRE des marques présentes dans la base d'abonnés.",
-    "Mission : identifier, PARMI L'ANNUAIRE UNIQUEMENT, les marques les plus comparables à la marque annonceur — même secteur, même type de produits ou services, même cible (genre, âge) et même positionnement prix — c'est-à-dire celles dont les clients ont le plus de chances d'être intéressés par une offre de la marque annonceur.",
+    "Tu es l'assistant marketing d'une plateforme d'emailing B2C française. On te donne une MARQUE ANNONCEUR et l'ANNUAIRE des marques présentes dans la base d'abonnés, chacune avec sa verticale (secteur déclaré par le fournisseur de données).",
+    "Mission 1 — marques similaires : identifier, PARMI L'ANNUAIRE UNIQUEMENT, les marques les plus comparables à la marque annonceur — même secteur, même type de produits ou services, même cible (genre, âge) et même positionnement prix — c'est-à-dire celles dont les clients ont le plus de chances d'être intéressés par une offre de la marque annonceur.",
+    `Mission 2 — audience similaire hors secteur : décrire le PROFIL CLIENT de la marque annonceur (genre, tranche d'âge, niveau de revenus, style de vie, occasion d'achat), puis identifier, PARMI L'ANNUAIRE UNIQUEMENT, les marques d'une AUTRE verticale${verticalLabel ? ` que « ${verticalLabel} »` : ""} dont les clients ont ce même profil : ce sont des marques d'affinité, qui servent à toucher une audience semblable en dehors du secteur de la marque. Exemple : pour un joaillier haut de gamme (clientes CSP+ de 35 à 60 ans, achat plaisir ou cadeau), des marques de prêt-à-porter féminin premium, de cosmétiques de luxe, de linge de maison haut de gamme ou de voyages haut de gamme. Juge sur le positionnement prix et le profil des clients, pas sur le produit.`,
     input.webSearchAvailable
-      ? `Méthode : 1) utilise l'outil de recherche web (au plus ${input.maxWebSearches} recherches) pour établir le secteur, les produits, la cible et le positionnement de la marque annonceur, et lever les ambiguïtés sur les marques de l'annuaire que tu ne connais pas ; 2) classe les marques de l'annuaire par proximité décroissante ; 3) ne retiens que les marques réellement comparables (au plus ${SMART_SEGMENT_MAX_SIMILAR_BRANDS}) — aucune si rien n'est comparable.`
-      : `Méthode : à partir de ce que tu sais de la marque annonceur, classe les marques de l'annuaire par proximité décroissante et ne retiens que les marques réellement comparables (au plus ${SMART_SEGMENT_MAX_SIMILAR_BRANDS}) — aucune si rien n'est comparable.`,
+      ? `Méthode : 1) utilise l'outil de recherche web (au plus ${input.maxWebSearches} recherches) pour établir le secteur, les produits, la cible, le positionnement et le profil client de la marque annonceur, et lever les ambiguïtés sur les marques de l'annuaire que tu ne connais pas ; 2) classe les marques de l'annuaire par proximité décroissante pour chaque mission ; 3) ne retiens que les marques réellement pertinentes (au plus ${SMART_SEGMENT_MAX_SIMILAR_BRANDS} marques similaires, au plus ${SMART_SEGMENT_MAX_AFFINITY_BRANDS} marques d'affinité) — aucune si rien ne convient.`
+      : `Méthode : à partir de ce que tu sais de la marque annonceur, classe les marques de l'annuaire par proximité décroissante pour chaque mission et ne retiens que les marques réellement pertinentes (au plus ${SMART_SEGMENT_MAX_SIMILAR_BRANDS} marques similaires, au plus ${SMART_SEGMENT_MAX_AFFINITY_BRANDS} marques d'affinité) — aucune si rien ne convient.`,
     "Une marque de l'annuaire peut être une enseigne, un site marchand ou un éditeur d'offres : juge sur ce qu'elle vend et à qui.",
     "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour, au format :",
-    '{"secteur":"<une phrase : secteur, produits et cible de la marque annonceur>","marques":[{"nom":"<nom EXACT copié de l\'annuaire>","raison":"<une phrase en français expliquant la proximité, sans chiffre>"}]}',
+    '{"secteur":"<une phrase : secteur, produits et cible de la marque annonceur>","profil":"<une phrase : profil client de la marque annonceur (genre, âge, revenus, style de vie)>","marques":[{"nom":"<nom EXACT copié de l\'annuaire>","raison":"<une phrase en français expliquant la proximité, sans chiffre>"}],"marques_affinite":[{"nom":"<nom EXACT copié de l\'annuaire>","raison":"<une phrase en français expliquant pourquoi ses clients ont le même profil, sans chiffre>"}]}',
     "Interdit : proposer une marque absente de l'annuaire, proposer la marque annonceur elle-même ou l'une de ses variantes, modifier l'orthographe d'un nom de l'annuaire, écrire du texte hors du JSON.",
+    "Interdit dans « marques_affinite » : une marque de la même verticale que la marque annonceur (le serveur l'écartera), une marque déjà citée dans « marques ». Les deux listes peuvent être vides.",
   ].join("\n");
 
-  const vertical = verticalOf(input.coreRefs[0] ?? null);
-  const directoryLines = input.directory.map((brand) => `${brand.name} — ${brand.refs.join(", ")}`);
+  const directoryLines = input.directory.map((brand) => {
+    const brandVertical = refVerticalDigit(brand.refs[0] ?? null);
+    const label = brandVertical ? (VERTICAL_LABELS[brandVertical] ?? `verticale ${brandVertical}`) : "verticale inconnue";
+    return `${brand.name} — ${brand.refs.join(", ")} — ${label}`;
+  });
   const user = [
     `Marque annonceur : ${input.brandName}`,
     input.coreRefs.length ? `Refs de la marque annonceur dans la base (exclues d'office) : ${input.coreRefs.join(", ")}` : "Refs de la marque annonceur dans la base : inconnues",
-    vertical ? `Verticale déclarée par le fournisseur de données (premier caractère des refs) : ${vertical} = ${VERTICAL_LABELS[vertical] ?? "inconnue"} — indicative seulement, les marques comparables peuvent venir d'une autre verticale.` : null,
+    vertical
+      ? `Verticale déclarée par le fournisseur de données (premier caractère des refs) : ${vertical} = ${verticalLabel} — indicative pour les marques similaires (elles peuvent venir d'une autre verticale) ; les marques d'affinité doivent toutes venir d'une AUTRE verticale.`
+      : "Verticale de la marque annonceur : inconnue (aucun chiffre en tête de ref) — choisis les marques d'affinité dans des secteurs différents de celui de la marque.",
     "",
-    `Annuaire (${input.directory.length} marques, format « nom — refs ») :`,
+    `Annuaire (${input.directory.length} marques, format « nom — refs — verticale ») :`,
     ...directoryLines,
     "",
     "Réponds maintenant avec l'objet JSON.",
@@ -141,12 +163,28 @@ export function buildSimilarBrandsPrompt(input: {
 
 export type SelectedSimilarBrands = {
   sector: string | null;
+  /** The model's reading of the customer profile (display only). */
+  profile: string | null;
   brands: SmartSegmentSimilarBrand[];
+  /** Affinity brands kept: other vertical than the brand, not among `brands`, under their own cap. */
+  affinityBrands: SmartSegmentAffinityBrand[];
   hallucinated: string[];
   /** Directory brands the model named but whose refs are all excluded (own brand / cap). */
   dropped: string[];
+  /** Affinity candidates refused because every ref carries the brand's own vertical. */
+  affinitySameVertical: string[];
+  /** Affinity candidates refused because already similar, own refs or over the affinity cap. */
+  affinityDropped: string[];
+  /** True when the answer carried no « marques_affinite » list at all (read as empty, said in the notes). */
+  affinityListMissing: boolean;
   /** Sentences of model prose removed because they carried a performance figure. */
   strippedSentences: number;
+};
+
+export type AffinitySelectionOptions = {
+  /** Vertical digit of the advertiser brand; null = unknown, the other-vertical rule cannot be enforced. */
+  brandVertical: string | null;
+  maxRefs?: number;
 };
 
 /** Thrown when the model's JSON has not the requested shape (never cached: the caller maps it to AI_BAD_RESPONSE). */
@@ -178,6 +216,7 @@ export function selectSimilarBrands(
   directory: DirectoryBrand[],
   excluded: Set<string>,
   maxRefs = SMART_SEGMENT_MAX_SIMILAR_REFS,
+  affinity: AffinitySelectionOptions = { brandVertical: null },
 ): SelectedSimilarBrands {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new SimilarBrandsOutputMalformed("la réponse du modèle n'est pas un objet JSON");
@@ -185,6 +224,13 @@ export function selectSimilarBrands(
   const output = raw as ModelSimilarOutput;
   if (!Array.isArray(output.marques)) {
     throw new SimilarBrandsOutputMalformed("la réponse du modèle ne contient pas la liste « marques »");
+  }
+  // The affinity list is the newer half of the answer: a model that left it
+  // out still gave usable similar brands, so the omission is reported to the
+  // operator (empty affinity list, note) instead of failing the lookup.
+  const affinityListMissing = output.marques_affinite === undefined || output.marques_affinite === null;
+  if (!affinityListMissing && !Array.isArray(output.marques_affinite)) {
+    throw new SimilarBrandsOutputMalformed("la liste « marques_affinite » de la réponse du modèle n'est pas un tableau");
   }
   let strippedSentences = 0;
   const cleanText = (value: unknown, max: number): string => {
@@ -194,43 +240,111 @@ export function selectSimilarBrands(
     return cleaned.text.slice(0, max);
   };
   const sector = cleanText(output.secteur, 300) || null;
+  const profile = cleanText(output.profil, 300) || null;
   const byKey = new Map(directory.map((brand) => [brandNameKey(brand.name), brand] as const));
-  const brands: SmartSegmentSimilarBrand[] = [];
   const hallucinated: string[] = [];
+
+  /** Walks one model list, mapping names to the directory; `keepRefs` decides which refs of a match survive. */
+  const walk = <T,>(
+    list: unknown[],
+    maxBrands: number,
+    seen: Set<string>,
+    keepRefs: (match: DirectoryBrand, kept: number) => { refs: string[]; drop?: "dropped" | "sameVertical" },
+    build: (match: DirectoryBrand, refs: string[], reason: string) => T,
+    onDrop: (match: DirectoryBrand, why: "dropped" | "sameVertical") => void,
+  ): T[] => {
+    const out: T[] = [];
+    let kept = 0;
+    for (const item of list) {
+      if (out.length >= maxBrands) break;
+      if (!item || typeof item !== "object") continue;
+      const entry = item as { nom?: unknown; raison?: unknown };
+      const name = typeof entry.nom === "string" ? entry.nom.trim() : "";
+      if (!name) continue;
+      const key = brandNameKey(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const match = byKey.get(key);
+      if (!match) {
+        hallucinated.push(name);
+        continue;
+      }
+      const decision = keepRefs(match, kept);
+      if (!decision.refs.length) {
+        onDrop(match, decision.drop ?? "dropped");
+        continue;
+      }
+      kept += decision.refs.length;
+      out.push(build(match, normalizeSimilarRefs(decision.refs), cleanText(entry.raison, 300)));
+    }
+    return out;
+  };
+
   const dropped: string[] = [];
-  const seen = new Set<string>();
-  let kept = 0;
-  for (const item of output.marques) {
-    if (brands.length >= SMART_SEGMENT_MAX_SIMILAR_BRANDS) break;
-    if (!item || typeof item !== "object") continue;
-    const entry = item as { nom?: unknown; raison?: unknown };
-    const name = typeof entry.nom === "string" ? entry.nom.trim() : "";
-    if (!name) continue;
-    const key = brandNameKey(name);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const match = byKey.get(key);
-    if (!match) {
-      hallucinated.push(name);
-      continue;
+  const similarSeen = new Set<string>();
+  const brands = walk<SmartSegmentSimilarBrand>(
+    output.marques,
+    SMART_SEGMENT_MAX_SIMILAR_BRANDS,
+    similarSeen,
+    (match, kept) => {
+      const refs: string[] = [];
+      for (const ref of match.refs) {
+        if (excluded.has(ref) || kept + refs.length >= maxRefs) continue;
+        refs.push(ref);
+      }
+      return { refs };
+    },
+    (match, refs, reason) => ({ name: match.name, refs, reason }),
+    (match) => dropped.push(match.name),
+  );
+
+  // Affinity: never a brand already kept as similar (the two segments must
+  // measure different audiences), never a ref of the brand's own vertical —
+  // the rule is enforced here per ref, whatever the model claimed.
+  const affinitySameVertical: string[] = [];
+  const affinityDropped: string[] = [];
+  const maxAffinityRefs = affinity.maxRefs ?? SMART_SEGMENT_MAX_AFFINITY_REFS;
+  const affinitySeen = new Set<string>(similarSeen);
+  const affinityBrands = walk<SmartSegmentAffinityBrand>(
+    affinityListMissing ? [] : (output.marques_affinite as unknown[]),
+    SMART_SEGMENT_MAX_AFFINITY_BRANDS,
+    affinitySeen,
+    (match, kept) => {
+      const otherVertical = match.refs.filter((ref) => affinity.brandVertical === null || refVerticalDigit(ref) !== affinity.brandVertical);
+      if (!otherVertical.length) return { refs: [], drop: "sameVertical" };
+      const refs: string[] = [];
+      for (const ref of otherVertical) {
+        if (excluded.has(ref) || kept + refs.length >= maxAffinityRefs) continue;
+        refs.push(ref);
+      }
+      return { refs };
+    },
+    (match, refs, reason) => {
+      const brandVertical = refVerticalDigit(refs[0] ?? null);
+      return {
+        name: match.name,
+        refs,
+        reason,
+        vertical: brandVertical,
+        verticalLabel: brandVertical ? (VERTICAL_LABELS[brandVertical] ?? `Verticale ${brandVertical}`) : null,
+      };
+    },
+    (match, why) => (why === "sameVertical" ? affinitySameVertical : affinityDropped).push(match.name),
+  );
+  // A brand named in both lists is kept as similar only; the model is told
+  // so through the notes (it is a "dropped" affinity, not a hallucination).
+  if (!affinityListMissing) {
+    for (const item of output.marques_affinite as unknown[]) {
+      const entry = item && typeof item === "object" ? (item as { nom?: unknown }) : null;
+      const name = typeof entry?.nom === "string" ? entry.nom.trim() : "";
+      const key = name ? brandNameKey(name) : "";
+      if (key && similarSeen.has(key) && byKey.has(key)) {
+        const match = byKey.get(key)!;
+        if (!affinityDropped.includes(match.name) && !affinitySameVertical.includes(match.name)) affinityDropped.push(match.name);
+      }
     }
-    const refs: string[] = [];
-    for (const ref of match.refs) {
-      if (excluded.has(ref) || kept + refs.length >= maxRefs) continue;
-      refs.push(ref);
-    }
-    if (!refs.length) {
-      dropped.push(match.name);
-      continue;
-    }
-    kept += refs.length;
-    brands.push({
-      name: match.name,
-      refs: normalizeSimilarRefs(refs),
-      reason: cleanText(entry.raison, 300),
-    });
   }
-  return { sector, brands, hallucinated, dropped, strippedSentences };
+  return { sector, profile, brands, affinityBrands, hallucinated, dropped, affinitySameVertical, affinityDropped, affinityListMissing, strippedSentences };
 }
 
 // ====== Persistence ======
@@ -344,7 +458,9 @@ function toResponse(result: SimilarBrandLookupResult): Omit<SmartSegmentSimilarB
     brandName: result.brandName,
     coreRefs: result.coreRefs,
     sector: result.sector,
+    profile: result.profile ?? null,
     brands: result.brands,
+    affinityBrands: Array.isArray(result.affinityBrands) ? result.affinityBrands : [],
     webSearchUsed: result.webSearchUsed,
     webSearches: result.webSearches,
     generatedAt: result.generatedAt,
@@ -399,7 +515,7 @@ async function runLookup(brandName: string, coreRefs: string[], deps: SimilarBra
   }
   let selected: SelectedSimilarBrands;
   try {
-    selected = selectSimilarBrands(extractJsonObject(response.text), directory, excluded);
+    selected = selectSimilarBrands(extractJsonObject(response.text), directory, excluded, SMART_SEGMENT_MAX_SIMILAR_REFS, { brandVertical: verticalOf(coreRefs[0] ?? null) });
   } catch (error) {
     if (error instanceof SimilarBrandsOutputMalformed) {
       logger.warn("[SMART_SEGMENT] similar-brand model output malformed", { brandName, detail: error.message, excerpt: response.text.slice(0, 200) });
@@ -430,10 +546,23 @@ async function runLookup(brandName: string, coreRefs: string[], deps: SimilarBra
   if (!selected.brands.length) {
     notes.push("Aucune marque comparable trouvée dans l'annuaire pour cette marque.");
   }
+  if (selected.affinityListMissing) {
+    notes.push("Le modèle n'a pas renvoyé de liste de marques d'affinité : aucune audience similaire hors secteur proposée — relancez avec « Actualiser ».");
+  }
+  if (selected.affinitySameVertical.length) {
+    notes.push(`Marques d'affinité écartées par le serveur car de la même verticale que la marque : ${selected.affinitySameVertical.slice(0, 6).join(", ")}.`);
+  }
+  if (selected.affinityDropped.length) {
+    notes.push(`Marques d'affinité écartées (déjà parmi les marques similaires, refs de la marque elle-même ou plafond de ${SMART_SEGMENT_MAX_AFFINITY_REFS} refs atteint) : ${selected.affinityDropped.slice(0, 6).join(", ")}.`);
+  }
+  if (!selected.affinityListMissing && !selected.affinityBrands.length) {
+    notes.push("Aucune marque d'affinité hors secteur trouvée dans l'annuaire pour cette marque.");
+  }
   logger.info("[SMART_SEGMENT] similar-brand lookup ok", {
     brandName,
     coreRefs,
     brands: selected.brands.map((brand) => `${brand.name}:${brand.refs.join("+")}`),
+    affinityBrands: selected.affinityBrands.map((brand) => `${brand.name}:${brand.refs.join("+")}`),
     webSearches,
     webSearchAvailable,
     elapsedMs: Date.now() - startedAt,
@@ -444,7 +573,9 @@ async function runLookup(brandName: string, coreRefs: string[], deps: SimilarBra
     brandName,
     coreRefs,
     sector: selected.sector,
+    profile: selected.profile,
     brands: selected.brands,
+    affinityBrands: selected.affinityBrands,
     webSearchUsed: webSearchAvailable && webSearchResults > 0,
     webSearches,
     generatedAt: (deps.now?.() ?? new Date()).toISOString(),
@@ -487,5 +618,56 @@ export function withSimilarRefs(brand: SmartSegmentBrandResolution, similarRefs:
     similarRefs,
     // A similar ref is never counted twice: it leaves the vertical pool.
     verticalRefs: brand.verticalRefs.filter((ref) => !similarRefs.includes(ref)),
+  };
+}
+
+export type AffinityRefRejection = { ref: string; reason: "own_brand" | "same_vertical" | "already_similar" };
+export const AFFINITY_REF_REJECTION_LABELS: Record<AffinityRefRejection["reason"], string> = {
+  own_brand: "ref de la marque elle-même, DEL ou ref robot",
+  same_vertical: "même verticale que la marque",
+  already_similar: "déjà parmi les marques similaires",
+};
+
+/**
+ * Validates the operator's affinity selection for an analysis: same
+ * exclusions as the similar refs, plus the two rules that make the segment
+ * what it claims to be — a ref carrying the brand's own vertical is refused
+ * (« hors secteur » is a server guarantee, not a model opinion), and a ref
+ * already kept as similar is refused (the two segments must not overlap by
+ * construction). Refused refs are reported, never silently dropped.
+ */
+export function validateAffinityRefs(
+  refs: readonly string[] | null | undefined,
+  brand: Pick<SmartSegmentBrandResolution, "coreRefs" | "extensionRefs" | "vertical">,
+  similarRefs: readonly string[],
+): { affinityRefs: string[]; rejected: AffinityRefRejection[] } {
+  const own = new Set([...brand.coreRefs, ...brand.extensionRefs, BOT_OPENER_REF, "DEL"]);
+  const similar = new Set(normalizeSimilarRefs(similarRefs));
+  const affinityRefs: string[] = [];
+  const rejected: AffinityRefRejection[] = [];
+  for (const ref of normalizeSimilarRefs(refs)) {
+    if (own.has(ref)) rejected.push({ ref, reason: "own_brand" });
+    // A ref in both selections is told as such: that is the one the operator
+    // can act on (most similar refs share the brand's vertical anyway).
+    else if (similar.has(ref)) rejected.push({ ref, reason: "already_similar" });
+    else if (brand.vertical !== null && refVerticalDigit(ref) === brand.vertical) rejected.push({ ref, reason: "same_vertical" });
+    else affinityRefs.push(ref);
+  }
+  return { affinityRefs, rejected };
+}
+
+/** Operator sentence listing refused affinity refs with their reason. */
+export function describeAffinityRejections(rejected: readonly AffinityRefRejection[]): string {
+  return rejected.map((entry) => `${entry.ref} (${AFFINITY_REF_REJECTION_LABELS[entry.reason]})`).join(", ");
+}
+
+/** Brand resolution carrying the operator's affinity-ref selection (apply after withSimilarRefs). */
+export function withAffinityRefs(brand: SmartSegmentBrandResolution, affinityRefs: string[]): SmartSegmentBrandResolution {
+  return {
+    ...brand,
+    affinityRefs,
+    // Another vertical by construction, but never counted twice should the
+    // vertical pool ever carry one of them.
+    verticalRefs: brand.verticalRefs.filter((ref) => !affinityRefs.includes(ref)),
   };
 }

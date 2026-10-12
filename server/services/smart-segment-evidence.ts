@@ -231,16 +231,18 @@ export const COMPLAINT_FLOOR_CANDIDATES_SQL = `
 
 /**
  * Relation of a recipient's refs to the brand, first match wins: core,
- * extension (US/E), similar brands kept by the operator, other brands of the
- * vertical. Placeholders are passed in because the two statements that embed
- * this fragment do not bind the same parameters (every bound parameter MUST
- * be referenced, or PostgreSQL rejects the statement: "could not determine
- * data type of parameter").
+ * extension (US/E), similar brands kept by the operator, affinity brands
+ * (same customer profile, other vertical) kept by the operator, other brands
+ * of the vertical. Placeholders are passed in because the two statements
+ * that embed this fragment do not bind the same parameters (every bound
+ * parameter MUST be referenced, or PostgreSQL rejects the statement: "could
+ * not determine data type of parameter").
  */
-function refRelationSql(p: { core: string; extension: string; similar: string; vertical: string }): string {
+function refRelationSql(p: { core: string; extension: string; similar: string; affinity: string; vertical: string }): string {
   return `CASE WHEN s.refs && ${p.core}::text[] THEN 'core'
                 WHEN s.refs && ${p.extension}::text[] THEN 'extension'
                 WHEN s.refs && ${p.similar}::text[] THEN 'similar'
+                WHEN s.refs && ${p.affinity}::text[] THEN 'affinity'
                 WHEN s.refs && ${p.vertical}::text[] THEN 'vertical'
                 ELSE 'none' END`;
 }
@@ -258,7 +260,7 @@ const RECENCY_BAND_SQL = `CASE WHEN le.last_ts >= $2::timestamp - INTERVAL '60 d
 
 /**
  * Params: $1 campaign id, $2 first send at, $3 core refs, $4 extension refs,
- * $5 sample divisor, $6 similar refs, $7 vertical refs.
+ * $5 sample divisor, $6 similar refs, $7 vertical refs, $8 affinity refs.
  */
 export const RECENCY_COHORT_SQL = `
   WITH recipients AS (
@@ -291,7 +293,7 @@ export const RECENCY_COHORT_SQL = `
   enriched AS (
     SELECT r.clicked,
            ${RECENCY_BAND_SQL} AS recency,
-           ${refRelationSql({ core: "$3", extension: "$4", similar: "$6", vertical: "$7" })} AS ref_relation,
+           ${refRelationSql({ core: "$3", extension: "$4", similar: "$6", affinity: "$8", vertical: "$7" })} AS ref_relation,
            (d.subscriber_id IS NOT NULL) AS bot,
            (cd.subscriber_id IS NOT NULL) AS complained,
            (cu.subscriber_id IS NOT NULL) AS unsubscribed
@@ -344,7 +346,7 @@ export const RECENCY_POOL_CAMPAIGNS_SQL = `
 /**
  * Params: $1 campaign id, $2 first send at, $3 core refs, $4 extension refs,
  * $5 family domains, $6 sample divisor, $7 similar refs, $8 vertical refs,
- * $9 Orange/Wanadoo domains.
+ * $9 Orange/Wanadoo domains, $10 affinity refs.
  */
 export const COHORT_SQL = `
   WITH recipients AS (
@@ -386,7 +388,7 @@ export const COHORT_SQL = `
   enriched AS (
     SELECT r.clicked,
            CASE WHEN p.n IS NULL THEN '0' WHEN p.n = 1 THEN '1' WHEN p.n <= 3 THEN '2-3' WHEN p.n <= 5 THEN '4-5' ELSE '6+' END AS tier,
-           ${refRelationSql({ core: "$3", extension: "$4", similar: "$7", vertical: "$8" })} AS ref_relation,
+           ${refRelationSql({ core: "$3", extension: "$4", similar: "$7", affinity: "$10", vertical: "$8" })} AS ref_relation,
            CASE WHEN lower(split_part(s.email, '@', 2)) = ANY($5::text[]) THEN 'in_family' ELSE 'other' END AS family,
            CASE WHEN lower(split_part(s.email, '@', 2)) = ANY($9::text[]) THEN '${ORANGE_WANADOO_COHORT}' ELSE 'other' END AS domain_group,
            (d.subscriber_id IS NOT NULL) AS bot,
@@ -935,6 +937,7 @@ export async function buildSmartSegmentEvidence(
     await onProgress("cohorts", 25);
     const familyDomains = [...DOMAIN_FAMILIES[input.family].domains];
     const similarRefs = input.brand.similarRefs ?? [];
+    const affinityRefs = input.brand.affinityRefs ?? [];
     const rawRows: RawCohortRow[] = [];
     for (const [index, send] of calibrationSends.entries()) {
       const divisor = sampleDivisorFor(send.delivered, config.cohortSampleTarget);
@@ -942,7 +945,7 @@ export async function buildSmartSegmentEvidence(
       const rows = await runner.query<{ axis: string; cohort: string; delivered: string; human_clickers: string; bot_clickers: string; complaints: string; unsubscribes?: string }>(
         `cohortes « ${send.name} »`,
         COHORT_SQL,
-        [send.campaignId, send.firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, familyDomains, divisor, similarRefs, input.brand.verticalRefs, ORANGE_WANADOO_DOMAINS],
+        [send.campaignId, send.firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, familyDomains, divisor, similarRefs, input.brand.verticalRefs, ORANGE_WANADOO_DOMAINS, affinityRefs],
       );
       for (const row of rows) {
         rawRows.push({
@@ -970,7 +973,7 @@ export async function buildSmartSegmentEvidence(
       const rows = await runner.query<{ axis: string; cohort: string; delivered: string; human_clickers: string; bot_clickers: string; complaints: string; unsubscribes?: string }>(
         `récence « ${label} »`,
         RECENCY_COHORT_SQL,
-        [campaignId, firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, divisor, similarRefs, input.brand.verticalRefs],
+        [campaignId, firstSendAt, input.brand.coreRefs, input.brand.extensionRefs, divisor, similarRefs, input.brand.verticalRefs, affinityRefs],
       );
       return rows.map((row) => ({
         axis: row.axis as RawCohortRow["axis"],
@@ -1148,15 +1151,18 @@ export async function buildSmartSegmentEvidence(
     if (omittedBlocks.length) {
       notes.push(`Blocs non proposés faute de calibrage fiable : ${omittedBlocks.map((block) => block.id).join(", ")}.`);
     }
+    // Display names of the operator's similar / affinity refs (one lookup).
     let similarBrands: NonNullable<SmartSegmentEvidence["similarBrands"]> = [];
-    if (similarRefs.length) {
+    let affinityBrands: NonNullable<SmartSegmentEvidence["affinityBrands"]> = [];
+    if (similarRefs.length || affinityRefs.length) {
       const nameRows = await runner.query<{ ref: string; name: string }>(
-        "noms des marques similaires",
+        "noms des marques similaires et d'affinité",
         `SELECT DISTINCT ON (upper(ref)) upper(ref) AS ref, name FROM brands WHERE upper(ref) = ANY($1::text[]) ORDER BY upper(ref), name`,
-        [similarRefs],
+        [[...similarRefs, ...affinityRefs]],
       );
       const names = new Map(nameRows.map((row) => [row.ref, row.name]));
       similarBrands = similarRefs.map((ref) => ({ ref, brandName: names.get(ref) ?? null }));
+      affinityBrands = affinityRefs.map((ref) => ({ ref, brandName: names.get(ref) ?? null }));
     }
 
     return {
@@ -1172,6 +1178,7 @@ export async function buildSmartSegmentEvidence(
       cohortRates,
       recencyCalibration,
       similarBrands,
+      affinityBrands,
       omittedBlocks,
       blocks,
       mandatoryExclusions: exclusions.map((entry) => entry.label),

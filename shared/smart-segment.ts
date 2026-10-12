@@ -21,22 +21,44 @@ export const SMART_SEGMENT_REUSE_WINDOW_MS = 6 * 60 * 60 * 1000;
 export const SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS = 6;
 /** Upper bound of « similar brand » refs an analysis may carry (candidates + manual additions). */
 export const SMART_SEGMENT_MAX_SIMILAR_REFS = 8;
-/** Proposals per analysis: recommendation, variant, and the « similar brands only » segment when those blocks exist. */
-export const SMART_SEGMENT_MAX_PROPOSALS = 3;
+/** Upper bound of « affinity brand » (same customer profile, other vertical) refs an analysis may carry. */
+export const SMART_SEGMENT_MAX_AFFINITY_REFS = 8;
+/**
+ * Proposals per analysis: recommendation, variant, the « similar brands
+ * only » segment and the « similar audience, other sector » segment when
+ * their blocks exist.
+ */
+export const SMART_SEGMENT_MAX_PROPOSALS = 4;
 /**
  * Role of a proposal, derived by the server from the blocks actually used
  * (never declared by the model). `similar_brands` = a segment made of
  * similar_refs_* blocks only (60-day actives holding a similar-brand ref,
  * optionally the lapsed/dormant bands), never the recommendation widened.
+ * `affinity_brands` = the same construction on affinity_refs_* blocks:
+ * holders of refs of brands sharing the customer profile but NOT the
+ * vertical (sector) of the brand.
  */
-export type SmartSegmentProposalKind = "recommendation" | "variant" | "similar_brands";
+export type SmartSegmentProposalKind = "recommendation" | "variant" | "similar_brands" | "affinity_brands";
 export const SMART_SEGMENT_PROPOSAL_KIND_LABELS: Record<SmartSegmentProposalKind, string> = {
   recommendation: "Recommandation",
   variant: "Variante",
   similar_brands: "Marques similaires uniquement",
+  affinity_brands: "Audience similaire hors secteur",
 };
 /** Subscriber ref as typed by an operator (exact-case once normalised to uppercase). */
 export const smartSegmentRefSchema = z.string().trim().min(1).max(32).regex(/^[A-Za-z0-9_-]+$/, "Ref invalide");
+
+/**
+ * Vertical (sector) digit carried by a ref, also through its US/E extension
+ * forms (US4TUI, E4TUI → "4"): the first digit after the optional prefix.
+ * Null when the ref carries no vertical digit. « Hors secteur » for the
+ * affinity proposal means: this digit differs from the brand's.
+ */
+export function refVerticalDigit(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  const match = /^(?:US|E)?([0-9])/.exec(ref.trim().toUpperCase());
+  return match ? match[1] : null;
+}
 
 /** Uppercase, deduplicated, sorted: the canonical form used by the identity and the server. */
 export function normalizeSimilarRefs(refs: readonly string[] | null | undefined): string[] {
@@ -88,6 +110,8 @@ export const smartSegmentAnalysisRequestSchema = z.object({
   brandOverride: smartSegmentBrandOverrideSchema.nullable().optional(),
   /** Refs of similar brands the operator kept (validated server-side against the brand's own refs). */
   similarRefs: z.array(smartSegmentRefSchema).max(SMART_SEGMENT_MAX_SIMILAR_REFS).optional(),
+  /** Refs of affinity brands (same profile, other vertical) the operator kept; validated server-side (vertical, own refs, disjoint from similarRefs). */
+  affinityRefs: z.array(smartSegmentRefSchema).max(SMART_SEGMENT_MAX_AFFINITY_REFS).optional(),
   refresh: z.boolean().optional(),
 });
 export type SmartSegmentAnalysisRequest = z.infer<typeof smartSegmentAnalysisRequestSchema>;
@@ -117,19 +141,24 @@ export function smartSegmentAnalysisIdentity(params: Omit<SmartSegmentAnalysisRe
       ? { name: params.brandOverride.name.trim().toLowerCase(), ref: params.brandOverride.ref.trim().toUpperCase() }
       : null,
     similarRefs: normalizeSimilarRefs(params.similarRefs),
+    affinityRefs: normalizeSimilarRefs(params.affinityRefs),
   });
 }
 
 /**
  * Identity of the EVIDENCE part of an analysis: the inputs that change the
- * dossier (brand, family, similar refs, excluded campaign, MTA) — not the
- * target nor the cap, which only steer the model and the validation. A
- * re-run that changes only those reuses a fresh dossier instead of scanning
- * the calibration sends again.
+ * dossier (brand, family, similar and affinity refs, excluded campaign, MTA)
+ * — not the target nor the cap, which only steer the model and the
+ * validation. A re-run that changes only those reuses a fresh dossier
+ * instead of scanning the calibration sends again.
  */
-/** Bumped whenever the dossier's shape or measurement changes, so older dossiers are rebuilt rather than reused. */
-export const SMART_SEGMENT_EVIDENCE_FORMAT = 2;
-export function smartSegmentEvidenceIdentity(params: Pick<SmartSegmentAnalysisRequest, "campaignName" | "campaignId" | "mtaId" | "family" | "brandOverride" | "similarRefs">): string {
+/**
+ * Bumped whenever the dossier's shape or measurement changes, so older
+ * dossiers are rebuilt rather than reused. 3: the `affinity` ref relation
+ * (cohorts, blocks, affinityBrands).
+ */
+export const SMART_SEGMENT_EVIDENCE_FORMAT = 3;
+export function smartSegmentEvidenceIdentity(params: Pick<SmartSegmentAnalysisRequest, "campaignName" | "campaignId" | "mtaId" | "family" | "brandOverride" | "similarRefs" | "affinityRefs">): string {
   return JSON.stringify({
     format: SMART_SEGMENT_EVIDENCE_FORMAT,
     campaignName: params.campaignName.trim().toLowerCase(),
@@ -140,6 +169,7 @@ export function smartSegmentEvidenceIdentity(params: Pick<SmartSegmentAnalysisRe
       ? { name: params.brandOverride.name.trim().toLowerCase(), ref: params.brandOverride.ref.trim().toUpperCase() }
       : null,
     similarRefs: normalizeSimilarRefs(params.similarRefs),
+    affinityRefs: normalizeSimilarRefs(params.affinityRefs),
   });
 }
 
@@ -200,6 +230,12 @@ export type SmartSegmentBrandResolution = {
   matchedKeys: string[];
   /** Refs of similar brands kept by the operator for this analysis (exact-case, never the brand's own refs nor DEL). */
   similarRefs: string[];
+  /**
+   * Refs of affinity brands kept by the operator: same customer profile,
+   * OTHER vertical than the brand (enforced server-side), disjoint from
+   * similarRefs. Absent on dossiers built before the affinity proposal.
+   */
+  affinityRefs?: string[];
 };
 
 /**
@@ -214,6 +250,15 @@ export type SmartSegmentSimilarBrand = {
   /** One-sentence justification written by the model (French). */
   reason: string;
 };
+/**
+ * An affinity brand: a directory brand whose customers share the profile
+ * (gender, age, income, lifestyle) of the brand's customers while selling in
+ * ANOTHER vertical. The vertical is read from its refs by the server.
+ */
+export type SmartSegmentAffinityBrand = SmartSegmentSimilarBrand & {
+  vertical: string | null;
+  verticalLabel: string | null;
+};
 export const smartSegmentSimilarBrandsRequestSchema = z.object({
   brandName: z.string().trim().min(1).max(120),
   coreRefs: z.array(smartSegmentRefSchema).max(16).optional(),
@@ -226,7 +271,11 @@ export type SmartSegmentSimilarBrandsResponse = {
   coreRefs: string[];
   /** The model's one-line reading of the brand (sector, products, target) — display only. */
   sector: string | null;
+  /** The model's one-line reading of the brand's CUSTOMER profile (who buys, not what is sold) — display only. */
+  profile: string | null;
   brands: SmartSegmentSimilarBrand[];
+  /** Brands of OTHER verticals whose customers share that profile (same lookup, same directory). */
+  affinityBrands: SmartSegmentAffinityBrand[];
   /** Whether the answer was grounded by the web search tool (false = model knowledge only). */
   webSearchUsed: boolean;
   webSearches: number;
@@ -316,9 +365,14 @@ export type SmartSegmentBaselines = {
 export type CohortAxis = "clicker_tier" | "ref_relation" | "family" | "recency" | "ref_recency" | "domain_group";
 /** Cohorts of the `domain_group` axis: Orange/Wanadoo recipients vs every other domain. */
 export const ORANGE_WANADOO_COHORT = "orange_wanadoo";
-/** Relation between a subscriber's refs and the brand (priority order: first match wins). */
-export type RefRelation = "core" | "extension" | "similar" | "vertical" | "none";
-export const REF_RELATIONS: readonly RefRelation[] = ["core", "extension", "similar", "vertical", "none"];
+/**
+ * Relation between a subscriber's refs and the brand (priority order: first
+ * match wins). `affinity` = ref of a brand with the same customer profile in
+ * another vertical (the operator's affinity selection), ranked after the
+ * similar brands and before the rest of the brand's own vertical.
+ */
+export type RefRelation = "core" | "extension" | "similar" | "affinity" | "vertical" | "none";
+export const REF_RELATIONS: readonly RefRelation[] = ["core", "extension", "similar", "affinity", "vertical", "none"];
 /** Engagement recency bands (last open/click), a partition of the base. */
 export type RecencyBand = "engaged_60d" | "opened_61_180d" | "dormant_180d";
 export const RECENCY_BANDS: readonly RecencyBand[] = ["engaged_60d", "opened_61_180d", "dormant_180d"];
@@ -396,6 +450,8 @@ export type SmartSegmentEvidence = {
   recencyCalibration?: { level: CalibrationLevel; campaignIds: string[] } | null;
   /** Similar brands kept for this analysis, with their display names. */
   similarBrands?: Array<{ ref: string; brandName: string | null }>;
+  /** Affinity brands (same profile, other vertical) kept for this analysis, with their display names. */
+  affinityBrands?: Array<{ ref: string; brandName: string | null }>;
   /** Blocks that could not be offered (no reliable calibration), for transparency. */
   omittedBlocks?: Array<{ id: string; label: string; reason: string }>;
   blocks: SmartSegmentBlock[];

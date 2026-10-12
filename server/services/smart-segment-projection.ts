@@ -465,12 +465,30 @@ export function buildBlockLibrary(brand: SmartSegmentBrandResolution): BlockDefi
       calibration: { axis: "ref_relation", cohort: "similar" },
     });
   }
+  // Affinity brands: same customer profile, another vertical than the brand
+  // (guaranteed by the server when the selection was validated). Their
+  // holders are measured on their own `affinity` cohort, never borrowed
+  // from the similar or vertical ones.
+  const affinityRefs = brand.affinityRefs ?? [];
+  if (affinityRefs.length) {
+    blocks.push({
+      id: "affinity_refs_active",
+      label: "Actifs 60 j porteurs de refs de marques d'affinité (hors secteur)",
+      description: "A ouvert ou cliqué dans les 60 derniers jours et porte une ref d'une marque d'affinité retenue par l'opérateur : même profil de clientèle que la marque, mais une autre verticale (secteur).",
+      rules: group("AND", [
+        condition("engagement", "engaged_recently"),
+        group("OR", affinityRefs.map((ref) => condition("refs", "has_ref", ref))),
+      ]),
+      calibration: { axis: "ref_relation", cohort: "affinity" },
+    });
+  }
   // Non-active bands: the same ref pools without any activity in 60 days,
   // split by recency so the model can take the lapsed band alone. Each one is
   // calibrated on its recency (× ref relation) cohort, never on the actives.
   const refPools: Array<{ key: string; relation: RefRelation; refs: string[]; who: string }> = [
     { key: "brand_core_refs", relation: "core", refs: brand.coreRefs, who: "des refs de la marque (cœur)" },
     { key: "similar_refs", relation: "similar", refs: similarRefs, who: "de refs de marques similaires" },
+    { key: "affinity_refs", relation: "affinity", refs: affinityRefs, who: "de refs de marques d'affinité (hors secteur)" },
     { key: "vertical_refs", relation: "vertical", refs: brand.verticalRefs, who: `de refs ${brand.verticalLabel ?? "de la verticale"}` },
   ];
   const bands: Array<{ band: RecencyBand; suffix: string; operator: SegmentCondition["operator"]; when: string }> = [

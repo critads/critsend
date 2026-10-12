@@ -34,7 +34,7 @@ import {
 } from "@shared/smart-segment";
 import { getSmartSegmentConfig, SMART_SEGMENT_PROMPT_VERSION, type SmartSegmentConfig } from "../config/smart-segment";
 import { resolveSmartSegmentBrand } from "./smart-segment-brand";
-import { validateSimilarRefs, withSimilarRefs } from "./smart-segment-similar";
+import { describeAffinityRejections, validateAffinityRefs, validateSimilarRefs, withAffinityRefs, withSimilarRefs } from "./smart-segment-similar";
 import {
   buildSmartSegmentEvidence,
   createTransactionRunner,
@@ -231,9 +231,12 @@ async function runAnalysis(id: string, params: SmartSegmentAnalysisRequest, deps
       return;
     }
     const resolved = await resolveSmartSegmentBrand({ campaignName: params.campaignName, brandOverride: params.brandOverride ?? null });
-    // Selection already validated at start; re-validated here so a persisted
-    // row can never smuggle the brand's own refs into the « similar » pool.
-    const brand = withSimilarRefs(resolved, validateSimilarRefs(params.similarRefs, resolved).similarRefs);
+    // Selections already validated at start; re-validated here so a persisted
+    // row can never smuggle the brand's own refs into the « similar » pool,
+    // nor a same-vertical / similar ref into the « affinity » pool.
+    const similarRefs = validateSimilarRefs(params.similarRefs, resolved).similarRefs;
+    const affinityRefs = validateAffinityRefs(params.affinityRefs, resolved, similarRefs).affinityRefs;
+    const brand = withAffinityRefs(withSimilarRefs(resolved, similarRefs), affinityRefs);
     const evidenceInput = { campaignName: params.campaignName, excludeCampaignId: params.campaignId ?? null, brand, family: params.family, mtaId: params.mtaId ?? null };
     // Param-only re-runs (target / cap) reuse a fresh dossier of the same
     // evidence identity instead of scanning the calibration sends again;
@@ -327,6 +330,16 @@ export async function startSmartSegmentAnalysis(
     throw new SmartSegmentError(
       "SIMILAR_REFS_INVALID",
       `Refs de marques similaires refusées : ${similar.rejected.join(", ")} (refs de la marque elle-même, DEL ou ref robot).`,
+      422,
+    );
+  }
+  // « Hors secteur » is a server guarantee: a ref of the brand's own vertical
+  // or one already kept as similar is refused with its reason, never dropped.
+  const affinity = validateAffinityRefs(params.affinityRefs, brand, similar.similarRefs);
+  if (affinity.rejected.length) {
+    throw new SmartSegmentError(
+      "AFFINITY_REFS_INVALID",
+      `Refs de marques d'affinité refusées : ${describeAffinityRejections(affinity.rejected)}.`,
       422,
     );
   }
@@ -501,11 +514,14 @@ export async function materializeSmartSegmentProposal(
       }
       const segmentProposal = proposal.segments[index];
       const baseName = formatSmartSegmentName(brandLabel, row.params.family, now);
-      // The « with similar brands » proposal is named after its role so the
-      // operator tells it apart from the recommendation in the segment list.
+      // The « similar brands » and « similar audience, other sector »
+      // proposals are named after their role so the operator tells them
+      // apart from the recommendation in the segment list.
       const suffix = segmentProposal.kind === "similar_brands"
         ? "marques similaires"
-        : requested.length > 1 || index > 0 ? String(index + 1) : null;
+        : segmentProposal.kind === "affinity_brands"
+          ? "audience similaire hors secteur"
+          : requested.length > 1 || index > 0 ? String(index + 1) : null;
       const name = (suffix ? `${baseName} · ${suffix}` : baseName).slice(0, 200);
       const description = [
         segmentProposal.rationale,

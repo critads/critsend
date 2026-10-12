@@ -18,6 +18,7 @@ import { storage } from "../storage";
 import {
   DOMAIN_FAMILIES,
   DOMAIN_FAMILY_IDS,
+  refVerticalDigit,
   type DomainFamilyId,
   type SmartSegmentBrandResolution,
   type SmartSegmentResolveResponse,
@@ -89,10 +90,14 @@ export function deriveUnsubscribeTags(coreRefs: string[]): string[] {
   return out;
 }
 
+/**
+ * Vertical (sector) digit of a ref: the shared, extension-aware rule
+ * (US4AF / E4AF → "4"), so a brand given through its US/E form resolves to
+ * the same vertical as its core ref — the « hors secteur » guarantee of the
+ * affinity proposal, the vertical refs and the lookup all depend on it.
+ */
 export function verticalOf(ref: string | null | undefined): string | null {
-  if (!ref) return null;
-  const first = ref.trim().charAt(0);
-  return /^[0-9]$/.test(first) ? first : null;
+  return refVerticalDigit(ref);
 }
 
 function brandKeyOf(name: string): CampaignBrand | null {
@@ -165,6 +170,7 @@ async function buildResolution(
     verticalRefs,
     matchedKeys,
     similarRefs: [],
+    affinityRefs: [],
   };
 }
 
