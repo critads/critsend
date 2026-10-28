@@ -118,6 +118,13 @@ function compileCondition(cond: SegmentCondition): SQL {
     return sql`FALSE`;
   }
   if (
+    (operator === "sent_in_last_days" || operator === "not_sent_in_last_days") &&
+    (!Number.isInteger(Number(value)) || Number(value) < 1)
+  ) {
+    logger.warn("Invalid day count for sent-recency operator", { field, operator, value });
+    return sql`FALSE`;
+  }
+  if (
     operator === "unsubscribed_from_fewer_campaigns" &&
     (!Number.isInteger(Number(value)) || Number(value) < 1)
   ) {
@@ -245,6 +252,17 @@ function compileCondition(cond: SegmentCondition): SQL {
         return sql`(${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_RECENCY_DAYS}::int AND ${subscribers.lastEngagedAt} >= NOW() - INTERVAL '1 day' * ${ENGAGEMENT_LAPSED_DAYS}::int)`;
       case "dormant":
         return sql`(${subscribers.lastEngagedAt} IS NULL OR ${subscribers.lastEngagedAt} < NOW() - INTERVAL '1 day' * ${ENGAGEMENT_LAPSED_DAYS}::int)`;
+      // Send recency on the pressure-guard stamp `subscribers.last_sent_at`
+      // (set at reservation for every new dispatch, including drained
+      // deferrals — see pressure-guard.ts). The stamp only exists since the
+      // guard went live (prod: 2026-05-14), so NULL means « no email since
+      // then », which the "not sent" branch deliberately includes: a contact
+      // never reserved in the window must count as unsolicited. Both scan
+      // the subscribers table directly — no join on campaign_sends.
+      case "sent_in_last_days":
+        return sql`${subscribers.lastSentAt} >= NOW() - INTERVAL '1 day' * ${Number(value)}::int`;
+      case "not_sent_in_last_days":
+        return sql`(${subscribers.lastSentAt} IS NULL OR ${subscribers.lastSentAt} < NOW() - INTERVAL '1 day' * ${Number(value)}::int)`;
       // Clicker tiers (Task #232): distinct campaigns clicked in the window.
       // IMPORTANT (perf): use a SEMI-JOIN (IN + GROUP BY/HAVING) — one single
       // index scan over the recent click slice, hashed against subscribers —

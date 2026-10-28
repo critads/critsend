@@ -23,7 +23,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { RefBrandInput } from "@/components/ref-brand-input";
 import type { SegmentCondition, SegmentGroup, SegmentRulesV2, SegmentSimilarity } from "@shared/schema";
-import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2 } from "@shared/schema";
+import { fieldOperatorsV2, operatorLabelsV2, migrateRulesV1toV2, SENT_RECENCY_DEFAULT_DAYS } from "@shared/schema";
 import { useEffect, useRef, useState } from "react";
 
 export const fieldLabels: Record<string, string> = {
@@ -83,9 +83,11 @@ export function getRulesAsV2(rules: unknown): SegmentGroup {
   return defaultRootGroup();
 }
 
+export const sentRecencyOperators = ["sent_in_last_days", "not_sent_in_last_days"];
+
 export function isConditionValid(c: SegmentCondition): boolean {
   if (unaryOperators.includes(c.operator)) return true;
-  if (c.operator === "unsubscribed_from_fewer_campaigns") {
+  if (c.operator === "unsubscribed_from_fewer_campaigns" || sentRecencyOperators.includes(c.operator)) {
     return typeof c.value === "string" && /^[1-9]\d*$/.test(c.value.trim());
   }
   if (typeof c.value === "string") return c.value.trim().length > 0;
@@ -432,7 +434,10 @@ export function ConditionRow({
   const operators = fieldOperatorsV2[condition.field as keyof typeof fieldOperatorsV2] || [];
   const isUnary = unaryOperators.includes(condition.operator);
   const isBetween = condition.operator === "between";
-  const isDays = condition.operator === "in_last_days" || condition.operator === "not_in_last_days";
+  const isDays =
+    condition.operator === "in_last_days" ||
+    condition.operator === "not_in_last_days" ||
+    sentRecencyOperators.includes(condition.operator);
   const isCampaignCount = condition.operator === "unsubscribed_from_fewer_campaigns";
   const isSpecificCampaign =
     condition.operator === "opened_campaign" ||
@@ -468,10 +473,17 @@ export function ConditionRow({
     const changesCampaignSelector =
       campaignOperators.includes(op) ||
       campaignOperators.includes(condition.operator);
+    // "Email received" operators start with the standard 60-day window so the
+    // common case ("no email in the last 60 days") is one click; the number
+    // stays editable. Switching between the two keeps the typed window.
+    const entersSentRecency =
+      sentRecencyOperators.includes(op) && !sentRecencyOperators.includes(condition.operator);
     onChange({
       ...condition,
       operator: op as SegmentCondition["operator"],
-      value: nowUnary ? null : wasUnary || changesCampaignSelector ? "" : condition.value,
+      value: entersSentRecency
+        ? String(SENT_RECENCY_DEFAULT_DAYS)
+        : nowUnary ? null : wasUnary || changesCampaignSelector ? "" : condition.value,
       value2: op === "between" ? (condition.value2 || "") : null,
     });
   };
@@ -618,6 +630,16 @@ export function ConditionRow({
         >
           Clicks by subscribers ever detected by the complaint IP 195.154.17.225 are not counted
           (scanner clicks come from rotating IPs, so only the subscriber-level detection is reliable).
+        </p>
+      )}
+
+      {sentRecencyOperators.includes(condition.operator) && (
+        <p
+          className="basis-full text-xs text-muted-foreground"
+          data-testid={`${testIdPrefix}-sent-recency-hint`}
+        >
+          Based on each contact's last send date, tracked since 14 May 2026. Any campaign send counts
+          (whatever the outcome); "received no email" also includes contacts never sent to since then.
         </p>
       )}
     </div>

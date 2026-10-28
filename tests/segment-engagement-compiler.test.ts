@@ -13,8 +13,10 @@ import {
   fieldOperatorsV2,
   operatorLabelsV2,
   segmentConditionSchema,
+  SENT_RECENCY_DEFAULT_DAYS,
   type SegmentRulesV2,
 } from "../shared/schema";
+import { describeConditionFr } from "../shared/smart-segment";
 
 /**
  * Task #214 — segment "engagement" recency field (fixed 60-day window).
@@ -276,6 +278,79 @@ describe("Task #214 — engagement recency compiler", () => {
       for (const operator of ["opened_campaign", "clicked_campaign"]) {
         expect(renderSql(rulesForValue(operator, campaignId))).not.toContain("NOT EXISTS");
       }
+    });
+  });
+
+  describe("send recency (« n'a pas reçu d'email depuis N jours »)", () => {
+    const sentRecencyOperators = ["not_sent_in_last_days", "sent_in_last_days"] as const;
+
+    it("exposes both operators on the engagement field with a 60-day builder default", () => {
+      for (const operator of sentRecencyOperators) {
+        expect(fieldOperatorsV2.engagement).toContain(operator);
+        expect(operatorLabelsV2[operator]).toContain("N days");
+      }
+      expect(operatorLabelsV2.not_sent_in_last_days).toContain("or never");
+      expect(SENT_RECENCY_DEFAULT_DAYS).toBe(60);
+    });
+
+    it("requires a positive whole day count at the schema level", () => {
+      for (const operator of sentRecencyOperators) {
+        for (const value of ["1", "60", "180"]) {
+          expect(segmentConditionSchema.safeParse({
+            type: "condition", field: "engagement", operator, value, value2: null,
+          }).success).toBe(true);
+        }
+        for (const value of ["0", "-5", "2.5", "sixty", "", null]) {
+          expect(segmentConditionSchema.safeParse({
+            type: "condition", field: "engagement", operator, value, value2: null,
+          }).success).toBe(false);
+        }
+      }
+    });
+
+    it("compiles not_sent_in_last_days against last_sent_at, including never-stamped contacts", () => {
+      const { sql: s, params } = renderQuery(rulesForValue("not_sent_in_last_days", "60"));
+      expect(s).toContain('"last_sent_at" IS NULL');
+      expect(s).toMatch(/"last_sent_at" < NOW\(\) - INTERVAL '1 day' \* \$\d+::int/);
+      expect(params.map(Number)).toContain(60);
+      expect(s).not.toContain("campaign_sends");
+      expect(s).not.toContain("FALSE");
+    });
+
+    it("compiles sent_in_last_days as a plain recency check on last_sent_at", () => {
+      const { sql: s, params } = renderQuery(rulesForValue("sent_in_last_days", "30"));
+      expect(s).toMatch(/"last_sent_at" >= NOW\(\) - INTERVAL '1 day' \* \$\d+::int/);
+      expect(s).not.toContain("IS NULL");
+      expect(params.map(Number)).toContain(30);
+      expect(s).not.toContain("FALSE");
+    });
+
+    it("fails closed when an invalid day count bypasses schema validation", () => {
+      for (const operator of sentRecencyOperators) {
+        for (const value of ["0", "-1", "2.5", "nope", ""]) {
+          expect(renderSql(rulesForValue(operator, value))).toContain("FALSE");
+        }
+      }
+    });
+
+    it("renders a French description for both operators", () => {
+      expect(describeConditionFr({
+        type: "condition", field: "engagement", operator: "not_sent_in_last_days", value: "60", value2: null,
+      })).toBe("N'a reçu aucun email dans les 60 derniers jours (ou jamais)");
+      expect(describeConditionFr({
+        type: "condition", field: "engagement", operator: "sent_in_last_days", value: "7", value2: null,
+      })).toBe("A reçu au moins un email dans les 7 derniers jours");
+    });
+
+    it("segment builder treats both operators as a day-count input pre-filled with the default", () => {
+      const builderSource = readFileSync(
+        new URL("../client/src/components/segment-builder.tsx", import.meta.url),
+        "utf8",
+      );
+      expect(builderSource).toContain('export const sentRecencyOperators = ["sent_in_last_days", "not_sent_in_last_days"]');
+      expect(builderSource).toContain("sentRecencyOperators.includes(condition.operator)");
+      expect(builderSource).toContain("String(SENT_RECENCY_DEFAULT_DAYS)");
+      expect(builderSource).toContain("sent-recency-hint");
     });
   });
 

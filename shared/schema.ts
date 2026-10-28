@@ -1399,6 +1399,7 @@ export const segmentConditionSchema = z.object({
     "engaged_recently", "not_engaged_recently", "engaged_lapsed", "dormant", "clicked_recently", "top_active_clicker", "ultra_active_clicker",
     "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns", "opened_campaign", "clicked_campaign",
     "not_received_campaign",
+    "sent_in_last_days", "not_sent_in_last_days",
   ]),
   value: z.union([z.string(), z.array(z.string()), z.null()]),
   value2: z.string().nullable().default(null),
@@ -1411,6 +1412,16 @@ export const segmentConditionSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["value"],
       message: "Campaign count must be a positive whole number",
+    });
+  }
+  if (
+    (condition.operator === "sent_in_last_days" || condition.operator === "not_sent_in_last_days") &&
+    (typeof condition.value !== "string" || !/^[1-9]\d*$/.test(condition.value.trim()))
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["value"],
+      message: "Day count must be a positive whole number",
     });
   }
   if (
@@ -1498,8 +1509,11 @@ export const fieldOperatorsV2 = {
   refs: ["has_ref", "not_has_ref", "has_any_ref", "has_no_refs", "ref_contains"],
   date_added: ["before", "after", "between", "in_last_days", "not_in_last_days"],
   ip_address: ["equals", "not_equals", "starts_with", "contains", "is_empty", "is_not_empty"],
-  engagement: ["engaged_recently", "not_engaged_recently", "engaged_lapsed", "dormant", "clicked_recently", "opened_campaign", "clicked_campaign", "not_received_campaign", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns"],
+  engagement: ["engaged_recently", "not_engaged_recently", "engaged_lapsed", "dormant", "clicked_recently", "opened_campaign", "clicked_campaign", "not_received_campaign", "not_sent_in_last_days", "sent_in_last_days", "top_active_clicker", "ultra_active_clicker", "not_opened_from_bot_ip", "unsubscribed_from_fewer_campaigns"],
 } as const;
+
+// Default window pre-filled by the builder for the "email received" operators.
+export const SENT_RECENCY_DEFAULT_DAYS = 60;
 
 export const operatorLabelsV2: Record<string, string> = {
   equals: "equals",
@@ -1531,6 +1545,8 @@ export const operatorLabelsV2: Record<string, string> = {
   opened_campaign: "opened a specific campaign",
   clicked_campaign: "Clicked a specific campaign",
   not_received_campaign: "did not receive a specific campaign",
+  not_sent_in_last_days: "received no email in the last N days (or never)",
+  sent_in_last_days: "received at least one email in the last N days",
   not_engaged_recently: "no open/click in last 60 days",
   engaged_lapsed: "last open/click between 61 and 180 days ago",
   dormant: "no open/click in last 180 days (or never)",

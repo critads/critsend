@@ -664,6 +664,8 @@ const FR_OPERATOR_LABELS: Record<string, (value: string, value2: string | null) 
   opened_campaign: (v) => `a ouvert la campagne « ${v} »`,
   clicked_campaign: (v) => `a cliqué la campagne « ${v} »`,
   not_received_campaign: (v) => `n'a pas reçu la campagne « ${v} »`,
+  not_sent_in_last_days: (v) => `n'a reçu aucun email dans les ${v} derniers jours (ou jamais)`,
+  sent_in_last_days: (v) => `a reçu au moins un email dans les ${v} derniers jours`,
 };
 
 const FR_FIELD_LABELS: Record<string, string> = {
