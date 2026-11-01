@@ -119,3 +119,17 @@ mtime_ms = 1789620663828
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/72317f0c-85f0-4bf8-8928-ba86e621ed8b/3a2be627-4eac-4209-bc19-eddb9187b8b4"
 storage_version_token = "1789620695475919"
 content_type = "text/csv"
+
+[[outputs]]
+id = "YO7_nJHh8_VFV1pkjs9JE"
+uri = "file://generated-artifacts/ho-3891-images.zip"
+type = "unspecified"
+title = "Histoire d'Or 3891 — images + HTML prêts"
+description = "20 images Tradedoubler téléchargées depuis Replit + HTML réécrit vers critsender.critads.com (pixel impfr retiré)."
+logical_id = "09807b01-98c9-4274-95dc-2c3ff4ff7a67"
+content_hash = "sha256:979ab1a2fc93c2af3b801ed7828f03c99b2593809a0794775d48714bc9da608d"
+size = 1372703
+mtime_ms = 1793509077270
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:66313214-58a1-4295-9030-8d2019d97958/09807b01-98c9-4274-95dc-2c3ff4ff7a67/3d2c5fe4-c924-499a-a59f-64f2a389b6cc"
+storage_version_token = "1793509089199606"
+content_type = "application/octet-stream"
