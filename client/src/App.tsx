@@ -34,6 +34,7 @@ import Warmup from "@/pages/warmup";
 import Automation from "@/pages/automation";
 import AdvancedAnalytics from "@/pages/advanced-analytics";
 import DatabaseHealth from "@/pages/database-health";
+import DataConsolidation from "@/pages/data-consolidation";
 import SystemMetrics from "@/pages/system-metrics";
 import CampaignQueue from "@/pages/campaign-queue";
 import AdminPressureQueue from "@/pages/admin-pressure-queue";
@@ -72,6 +73,7 @@ function Router() {
       <Route path="/automation" component={Automation} />
       <Route path="/advanced-analytics" component={AdvancedAnalytics} />
       <Route path="/database-health" component={DatabaseHealth} />
+      <Route path="/data-consolidation" component={DataConsolidation} />
       <Route path="/system-metrics" component={SystemMetrics} />
       <Route path="/pmta" component={PmtaQueues} />
       <Route component={NotFound} />

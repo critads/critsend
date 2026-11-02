@@ -55,6 +55,7 @@ const OVERFLOW_NAV: NavItem[] = [
   { title: "Test Metrics", url: "/test-metrics" },
   { title: "IP Warmup", url: "/warmup" },
   { title: "Database Health", url: "/database-health" },
+  { title: "Data Consolidation", url: "/data-consolidation" },
   { title: "System Metrics", url: "/system-metrics" },
   { title: "Pressure Queue", url: "/admin/pressure-queue" },
   { title: "PMTA Queues", url: "/pmta" },

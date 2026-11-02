@@ -989,6 +989,13 @@ app.get("/api/health/startup", (_req: Request, res: Response) => {
       void startBotOpenerMarker();
     }).catch((err: any) => logger.error(`[BOT_OPENER] failed to start (web): ${err?.message || err}`));
 
+    // Data Consolidation (manual refs ↔ tags reconciliation): create its
+    // run/state/lease tables and mark runs orphaned by a restart as
+    // interrupted. Runs are only ever started from the UI.
+    import('./services/data-consolidation').then(({ ensureDataConsolidationSchema }) => {
+      void ensureDataConsolidationSchema();
+    }).catch((err: any) => logger.error(`[DATA_CONSOLIDATION] bootstrap import failed: ${err?.message || err}`));
+
     // Pressure-guard deferred-drain worker (Task #144).
     // In split-process or DISABLE_WORKERS=true deployments, the dedicated
     // worker process never runs `startAllWorkers()` (which is the only other

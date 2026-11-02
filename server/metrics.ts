@@ -837,6 +837,22 @@ export const botOpenerLastRunTimestamp = new client.Gauge({
   registers: [register],
 });
 
+// Data Consolidation (manual refs ↔ tags reconciliation). One label value per
+// rule: rule3_u_tags (complaint-IP opens → U tag), rule1_refs_removed
+// (U tag → ref removed), rule2_refs_added (C tag → ref added).
+export const dataConsolidationChangesTotal = new client.Counter({
+  name: 'critsend_data_consolidation_changes_total',
+  help: 'Subscriber rows changed by completed data-consolidation runs, per rule',
+  labelNames: ['rule'] as const,
+  registers: [register],
+});
+
+export const dataConsolidationLastRunTimestamp = new client.Gauge({
+  name: 'critsend_data_consolidation_last_run_timestamp_seconds',
+  help: 'Unix time of the last completed data-consolidation run',
+  registers: [register],
+});
+
 export function registerMetricsRoute(app: any): void {
   app.get('/metrics', async (_req: Request, res: Response) => {
     try {

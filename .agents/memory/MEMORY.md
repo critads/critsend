@@ -46,3 +46,4 @@
 - [Guardian retry-budget = latest job](guardian-retry-chain-latest-job.md) — "retry chain exhausted" must read the newest campaign_jobs row of ANY status; judging the newest failed row re-pauses recovered campaigns after every Resume.
 - [Asset hosts filtering prod image downloads](image-download-cdn-origin-filter.md) — "Failed: https://www.<host>/" = 3xx to homepage from the asset origin for the prod server; warm the CDN cache from dev to unblock.
 - [Newsletter HTML visibility](newsletter-html-visibility.md) — font-size:0 is never "hidden" (MJML wrappers); AI features must analyse images too, refuse only with no text AND no loadable image.
+- [Data consolidation batching traps](data-consolidation-batching.md) — GIN+LIMIT needs enable_seqscan=off; naive-timestamp keysets travel as text; import_date is NOT a tag-change signal (full tag scan ≈1 s).
