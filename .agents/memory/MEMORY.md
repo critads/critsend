@@ -44,6 +44,6 @@
 - [Deferred-drain claims vs orphan grace](deferred-claim-orphan-grace.md) — parked rows keep an old sent_at; re-stamp at claim or the hourly orphan sweep fails in-flight sends; finalize from RETURNING rows.
 - [Redis (Upstash) dependency](redis-upstash-dependency.md) — remote-worker-missing + redis ok = Upstash rate-limited (billing); idle BullMQ workers still poll with USE_BULLMQ off; count cache loss can saturate the web pool.
 - [Guardian retry-budget = latest job](guardian-retry-chain-latest-job.md) — "retry chain exhausted" must read the newest campaign_jobs row of ANY status; judging the newest failed row re-pauses recovered campaigns after every Resume.
-- [Asset hosts filtering prod image downloads](image-download-cdn-origin-filter.md) — "Failed: https://www.<host>/" = 3xx to homepage from the asset origin for the prod server; warm the CDN cache from dev to unblock.
+- [Tradedoubler weighted DNS](image-download-cdn-origin-filter.md) — Cloudflare CNAME redirects to homepage; CloudFront serves images. Not IP filtering; recognize original/final/pinned-IP retry logs.
 - [Newsletter HTML visibility](newsletter-html-visibility.md) — font-size:0 is never "hidden" (MJML wrappers); AI features must analyse images too, refuse only with no text AND no loadable image.
 - [Data consolidation batching traps](data-consolidation-batching.md) — GIN+LIMIT needs enable_seqscan=off; naive-timestamp keysets travel as text; import_date is NOT a tag-change signal (full tag scan ≈1 s).

@@ -149,6 +149,56 @@ const IMAGE_MAX_REDIRECTS = 3;
 type ResolvedImageAddress = { address: string; family: 4 | 6 };
 type ImageAddressResolver = (hostname: string) => Promise<ResolvedImageAddress[]>;
 type PinnedImageRequester = (url: URL, address: ResolvedImageAddress, deadlineAt?: number) => Promise<http.IncomingMessage>;
+type ImageNetwork = {
+  resolve: ImageAddressResolver;
+  request: PinnedImageRequester;
+  alternateServers?: string[];
+  resolveAlternative?: (hostname: string, server: string, timeoutMs: number) => Promise<ResolvedImageAddress[]>;
+};
+type ImageAttempt = {
+  originalUrl: string;
+  originalHostname?: string;
+  originalAddresses: Set<string>;
+  overrideAddresses?: ResolvedImageAddress[];
+  crossedHosts: boolean;
+  redirectedToHomepage: boolean;
+};
+
+function validateImageAddresses(hostname: string, addresses: ResolvedImageAddress[]): ResolvedImageAddress[] {
+  if (!addresses.length || addresses.some(({ address }) => isBlockedIP(address))) {
+    throw new Error(`DNS answer for ${hostname} contains a blocked address`);
+  }
+  return addresses;
+}
+
+/** Empty (or "off") explicitly disables independent DNS retries. */
+export function imageAlternateDnsServers(value = process.env.IMAGE_ALTERNATE_DNS_SERVERS): string[] {
+  return (value ?? "1.1.1.1,8.8.8.8").split(",")
+    .map((server) => server.trim()).filter((server) => server && server !== "off").slice(0, 2);
+}
+
+async function resolveAlternativeImageAddresses(hostname: string, server: string, timeoutMs: number): Promise<ResolvedImageAddress[]> {
+  const resolver = new dns.promises.Resolver({ timeout: timeoutMs, tries: 1 });
+  resolver.setServers([server]);
+  const timer = setTimeout(() => resolver.cancel(), timeoutMs);
+  try {
+    // Query both families before choosing: a private answer in either must
+    // reject the whole set, just like the system resolver's all:true lookup.
+    const answers = await Promise.allSettled([resolver.resolve4(hostname), resolver.resolve6(hostname)]);
+    const addresses: ResolvedImageAddress[] = [];
+    for (const [index, answer] of answers.entries()) {
+      if (answer.status === "fulfilled") {
+        addresses.push(...answer.value.map((address) => ({ address, family: index === 0 ? 4 as const : 6 as const })));
+      } else if (!["ENODATA", "ENOTFOUND"].includes(answer.reason?.code)) {
+        throw answer.reason;
+      }
+    }
+    return addresses;
+  } finally {
+    clearTimeout(timer);
+    resolver.cancel();
+  }
+}
 
 /**
  * Resolve every address before connecting.  Rejecting a hostname when ANY
@@ -162,10 +212,7 @@ export async function resolvePublicImageAddresses(hostname: string): Promise<Res
     address: result.address,
     family: result.family === 6 ? 6 as const : 4 as const,
   }));
-  if (!addresses.length || addresses.some(({ address }) => isBlockedIP(address))) {
-    throw new Error(`DNS answer for ${hostname} contains a blocked address`);
-  }
-  return addresses;
+  return validateImageAddresses(hostname, addresses);
 }
 
 function imageContentTypeAllowed(value: string | string[] | undefined): boolean {
@@ -265,8 +312,9 @@ async function downloadImageInternal(
   url: string,
   destPath: string,
   redirectCount: number,
-  network: { resolve: ImageAddressResolver; request: PinnedImageRequester },
+  network: ImageNetwork,
   deadlineAt: number,
+  attempt: ImageAttempt,
 ): Promise<boolean> {
   if (Date.now() >= deadlineAt) {
     logger.info(`[Image download] Failed: ${url} - overall deadline exceeded`);
@@ -293,7 +341,8 @@ async function downloadImageInternal(
     addresses = await new Promise<ResolvedImageAddress[]>((resolve, reject) => {
       const dnsTimer = setTimeout(() => reject(new Error("DNS lookup timeout")), remaining);
       Promise.resolve()
-        .then(() => network.resolve(urlObj.hostname))
+        .then(() => urlObj.hostname === attempt.originalHostname && attempt.overrideAddresses
+          ? attempt.overrideAddresses : network.resolve(urlObj.hostname))
         .then(resolve, reject)
         .finally(() => clearTimeout(dnsTimer));
     });
@@ -304,6 +353,9 @@ async function downloadImageInternal(
 
   // One validated address is chosen and passed to the socket lookup callback;
   // the callback never performs a second DNS lookup.
+  if (urlObj.hostname === attempt.originalHostname) {
+    addresses.forEach(({ address }) => attempt.originalAddresses.add(address));
+  }
   const address = addresses[0];
   let response: http.IncomingMessage | undefined;
   let responseDeadlineTimer: ReturnType<typeof setTimeout> | undefined;
@@ -326,7 +378,15 @@ async function downloadImageInternal(
       if (!location) return false;
       try {
         const redirected = new URL(Array.isArray(location) ? location[0] : location, urlObj);
-        return downloadImageInternal(redirected.href, destPath, redirectCount + 1, network, deadlineAt);
+        if (redirected.hostname !== urlObj.hostname) {
+          attempt.crossedHosts = true;
+          if (redirected.pathname === "/") {
+            attempt.redirectedToHomepage = true;
+            logger.info(`[Image download] Foreign homepage redirect: original=${attempt.originalUrl} last=${urlObj.href} final=${redirected.href} pinned_ip=${address.address} - retry via alternative DNS resolver (if enabled)`);
+            return false;
+          }
+        }
+        return downloadImageInternal(redirected.href, destPath, redirectCount + 1, network, deadlineAt, attempt);
       } catch {
         return false;
       }
@@ -340,7 +400,12 @@ async function downloadImageInternal(
     if (!imageContentTypeAllowed(currentResponse.headers["content-type"])) {
       abortDiscardedImageResponse(currentResponse, responseDeadlineTimer);
       responseDeadlineTimer = undefined;
-      logger.info(`[Image download] Failed: ${url} - unsupported content type`);
+      if (attempt.crossedHosts) {
+        attempt.redirectedToHomepage = true;
+        logger.info(`[Image download] Cross-host non-image redirect: original=${attempt.originalUrl} final=${url} pinned_ip=${address.address} - retry via alternative DNS resolver (if enabled)`);
+      } else {
+        logger.info(`[Image download] Failed: ${url} - unsupported content type`);
+      }
       return false;
     }
     const contentLength = Number.parseInt(String(currentResponse.headers["content-length"] ?? "0"), 10);
@@ -400,10 +465,55 @@ async function downloadImageInternal(
   }
 }
 
+async function downloadImageWithRetries(
+  url: string, destPath: string, redirectCount: number, network: ImageNetwork, deadlineAt: number,
+): Promise<boolean> {
+  const attempt: ImageAttempt = {
+    originalUrl: url, originalAddresses: new Set(), crossedHosts: false, redirectedToHomepage: false,
+  };
+  try { attempt.originalHostname = new URL(url).hostname; } catch { /* Normal URL validation below. */ }
+  if (await downloadImageInternal(url, destPath, redirectCount, network, deadlineAt, attempt)) return true;
+  if (!attempt.redirectedToHomepage || !attempt.originalHostname) return false;
+  for (const server of (network.alternateServers ?? []).slice(0, 2)) {
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) break;
+    let addresses: ResolvedImageAddress[];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeoutMs = Math.min(1_000, remaining);
+      addresses = await Promise.race([
+        (network.resolveAlternative ?? resolveAlternativeImageAddresses)(attempt.originalHostname, server, timeoutMs),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("alternative DNS timeout")), timeoutMs); }),
+      ]);
+    } catch {
+      // An unreachable independent resolver is optional, not a download error.
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
+    try {
+      validateImageAddresses(attempt.originalHostname, addresses);
+    } catch (error) {
+      logger.info(`[Image download] Failed: original=${url} resolver=${server} - ${error}`);
+      return false;
+    }
+    const distinct = addresses.filter(({ address }) => !attempt.originalAddresses.has(address));
+    if (!distinct.length) continue;
+    attempt.overrideAddresses = distinct;
+    attempt.crossedHosts = false;
+    attempt.redirectedToHomepage = false;
+    logger.info(`[Image download] Retry via alternative DNS resolver: original=${url} resolver=${server} pinned_ip=${distinct[0].address}`);
+    if (await downloadImageInternal(url, destPath, redirectCount, network, deadlineAt, attempt)) return true;
+    if (!attempt.redirectedToHomepage) return false;
+  }
+  logger.info(`[Image download] Failed: original=${url} - alternative DNS retries exhausted or disabled`);
+  return false;
+}
+
 export function downloadImage(url: string, destPath: string, redirectCount = 0): Promise<boolean> {
-  return downloadImageInternal(url, destPath, redirectCount, {
-    resolve: resolvePublicImageAddresses,
-    request: requestPinnedImage,
+  return downloadImageWithRetries(url, destPath, redirectCount, {
+    resolve: resolvePublicImageAddresses, request: requestPinnedImage,
+    alternateServers: imageAlternateDnsServers(),
   }, Date.now() + IMAGE_REQUEST_TIMEOUT_MS);
 }
 
@@ -411,10 +521,10 @@ export function downloadImage(url: string, destPath: string, redirectCount = 0):
 export function downloadImageWithNetworkForTest(
   url: string,
   destPath: string,
-  network: { resolve: ImageAddressResolver; request: PinnedImageRequester },
+  network: ImageNetwork,
   timeoutMs = IMAGE_REQUEST_TIMEOUT_MS,
 ): Promise<boolean> {
-  return downloadImageInternal(url, destPath, 0, network, Date.now() + timeoutMs);
+  return downloadImageWithRetries(url, destPath, 0, network, Date.now() + timeoutMs);
 }
 
 /** Uses the production pinned ClientRequest while allowing tests to connect

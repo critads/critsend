@@ -1,31 +1,25 @@
 ---
-name: Image downloads redirected to a homepage by the asset host (Tradedoubler vht)
-description: Why every image of a creative can fail to rehost in prod while the same URLs work from a browser and from dev; how to read the log and unblock. Read when the wizard flags all images of one creative as external after processing.
+name: Tradedoubler weighted DNS redirects
+description: Real cause of whole-creative image download failures and how to recognize the independent DNS retry in logs.
 ---
 
-# Asset hosts that filter the production server
+# Tradedoubler weighted DNS, not origin IP filtering
 
-Rule: when the `[Image download] Failed: <url> - unsupported content type` line names a *site
-homepage* (e.g. `https://www.tradedoubler.com/`) instead of the image URL, the asset host answered
-the image request with a 3xx to its homepage. The downloader followed it, got HTML and refused it.
-The logged URL is the final hop, so the original `<img src>` host is invisible in the log — check
-the creative's HTML for the real host.
+Rule: do not diagnose `vht.tradedoubler.com` homepage redirects as server-IP filtering
+or recommend warming the CDN cache.
 
-**Why (2026-11-01, Jet tours creative, `vht.tradedoubler.com` → CloudFront → Apache origin):**
-all 16 images were redirected to the homepage when fetched from the prod app server (Hetzner),
-while the identical downloader code from Replit, even pinned to the same Helsinki CloudFront edge,
-got 16/16 `200 image/*` and a normal 404 for a nonexistent path. A `curl` from prod returned 200
-only because that file was already a CDN cache hit; the filter sits behind the cache (origin side),
-keyed on the requesting server (datacenter IP and/or non-browser request shape — not yet separated).
+**Why:** authoritative Route 53 DNS is weighted (TTL 300 seconds): approximately
+90% `d2zs3ok949uz2h.cloudfront.net` serves images, including cache misses, while
+10% `vht.tradedoubler.com.cdn.cloudflare.net` redirects every path to
+`https://www.tradedoubler.com/`. This is independent of request headers or network.
+A cached Cloudflare answer explains whole-creative failures for up to five minutes;
+the Helsinki CloudFront cache already contained the images during those failures.
+The previous origin-filtering explanation and cache-warming workaround were incorrect.
 
-**How to apply:**
-- Unblock a live campaign: fetch each image once from a non-filtered network (Replit dev is enough),
-  which caches them at the regional CloudFront edge; "Re-process images" in prod then succeeds
-  (confirmed by the owner). Only works for hosts fronted by a shared CDN cache, and only until the
-  cache expires.
-- Durable fix still open: run the discriminating test from prod on a never-cached path
-  (`curl --http2`, `curl --http1.1 -H Accept:`, and a bare Node `https.request` with the downloader's
-  headers). If only Node is redirected → send browser-like headers (Accept, Accept-Language, h2);
-  if all are redirected → the server IP is refused, route image downloads through another egress.
-- Tracking pixels (`impfr.tradedoubler.com/imp?...`, text/html) can never be rehosted; they must be
-  removed, not retried.
+**How to apply:** recognize `Foreign homepage redirect` or `Cross-host non-image redirect`
+logs with `original=`, `final=` and `pinned_ip=`. `Retry via alternative DNS resolver`
+identifies the independent resolver and newly pinned address. Retries must share the
+original download deadline, validate every returned IP, and never reuse a failed
+original address set. Operators can override or disable independent DNS with
+`IMAGE_ALTERNATE_DNS_SERVERS`. Direct HTML tracking pixels such as
+`impfr.tradedoubler.com/imp?...` must fail without DNS retries.

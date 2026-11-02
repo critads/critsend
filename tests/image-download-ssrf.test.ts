@@ -2,14 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import * as dns from "dns";
 import * as http from "http";
 import * as net from "net";
-import { access, unlink } from "fs/promises";
+import { access, unlink, readFile } from "fs/promises";
 import { PassThrough } from "stream";
 import {
   downloadImageWithNetworkForTest,
   isBlockedIP,
   requestPinnedImageForTest,
   resolvePublicImageAddresses,
+  imageAlternateDnsServers,
 } from "../server/utils";
+import { logger } from "../server/logger";
 
 async function listen(handler: http.RequestListener): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer(handler);
@@ -22,6 +24,20 @@ async function close(server: http.Server): Promise<void> {
 }
 
 describe("pinned image downloader DNS policy", () => {
+  it("defaults to two independent resolvers, supports overrides and disabling", () => {
+    const previous = process.env.IMAGE_ALTERNATE_DNS_SERVERS;
+    delete process.env.IMAGE_ALTERNATE_DNS_SERVERS;
+    try {
+      expect(imageAlternateDnsServers()).toEqual(["1.1.1.1", "8.8.8.8"]);
+      expect(imageAlternateDnsServers("9.9.9.9, 8.8.4.4, 1.0.0.1")).toEqual(["9.9.9.9", "8.8.4.4"]);
+      expect(imageAlternateDnsServers("")).toEqual([]);
+      expect(imageAlternateDnsServers("off")).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.IMAGE_ALTERNATE_DNS_SERVERS;
+      else process.env.IMAGE_ALTERNATE_DNS_SERVERS = previous;
+    }
+  });
+
   it("rejects IPv4-mapped private answers", () => {
     expect(isBlockedIP("::ffff:127.0.0.1")).toBe(true);
     expect(isBlockedIP("::ffff:10.20.30.40")).toBe(true);
@@ -241,5 +257,179 @@ describe("pinned image downloader DNS policy", () => {
     } finally {
       await close(fixture.server);
     }
+  });
+});
+
+describe("independent DNS retries for foreign homepage redirects", () => {
+  const origin = "http://vht.tradedoubler.com/creative/image.png";
+  const image = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  async function fixtureNetwork(options: { nonRoot?: boolean; tracking?: boolean; slow?: boolean } = {}) {
+    const bad = await listen((_req, res) => {
+      if (options.tracking) {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("tracking pixel");
+      } else {
+        res.writeHead(301, { location: options.nonRoot ? "http://foreign.example/landing" : "http://www.tradedoubler.com/" });
+        res.end();
+      }
+    });
+    const good = await listen((_req, res) => {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.write(image);
+      if (!options.slow) res.end();
+    });
+    const html = await listen((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("landing page");
+    });
+    const resolveAlternative = vi.fn().mockResolvedValue([{ address: "8.8.4.4", family: 4 }]);
+    const request = vi.fn((url: URL, address: { address: string; family: 4 | 6 }, deadlineAt?: number) =>
+      requestPinnedImageForTest(url.href, address, {
+        address: "127.0.0.1",
+        port: url.hostname === "foreign.example" ? html.port : address.address === "8.8.8.8" ? bad.port : good.port,
+      }, Math.max(1, deadlineAt! - Date.now())));
+    return {
+      network: {
+        resolve: vi.fn().mockResolvedValue([{ address: "8.8.8.8", family: 4 as const }]),
+        request, resolveAlternative, alternateServers: ["1.1.1.1", "8.8.8.8"],
+      },
+      cleanup: () => Promise.all([close(bad.server), close(good.server), close(html.server)]),
+    };
+  }
+
+  it.each([false, true])("retries the original URL on an independent public address (non-root HTML=%s)", async (nonRoot) => {
+    const { network, cleanup } = await fixtureNetwork({ nonRoot });
+    const log = vi.spyOn(logger, "info");
+    const dest = `/tmp/dns-retry-${nonRoot}.png`;
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, dest, network)).toBe(true);
+      expect(await readFile(dest)).toEqual(image);
+      expect(network.resolveAlternative).toHaveBeenCalledWith("vht.tradedoubler.com", "1.1.1.1", expect.any(Number));
+      const last = network.request.mock.calls.at(-1)!;
+      expect(last[0].href).toBe(origin);
+      expect(last[1].address).toBe("8.8.4.4");
+      expect(network.request).toHaveBeenCalledTimes(nonRoot ? 3 : 2);
+      expect(log.mock.calls.some(([message]) => message.includes(`original=${origin}`) && message.includes("final=http://") && message.includes("pinned_ip=8.8.8.8"))).toBe(true);
+      expect(log.mock.calls.some(([message]) => message.includes("Retry via alternative DNS resolver"))).toBe(true);
+    } finally {
+      log.mockRestore();
+      await unlink(dest).catch(() => {});
+      await cleanup();
+    }
+  });
+
+  it.each(["10.0.0.1", "::ffff:127.0.0.1", "fc00::1"])("rejects the entire alternative answer if it includes %s", async (privateIp) => {
+    const { network, cleanup } = await fixtureNetwork();
+    network.resolveAlternative.mockResolvedValue([{ address: "8.8.4.4", family: 4 }, { address: privateIp, family: privateIp.includes(":") ? 6 : 4 }]);
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, "/tmp/blocked-alternate.png", network)).toBe(false);
+      expect(network.request).toHaveBeenCalledOnce();
+      expect(network.resolveAlternative).toHaveBeenCalledOnce();
+    } finally { await cleanup(); }
+  });
+
+  it("does not retry direct text/html tracking pixels", async () => {
+    const { network, cleanup } = await fixtureNetwork({ tracking: true });
+    try {
+      expect(await downloadImageWithNetworkForTest("http://impfr.tradedoubler.com/imp?x=1", "/tmp/tracking.png", network)).toBe(false);
+      expect(network.request).toHaveBeenCalledOnce();
+      expect(network.resolveAlternative).not.toHaveBeenCalled();
+    } finally { await cleanup(); }
+  });
+
+  it.each(["dns", "stream"])("shares the original hard deadline during alternative %s", async (stage) => {
+    const { network, cleanup } = await fixtureNetwork({ slow: stage === "stream" });
+    if (stage === "dns") network.resolveAlternative.mockImplementation(() => new Promise(() => {}));
+    const start = Date.now();
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, "/tmp/alternate-deadline.png", network, 100)).toBe(false);
+      // A timer can fire just before its millisecond boundary; a second
+      // resolver may get the final millisecond, but never a new full budget.
+      expect(network.resolveAlternative.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect(network.resolveAlternative.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(network.request).toHaveBeenCalledTimes(stage === "dns" ? 1 : 2);
+      expect(Date.now() - start).toBeLessThan(500);
+    } finally { await cleanup(); }
+  });
+
+  it("skips unavailable resolvers and duplicate answers", async () => {
+    const { network, cleanup } = await fixtureNetwork();
+    network.resolveAlternative.mockRejectedValueOnce(new Error("unreachable"))
+      .mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }]);
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, "/tmp/duplicate-answer.png", network)).toBe(false);
+      expect(network.resolveAlternative).toHaveBeenCalledTimes(2);
+      expect(network.request).toHaveBeenCalledOnce();
+    } finally { await cleanup(); }
+  });
+
+  it("tries the second resolver when the first independent branch also redirects", async () => {
+    const { network, cleanup } = await fixtureNetwork();
+    // Send the first alternative request to the redirect fixture as well.
+    const actualRequest = network.request.getMockImplementation()!;
+    network.request.mockImplementation((url, address, deadlineAt) => actualRequest(url,
+      address.address === "1.0.0.1" ? { address: "8.8.8.8", family: 4 } : address, deadlineAt));
+    network.resolveAlternative.mockResolvedValueOnce([{ address: "1.0.0.1", family: 4 }])
+      .mockResolvedValueOnce([{ address: "8.8.4.4", family: 4 }]);
+    const dest = "/tmp/second-independent.png";
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, dest, network)).toBe(true);
+      expect(network.request).toHaveBeenCalledTimes(3);
+      expect(network.resolveAlternative).toHaveBeenCalledTimes(2);
+    } finally {
+      await unlink(dest).catch(() => {});
+      await cleanup();
+    }
+  });
+
+  it("honors disabled independent DNS retries", async () => {
+    const { network, cleanup } = await fixtureNetwork();
+    network.alternateServers = [];
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, "/tmp/disabled-retry.png", network)).toBe(false);
+      expect(network.resolveAlternative).not.toHaveBeenCalled();
+      expect(network.request).toHaveBeenCalledOnce();
+    } finally { await cleanup(); }
+  });
+
+  it.each([false, true])("uses a dedicated DNS Resolver and validates both families (private IPv6=%s)", async (privateIpv6) => {
+    const { network, cleanup } = await fixtureNetwork();
+    const resolve4 = vi.spyOn(dns.promises.Resolver.prototype, "resolve4").mockResolvedValue(["8.8.4.4"] as any);
+    const resolve6 = vi.spyOn(dns.promises.Resolver.prototype, "resolve6").mockResolvedValue(privateIpv6 ? ["fc00::1"] as any : []);
+    const setServers = vi.spyOn(dns.promises.Resolver.prototype, "setServers");
+    const cancel = vi.spyOn(dns.promises.Resolver.prototype, "cancel");
+    const dest = `/tmp/native-resolver-${privateIpv6}.png`;
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, dest, {
+        ...network, resolveAlternative: undefined,
+      })).toBe(!privateIpv6);
+      expect(setServers).toHaveBeenCalledWith(["1.1.1.1"]);
+      expect(resolve4).toHaveBeenCalledWith("vht.tradedoubler.com");
+      expect(resolve6).toHaveBeenCalledWith("vht.tradedoubler.com");
+      expect(cancel).toHaveBeenCalled();
+      expect(network.request).toHaveBeenCalledTimes(privateIpv6 ? 1 : 2);
+    } finally {
+      resolve4.mockRestore();
+      resolve6.mockRestore();
+      setServers.mockRestore();
+      cancel.mockRestore();
+      await unlink(dest).catch(() => {});
+      await cleanup();
+    }
+  });
+
+  it("limits repeated homepage redirects to two extra attempts", async () => {
+    const { network, cleanup } = await fixtureNetwork();
+    const actualRequest = network.request.getMockImplementation()!;
+    network.request.mockImplementation((url, _address, deadlineAt) =>
+      actualRequest(url, { address: "8.8.8.8", family: 4 }, deadlineAt));
+    network.resolveAlternative.mockResolvedValueOnce([{ address: "1.0.0.1", family: 4 }])
+      .mockResolvedValueOnce([{ address: "8.8.4.4", family: 4 }]);
+    try {
+      expect(await downloadImageWithNetworkForTest(origin, "/tmp/repeated-homepage.png", network)).toBe(false);
+      expect(network.request).toHaveBeenCalledTimes(3);
+      expect(network.resolveAlternative).toHaveBeenCalledTimes(2);
+    } finally { await cleanup(); }
   });
 });
