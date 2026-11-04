@@ -134,6 +134,23 @@ describe("model output selection", () => {
     expect(selected.dropped).toEqual(["Morgan"]);
   });
 
+  it("keeps up to twelve brands per family, including two refs each, and rejects a thirteenth", () => {
+    const similar = Array.from({ length: 13 }, (_, i) => ({
+      name: `Similar ${i}`, refs: [`1S${i}A`, `1S${i}B`],
+    }));
+    const affinity = Array.from({ length: 13 }, (_, i) => ({
+      name: `Affinity ${i}`, refs: [`2A${i}A`, `2A${i}B`],
+    }));
+    const selected = selectSimilarBrands({
+      marques: similar.map((brand) => ({ nom: brand.name })),
+      marques_affinite: affinity.map((brand) => ({ nom: brand.name })),
+    }, [...similar, ...affinity], new Set(), undefined, { brandVertical: "1" });
+    expect(selected.brands.map((brand) => brand.name)).toEqual(similar.slice(0, 12).map((brand) => brand.name));
+    expect(selected.affinityBrands.map((brand) => brand.name)).toEqual(affinity.slice(0, 12).map((brand) => brand.name));
+    expect(selected.brands.flatMap((brand) => brand.refs)).toHaveLength(24);
+    expect(selected.affinityBrands.flatMap((brand) => brand.refs)).toHaveLength(24);
+  });
+
   it("applies the global ref cap in rank order (a later brand loses its refs, never an earlier one)", () => {
     const wide: DirectoryBrand[] = Array.from({ length: 6 }, (_, index) => ({ name: `Brand ${index}`, refs: [`1B${index}A`, `1B${index}B`] }));
     const raw = { marques: wide.map((b) => ({ nom: b.name, raison: "x" })) };

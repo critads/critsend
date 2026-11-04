@@ -62,14 +62,14 @@ describe("Smart segment UI helpers", () => {
     expect(isTransientSimilarBrandsError(new Error("boom"))).toBe(false);
   });
 
-  it("checks every affinity-brand candidate by default, capped at eight", () => {
+  it("checks every affinity-brand candidate by default, capped at twenty-four refs", () => {
     const candidates = [
       { name: "Maisons du Monde", refs: ["2mdm"], reason: "Même clientèle, autre secteur." },
       { name: "Club Med", refs: ["4CM", "4cmed"], reason: "Voyages haut de gamme." },
     ];
     expect(defaultAffinityBrandRefs(candidates)).toEqual(["2MDM", "4CM", "4CMED"]);
-    const many = Array.from({ length: 9 }, (_, index) => ({ name: `Brand ${index}`, refs: [`${(index % 3) + 1}R${index}`], reason: "" }));
-    expect(defaultAffinityBrandRefs(many)).toHaveLength(8);
+    const many = Array.from({ length: 25 }, (_, index) => ({ name: `Brand ${index}`, refs: [`${(index % 3) + 1}R${index}`], reason: "" }));
+    expect(defaultAffinityBrandRefs(many)).toHaveLength(24);
   });
 
   it("refuses a manual affinity ref of the brand's own vertical or already kept as similar, before the server does", () => {
@@ -85,16 +85,16 @@ describe("Smart segment UI helpers", () => {
     expect(validateManualAffinityRef("6MB", ["6MB"], [], context)).toEqual({ ref: null, error: "Cette ref ne peut pas être ajoutée." });
     expect(validateManualAffinityRef("del", ["6MB"], [], context).ref).toBeNull();
     expect(validateManualAffinityRef("2MDM", ["6MB"], ["2MDM"], context)).toEqual({ ref: null, error: "Cette ref est déjà sélectionnée." });
-    expect(validateManualAffinityRef("1CAR", ["6MB"], Array.from({ length: 8 }, (_, index) => `2R${index}`), context)).toEqual({ ref: null, error: "8 refs maximum" });
+    expect(validateManualAffinityRef("1CAR", ["6MB"], Array.from({ length: 24 }, (_, index) => `2R${index}`), context)).toEqual({ ref: null, error: "24 refs maximum" });
     // Brand without a vertical (manual override with an unknown prefix): the sector check cannot apply, the ref is accepted.
     expect(validateManualAffinityRef("6XYZ", ["XMB"], [], { brandVertical: null, similarRefs: [] })).toEqual({ ref: "6XYZ", error: null });
   });
 
-  it("caps the similar-ref selection at eight", () => {
-    const selected = Array.from({ length: 8 }, (_, index) => `R${index}`);
-    expect(validateManualSimilarRef("R9", [], selected)).toEqual({ ref: null, error: "8 refs maximum" });
-    const candidates = Array.from({ length: 9 }, (_, index) => ({ name: `Brand ${index}`, refs: [`r${index}`], reason: "" }));
-    expect(defaultSimilarBrandRefs(candidates)).toHaveLength(8);
+  it("caps the similar-ref selection at twenty-four", () => {
+    const selected = Array.from({ length: 24 }, (_, index) => `R${index}`);
+    expect(validateManualSimilarRef("R25", [], selected)).toEqual({ ref: null, error: "24 refs maximum" });
+    const candidates = Array.from({ length: 25 }, (_, index) => ({ name: `Brand ${index}`, refs: [`r${index}`], reason: "" }));
+    expect(defaultSimilarBrandRefs(candidates)).toHaveLength(24);
   });
 });
 

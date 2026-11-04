@@ -204,6 +204,10 @@ never from the preferred one.
 
 ## Ref families are data: similar AND affinity (« hors secteur »), Oct 2026
 
+The user requires results up to twelve brands in EACH family, rather than six.
+**Why:** six brands do not provide enough choice for their smart segments.
+**How to apply:** keep both families independent; allow multi-ref brands through the shared selection limits and invalidate old smaller lookup results when changing this policy.
+
 Rule: the operator's selections are two disjoint ref families, each one a mandatory, server-composed
 proposal made of its own blocks ONLY: « marques similaires » (same vertical) and « audience
 similaire hors secteur » (same customer profile, ANOTHER vertical digit — 1 Mode, 2 Maison,

@@ -840,7 +840,7 @@ describe("third segment « similar brands only »", () => {
     expect(callModel).toHaveBeenCalledTimes(2);
     expect(prompts[1]).toContain("aucun segment « marques similaires » valide");
     expect(proposal.segments.map((segment) => segment.kind)).toEqual(["recommendation", "variant", "similar_brands"]);
-    expect(proposal.promptVersion).toBe("smart-segment-v5");
+    expect(proposal.promptVersion).toBe("smart-segment-v7");
   });
 
   it("end to end: a mixed similar segment is sent back with the blocks to remove, the pure one is then accepted with kinds", async () => {

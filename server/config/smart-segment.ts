@@ -35,13 +35,15 @@ export const SMART_SEGMENT_DEFAULT_MODEL = "claude-sonnet-4-5";
 // composed by the server like the similar segment.
 // v6: recent-send exclusions use a seven-day window; do not reuse proposals
 // generated with the former thirty-day default.
-export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v6";
+// v7: expanded similar/affinity selections; invalidate smaller cached proposals.
+export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v7";
 /**
  * Prompt of the « similar brands » web-search lookup; part of the persisted
  * result key. v2 (task #343): the same call also returns the customer
  * profile and the « affinity » brands of other verticals.
  */
-export const SMART_SEGMENT_SIMILAR_PROMPT_VERSION = "similar-brands-v2";
+// v3: up to twelve brands per family instead of six.
+export const SMART_SEGMENT_SIMILAR_PROMPT_VERSION = "similar-brands-v3";
 
 export function getSmartSegmentConfig() {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim() || null;

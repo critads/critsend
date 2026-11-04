@@ -64,9 +64,9 @@ export type SimilarBrandDeps = {
 };
 
 /** Max brands the model may return; each brand can carry several refs, capped globally after. */
-export const SMART_SEGMENT_MAX_SIMILAR_BRANDS = 6;
+export const SMART_SEGMENT_MAX_SIMILAR_BRANDS = 12;
 /** Max affinity (other-vertical) brands kept from the model's answer; refs capped globally after. */
-export const SMART_SEGMENT_MAX_AFFINITY_BRANDS = 6;
+export const SMART_SEGMENT_MAX_AFFINITY_BRANDS = 12;
 /** Fresh (non-cached) lookups running at once in this process; beyond it the wizard is told to retry. */
 export const SMART_SEGMENT_MAX_CONCURRENT_SIMILAR_LOOKUPS = 3;
 /** A model call is not attempted with less than this left on the deadline. */
@@ -494,7 +494,7 @@ async function runLookup(brandName: string, coreRefs: string[], deps: SimilarBra
   try {
     response = await deps.callModel({
       ...buildSimilarBrandsPrompt({ brandName, coreRefs, directory, webSearchAvailable: true, maxWebSearches: deps.config.similarWebSearchMaxUses }),
-      maxTokens: 1_500,
+      maxTokens: 4_000,
       webSearch: { maxUses: deps.config.similarWebSearchMaxUses },
     }, budget());
   } catch (error) {
@@ -507,7 +507,7 @@ async function runLookup(brandName: string, coreRefs: string[], deps: SimilarBra
     try {
       response = await deps.callModel({
         ...buildSimilarBrandsPrompt({ brandName, coreRefs, directory, webSearchAvailable: false, maxWebSearches: 0 }),
-        maxTokens: 1_500,
+        maxTokens: 4_000,
       }, budget());
     } catch (fallbackError) {
       throw toSmartSegmentError(fallbackError);

@@ -17,12 +17,12 @@ import {
 export const SMART_SEGMENT_COMPLAINT_HARD_CAP = 0.006;
 export const SMART_SEGMENT_COMPLAINT_TARGET = 0.0045;
 export const SMART_SEGMENT_REUSE_WINDOW_MS = 6 * 60 * 60 * 1000;
-/** Recipients of at most this many of the brand's newest sends (30 d) are excluded. */
+/** Recipients of at most this many of the brand's newest sends (7 d by default) are excluded. */
 export const SMART_SEGMENT_MAX_RECENT_SEND_EXCLUSIONS = 6;
 /** Upper bound of « similar brand » refs an analysis may carry (candidates + manual additions). */
-export const SMART_SEGMENT_MAX_SIMILAR_REFS = 8;
+export const SMART_SEGMENT_MAX_SIMILAR_REFS = 24;
 /** Upper bound of « affinity brand » (same customer profile, other vertical) refs an analysis may carry. */
-export const SMART_SEGMENT_MAX_AFFINITY_REFS = 8;
+export const SMART_SEGMENT_MAX_AFFINITY_REFS = 24;
 /**
  * Proposals per analysis: recommendation, variant, the « similar brands
  * only » segment and the « similar audience, other sector » segment when
