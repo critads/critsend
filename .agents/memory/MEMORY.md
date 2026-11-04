@@ -1,3 +1,4 @@
+- [Smart segment recent sends](smart-segment-recent-send-window.md) — user requires a 7-day exclusion window, keeping the six-campaign cap.
 - [Hetzner DB resilience gaps](hetzner-db-resilience.md) — critsend-db had no backups, archive_mode off, unattended-upgrades un-blacklisted for PG, systemd Restart=no, no replica; conn budget healthy.
 - [Campaign status-flip guards](campaign-status-flip-guards.md) — any path that sets a campaign back to 'sending' (auto-requeue, retry, ghost-sweep) must guard on current status or it resurrects a manually Ended/Paused campaign.
 - [Step-resume invariants](step-resume-invariants.md) — preserving an audience cursor requires preserving failed send rows; retries then happen after enumeration instead of silently omitting contacts.

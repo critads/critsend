@@ -16,6 +16,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import type { SmartSegmentBrandResolution, SmartSegmentStage } from "../shared/smart-segment";
 import {
   buildSmartSegmentEvidence,
+  queryRecentBrandSends,
   isFinishedSend,
   measureAudienceWith,
   SmartSegmentError,
@@ -118,7 +119,30 @@ function fakeRunner(handlers: {
   return { runner, recorded, counts };
 }
 
-const config = { ...getSmartSegmentConfig(), cohortSampleTarget: 250_000, recentBrandSendDays: 30 };
+const config = { ...getSmartSegmentConfig(), cohortSampleTarget: 250_000, recentBrandSendDays: 7 };
+
+describe("recent brand send exclusion window", () => {
+  it("defaults to seven days and applies that window to the campaign query", async () => {
+    vi.stubEnv("SMART_SEGMENT_RECENT_SEND_DAYS", "");
+    try {
+      const currentConfig = getSmartSegmentConfig();
+      expect(currentConfig.recentBrandSendDays).toBe(7);
+      const query = vi.fn(async () => []);
+      await queryRecentBrandSends(
+        query,
+        { label: "Air France", tokens: ["air", "france"], key: "air\u001ffrance" },
+        null,
+        currentConfig,
+      );
+      expect(query).toHaveBeenCalledWith(
+        expect.stringContaining("first_send_at >= NOW() - ($2::int * INTERVAL '1 day')"),
+        ["%Air%", 7, null],
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
 
 describe("isFinishedSend", () => {
   it("requires a completed status and a delivery counter that rejoined the send rows", () => {

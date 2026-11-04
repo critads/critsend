@@ -33,7 +33,9 @@ export const SMART_SEGMENT_DEFAULT_MODEL = "claude-sonnet-4-5";
 // secteur » segment made of affinity_refs_* blocks ONLY (brands sharing the
 // customer profile in another vertical), mandatory when those blocks exist,
 // composed by the server like the similar segment.
-export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v5";
+// v6: recent-send exclusions use a seven-day window; do not reuse proposals
+// generated with the former thirty-day default.
+export const SMART_SEGMENT_PROMPT_VERSION = "smart-segment-v6";
 /**
  * Prompt of the « similar brands » web-search lookup; part of the persisted
  * result key. v2 (task #343): the same call also returns the customer
@@ -70,7 +72,7 @@ export function getSmartSegmentConfig() {
     complaintHardCap: SMART_SEGMENT_COMPLAINT_HARD_CAP,
     complaintTarget: SMART_SEGMENT_COMPLAINT_TARGET,
     /** Recipients of brand sends newer than this are excluded from proposals. */
-    recentBrandSendDays: envInt("SMART_SEGMENT_RECENT_SEND_DAYS", 30, 1, 365),
+    recentBrandSendDays: envInt("SMART_SEGMENT_RECENT_SEND_DAYS", 7, 1, 365),
     /** Sends larger than this are measured on a deterministic 1/k sample. */
     cohortSampleTarget: envInt("SMART_SEGMENT_COHORT_SAMPLE_TARGET", 250_000, 20_000, 5_000_000),
     /** Recency cohorts cost one index probe per recipient: measured on a smaller sample per send. */
